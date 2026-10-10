@@ -287,6 +287,7 @@ const TERMS = [
   ['api.step.1', 'ScopeWrite', 'within'],
   ['api.step.3', 'ApiReference', 'within'],
   ['api.step.3', 'Scope', 'within'],
+  ['api.ref.scope', 'Scope', 'within'],
 ];
 for (const { code } of LANGUAGES) {
   const app = JSON.parse(readFileSync(join(ROOT, `../backend/locales/${code}.json`), 'utf-8'));
@@ -388,6 +389,27 @@ if (!readKey) {
   ]);
   for (const key of built) {
     if (!(key in english)) fail(`src/i18n/en.json has no ${key}, which the API reference builds from the contract`);
+  }
+
+  // Each entry of the reference is linkable: an operation by its
+  // `operationId`, a type by `schema-` and its name, each once per page, and
+  // every operation shows the full path a client calls.
+  const anchors = new Set([
+    ...operations,
+    ...Object.keys(contract.components?.schemas ?? {}).map((name) => `schema-${name}`),
+  ]);
+  const server = contract.servers?.[0]?.url ?? '';
+  for (const { path } of LANGUAGES) {
+    const file = builtAs(path, 'api/index.html');
+    const page = pages[file] ?? '';
+    const ids = [...page.matchAll(/<details class="ref-op"[^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+    const entries = (page.match(/<details class="ref-op"/g) ?? []).length;
+    if (!entries || ids.length !== entries) fail(`${file}: ${entries - ids.length} of ${entries} reference entries carry no id`);
+    if (new Set(ids).size !== ids.length) fail(`${file}: two reference entries share an id`);
+    for (const id of ids) if (!anchors.has(id)) fail(`${file}: the reference entry #${id} names no operation or type`);
+    for (const [, shown] of page.matchAll(/<span class="ref-method[^"]*">[A-Z]+<\/span><code class="ref-path">([^<]+)</g)) {
+      if (!shown.startsWith(`${server}/`)) fail(`${file}: the operation ${shown} is shown without ${server}`);
+    }
   }
   const unused = Object.keys(english).filter((key) => {
     if (built.has(key)) return false;

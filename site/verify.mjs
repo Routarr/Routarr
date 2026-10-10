@@ -522,6 +522,33 @@ for (const [path, width] of ['/', '/api/'].flatMap((path) => [[path, 1440], [pat
   await tab.close();
 }
 
+// ------------------------------------------------------------ reference anchors
+// An operation or a type is linked by its id, and its entry opens on arrival
+// and when a type name on the page is followed. A fragment mangled on its way
+// to the page leaves the script running.
+{
+  const tab = await context.newPage();
+  const before = problems.length;
+  // `hashchange` is a task of its own, so the entry opens a moment after the
+  // click that moved the fragment.
+  const openedByHash = () => tab
+    .waitForFunction(() => {
+      const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      return target?.tagName === 'DETAILS' && target.open;
+    }, null, { timeout: 2000 })
+    .then(() => true, () => false);
+  await tab.goto(`${BASE}/api/#place_title`, { waitUntil: 'networkidle' });
+  if (!(await openedByHash())) {
+    fail('/api/#place_title does not open that operation');
+  } else {
+    await tab.locator('#place_title a[href^="#schema-"]').first().click();
+    check(await openedByHash(), 'following a type name does not open its entry');
+  }
+  await tab.goto(`${BASE}/how/#%E0%A4%A`, { waitUntil: 'networkidle' });
+  for (const problem of problems.slice(before)) fail(`reference anchors: ${problem}`);
+  await tab.close();
+}
+
 // ------------------------------------------------------------ index panel
 // On a phone the destinations stack in one column: two narrow columns fold
 // every title and every description.

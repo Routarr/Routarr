@@ -1,0 +1,35 @@
+---
+import TypeName from './TypeName.astro';
+import type { Field } from '../contract';
+import { useTranslations, type Key, type Locale } from '../i18n';
+
+/**
+ * The fields of a parameter list, a body, an answer or a type. An answer
+ * leaves out which fields are required, which says what a client must send.
+ */
+interface Props {
+  fields: Field[];
+  locale: Locale;
+  required?: boolean;
+}
+
+const { fields, locale, required = true } = Astro.props;
+const t = useTranslations(locale);
+---
+
+<dl class="ref-fields">
+  {
+    fields.map((field) => (
+      <>
+        <dt>
+          <code>{field.name}</code>
+        </dt>
+        <dd>
+          <TypeName type={field.type} />
+          {field.where && <> · {t(`api.ref.in.${field.where}` as Key)}</>}
+          {required && field.required && <> · {t('api.ref.required')}</>}
+        </dd>
+      </>
+    ))
+  }
+</dl>

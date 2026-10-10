@@ -1,0 +1,12 @@
+---
+import { typeParts } from '../contract';
+
+/** A type as the contract writes it, each named type a link to its entry in the list of types. */
+interface Props {
+  type: string;
+}
+
+const { type } = Astro.props;
+---
+
+<code>{typeParts(type).map((part) => (part.type ? <a href={`#schema-${part.type}`}>{part.text}</a> : part.text))}</code>

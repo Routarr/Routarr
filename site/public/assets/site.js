@@ -120,10 +120,18 @@
   });
 
   // ---------------------------------------------------------------- reference
-  // A link to `#schema-Decision` lands on a folded entry, and a browser that
-  // does not unfold the target shows the one line it lands on.
+  // A link to an operation (`#place_title`) or a type (`#schema-Decision`)
+  // lands on a folded entry, and a browser that does not unfold the target
+  // shows the one line it lands on. A fragment mangled on its way here does
+  // not decode, and names nothing.
   function unfold() {
-    var target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var id;
+    try {
+      id = decodeURIComponent(location.hash.slice(1));
+    } catch (e) {
+      return;
+    }
+    var target = id && document.getElementById(id);
     if (target && target.tagName === 'DETAILS') target.open = true;
   }
   window.addEventListener('hashchange', unfold);
