@@ -236,6 +236,8 @@
   var close = document.createElement('button');
   close.setAttribute('type', 'button');
   close.setAttribute('aria-label', source.getAttribute('data-dismiss') || 'Dismiss');
+  // Its name is in the offered language too.
+  close.setAttribute('lang', match);
   close.textContent = '\u00d7';
   close.addEventListener('click', function () {
     remember(here);

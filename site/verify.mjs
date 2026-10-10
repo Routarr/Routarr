@@ -235,51 +235,77 @@ await page.setViewportSize({ width: 1440, height: 900 });
 // ------------------------------------------------------------ clipping
 // A box that holds its content by a fixed height, or shrinks under it behind
 // `overflow: hidden`, loses words without scrolling the page, so the check
-// above passes. Down to 320px (the width WCAG reflow names), every box is
-// measured against its own content, with the copy button showing its longest
-// label. Scroll regions scroll by design, an ellipsis cuts on purpose, and a
-// glyph may reach past a tight line box by a few pixels.
-let boxesMeasured = 0;
-for (const path of PAGES) {
-  const tab = await context.newPage();
-  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-  await tab.evaluate(() => document.querySelectorAll('.copy-btn').forEach((button) => {
-    button.textContent = button.dataset.failed;
-  }));
-  for (const width of [320, 360, 390]) {
-    await tab.setViewportSize({ width, height: 900 });
-    await tab.waitForTimeout(80);
-    const { count, clipped } = await tab.evaluate(() => {
-      const clipped = [];
-      let count = 0;
-      for (const el of document.querySelectorAll('main *')) {
-        // Hidden for the eye and kept for a screen reader: `.sr-only`, or the
-        // same clip a layout applies at one width only.
-        let hidden = false;
-        for (let up = el; up && !hidden; up = up.parentElement) {
-          hidden = up.classList.contains('sr-only') || getComputedStyle(up).clipPath === 'inset(50%)';
-        }
-        if (!el.checkVisibility() || hidden) continue;
-        const style = getComputedStyle(el);
-        if (style.display === 'inline' || style.display === 'contents') continue;
-        if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`) || style.textOverflow === 'ellipsis') continue;
-        count += 1;
-        const hides = style.overflowX !== 'visible' || style.overflowY !== 'visible';
-        const across = el.scrollWidth - el.clientWidth;
-        const down = el.scrollHeight - el.clientHeight;
-        if (across > 1 || down > (hides ? 1 : 4)) {
-          const name = `${el.tagName.toLowerCase()}${[...el.classList].map((c) => `.${c}`).join('')}`;
-          clipped.push(`${name} "${el.textContent.trim().slice(0, 30)}" by ${across}x${down}px`);
-        }
+// above passes. Down to 320px (the width WCAG reflow names), and across the
+// band where the layouts change, every box is measured against its own
+// content, with the copy button showing its longest label. Scroll regions
+// scroll by design, an ellipsis cuts on purpose, and a glyph may reach past a
+// tight line box by a few pixels, more in a large heading.
+/** The boxes of a page whose content reaches past them, and how many were measured. */
+function clippedBoxes(tab) {
+  return tab.evaluate(() => {
+    const clipped = [];
+    let count = 0;
+    for (const el of document.querySelectorAll('main *')) {
+      // Hidden for the eye and kept for a screen reader: `.sr-only`, or the
+      // same clip a layout applies at one width only.
+      let hidden = false;
+      for (let up = el; up && !hidden; up = up.parentElement) {
+        hidden = up.classList.contains('sr-only') || getComputedStyle(up).clipPath === 'inset(50%)';
       }
-      return { count, clipped };
-    });
-    boxesMeasured += count;
-    for (const box of clipped) fail(`${path} at ${width}px: ${box} beyond its box`);
-  }
-  await tab.close();
+      if (!el.checkVisibility() || hidden) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'inline' || style.display === 'contents') continue;
+      if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`) || style.textOverflow === 'ellipsis') continue;
+      count += 1;
+      const hides = style.overflowX !== 'visible' || style.overflowY !== 'visible';
+      const across = el.scrollWidth - el.clientWidth;
+      const down = el.scrollHeight - el.clientHeight;
+      const reach = Math.max(4, parseFloat(style.fontSize) * 0.12);
+      if (across > 1 || down > (hides ? 1 : reach)) {
+        const name = `${el.tagName.toLowerCase()}${[...el.classList].map((c) => `.${c}`).join('')}`;
+        clipped.push(`${name} "${el.textContent.trim().slice(0, 30)}" by ${across}x${down}px`);
+      }
+    }
+    return { count, clipped };
+  });
 }
-check(boxesMeasured >= 6500, `measured ${boxesMeasured} box(es) for clipping, expected at least 6500`);
+
+/** Every page at each width, `prepare` run once it has loaded. */
+async function sweepClipping(on, widths, label, prepare = async () => {}) {
+  let measured = 0;
+  for (const path of PAGES) {
+    const tab = await on.newPage();
+    await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+    await tab.evaluate(() => document.querySelectorAll('.copy-btn').forEach((button) => {
+      button.textContent = button.dataset.failed;
+    }));
+    await prepare(tab);
+    for (const width of widths) {
+      await tab.setViewportSize({ width, height: 900 });
+      await tab.waitForTimeout(80);
+      const { count, clipped } = await clippedBoxes(tab);
+      measured += count;
+      for (const box of clipped) fail(`${path} at ${width}px${label}: ${box} beyond its box`);
+    }
+    await tab.close();
+  }
+  return measured;
+}
+
+const boxesMeasured = await sweepClipping(context, [320, 360, 390, 740, 860, 900, 950, 999], '');
+check(boxesMeasured >= 17000, `measured ${boxesMeasured} box(es) for clipping, expected at least 17000`);
+
+// WCAG 1.4.12: a reader's own stylesheet may space the text out, and nothing
+// may be lost when it does. Injected past the CSP, which refuses a style.
+{
+  const spaced = await browser.newContext({ bypassCSP: true });
+  const measured = await sweepClipping(spaced, [320, 1280], ' with WCAG text spacing', (tab) => tab.addStyleTag({
+    content: '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }'
+      + ' p { margin-bottom: 2em !important; }',
+  }));
+  check(measured >= 4000, `measured ${measured} box(es) under text spacing, expected at least 4000`);
+  await spaced.close();
+}
 
 // ------------------------------------------------------------ header
 // The bar holds the brand, the Index control and the repository on one row,
@@ -450,6 +476,45 @@ check(await barMatches(), 'theme-color does not follow the theme a reload restor
   await tab.close();
 }
 
+// ------------------------------------------------------------ forced colours
+// Forced colours drop the wash and the bar that mark the language of the page,
+// the theme on screen and the mode in force: each keeps a mark its neighbour
+// does not have.
+{
+  const tab = await context.newPage();
+  await tab.emulateMedia({ forcedColors: 'active' });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const pairs = await tab.evaluate(() => {
+    const outline = (selector) => {
+      const element = document.querySelector(selector);
+      return element ? getComputedStyle(element).outlineStyle : 'missing';
+    };
+    return [
+      ['the language of the page', outline('.lang-nav a[aria-current="page"]'), outline('.lang-nav a:not([aria-current])')],
+      ['the theme on screen', outline('[data-theme-set="dark"]'), outline('[data-theme-set="light"]')],
+      ['the mode in force', outline('.rule-mode .on'), outline('.rule-mode > span:not(.on)')],
+    ];
+  });
+  for (const [what, lit, other] of pairs) {
+    check(lit !== 'missing' && other !== 'missing' && lit !== other, `in forced colours, ${what} looks like the others (${lit} beside ${other})`);
+  }
+  await tab.close();
+}
+
+// Decoration drawn by CSS is silent, and an operation names its scope as one:
+// a screen reader hears neither "slash slash" before a section's label nor a
+// triangle before an operation.
+{
+  const tab = await context.newPage();
+  await tab.goto(`${BASE}/api/`, { waitUntil: 'networkidle' });
+  const eyebrow = await tab.locator('.eyebrow').first().ariaSnapshot();
+  const summary = await tab.locator('.ref-op > summary').first().ariaSnapshot();
+  check(!eyebrow.includes('//'), `a section's label reads ${eyebrow.trim()}`);
+  check(!summary.includes('\u25B8'), `an operation reads ${summary.trim()}`);
+  check(/to ?, scope: read/.test(summary), `an operation runs its scope into its sentence: ${summary.trim()}`);
+  await tab.close();
+}
+
 // A browser that refuses the clipboard on a secure page gets the code selected,
 // so the "Press Ctrl+C" the button then says copies it.
 {
@@ -602,6 +667,23 @@ for (const [path, width] of ['/', '/api/'].flatMap((path) => [[path, 1440], [pat
 }
 
 // ------------------------------------------------------------ index panel
+// The open panel keeps the page's margins: its edge meets the bar's last
+// control, and a phone leaves room on its other side too.
+for (const width of [375, 1440]) {
+  const tab = await context.newPage();
+  await tab.setViewportSize({ width, height: 800 });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const edges = await tab.evaluate(() => {
+    document.querySelector('.index').open = true;
+    const panel = document.querySelector('.index-panel').getBoundingClientRect();
+    const last = document.querySelector('.site-header .wrap > :last-child').getBoundingClientRect();
+    return { left: panel.left, right: panel.right, control: last.right };
+  });
+  check(Math.abs(edges.right - edges.control) <= 1, `at ${width}px the Index panel ends at ${edges.right}, the bar's last control at ${edges.control}`);
+  check(edges.left >= 16, `at ${width}px the Index panel starts ${edges.left}px from the edge`);
+  await tab.close();
+}
+
 // On a phone the destinations stack in one column: two narrow columns fold
 // every title and every description.
 {
@@ -666,6 +748,21 @@ for (const [path, locale] of [['/', 'fr-FR'], ['/', 'de'], ['/how/', 'es-MX']]) 
   await ctx.close();
 }
 
+// Each language in the switcher is read in that language, and named in it.
+{
+  const switcher = await page.evaluate(() =>
+    [...document.querySelectorAll('.lang-nav a')].map((link) => ({
+      code: link.getAttribute('hreflang'),
+      lang: link.getAttribute('lang'),
+      name: link.querySelector('.sr-only')?.textContent.trim() ?? '',
+    })));
+  check(switcher.length === LANGUAGES.length, `the switcher offers ${switcher.length} language(s)`);
+  for (const { code, lang, name } of switcher) {
+    check(lang === code, `the switcher's ${code} is read in lang "${lang}"`);
+    check(name === LANGUAGES.find((language) => language.code === code)?.name, `the switcher's ${code} is named "${name}"`);
+  }
+}
+
 // Silent where it has nothing to say: on a page already in that language, and
 // for a language the site does not speak. A banner in either case is worse than
 // none, since it sends the reader somewhere they already are or nowhere.
@@ -696,6 +793,8 @@ for (const [path, locale, why] of [
     );
     const named = await button.getAttribute('aria-label');
     check(named === want, `the dismissal is named "${named}", expected "${want}"`);
+    const spoken = await button.getAttribute('lang');
+    check(spoken === 'fr', `the dismissal "${named}" is read in lang "${spoken}", not "fr"`);
     await button.click({ timeout: 5000 });
     check(!(await hint.isVisible()), 'dismissing the language offer left it on screen');
     await tab.reload({ waitUntil: 'networkidle' });

@@ -452,14 +452,19 @@ for (const { code } of LANGUAGES) {
 // A word a stylesheet prints through `content` never reaches a catalogue, so it
 // reads in English on all four pages. The check above cannot see it, since the
 // key it would need does not exist. Symbols are fine there, letters are not.
-// CSS escapes are removed first: `\2212` is a minus sign, not text.
+// CSS escapes are removed first: `\2212` is a minus sign, not text. A symbol
+// is read aloud too, unless an alternative follows a slash: decoration takes
+// an empty one.
 const stylesheets = readdirSync(join(DIST, '_astro')).filter((file) => file.endsWith('.css'));
 let printed = 0;
 for (const sheet of stylesheets) {
-  for (const [, , value] of read(`_astro/${sheet}`).matchAll(/content:\s*(["'])((?:\\.|(?!\1).)*)\1/g)) {
+  for (const [, , value, rest] of read(`_astro/${sheet}`).matchAll(/content:\s*(["'])((?:\\.|(?!\1).)*)\1([^;}]*)/g)) {
     printed += 1;
     if (/\p{L}/u.test(value.replace(/\\[0-9a-fA-F]{1,6}\s?/g, ''))) {
       fail(`_astro/${sheet} prints "${value}" through CSS content, which no translation reaches`);
+    }
+    if (value.trim() && !/^\s*\//.test(rest)) {
+      fail(`_astro/${sheet} prints "${value}" through CSS content with no alternative after a slash, so it is read aloud`);
     }
   }
 }
@@ -912,10 +917,11 @@ for (const ground of [light['--bg'], explicit['--bg']]) {
 
 // `--focus` is the one ring colour measured above. A ring drawn in another
 // colour is one nothing measures, and the accent on the light ground is far
-// below 3:1.
+// below 3:1. `Highlight` is the exception: a system colour, used in forced
+// colours alone, where the reader's own palette decides the contrast.
 const unmeasuredRings = [...css.matchAll(/outline(?:-color)?:\s*([^;]+);/g)]
   .map((m) => m[1].trim())
-  .filter((value) => !/^(none|0)$/.test(value) && !value.includes('var(--focus)'));
+  .filter((value) => !/^(none|0)$/.test(value) && !value.includes('var(--focus)') && !/\bHighlight$/.test(value));
 if (unmeasuredRings.length) {
   fail(`site.css draws a ring in a colour other than --focus: ${unmeasuredRings.join(', ')}`);
 }
