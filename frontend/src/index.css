@@ -1064,11 +1064,11 @@ a {
 }
 
 /* No keyboard to teach a shortcut to, and the labels would cost the width the
-   mode chip needs. The icon alone keeps its touch target. */
+   mode chip needs. The icon alone keeps its touch target, and its name. */
 @media (max-width: 900px) {
   .palette-trigger-label,
   .palette-trigger-key,
-  .sign-out-label {
+  .topbar-label {
     display: none;
   }
   .palette-trigger,
@@ -3332,8 +3332,10 @@ select.form-select {
  * The marker is drawn rather than inherited: the browsers' own triangles differ
  * in size, colour and position, and one of them sits outside the padding box.
  * `list-style: none` plus the WebKit pseudo-element is what removes both. */
-/* The facets' "?", laid over the summary's line before its chevron, which
-   keeps room for it. */
+/* The facets' "?", laid over the summary's line just before its chevron: past
+   the card's padding, the chevron's width and a gap. The chevron ends the
+   summary's content, so the summary keeps no padding of its own there, or the
+   chevron moves under the "?". */
 .facet-wrap {
   position: relative;
 }
@@ -3341,11 +3343,11 @@ select.form-select {
 .facet-help {
   position: absolute;
   top: 20px;
-  inset-inline-end: 44px;
+  inset-inline-end: calc(20px + 10px + var(--space-2));
 }
 
 .facet-panel > summary {
-  padding-inline-end: 32px;
+  padding-inline-end: 0;
   cursor: pointer;
   list-style: none;
   /* Closed, the header is the whole card, so it should not reserve the gap it
