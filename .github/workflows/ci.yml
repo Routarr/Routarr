@@ -260,12 +260,13 @@ jobs:
 
       # A floor at the whole figure below the measure, raised with it: a module
       # landing with no test trips it. `src/tests/` is excluded because
-      # measuring the tests' own coverage inflates the figure, and `main.rs`
-      # because the end-to-end suite covers it and this one cannot.
+      # measuring the tests' own coverage inflates the figure, and `process.rs`
+      # because only a running process reaches it: the start, the signals, the
+      # stop.
       - name: Measure coverage
         run: |
           cargo llvm-cov --summary-only --fail-under-lines 96 \
-            --ignore-filename-regex 'src/(tests/|main\.rs)'
+            --ignore-filename-regex 'src/(tests/|process\.rs)'
 
   frontend:
     name: Frontend

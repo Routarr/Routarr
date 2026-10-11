@@ -12,23 +12,6 @@ import ApiReference from './ApiReference.svelte';
  * what an application wants to do, and says which scope each operation asks.
  */
 
-const STRINGS = {
-  ApiReference: 'API reference',
-  ApiTagStatus: 'Status',
-  ApiTagDecisions: 'Decisions',
-  ApiNoKey: 'no key',
-  ScopeOperate: 'operate',
-  ApiSearch: 'Search the operations',
-  ApiNoMatch: 'No operation matches.',
-  ApiParameters: 'Parameters',
-  Applications: 'Applications',
-  ApiReferenceKeys: 'Each call sends a key made on the {screen} screen.',
-  ApiExample: 'Example',
-  Name: 'Name',
-  Yes: 'Yes',
-  No: 'No',
-};
-
 const DOC: OpenApiDocument = {
   info: { title: 'Routarr API', version: '1', description: 'A long `introduction`.' },
   servers: [{ url: '/api/v1' }],
@@ -68,7 +51,7 @@ const DOC: OpenApiDocument = {
 
 function show() {
   vi.spyOn(api, 'openApi').mockResolvedValue(DOC);
-  return renderWithI18n(ApiReference, { strings: STRINGS });
+  return renderWithI18n(ApiReference);
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -81,7 +64,7 @@ describe('ApiReference', () => {
     expect(within(status as HTMLElement).getByText('/ping')).toBeTruthy();
     expect(within(status as HTMLElement).getByText('no key')).toBeTruthy();
     const decisions = screen.getByRole('heading', { name: 'Decisions' }).closest('section')!;
-    expect(within(decisions as HTMLElement).getByText('operate')).toBeTruthy();
+    expect(within(decisions as HTMLElement).getByText('Operate')).toBeTruthy();
   });
 
   it('marks the contract prose as English and its code as code', async () => {
@@ -104,7 +87,7 @@ describe('ApiReference', () => {
     const link = screen.getByRole('link', { name: 'Applications' });
     expect(link).toHaveAttribute('href', '/applications');
     expect(link.closest('p')).toHaveTextContent(
-      'Each call sends a key made on the Applications screen.',
+      'Each call sends a key made on the Applications screen, in its X-Api-Key header.',
     );
   });
 

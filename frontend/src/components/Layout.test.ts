@@ -19,34 +19,6 @@ import { navigate } from '../lib/router.svelte';
  * network, which would hold the whole shell behind an unreachable server.
  */
 
-const STRINGS = {
-  SignOut: 'Sign out',
-  DryRunActive: 'Dry-run: writes blocked',
-  LiveModeActive: 'Live: writes enabled',
-  ModeDryRunShort: 'Dry-run',
-  ModeLiveShort: 'Live',
-  ListSeparator: ', ',
-  AttentionRequired: 'Needs attention: {detail}',
-  StatusUnavailable: 'Status unavailable',
-  TasksRunning: '{count} running',
-  DecisionsAwaitingReview: '{count} awaiting review',
-  FailedMoves: '{count} failed',
-  DiagnosticWarnings: '{count} warnings',
-  OpenNavigation: 'Open navigation',
-  ApiKeyRequired: 'This Routarr needs an API key',
-  RoutarrApiKey: 'Routarr API key',
-  Password: 'Password',
-  Dashboard: 'Dashboard',
-  MainNavigation: 'Main navigation',
-  NavGroupSupervision: 'Monitoring',
-  Diagnostics: 'Diagnostics',
-  GuidePillLabel: 'Getting started, required steps done: {done} of {total}',
-  CommandPalette: 'Command palette',
-  NotFoundTitle: 'Page not found',
-  Help: 'Help',
-  HelpTitle: 'Help: {screen}',
-};
-
 function status(over: Partial<Status> = {}): Status {
   return {
     version: '0.1.0',
@@ -64,7 +36,7 @@ function show(guide: OnboardingStatus = onboardingStatus([], { state: 'done' }))
   // dev server that is not running and fills the output with connection errors.
   vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
   vi.spyOn(api, 'getOnboarding').mockResolvedValue(guide);
-  return renderWithI18n(LayoutHarness, { strings: STRINGS });
+  return renderWithI18n(LayoutHarness);
 }
 
 afterEach(() => {
@@ -99,7 +71,7 @@ describe('Layout', () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status({ dry_run: false }));
     show();
 
-    const chip = await screen.findByLabelText('Live: writes enabled');
+    const chip = await screen.findByLabelText('Live mode: writes enabled');
     expect(chip).toHaveTextContent('Live');
     expect(chip.className).not.toContain('badge-danger');
     expect(chip.querySelector('.mode-dot')?.className).toContain('is-live');
@@ -123,12 +95,12 @@ describe('Layout', () => {
       .mockResolvedValueOnce(status({ dry_run: false }))
       .mockRejectedValue(new Error('connection refused'));
     show();
-    await screen.findByLabelText('Live: writes enabled');
+    await screen.findByLabelText('Live mode: writes enabled');
 
     invalidateStatus();
 
     expect(await screen.findByText('Status unavailable')).toBeTruthy();
-    expect(screen.queryByLabelText('Live: writes enabled')).toBeNull();
+    expect(screen.queryByLabelText('Live mode: writes enabled')).toBeNull();
   });
 
   /**
@@ -250,10 +222,10 @@ describe('Layout', () => {
     );
     show();
 
-    await screen.findByText('1 running');
-    screen.getByText('12 awaiting review');
-    screen.getByText('2 failed');
-    screen.getByText('2 warnings');
+    await screen.findByText('Running tasks: 1');
+    screen.getByText('Decisions awaiting review: 12');
+    screen.getByText('Failed moves: 2');
+    screen.getByText('Warnings: 2');
   });
 
   it('sends the attention control through the mount point a reverse proxy adds', async () => {
@@ -343,7 +315,7 @@ describe('Layout', () => {
     // Work in progress is not attention: a running task and a pending decision
     // are counted on their entries and nowhere else.
     const attention = await screen.findByRole('link', {
-      name: /Needs attention: 2 failed, 2 warnings$/,
+      name: /Needs attention: Failed moves: 2, Warnings: 2$/,
     });
     expect(attention).toHaveTextContent('4');
     // A failed move is what the danger colour is for, and failures are listed
@@ -358,7 +330,7 @@ describe('Layout', () => {
     );
     show();
 
-    const attention = await screen.findByRole('link', { name: /Needs attention: 2 warnings$/ });
+    const attention = await screen.findByRole('link', { name: /Needs attention: Warnings: 2$/ });
     expect(attention.getAttribute('href')).toBe('/diagnostics');
   });
 
@@ -367,9 +339,9 @@ describe('Layout', () => {
     show();
 
     await screen.findByLabelText('Dry-run: writes blocked');
-    expect(screen.queryByText(/\d+ running/)).toBeNull();
-    expect(screen.queryByText(/\d+ awaiting review/)).toBeNull();
-    expect(screen.queryByText(/\d+ failed/)).toBeNull();
+    expect(screen.queryByText(/Running tasks: \d+/)).toBeNull();
+    expect(screen.queryByText(/Decisions awaiting review: \d+/)).toBeNull();
+    expect(screen.queryByText(/Failed moves: \d+/)).toBeNull();
     expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
   });
 
@@ -471,21 +443,21 @@ describe('Layout', () => {
       .spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ warnings: [warning('unmapped'), warning('no key')] }))
       .mockResolvedValue(status({ warnings: [warning('no key')] }));
-    renderWithI18n(LayoutHarness, { strings: STRINGS });
+    renderWithI18n(LayoutHarness);
 
     // Both read the same answer: the bar's attention control and the entry in
     // the menu.
     expect(
-      await screen.findByRole('link', { name: /Needs attention: 2 warnings$/ }),
+      await screen.findByRole('link', { name: /Needs attention: Warnings: 2$/ }),
     ).toHaveTextContent('2');
-    expect(await screen.findByText('2 warnings')).toBeInTheDocument();
+    expect(await screen.findByText('Warnings: 2')).toBeInTheDocument();
 
     invalidateStatus();
 
     expect(
-      await screen.findByRole('link', { name: /Needs attention: 1 warnings$/ }),
+      await screen.findByRole('link', { name: /Needs attention: Warnings: 1$/ }),
     ).toHaveTextContent('1');
-    expect(await screen.findByText('1 warnings')).toBeInTheDocument();
+    expect(await screen.findByText('Warnings: 1')).toBeInTheDocument();
     // Once more, not a burst: the shell owns one request and this re-runs it.
     expect(getStatus).toHaveBeenCalledTimes(2);
   });
@@ -495,16 +467,16 @@ describe('Layout', () => {
     vi.spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ warnings: [warning('unmapped')] }))
       .mockResolvedValue(status({ warnings: [] }));
-    renderWithI18n(LayoutHarness, { strings: STRINGS });
+    renderWithI18n(LayoutHarness);
 
-    expect(await screen.findByText('1 warnings')).toBeInTheDocument();
+    expect(await screen.findByText('Warnings: 1')).toBeInTheDocument();
 
     invalidateStatus();
 
     await vi.waitFor(() =>
       expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull(),
     );
-    expect(screen.queryByText(/\d+ warnings/)).toBeNull();
+    expect(screen.queryByText(/Warnings: \d+/)).toBeNull();
   });
 
   /** A fresh install is a list of steps, not a list of alarms. */
@@ -519,7 +491,7 @@ describe('Layout', () => {
     });
     expect(pill.textContent).toContain('0/4');
     expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
-    expect(screen.queryByText('1 warnings')).toBeNull();
+    expect(screen.queryByText('Warnings: 1')).toBeNull();
   });
 
   /** No step brings an Arr back up, so the guide never says it. */
@@ -534,7 +506,7 @@ describe('Layout', () => {
     );
     show(onboardingStatus(['instance']));
 
-    expect(await screen.findByRole('link', { name: /Needs attention: 1 warnings$/ })).toBeTruthy();
+    expect(await screen.findByRole('link', { name: /Needs attention: Warnings: 1$/ })).toBeTruthy();
     expect(screen.getByRole('link', { name: /Getting started/ })).toBeTruthy();
   });
 
@@ -575,7 +547,7 @@ describe('Layout', () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     show();
     await screen.findByLabelText('Dry-run: writes blocked');
-    const palette = () => screen.queryByRole('combobox', { name: 'Command palette' });
+    const palette = () => screen.queryByRole('combobox', { name: 'Quick search' });
 
     // Fetched when it first opens, so it arrives a moment after the key.
     await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
@@ -645,7 +617,7 @@ describe('Layout', () => {
       .mockResolvedValueOnce(onboardingStatus(['instance']))
       .mockResolvedValueOnce(onboardingStatus(['instance', 'categories']))
       .mockResolvedValue(onboardingStatus(['instance', 'categories', 'rule']));
-    renderWithI18n(LayoutHarness, { strings: STRINGS });
+    renderWithI18n(LayoutHarness);
     const pill = (done: number) =>
       screen.findByRole('link', {
         name: new RegExp(`Getting started, required steps done: ${done} of 4$`),
@@ -686,7 +658,7 @@ describe('Layout', () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
     vi.spyOn(api, 'getOnboarding').mockRejectedValue(new ApiError('locked', 503, 'unavailable'));
-    renderWithI18n(LayoutHarness, { strings: STRINGS });
+    renderWithI18n(LayoutHarness);
 
     await vi.waitFor(() => expect(onboarding.failure).toContain('locked'));
   });

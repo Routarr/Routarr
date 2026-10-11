@@ -318,11 +318,10 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Option<Grant>>
         scopes: String,
         may_confirm: String,
         may_move_files: bool,
-        stale: bool,
+        last_used_at: Option<String>,
     }
     let live: Option<Live> = sqlx::query_as(
-        "SELECT name, secret_hash, scopes, may_confirm, may_move_files,
-                last_used_at IS NULL OR last_used_at < datetime('now', '-1 minute') AS stale
+        "SELECT name, secret_hash, scopes, may_confirm, may_move_files, last_used_at
          FROM api_keys WHERE id = ? AND revoked_at IS NULL",
     )
     .bind(id)
@@ -336,7 +335,7 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Option<Grant>>
         return Ok(None);
     }
 
-    if live.stale {
+    if last_use_due(live.last_used_at.as_deref(), chrono::Utc::now()) {
         let (pool, id) = (pool.clone(), id.to_string());
         tokio::spawn(async move {
             let touched =
@@ -374,9 +373,28 @@ fn digest(secret: &str) -> String {
     })
 }
 
+/// Whether a use at `now` is recorded: once a minute at most, or every call
+/// a script makes would be a write.
+fn last_use_due(last: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> bool {
+    last.and_then(crate::services::routing::parse_timestamp)
+        .is_none_or(|last| now - last > chrono::Duration::minutes(1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A use within the minute of the last one recorded leaves it, and one
+    /// past it, or after none or one that does not read, is recorded.
+    #[test]
+    fn a_use_is_recorded_once_a_minute_at_most() {
+        let now = crate::services::routing::parse_timestamp("2026-10-11 12:00:00").unwrap();
+        assert!(last_use_due(None, now));
+        assert!(!last_use_due(Some("2026-10-11 11:59:30"), now));
+        assert!(!last_use_due(Some("2026-10-11 11:59:00"), now));
+        assert!(last_use_due(Some("2026-10-11 11:58:59"), now));
+        assert!(last_use_due(Some("not a time"), now));
+    }
 
     fn grant(scopes: &[Scope]) -> Grant {
         Grant {

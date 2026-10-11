@@ -12,16 +12,6 @@ import ApiKeyGate from './ApiKeyGate.svelte';
  * whose remedy the user would have to already know.
  */
 
-const STRINGS = {
-  ApiKeyRequired: 'This Routarr needs an API key',
-  ApiKeyRejected: 'That key was refused',
-  ApiKeyGeneratedFile: 'Saved as {file}',
-  ApiKeyDockerCommand: 'With the Docker image:',
-  ApiKeyChooseOwn: 'Or set {variable}',
-  RoutarrApiKey: 'Routarr API key',
-  SignIn: 'Sign in',
-};
-
 const reload = vi.fn();
 
 beforeEach(() => {
@@ -35,7 +25,7 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-const show = () => renderWithI18n(ApiKeyGate, { strings: STRINGS });
+const show = () => renderWithI18n(ApiKeyGate);
 
 async function send(key: string) {
   const field = await screen.findByLabelText('Routarr API key');
@@ -76,10 +66,10 @@ describe('ApiKeyGate', () => {
     vi.spyOn(api, 'keySession').mockRejectedValue(new ApiError('', 401, 'unauthorized'));
     show();
 
-    expect(screen.queryByText('That key was refused')).toBeNull();
+    expect(screen.queryByText('That key was refused. Check it and try again.')).toBeNull();
     await send('the-wrong-key');
 
-    expect(await screen.findByText('That key was refused')).toBeTruthy();
+    expect(await screen.findByText('That key was refused. Check it and try again.')).toBeTruthy();
     expect(reload).not.toHaveBeenCalled();
   });
 });

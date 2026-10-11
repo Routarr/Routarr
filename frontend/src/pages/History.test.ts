@@ -18,36 +18,7 @@ import History from './History.svelte';
  * not cancel.
  */
 
-const STRINGS = {
-  AuditHistory: 'History',
-  TriggeredBy: 'Triggered by',
-  PerformedBy: 'Performed by',
-  TriggerSchedule: 'schedule',
-  TriggerManual: 'manual',
-  Revert: 'Revert',
-  RevertConfirm: 'Put back',
-  Cancel: 'Cancel',
-  ConfirmRevert: 'Send "{title}" back to {path}?',
-  ConfirmRevertFiles: 'Move the files back too',
-  RevertResult: '{count} reverted',
-  NothingReverted: 'Nothing was reverted.',
-  NothingRevertedBecause: 'Nothing was reverted: {reason}',
-  FilterByStatus: 'Filter by status',
-  SearchATitle: 'Search a title',
-  NoDecisionRecorded: 'Nothing decided yet',
-  AllStatuses: 'All statuses',
-  StatusApplied: 'applied',
-  StatusPending: 'pending',
-  StatusFailed: 'failed',
-  StatusSkipped: 'skipped',
-  StatusRequested: 'requested',
-  RequestedHint: 'The Arr is moving the files.',
-  PageOf: 'Page {page} of {total}',
-  DecisionCount: 'Decisions: {count}',
-  Next: 'Next',
-};
-
-const show = () => renderWithI18n(History, { strings: STRINGS });
+const show = () => renderWithI18n(History);
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -70,8 +41,10 @@ describe('History', () => {
     );
     show();
 
-    expect(await screen.findByText('requested')).toBeTruthy();
-    expect(screen.getByText('The Arr is moving the files.')).toBeTruthy();
+    expect(await screen.findByText('Requested')).toBeTruthy();
+    expect(
+      screen.getByText('The Arr is moving the files. The next sync confirms the move.'),
+    ).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Revert/ })).toBeNull();
   });
 
@@ -99,7 +72,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
 
-    expect(await screen.findByText('Send "Akira" back to /films?')).toBeTruthy();
+    expect(await screen.findByText('Move "Akira" back to /films?')).toBeTruthy();
   });
 
   /** Cancel means stop, not "revert quietly". */
@@ -113,7 +86,7 @@ describe('History', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
-    await waitFor(() => expect(screen.queryByText(/Send "Akira" back/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/Move "Akira" back/)).toBeNull());
     expect(revertDecisions).not.toHaveBeenCalled();
   });
 
@@ -156,7 +129,8 @@ describe('History', () => {
     show();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
-    if (moveFiles) await userEvent.click(await screen.findByLabelText('Move the files back too'));
+    if (moveFiles)
+      await userEvent.click(await screen.findByLabelText('Move the files on disk back as well?'));
     const dialog = await screen.findByRole('dialog');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
 
@@ -204,7 +178,7 @@ describe('History', () => {
     expect(await answerConfirmation()).toBe('/movies/standard is not answering.');
     await waitFor(() => expect(revertDecisions).toHaveBeenCalledTimes(2));
     expect(nthCall(revertDecisions, 1)[2]).toEqual(['unreachable']);
-    expect(await screen.findByText('1 reverted')).toBeTruthy();
+    expect(await screen.findByText('Moves reverted: 1')).toBeTruthy();
   });
 
   it('reverts nothing, and reports no failure, when the question is declined', async () => {
@@ -284,7 +258,7 @@ describe('History', () => {
     await fireEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
-    expect(await screen.findByText('1 reverted')).toBeTruthy();
+    expect(await screen.findByText('Moves reverted: 1')).toBeTruthy();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Heat/ }));
     await fireEvent.click(
@@ -292,7 +266,7 @@ describe('History', () => {
     );
 
     expect(await screen.findByText(/The Arr refused the move/)).toBeTruthy();
-    expect(screen.queryByText('1 reverted')).toBeNull();
+    expect(screen.queryByText('Moves reverted: 1')).toBeNull();
   });
 
   /** The history is paged by the server, and the pager asks it for the next page. */
@@ -349,10 +323,10 @@ describe('History', () => {
         decision({ media_title: 'Totoro', actor: null }),
       ]),
     );
-    renderWithI18n(History, { strings: STRINGS });
+    renderWithI18n(History);
 
     const row = await screen.findByRole('row', { name: /Akira/ });
-    expect(within(row).getByTitle('Triggered by')).toHaveTextContent('schedule');
+    expect(within(row).getByTitle('Triggered by')).toHaveTextContent('Schedule');
 
     const older = screen.getByRole('row', { name: /Totoro/ });
     expect(within(older).queryByTitle('Triggered by')).toBeNull();
@@ -370,14 +344,14 @@ describe('History', () => {
         decision({ media_title: 'Totoro', actor: 'schedule', subject: null }),
       ]),
     );
-    renderWithI18n(History, { strings: STRINGS });
+    renderWithI18n(History);
 
     const row = await screen.findByRole('row', { name: /Akira/ });
-    expect(within(row).getByTitle('Triggered by')).toHaveTextContent('manual');
+    expect(within(row).getByTitle('Triggered by')).toHaveTextContent('Manual');
     expect(within(row).getByTitle('Performed by')).toHaveTextContent('alice');
 
     const swept = screen.getByRole('row', { name: /Totoro/ });
-    expect(within(swept).getByTitle('Triggered by')).toHaveTextContent('schedule');
+    expect(within(swept).getByTitle('Triggered by')).toHaveTextContent('Schedule');
     expect(within(swept).queryByTitle('Performed by')).toBeNull();
   });
 
@@ -409,7 +383,7 @@ describe('History', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
 
-    expect(await screen.findByText('1 reverted')).toBeTruthy();
+    expect(await screen.findByText('Moves reverted: 1')).toBeTruthy();
     expect(screen.getByText('The history could not be read')).toBeTruthy();
   });
 

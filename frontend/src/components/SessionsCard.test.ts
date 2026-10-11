@@ -13,23 +13,6 @@ import SessionsCard from './SessionsCard.svelte';
  * page reloads onto the sign-in rather than failing every request after.
  */
 
-const STRINGS = {
-  Sessions: 'Sessions',
-  SignOutEverywhere: 'Sign out everywhere',
-  NoSessions: 'No browser is signed in.',
-  SessionSourceForms: 'Password',
-  SessionSourceApikey: 'API key',
-  ThisSession: 'This browser',
-  EndSession: 'End',
-  ConfirmEndSession: 'End this session?',
-  ConfirmEndThisSession: 'End the session of this browser?',
-  ConfirmEndEverySession: 'End every session?',
-  SessionEnded: 'Session ended.',
-  Retry: 'Retry',
-  SessionsShowMore: 'Show the rest ({count})',
-  SessionsShowFewer: 'Show fewer',
-};
-
 const session = (handle: string, overrides: Partial<Session> = {}): Session => ({
   handle,
   subject: 'admin',
@@ -53,7 +36,7 @@ function mount(listed: Session[] = [HERE, THERE]) {
   const reload = vi.fn();
   vi.stubGlobal('location', { reload });
   const outcome = createOutcome();
-  renderWithI18n(SessionsCard, { props: { outcome }, strings: STRINGS });
+  renderWithI18n(SessionsCard, { props: { outcome } });
   return { list, reload, outcome };
 }
 
@@ -105,7 +88,9 @@ describe('SessionsCard', () => {
 
     const [, there] = await ends();
     await fireEvent.click(there!);
-    expect(await answerConfirmation()).toBe('End this session?');
+    expect(await answerConfirmation()).toBe(
+      'End this session? The browser holding it will have to sign in again.',
+    );
 
     expect(end).toHaveBeenCalledWith('bbbb');
     await waitFor(() => expect(outcome.notice).toBe('Session ended.'));
@@ -119,7 +104,9 @@ describe('SessionsCard', () => {
 
     const [here] = await ends();
     await fireEvent.click(here!);
-    expect(await answerConfirmation()).toBe('End the session of this browser?');
+    expect(await answerConfirmation()).toBe(
+      'End the session of this browser? You will have to sign in again.',
+    );
 
     expect(end).toHaveBeenCalledWith('aaaa');
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
@@ -146,7 +133,9 @@ describe('SessionsCard', () => {
 
     await ends();
     await fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere' }));
-    expect(await answerConfirmation()).toBe('End every session?');
+    expect(await answerConfirmation()).toBe(
+      'End every session, this one included? Every browser will have to sign in again.',
+    );
 
     expect(all).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));

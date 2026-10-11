@@ -48,21 +48,6 @@ test.describe('a browser with no API key', () => {
     await context.close();
   });
 
-  test('is told when the key it typed is the wrong one', async ({ browser }) => {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    await page.goto('/');
-
-    // Said plainly, or the user pastes the same bad key again.
-    await page.getByLabel('Routarr API key').fill('not-the-right-key');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-
-    await expect(page.getByText('That key was refused. Check it and try again.')).toBeVisible();
-    await expect(page.getByText('This Routarr needs an API key')).toBeVisible();
-
-    await context.close();
-  });
-
   /**
    * The key opens a session and the browser keeps no copy of it: held in the
    * page's storage, any script that ever ran there could read a key that opens

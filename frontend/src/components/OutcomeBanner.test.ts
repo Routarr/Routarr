@@ -14,7 +14,7 @@ import OutcomeBanner from './OutcomeBanner.svelte';
 describe('OutcomeBanner', () => {
   it('holds its polite region before any outcome, and says each one in it', () => {
     const outcome = createOutcome();
-    renderWithI18n(OutcomeBanner, { props: { outcome }, strings: {} });
+    renderWithI18n(OutcomeBanner, { props: { outcome } });
 
     const region = screen.getByRole('status');
     expect(region).toBeEmptyDOMElement();
@@ -35,7 +35,7 @@ describe('OutcomeBanner', () => {
    */
   it('lists the failed items in one banner, under the one alert', () => {
     const outcome = createOutcome();
-    renderWithI18n(OutcomeBanner, { props: { outcome }, strings: {} });
+    renderWithI18n(OutcomeBanner, { props: { outcome } });
 
     outcome.fail('Applied: 0 of 3', ['Akira: refused', 'Dune: refused', 'Heat: refused']);
     flushSync();

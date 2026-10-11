@@ -35,7 +35,7 @@ cargo test live_sources -- --ignored --nocapture   # the real AniList, Jikan, OM
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|main\.rs)'   # floor 96%
+cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|process\.rs)'   # floor 96%
 python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts
 python3 ../scripts/check-versions.py        # every place a toolchain version is written

@@ -16,18 +16,6 @@ import ConditionValueHarness from '../test/ConditionValueHarness.svelte';
  * instead, and without it a screen reader announces a bare textbox.
  */
 
-const STRINGS = {
-  Yes: 'Yes',
-  No: 'No',
-  PlaceholderNumberList: 'e.g. 2019, 2020',
-  NotIdentifiers: 'Not an id: {values}',
-  ListSeparator: ', ',
-  PlaceholderStringList: 'comma separated',
-  PlaceholderPath: '/movies/anime',
-  PlaceholderYearFrom: 'from',
-  PlaceholderYearTo: 'to',
-};
-
 const spec = (over: Partial<ConditionSpec> = {}): ConditionSpec => ({
   type: 'genre_contains',
   label: 'Genre contains',
@@ -43,8 +31,7 @@ const spec = (over: Partial<ConditionSpec> = {}): ConditionSpec => ({
   ...over,
 });
 
-const show = (props: Record<string, unknown>) =>
-  renderWithI18n(ConditionValue, { props, strings: STRINGS });
+const show = (props: Record<string, unknown>) => renderWithI18n(ConditionValue, { props });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -98,7 +85,6 @@ describe('ConditionValue', () => {
     async (valueType, label, typed, bound) => {
       renderWithI18n(ConditionValueHarness, {
         props: { spec: spec({ value_type: valueType, label }), initial: [] },
-        strings: STRINGS,
       });
       const field = screen.getByLabelText(label) as HTMLInputElement;
 
@@ -116,7 +102,6 @@ describe('ConditionValue', () => {
   it('a corrected id list keeps its separator', async () => {
     renderWithI18n(ConditionValueHarness, {
       props: { spec: spec({ value_type: 'number_list', label: 'Years' }), initial: [2019, 2020] },
-      strings: STRINGS,
     });
     const field = screen.getByLabelText('Years') as HTMLInputElement;
 
@@ -169,7 +154,7 @@ describe('ConditionValue', () => {
 
     expect(onChange).toHaveBeenLastCalledWith([603], true);
     expect(field).toHaveAttribute('aria-invalid', 'true');
-    expect(field).toHaveAccessibleDescription('Not an id: 6O4');
+    expect(field).toHaveAccessibleDescription('Not an id, left out until corrected: 6O4');
 
     await fireEvent.input(field, { target: { value: '603, 604' } });
     expect(onChange).toHaveBeenLastCalledWith([603, 604], false);

@@ -181,7 +181,9 @@ async fn every_route_but_the_declared_few_refuses_a_request_with_no_key() {
 }
 
 /// And the open few are open: a list nothing checks would let one of them be
-/// quietly closed, which locks the shell out of the screen that says why.
+/// quietly closed, which locks the shell out of the screen that says why. What
+/// the shell reads answers in full, and the provider's pair, which has no
+/// provider in this mode, answers anything but a demand for a key.
 #[tokio::test]
 async fn the_open_routes_answer_without_a_key() {
     let app = TestApp::with_api_key("s3cret").await;
@@ -195,6 +197,9 @@ async fn the_open_routes_answer_without_a_key() {
             .unwrap();
         let status = app.send(request).await.status;
         assert_ne!(status, StatusCode::UNAUTHORIZED, "{method} {path} needs a key it cannot have");
+        if *method == "GET" && !path.contains("/oidc/") {
+            assert!(status.is_success(), "{method} {path} answered {status} without a key");
+        }
     }
 }
 
@@ -433,34 +438,39 @@ async fn rule_condition_values_are_inert() {
 
 // ------------------------------------------------------ secret leakage
 
-/// An instance's API key is encrypted at rest and must never appear in any
-/// response: not the list, not the detail, not an error.
+/// An instance's API key is sealed at rest and appears in no answer, in the
+/// clear or sealed: not the creation's, the edit's or the token rotation's,
+/// not the list or the detail. The configuration export holds its own check.
 #[tokio::test]
 async fn an_arr_key_never_appears_in_a_response() {
     let app = TestApp::new().await;
     let secret = "super-secret-arr-key-8f3a";
+    let instance = |name: &str| {
+        serde_json::json!({
+            "name": name, "instance_type": "radarr",
+            "base_url": "http://radarr:7878", "api_key": secret,
+            "enabled": true, "sync_interval_minutes": 15
+        })
+    };
 
-    let created = app
-        .post(
-            "/api/v1/instances",
-            serde_json::json!({
-                "name": "Radarr", "instance_type": "radarr",
-                "base_url": "http://radarr:7878", "api_key": secret,
-                "enabled": true, "sync_interval_minutes": 15
-            }),
-        )
-        .await;
-    let id = created.assert_ok()["id"].as_str().unwrap();
+    let created = app.post("/api/v1/instances", instance("Radarr")).await;
+    let id = created.assert_ok()["id"].as_str().unwrap().to_string();
+    let edited = app.put(&format!("/api/v1/instances/{id}"), instance("Radarr 4K")).await;
+    let rotated =
+        app.post(&format!("/api/v1/instances/{id}/webhook-token"), serde_json::json!({})).await;
+    let mut answers = vec![
+        ("the creation".to_string(), created.json.to_string()),
+        ("the edit".into(), edited.assert_ok().to_string()),
+        ("the rotation".into(), rotated.assert_ok().to_string()),
+    ];
+    for path in ["/api/v1/instances".to_string(), format!("/api/v1/instances/{id}")] {
+        answers.push((path.clone(), app.text(&path).await));
+    }
 
-    // Neither the list, the detail, nor a config export may carry it.
-    for path in [
-        "/api/v1/instances".to_string(),
-        format!("/api/v1/instances/{id}"),
-        "/api/v1/config/export".into(),
-    ] {
-        let body = app.text(&path).await;
-        assert!(body.contains("Radarr"), "{path} answered something else: {body}");
-        assert!(!body.contains(secret), "the Arr key leaked through {path}");
+    for (answer, body) in answers {
+        assert!(body.contains("Radarr"), "{answer} said something else: {body}");
+        assert!(!body.contains(secret), "the Arr key leaked through {answer}");
+        assert!(!body.contains("enc:v"), "the sealed key leaked through {answer}");
     }
 }
 

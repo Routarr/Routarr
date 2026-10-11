@@ -116,9 +116,11 @@ Components named without a path live in `frontend/src/components/`.
 
 - Vitest runs in jsdom, which applies no stylesheet and computes no layout. Geometry, overflow and
   pixels are asserted in `frontend/e2e/layout.spec.ts`.
-- Render with `renderWithI18n` (`frontend/src/test/render.ts`), seeding only the strings a test
-  asserts on. A component that takes a snippet, or a helper that opens an effect, is driven through
-  a small harness in `frontend/src/test/`.
+- Render with `renderWithI18n` (`frontend/src/test/render.ts`), which seeds all of
+  `backend/locales/en.json`, and assert the English a reader sees. Its `strings` override that only
+  for another `language`, or for a word or a sign no English text holds. A component that takes
+  a snippet, or a helper that opens an effect, is driven through a small harness in
+  `frontend/src/test/`.
 - Drive a `<select>` with `userEvent.selectOptions`. A synthetic `change` moves the DOM but not
   `bind:value`, and the test passes against a request never made.
 - Answer a confirmation with `answerConfirmation` (`frontend/src/test/confirm.ts`). In e2e, click

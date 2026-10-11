@@ -14,38 +14,7 @@ import Sidebar from './Sidebar.svelte';
  * column of unnamed icons.
  */
 
-const STRINGS = {
-  Dashboard: 'Dashboard',
-  Instances: 'Instances',
-  RootFolders: 'Categories and folders',
-  MetadataSources: 'Metadata sources',
-  Applications: 'Applications',
-  ApiReference: 'API reference',
-  RulesEngine: 'Rules',
-  RuleTests: 'Rule tests',
-  MainNavigation: 'Main navigation',
-  NavGroupDaily: 'Routing',
-  NavGroupReview: 'Review',
-  NavGroupSupervision: 'Monitoring',
-  NavGroupConfiguration: 'Configuration',
-  NavGroupIntegrations: 'Integrations',
-  DiagnosticWarnings: '{count} warnings',
-  TasksRunning: '{count} running',
-  DecisionsAwaitingReview: '{count} awaiting review',
-  FailedMoves: '{count} failed',
-  MediaExplorer: 'Media',
-  Simulation: 'Simulation',
-  AuditHistory: 'History',
-  Overrides: 'Exceptions',
-  Tasks: 'Tasks',
-  Logs: 'Move log',
-  Diagnostics: 'Diagnostics',
-  Settings: 'Settings',
-  AboutRoutarr: 'About Routarr',
-};
-
-const show = (props: Record<string, unknown> = {}) =>
-  renderWithI18n(Sidebar, { props, strings: STRINGS });
+const show = (props: Record<string, unknown> = {}) => renderWithI18n(Sidebar, { props });
 
 afterEach(() => {
   withBase(null);
@@ -172,23 +141,23 @@ describe('Sidebar', () => {
     // span reaches nobody reliably.
     const entry = (sentence: string) => screen.getByText(sentence).closest('a');
     const badge = (sentence: string) => entry(sentence)?.querySelector('.nav-badge');
-    expect(screen.getByRole('link', { name: /Diagnostics 3 warnings/ })).toBeTruthy();
-    expect(badge('3 warnings')).toHaveTextContent('3');
-    expect(entry('3 warnings')?.getAttribute('href')).toBe(href('/diagnostics'));
-    expect(entry('2 running')?.getAttribute('href')).toBe(href('/tasks'));
+    expect(screen.getByRole('link', { name: /Diagnostics Warnings: 3/ })).toBeTruthy();
+    expect(badge('Warnings: 3')).toHaveTextContent('3');
+    expect(entry('Warnings: 3')?.getAttribute('href')).toBe(href('/diagnostics'));
+    expect(entry('Running tasks: 2')?.getAttribute('href')).toBe(href('/tasks'));
     // Where the waiting proposals are applied, not where past ones are listed.
-    expect(entry('5 awaiting review')?.getAttribute('href')).toBe(href('/simulation'));
-    expect(entry('1 failed')?.getAttribute('href')).toBe(href('/move-log'));
+    expect(entry('Decisions awaiting review: 5')?.getAttribute('href')).toBe(href('/simulation'));
+    expect(entry('Failed moves: 1')?.getAttribute('href')).toBe(href('/move-log'));
 
     // Amber asks for something, red says something broke, the rest is just a
     // number: four amber badges would say everything is urgent.
-    expect(badge('3 warnings')?.className).toContain('is-warning');
-    expect(badge('1 failed')?.className).toContain('is-critical');
-    expect(badge('2 running')?.className).not.toContain('is-');
+    expect(badge('Warnings: 3')?.className).toContain('is-warning');
+    expect(badge('Failed moves: 1')?.className).toContain('is-critical');
+    expect(badge('Running tasks: 2')?.className).not.toContain('is-');
     unmount();
 
     show();
-    expect(screen.queryByText(/warnings/)).toBeNull();
-    expect(screen.queryByText(/running/)).toBeNull();
+    expect(screen.queryByText(/^Warnings: \d+/)).toBeNull();
+    expect(screen.queryByText(/^Running tasks: \d+/)).toBeNull();
   });
 });

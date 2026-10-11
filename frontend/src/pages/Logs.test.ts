@@ -16,28 +16,6 @@ import Logs from './Logs.svelte';
  * cannot carry, so it goes through `fetch` and a blob.
  */
 
-const STRINGS = {
-  ExportCsv: 'Export CSV',
-  NoWritesYet: 'Nothing has been written yet',
-  FilterByOutcome: 'Filter by outcome',
-  SearchTitleOrDetails: 'Search title or details',
-  AllOutcomes: 'All outcomes',
-  OutcomeSuccess: 'Succeeded',
-  OutcomeFailure: 'Failed',
-  StatusSuccess: 'succeeded',
-  StatusFailed: 'failed',
-  None: '-',
-  ExportFailed: 'Export failed with status {status}',
-  ActionMove: 'Move',
-  ActionRevert: 'Putting back',
-  Revert: 'Put it back',
-  TriggerManual: 'manual',
-  TriggerSchedule: 'schedule',
-  PageOf: 'Page {page} of {total}',
-  LogEntryCount: 'Entries: {count}',
-  Next: 'Next',
-};
-
 function entry(over: Partial<LogEntry> = {}): LogEntry {
   return {
     id: 'l1',
@@ -56,7 +34,7 @@ function entry(over: Partial<LogEntry> = {}): LogEntry {
   };
 }
 
-const show = () => renderWithI18n(Logs, { strings: STRINGS });
+const show = () => renderWithI18n(Logs);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -68,7 +46,9 @@ describe('Activity log', () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([]));
     show();
 
-    expect(await screen.findByText('Nothing has been written yet')).toBeTruthy();
+    expect(
+      await screen.findByText('Nothing has been written to Radarr or Sonarr yet.'),
+    ).toBeTruthy();
   });
 
   /** "Did the nightly sweep do this, or did somebody", and which somebody. */
@@ -82,10 +62,10 @@ describe('Activity log', () => {
     show();
 
     const manual = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
-    expect(within(manual).getByText('manual')).toBeTruthy();
+    expect(within(manual).getByText('Manual')).toBeTruthy();
     expect(within(manual).getByText('alice')).toBeTruthy();
     const scheduled = screen.getByText('Totoro').closest('tr') as HTMLElement;
-    expect(within(scheduled).getByText('schedule')).toBeTruthy();
+    expect(within(scheduled).getByText('Schedule')).toBeTruthy();
   });
 
   /**
@@ -100,16 +80,22 @@ describe('Activity log', () => {
     show();
 
     expect(await screen.findByText('Radarr said 409')).toBeTruthy();
-    expect(screen.getByText('failed')).toBeTruthy();
+    expect(screen.getByText('Failed')).toBeTruthy();
   });
 
-  /** The badge names what was written, as a noun beside Move, not the button's order. */
+  /**
+   * The badge names what was written, as a noun beside Move, not the button's
+   * order. English writes the two alike, and French does not.
+   */
   it('names a revert by its noun, not by the button that does it', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry({ action: 'revert' })]));
-    show();
+    renderWithI18n(Logs, {
+      language: 'fr',
+      strings: { ActionRevert: 'Annulation', Revert: 'Annuler le déplacement' },
+    });
 
-    expect(await screen.findByText('Putting back')).toBeTruthy();
-    expect(screen.queryByText('Put it back')).toBeNull();
+    expect(await screen.findByText('Annulation')).toBeTruthy();
+    expect(screen.queryByText('Annuler le déplacement')).toBeNull();
   });
 
   it('has nothing to export while the list is empty', async () => {

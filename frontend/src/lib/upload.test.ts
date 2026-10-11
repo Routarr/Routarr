@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import { readJsonFile } from './upload';
 import { seedDictionary } from './i18n.svelte';
+import { ENGLISH } from '../test/render';
 
 describe('readJsonFile', () => {
   it('reads the JSON a file holds', async () => {
@@ -11,9 +12,9 @@ describe('readJsonFile', () => {
   });
 
   it("refuses a file that is not JSON in the reader's words", async () => {
-    seedDictionary({ NotValidJson: 'This file is not JSON.' });
+    seedDictionary({ ...ENGLISH });
     const file = new File(['PK\u0003\u0004'], 'routarr-backup.zip');
 
-    await expect(readJsonFile(file)).rejects.toThrow('This file is not JSON.');
+    await expect(readJsonFile(file)).rejects.toThrow('That file is not valid JSON');
   });
 });

@@ -867,12 +867,29 @@ mod tests {
         bystander.close().await;
     }
 
-    /// `main` folds the log back once the server has stopped serving. Read out
-    /// of its source, since no test runs `main`: a shutdown that drops the pool
-    /// instead leaves the `.db` without the last writes.
+    /// A migration file is applied only once `MIGRATIONS` lists it: one written
+    /// and left out reaches no database, with every test green.
+    #[test]
+    fn every_migration_file_is_listed_in_order() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let mut files: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| {
+                let name = entry.ok()?.file_name().into_string().ok()?;
+                name.strip_suffix(".sql").map(str::to_string)
+            })
+            .collect();
+        files.sort();
+        let listed: Vec<&str> = MIGRATIONS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(listed, files);
+    }
+
+    /// The process folds the log back once the server has stopped serving.
+    /// Read out of its source, since no test runs it: a shutdown that drops the
+    /// pool instead leaves the `.db` without the last writes.
     #[test]
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
-        const MAIN: &str = include_str!("main.rs");
+        const MAIN: &str = include_str!("process.rs");
         let after_serving =
             MAIN.split_once("listener::serve(").expect("main serves until a stop is asked").1;
         let shutdown =

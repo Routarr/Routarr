@@ -21,39 +21,11 @@ import CommandPalette from './CommandPalette.svelte';
  * carries nothing that writes to a library.
  */
 
-const STRINGS = {
-  CommandPalette: 'Quick search',
-  CommandPalettePlaceholder: 'A title, or a screen…',
-  CommandPaletteGoTo: 'Go to',
-  CommandPaletteEmpty: 'Nothing for "{query}".',
-  CommandPaletteHint: 'The library is searched by title.',
-  CommandPaletteResults: 'Results: {count}',
-  Loading: 'Loading…',
-  MediaExplorer: 'Library',
-  Dashboard: 'Dashboard',
-  RulesEngine: 'Rules',
-  RuleTests: 'Tests',
-  Simulation: 'Simulation',
-  AuditHistory: 'History',
-  Overrides: 'Overrides',
-  Tasks: 'Tasks',
-  Logs: 'Logs',
-  Diagnostics: 'Diagnostics',
-  Instances: 'Instances',
-  RootFolders: 'Categories and folders',
-  Applications: 'Applications',
-  ApiReference: 'API reference',
-  Settings: 'Settings',
-  HintRules: 'What goes where',
-  Dismiss: 'Dismiss',
-  PinAsRuleTest: 'Pin as a rule test',
-};
-
 const media = (over: Partial<MediaListItem> = {}) =>
   film({ id: 'm-1', title: 'Spirited Away', year: 2001, ...over });
 
 const show = (onClose = () => {}, onHelp = vi.fn()) =>
-  renderWithI18n(CommandPalette, { props: { onClose, onHelp }, strings: STRINGS });
+  renderWithI18n(CommandPalette, { props: { onClose, onHelp } });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -303,11 +275,11 @@ describe('CommandPalette', () => {
 
     // A term that names a screen as well as a film: what must survive the
     // failure is the half that never needed the network.
-    await userEvent.type(screen.getByRole('combobox'), 'logs');
+    await userEvent.type(screen.getByRole('combobox'), 'move log');
     await screen.findByRole('alert');
     expect(
       within(screen.getByRole('group', { name: 'Go to' })).getByRole('option'),
-    ).toHaveTextContent('Logs');
+    ).toHaveTextContent('Move log');
 
     // And the failure goes when the question does.
     await userEvent.clear(screen.getByRole('combobox'));
@@ -377,7 +349,7 @@ describe('CommandPalette', () => {
     await fireEvent.click(await screen.findByRole('option', { name: /Spirited Away/ }));
 
     const panel = await screen.findByRole('dialog', { name: 'Spirited Away' });
-    expect(actions(panel)).toContain('Pin as a rule test');
+    expect(actions(panel)).toContain('Pin as test');
     expect(actions(panel).filter((name) => WRITES.test(name))).toEqual([]);
   });
 
@@ -391,7 +363,7 @@ describe('CommandPalette', () => {
     const onHelp = vi.fn();
     renderWithI18n(CommandPalette, {
       props: { onClose: () => {}, onHelp },
-      strings: { ...STRINGS, Help: 'Help', [TERMS[term]!.name]: 'Quokka' },
+      strings: { [TERMS[term]!.name]: 'Quokka' },
     });
 
     await userEvent.type(screen.getByRole('combobox', { name: 'Quick search' }), 'quokka');

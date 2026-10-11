@@ -14,30 +14,11 @@ import MediaExplorer from './MediaExplorer.svelte';
  * the button that opens it has to be reachable, and named, on every row.
  */
 
-const STRINGS = {
-  Next: 'Next',
-  MediaExplorer: 'Media',
-  SearchLibrary: 'Search the library by title',
-  SearchByTitle: 'Search by title…',
-  FilterByType: 'Filter by type',
-  AllTypes: 'All types',
-  Movies: 'Movies',
-  Series: 'Series',
-  UnclassifiedOnly: 'Unclassified only',
-  NoMediaMatches: 'Nothing matches',
-  NotEvaluated: 'not evaluated',
-  MetadataCached: 'cached',
-  MetadataMissing: 'missing',
-  ManualOverride: 'manual override',
-  WhyQuestion: 'Why?',
-  None: '-',
-};
-
 function show(items: MediaListItem[], pages = 1) {
   const getMedia = vi
     .spyOn(api, 'getMedia')
     .mockResolvedValue(paginated(items, { total_pages: pages, total: items.length * pages }));
-  renderWithI18n(MediaExplorer, { strings: STRINGS });
+  renderWithI18n(MediaExplorer);
   return getMedia;
 }
 
@@ -47,7 +28,11 @@ describe('Media explorer', () => {
   it('says nothing matches rather than showing an empty table', async () => {
     show([]);
 
-    expect(await screen.findByText('Nothing matches')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'No media matches. Sync an instance from the Instances page to populate this list.',
+      ),
+    ).toBeTruthy();
   });
 
   /**
@@ -62,7 +47,7 @@ describe('Media explorer', () => {
     ]);
 
     await screen.findByText('Akira');
-    const forced = screen.getByTitle('manual override');
+    const forced = screen.getByTitle('Manual exception');
     expect(forced.textContent).toContain('kids');
     // The computed one carries no such marker.
     expect(screen.getByText('standard').getAttribute('title')).toBeNull();
@@ -94,7 +79,7 @@ describe('Media explorer', () => {
   it('gives cached metadata no colour, because having it is not an outcome', async () => {
     show([media({ has_metadata: true })]);
 
-    const badge = await screen.findByText('cached');
+    const badge = await screen.findByText('Metadata', { selector: '.badge' });
     expect(badge.className).not.toContain('badge-warning');
     expect(badge.className).toContain('muted');
   });

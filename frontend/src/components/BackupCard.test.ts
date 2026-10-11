@@ -16,21 +16,6 @@ import BackupCard from './BackupCard.svelte';
  * for themselves: whether the file carries the master key it needs.
  */
 
-const STRINGS = {
-  Backups: 'Backups',
-  BackupNow: 'Back up now',
-  RestoreBackup: 'Restore',
-  Delete: 'Delete',
-  DownloadBackup: 'Download',
-  NoBackupsYet: 'No backup yet',
-  BackupsHelp: 'Taken on a schedule',
-  ConfirmRestore: 'Restore {name}?',
-  RestoreStaged: 'Restore staged.',
-  RestoreStagedWithoutKey: 'Restore staged, but the credentials will have to be entered again.',
-  Retry: 'Retry',
-  BackupEncrypted: 'Encrypted',
-};
-
 const FILE = {
   name: 'routarr-backup-20260904-101500.zip',
   size_bytes: 1024,
@@ -53,7 +38,7 @@ function result(includes_master_key: boolean): RestoreResult {
 function mount() {
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [FILE], retention_count: 7 });
   const outcome = createOutcome();
-  renderWithI18n(BackupCard, { props: { outcome }, strings: STRINGS });
+  renderWithI18n(BackupCard, { props: { outcome } });
   return outcome;
 }
 
@@ -68,7 +53,7 @@ it('downloads the archive of its row under its name', async () => {
   const archive = new Blob(['zip']);
   const fetched = vi.spyOn(api, 'downloadBackup').mockResolvedValue(archive);
   const saved = captureDownloads();
-  renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+  renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
   await userEvent.click(await screen.findByRole('button', { name: `Download – ${FILE.name}` }));
 
@@ -86,10 +71,10 @@ describe('listing the backups', () => {
     vi.spyOn(api, 'listBackups')
       .mockRejectedValueOnce(new ApiError('The backup folder cannot be read', 500, 'internal'))
       .mockResolvedValueOnce({ backups: [FILE], retention_count: 7 });
-    renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The backup folder cannot be read');
-    expect(screen.queryByText('No backup yet')).toBeNull();
+    expect(screen.queryByText('No backup yet.')).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText(FILE.name)).toBeTruthy();
@@ -105,7 +90,9 @@ describe('restoring a backup', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
     await answerConfirmation();
 
-    await waitFor(() => expect(outcome.notice).toBe('Restore staged.'));
+    await waitFor(() =>
+      expect(outcome.notice).toBe('Restore staged. Restart Routarr to complete it.'),
+    );
   });
 
   /**
@@ -122,7 +109,7 @@ describe('restoring a backup', () => {
 
     await waitFor(() =>
       expect(outcome.warning).toBe(
-        'Restore staged, but the credentials will have to be entered again.',
+        'Restore staged. It completes at the next start. This archive carries no master key, so the stored Radarr and Sonarr credentials will have to be entered again.',
       ),
     );
     expect(outcome.notice).toBeNull();
@@ -161,7 +148,9 @@ describe('restoring a backup', () => {
       note: 'That passphrase does not open this archive.',
     });
 
-    await waitFor(() => expect(outcome.notice).toBe('Restore staged.'));
+    await waitFor(() =>
+      expect(outcome.notice).toBe('Restore staged. Restart Routarr to complete it.'),
+    );
     expect(restore.mock.calls.map(([, passphrase]) => passphrase)).toEqual([
       undefined,
       'the wrong one',
@@ -190,7 +179,7 @@ it('marks an archive sealed with the backup passphrase', async () => {
     backups: [FILE, { ...FILE, name: 'routarr-backup-20260905-101500.zip.enc', encrypted: true }],
     retention_count: 7,
   });
-  renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+  renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
   const sealed = (await screen.findByText('routarr-backup-20260905-101500.zip.enc')).parentElement!;
   expect(within(sealed).getByText('Encrypted')).toBeTruthy();
@@ -235,7 +224,7 @@ describe('deleting a backup', () => {
       .mockResolvedValueOnce({ backups: [FILE, OLDER], retention_count: 7 })
       .mockReturnValueOnce(after);
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
-    renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
     return list;
   }
 
@@ -285,7 +274,7 @@ describe('deleting a backup', () => {
       .mockResolvedValueOnce({ backups: [FILE], retention_count: 7 })
       .mockResolvedValueOnce({ backups: [], retention_count: 7 });
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
-    renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
     await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
     await answerConfirmation();

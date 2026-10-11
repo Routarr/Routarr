@@ -147,9 +147,12 @@ export function parseStringList(input: string): string[] {
 
 /**
  * An external identifier as typed: digits only. `Number` alone reads `0x25B`
- * and `1e3` as numbers, and `6O4` as nothing, which drops a title unseen.
+ * and `1e3` as numbers, and `6O4` as nothing, which drops a title unseen. Past
+ * the integers a number holds exactly, the digits read back as `1e+24`, an id
+ * no source has.
  */
-const isIdentifier = (part: string) => /^\d+$/.test(part) && Number(part) > 0;
+const isIdentifier = (part: string) =>
+  /^\d+$/.test(part) && Number(part) > 0 && Number.isSafeInteger(Number(part));
 
 /** Same, for external identifiers: whole numbers above zero, once each. */
 export function parseNumberList(input: string): number[] {
@@ -195,7 +198,9 @@ export function parseYearBound(input: string): number | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
   if (!/^-?\d+$/.test(trimmed)) return null;
-  return Number(trimmed);
+  const year = Number(trimmed);
+  // `-0` is the zero it reads as, and digits past an exact integer no year.
+  return Number.isSafeInteger(year) ? year + 0 : null;
 }
 
 /**

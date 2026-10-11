@@ -78,7 +78,7 @@ async fn a_second_signal_cuts_the_drain_short() {
 async fn the_first_signal_stops_everything_at_once_and_a_second_hurries() {
     let (first, first_heard) = tokio::sync::oneshot::channel::<()>();
     let (second, second_heard) = tokio::sync::oneshot::channel::<()>();
-    let (mut stopping, mut hurrying) = crate::stop_on(
+    let (mut stopping, mut hurrying) = crate::listener::stop_on(
         async move {
             let _ = first_heard.await;
         },

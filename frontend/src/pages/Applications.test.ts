@@ -15,34 +15,6 @@ import Applications from './Applications.svelte';
  * and nothing is asked of a key that cannot be asked of it.
  */
 
-const STRINGS = {
-  Applications: 'Applications',
-  NewApplicationKey: 'New key',
-  NoApplications: 'No application has a key yet.',
-  Name: 'Name',
-  ApplicationScopes: 'Allows',
-  ApplicationMayConfirm: 'Guardrails it may answer',
-  ApplicationMayMoveFiles: 'May move files on disk',
-  ScopeRead: 'read',
-  ScopeOperate: 'operate',
-  ScopeWrite: 'write',
-  GuardrailBatch: 'Apply a whole simulation',
-  GuardrailCapacity: 'Not enough room at the destination',
-  GuardrailThreshold: 'More moves than the threshold',
-  Cancel: 'Cancel',
-  CreateKey: 'Create a key',
-  ApplicationTokenFor: 'Key for {name}',
-  ApplicationCreated: 'Key created for {name}.',
-  ApplicationRevoked: 'Key revoked for {name}.',
-  RevokeKey: 'Revoke',
-  ConfirmRevokeApplication: 'Revoke the key of {name}?',
-  Never: 'never',
-  None: '-',
-  ListSeparator: ', ',
-  Yes: 'Yes',
-  No: 'No',
-};
-
 function application(over: Partial<Application> = {}): Application {
   return {
     id: 'k1',
@@ -65,7 +37,7 @@ function show(listed: Application[]) {
     api_key_configured: false,
     api_key_pinned: false,
   });
-  return renderWithI18n(Applications, { strings: STRINGS });
+  return renderWithI18n(Applications);
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -86,14 +58,14 @@ describe('Applications', () => {
     ]);
 
     const row = (await screen.findByText('n8n')).closest('tr') as HTMLElement;
-    expect(within(row).getByText('read')).toBeTruthy();
-    expect(within(row).getByText('operate')).toBeTruthy();
-    expect(within(row).queryByText('write')).toBeNull();
+    expect(within(row).getByText('Read')).toBeTruthy();
+    expect(within(row).getByText('Operate')).toBeTruthy();
+    expect(within(row).queryByText('Write')).toBeNull();
     expect(
       within(row).getByText('Apply a whole simulation, Not enough room at the destination'),
     ).toBeTruthy();
     expect(within(row).getByText('Yes')).toBeTruthy();
-    expect(within(row).getByText('never')).toBeTruthy();
+    expect(within(row).getByText('Never')).toBeTruthy();
   });
 
   /** Who made a key, under the day it was made, as on the other screens. */
@@ -114,7 +86,7 @@ describe('Applications', () => {
     await user.click(await screen.findByRole('button', { name: 'New key' }));
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText('Name'), 'n8n');
-    await user.click(within(dialog).getByLabelText(/^write/));
+    await user.click(within(dialog).getByLabelText(/^Write/));
     // What the list reads once the key exists.
     vi.spyOn(api, 'getApplications').mockResolvedValue([application({ scopes: ['write'] })]);
     await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
@@ -132,7 +104,9 @@ describe('Applications', () => {
 
     const revoke = vi.spyOn(api, 'revokeApplication').mockResolvedValue(undefined);
     await user.click(await screen.findByRole('button', { name: 'Revoke – n8n' }));
-    expect(await answerConfirmation()).toBe('Revoke the key of n8n?');
+    expect(await answerConfirmation()).toBe(
+      'Revoke the key of n8n? It stops working at once, and cannot be restored.',
+    );
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('k1'));
     await waitFor(() => expect(screen.queryByText('rtr_k1_secret')).toBeNull());
   });
@@ -155,11 +129,11 @@ describe('Applications', () => {
     expect(batch.disabled).toBe(true);
     expect(files.disabled).toBe(true);
 
-    await user.click(within(dialog).getByLabelText(/^operate/));
+    await user.click(within(dialog).getByLabelText(/^Operate/));
     await user.click(batch);
     await user.click(files);
     // Taken back: what was ticked under it is not sent.
-    await user.click(within(dialog).getByLabelText(/^operate/));
+    await user.click(within(dialog).getByLabelText(/^Operate/));
     await user.type(within(dialog).getByLabelText('Name'), 'cron');
     await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
 
@@ -182,7 +156,7 @@ describe('Applications', () => {
     await user.click(await screen.findByRole('button', { name: 'New key' }));
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText('Name'), 'n8n');
-    await user.click(within(dialog).getByLabelText(/^operate/));
+    await user.click(within(dialog).getByLabelText(/^Operate/));
     await user.click(within(dialog).getByLabelText('Not enough room at the destination'));
     await user.click(within(dialog).getByLabelText('Apply a whole simulation'));
     await user.click(within(dialog).getByLabelText('May move files on disk'));
@@ -208,7 +182,7 @@ describe('Applications', () => {
     await user.click(await screen.findByRole('button', { name: 'New key' }));
     let dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText('Name'), 'n8n');
-    await user.click(within(dialog).getByLabelText(/^operate/));
+    await user.click(within(dialog).getByLabelText(/^Operate/));
     await user.click(within(dialog).getByLabelText('Apply a whole simulation'));
     await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -216,7 +190,7 @@ describe('Applications', () => {
     await user.click(screen.getByRole('button', { name: 'New key' }));
     dialog = await screen.findByRole('dialog');
     expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe('');
-    expect((within(dialog).getByLabelText(/^operate/) as HTMLInputElement).checked).toBe(false);
+    expect((within(dialog).getByLabelText(/^Operate/) as HTMLInputElement).checked).toBe(false);
     const batch = within(dialog).getByLabelText('Apply a whole simulation') as HTMLInputElement;
     expect(batch.checked).toBe(false);
   });

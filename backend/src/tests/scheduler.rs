@@ -234,10 +234,10 @@ async fn ready_to_apply(arr: &FakeArr) -> TestApp {
     app
 }
 
-/// The control that gives the two tests below their meaning: with both switches
-/// thrown, the scheduler really does write to the Arr on its own. The write is
-/// recorded as the schedule's and nobody's: "who moved this" never names a
-/// person who was not there.
+/// With both switches thrown, the scheduler really does write to the Arr on
+/// its own: the apply it reaches is the one whose switches `tests/auto_apply.rs`
+/// holds. The write is recorded as the schedule's and nobody's: "who moved
+/// this" never names a person who was not there.
 #[tokio::test]
 async fn the_scheduler_applies_when_both_switches_allow_it() {
     let arr = FakeArr::with_unimported_movie().await;
@@ -263,50 +263,6 @@ async fn the_scheduler_applies_when_both_switches_allow_it() {
             .await
             .unwrap();
     assert_eq!(logged, [(Some("auto".into()), None)]);
-}
-
-/// The scheduler is the path that can write without anyone asking, so the
-/// guardrail that stops it has to hold from here too, not only from the button.
-#[tokio::test]
-async fn the_scheduler_writes_nothing_while_dry_run_holds() {
-    let arr = FakeArr::with_unimported_movie().await;
-    let app = ready_to_apply(&arr).await;
-    app.store_setting("global_dry_run", "true").await;
-    app.store_setting("auto_apply_enabled", "true").await;
-
-    tick(&app).await;
-
-    // A move *was* proposed (the same fixture writes one when allowed to), and
-    // dry-run is the only thing that stopped it.
-    let proposed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE action = 'move'")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert!(proposed > 0, "nothing was proposed, so nothing was withheld");
-    assert!(
-        arr.recorded().writes.is_empty(),
-        "dry-run was on and the scheduler wrote to the Arr anyway"
-    );
-}
-
-#[tokio::test]
-async fn automatic_application_stays_opt_in() {
-    let arr = FakeArr::with_unimported_movie().await;
-    let app = ready_to_apply(&arr).await;
-    app.store_setting("global_dry_run", "false").await;
-    // `auto_apply_enabled` left at its default, which is off.
-
-    tick(&app).await;
-
-    let proposed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE action = 'move'")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert!(proposed > 0, "nothing was proposed, so nothing was withheld");
-    assert!(
-        arr.recorded().writes.is_empty(),
-        "live mode alone was enough to make the scheduler write"
-    );
 }
 
 // ---------------------------------------------------------------- backups

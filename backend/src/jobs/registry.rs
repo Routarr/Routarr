@@ -121,6 +121,9 @@ pub struct JobRegistry {
     locks: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     /// How many callers are waiting for each key, so a wait can be bounded.
     waiting: Arc<Mutex<HashMap<String, usize>>>,
+    /// How many callers `lock_within` holds waiting for each key, which a
+    /// test reads to release a lock once the wait it proves has begun.
+    queued: Arc<Mutex<HashMap<String, usize>>>,
     /// The work that writes, spawned through `jobs::detached`, which a stop
     /// of the server waits for.
     tracker: TaskTracker,
@@ -139,6 +142,7 @@ impl JobRegistry {
             pool,
             locks: Arc::new(Mutex::new(HashMap::new())),
             waiting: Arc::new(Mutex::new(HashMap::new())),
+            queued: Arc::new(Mutex::new(HashMap::new())),
             tracker: TaskTracker::new(),
             closing: Arc::new(AtomicBool::new(false)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -188,6 +192,11 @@ impl JobRegistry {
     /// in the semaphore's queue with it.
     pub async fn lock_within(&self, key: &str, budget: Duration) -> Option<JobLock> {
         let permit = self.permit_for(key);
+        let _queued = {
+            let mut queued = self.queued.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            *queued.entry(key.to_string()).or_insert(0) += 1;
+            WaitingPlace { key: key.to_string(), waiting: Arc::clone(&self.queued) }
+        };
         let acquired = tokio::time::timeout(budget, permit.acquire_owned()).await.ok()?;
         acquired.ok().map(|permit| JobLock { _permit: permit })
     }
@@ -215,6 +224,14 @@ impl JobRegistry {
     pub fn waiting_for(&self, key: &str) -> usize {
         let waiting = self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         waiting.get(key).copied().unwrap_or(0)
+    }
+
+    /// How many callers `lock_within` holds waiting for `key` right now. Only
+    /// a test asks.
+    #[cfg(test)]
+    pub fn queued_for(&self, key: &str) -> usize {
+        let queued = self.queued.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        queued.get(key).copied().unwrap_or(0)
     }
 
     /// Mark jobs left `running` by a previous process as failed.

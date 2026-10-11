@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readBackend } from './backend';
 
 /**
  * The count placeholders the server lists in `COUNTS` and sends with its
@@ -7,7 +6,7 @@ import { join } from 'node:path';
  * have the interface group.
  */
 export const SERVER_COUNTS: readonly string[] = (() => {
-  const source = readFileSync(join(process.cwd(), '../backend/src/localization.rs'), 'utf8');
+  const source = readBackend('backend/src/localization.rs');
   const list = /pub const COUNTS: &\[&str\] = &\[([^\]]*)\]/.exec(source)?.[1] ?? '';
   return [...list.matchAll(/"(\w+)"/g)].map((match) => match[1] ?? '');
 })();

@@ -12,7 +12,9 @@ did.
 
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
 
 def initial_root_folders():
     return [
@@ -22,6 +24,8 @@ def initial_root_folders():
 
 
 ROOT_FOLDERS = initial_root_folders()
+
+TAGS = [{"id": 1, "label": "4k"}, {"id": 2, "label": "rewatch"}]
 
 
 def movie(
@@ -70,6 +74,30 @@ MOVIES = initial_movies()
 # only in the request, never in the movie it leaves behind.
 EDITS = []
 
+# Each path asked that this stand-in does not serve. A real Radarr answers it,
+# and a 404 here sends Routarr down the path it takes when Radarr fails, which
+# the suite would then exercise in place of the ordinary one.
+UNKNOWN = []
+
+
+def directory_listing(asked):
+    """What `/api/v3/filesystem` answers, as Radarr's LookupContents does: the
+    query is cut after its last separator and what remains is listed, each
+    directory's path ending in a separator."""
+    tree = {folder["path"] for folder in ROOT_FOLDERS}
+    tree |= {path.rsplit("/", 1)[0] for path in tree}
+    if "/" not in asked:
+        return {"directories": [], "files": []}
+    listed = asked[: asked.rindex("/")]
+    children = sorted(child for child in tree if child and child.rsplit("/", 1)[0] == listed)
+    return {
+        "directories": [
+            {"type": "folder", "name": child.rsplit("/", 1)[1], "path": child + "/"}
+            for child in children
+        ],
+        "files": [],
+    }
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -89,6 +117,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        query = parse_qs(urlparse(self.path).query)
         held = held_movie(path)
         if held is not None:
             return self._send(held)
@@ -100,8 +129,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"version": "5.14.0.9383", "appName": "Radarr"})
         if path == "/api/v3/rootfolder":
             return self._send(ROOT_FOLDERS)
+        # A disk under each root folder, with the free space the folder reports.
+        if path == "/api/v3/diskspace":
+            return self._send(
+                [
+                    {
+                        "path": folder["path"],
+                        "label": "",
+                        "freeSpace": folder["freeSpace"],
+                        "totalSpace": 4 * folder["freeSpace"],
+                    }
+                    for folder in ROOT_FOLDERS
+                ]
+            )
         if path == "/api/v3/movie":
+            if "tmdbId" in query:
+                tmdb = int(query["tmdbId"][0])
+                return self._send([item for item in MOVIES if item["tmdbId"] == tmdb])
             return self._send(MOVIES)
+        if path == "/api/v3/movie/lookup/tmdb":
+            tmdb = int(query.get("tmdbId", ["0"])[0])
+            found = next((item for item in MOVIES if item["tmdbId"] == tmdb), None)
+            return self._send(found) if found else self._send({}, 404)
+        if path == "/api/v3/movie/lookup/imdb":
+            return self._send({}, 404)
+        if path == "/api/v3/tag":
+            return self._send(TAGS)
+        if path == "/api/v3/config/metadata":
+            return self._send({"certificationCountry": "us"})
+        if path == "/api/v3/filesystem":
+            return self._send(directory_listing(query.get("path", [""])[0] or "/"))
+        if path == "/__unknown":
+            return self._send(UNKNOWN)
         # A reset hook, so a test can undo what a previous one moved.
         if path == "/__reset":
             MOVIES[:] = initial_movies()
@@ -118,13 +177,13 @@ class Handler(BaseHTTPRequestHandler):
                 if folder["path"] == asleep:
                     folder["accessible"] = False
             return self._send({"ok": True})
-        self._send({}, 404)
+        self._unknown("GET", path)
 
     def do_PUT(self):
         path = self.path.split("?")[0]
         item = held_movie(path)
         if item is None:
-            return self._send({}, 404)
+            return self._unknown("PUT", path)
         payload = self._body()
         move_files = "moveFiles=true" in self.path
         EDITS.append({"movieIds": [item["id"]], "moveFiles": move_files})
@@ -132,6 +191,16 @@ class Handler(BaseHTTPRequestHandler):
         item["path"] = payload["path"]
         # Radarr answers 202 with the movie as it now is.
         return self._send(item, 202)
+
+    def do_POST(self):
+        self._unknown("POST", self.path.split("?")[0])
+
+    def _unknown(self, method, path):
+        asked = f"{method} {path}"
+        if asked not in UNKNOWN:
+            UNKNOWN.append(asked)
+            print(f"fake Radarr: nothing serves {asked}", file=sys.stderr, flush=True)
+        self._send({}, 404)
 
 
 def held_movie(path):

@@ -1,7 +1,6 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { FIELDS, SECTIONS } from './settings';
+import { readBackend } from '../test/backend';
 
 /**
  * The tab strip is the only way to reach a setting, and the payload is built
@@ -36,18 +35,20 @@ describe('the settings grouping', () => {
   });
 
   /**
-   * The backend bounds every number. A field without its bounds sends `0` or
-   * `-5` and gets the refusal back after Save, naming a key in a tab the
-   * operator may never have opened.
+   * The backend bounds every number. A field whose bounds part from the
+   * server's sends a value it refuses, and the refusal comes back after Save,
+   * naming a key in a tab the operator may never have opened.
    */
   it('gives every number field the bounds the backend enforces', () => {
-    for (const field of FIELDS.filter((f) => f.kind === 'number')) {
-      expect(field.range, field.key).toBeDefined();
-      const [low, high] = field.range as [number, number | null];
-      expect(low).toBeGreaterThanOrEqual(0);
-      if (high !== null) expect(high).toBeGreaterThan(low);
+    const bounds = backendBounds();
+    expect(bounds.size).toBeGreaterThan(8);
+    const numbers = FIELDS.filter((f) => f.kind === 'number');
+    expect(numbers.map((field) => field.key).sort()).toEqual([...bounds.keys()].sort());
+    for (const field of numbers) {
+      expect(field.range, field.key).toEqual(bounds.get(field.key));
+      const [low, high] = field.range as [number, number];
       const fallback = Number(field.fallback);
-      expect(fallback >= low && (high === null || fallback <= high), `${field.key}`).toBe(true);
+      expect(fallback >= low && fallback <= high, field.key).toBe(true);
     }
   });
 
@@ -59,12 +60,32 @@ describe('the settings grouping', () => {
   });
 });
 
-/** A file of the backend, read as text. */
+/** A file of the backend's sources, read as text. */
 function backend(...parts: string[]): string {
-  return fs.readFileSync(
-    path.resolve(__dirname, '..', '..', '..', 'backend', 'src', ...parts),
-    'utf8',
-  );
+  return readBackend(`backend/src/${parts.join('/')}`);
+}
+
+/**
+ * Each ranged setting's bounds as `KNOWN` in `services/settings.rs` declares
+ * them, `Kind::Bounded` and `Kind::Retention` alike, a named ceiling read
+ * where the file writes it.
+ */
+function backendBounds(): Map<string, [number, number]> {
+  const table = backend('services', 'settings.rs');
+  const number = (written: string): number => {
+    const named = new RegExp(`const ${written.trim()}: i64 = ([\\d_ *]+);`).exec(table);
+    return (named?.[1] ?? written)
+      .split('*')
+      .reduce((product, factor) => product * Number(factor.trim().replaceAll('_', '')), 1);
+  };
+  const bounds = new Map<string, [number, number]>();
+  const ranged = /^\s+\("([a-z_]+)", Kind::(?:Bounded|Retention)\(([^,]+), ([^)]+)\)/gm;
+  for (const [, key, low, high] of table.matchAll(ranged)) {
+    if (key !== undefined && low !== undefined && high !== undefined) {
+      bounds.set(key, [number(low), number(high)]);
+    }
+  }
+  return bounds;
 }
 
 /**

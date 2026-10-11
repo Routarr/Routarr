@@ -11,19 +11,12 @@ import NotFound from './NotFound.svelte';
  * say where you are, which the dashboard shown in its place would not.
  */
 
-const STRINGS = {
-  NotFoundTitle: 'Page not found',
-  NotFoundSubtitle: 'Routarr serves nothing at {path}.',
-  NotFoundHelp: 'Check the address, or pick a screen from the menu.',
-  BackToDashboard: 'Back to the dashboard',
-};
-
 afterEach(() => withBase(null));
 
 describe('NotFound', () => {
   it('names the address that reached nothing', () => {
     navigate('/typo');
-    renderWithI18n(NotFound, { strings: STRINGS });
+    renderWithI18n(NotFound);
 
     expect(screen.getByRole('heading', { name: 'Page not found', level: 1 })).toBeInTheDocument();
     // The path, not a generic apology: it is what tells the reader whether they
@@ -36,7 +29,7 @@ describe('NotFound', () => {
    * listener in the router intercepts it like every other internal link.
    */
   it('offers a way out that is a link', () => {
-    renderWithI18n(NotFound, { strings: STRINGS });
+    renderWithI18n(NotFound);
 
     expect(screen.getByRole('link', { name: 'Back to the dashboard' })).toHaveAttribute(
       'href',
@@ -46,7 +39,7 @@ describe('NotFound', () => {
 
   it('points the way out at the mount point, not at the proxy root', () => {
     withBase('/routarr/');
-    renderWithI18n(NotFound, { strings: STRINGS });
+    renderWithI18n(NotFound);
 
     expect(screen.getByRole('link', { name: 'Back to the dashboard' })).toHaveAttribute(
       'href',

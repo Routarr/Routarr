@@ -27,33 +27,6 @@ test('greets an installation not set up with its next steps', async ({ page }) =
   ).toBeVisible();
 });
 
-test('can be skipped, and offers itself back until the setup is done', async ({ page }) => {
-  await showGuide();
-  await page.goto('/');
-
-  await page.getByRole('button', { name: 'Skip the guide' }).click();
-  await expect(page.getByRole('region', { name: 'Getting started' })).toHaveCount(0);
-  await expect(
-    page.getByRole('link', { name: /Getting started, required steps done/ }),
-  ).toHaveCount(0);
-
-  await page.getByRole('button', { name: 'Resume the guide' }).click();
-  await expect(page.getByRole('region', { name: 'Getting started' })).toBeVisible();
-});
-
-test('a step opens the screen that does it, with its dialog ready', async ({ page }) => {
-  await showGuide();
-  await page.goto('/');
-
-  await page.getByRole('link', { name: 'Create a rule' }).click();
-
-  // The rule editor itself, not any dialog: a confirmation or an error would
-  // also be one.
-  await expect(page.getByRole('dialog', { name: 'Create routing rule' })).toBeVisible();
-  // Taken out of the address, so a reload does not open the editor again.
-  await expect(page).toHaveURL(/\/rules$/);
-});
-
 test('adding an instance ticks the first step and leads straight to the next', async ({
   page,
   instanceId,

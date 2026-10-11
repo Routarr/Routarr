@@ -10,42 +10,16 @@ import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
 import GettingStarted from './GettingStarted.svelte';
 import GettingStartedHarness from '../test/GettingStartedHarness.svelte';
 
-const STRINGS = {
-  GuideTitle: 'Getting started',
-  GuideIntro: 'A few steps',
-  GuideProgress: 'Required steps done: {done} of {total}',
-  GuideStepDone: 'Done',
-  GuideStepNext: 'Next step',
-  OptionalStep: 'optional',
-  GuideInstanceTitle: 'Connect Radarr or Sonarr',
-  GuideInstanceAction: 'Add an instance',
-  GuideCategoriesTitle: 'Map root folders to categories',
-  GuideCategoriesAction: 'Open categories and folders',
-  GuideMetadataTitle: 'Choose metadata sources',
-  GuideMetadataAction: 'Open the sources',
-  GuideRuleTitle: 'Write a first rule',
-  GuideRuleAction: 'Create a rule',
-  GuideSimulationTitle: 'Run a simulation',
-  GuideSimulationAction: 'Open the simulation',
-  GuideLiveTitle: 'Turn off the global dry-run',
-  GuideLiveAction: 'Open the routing settings',
-  GuideComplete: 'Routarr is set up.',
-  GuideFinish: 'Finish',
-  GuideSkip: 'Skip the guide',
-  GuidePaused: 'The setup is not finished. Required steps done: {done} of {total}',
-  GuideResume: 'Resume the guide',
-};
-
 function show(status: OnboardingStatus) {
   const outcome = createOutcome();
-  renderWithI18n(GettingStarted, { props: { status, outcome }, strings: STRINGS });
+  renderWithI18n(GettingStarted, { props: { status, outcome } });
   return outcome;
 }
 
 /** The guide drawn from the published state, as the dashboard draws it. */
 function showLive(status: OnboardingStatus) {
   publishOnboarding(status);
-  renderWithI18n(GettingStartedHarness, { props: { outcome: createOutcome() }, strings: STRINGS });
+  renderWithI18n(GettingStartedHarness, { props: { outcome: createOutcome() } });
 }
 
 const REQUIRED_DONE = ['instance', 'categories', 'rule', 'simulation'] as const;
@@ -65,8 +39,8 @@ describe('GettingStarted', () => {
     expect(within(steps[0] as HTMLElement).getByText('Done')).toBeTruthy();
     expect(within(steps[1] as HTMLElement).getByText('Next step')).toBeTruthy();
     // Optional steps say so, and never count toward the total above.
-    expect(within(steps[2] as HTMLElement).getByText('optional')).toBeTruthy();
-    expect(within(steps[5] as HTMLElement).getByText('optional')).toBeTruthy();
+    expect(within(steps[2] as HTMLElement).getByText('Optional')).toBeTruthy();
+    expect(within(steps[5] as HTMLElement).getByText('Optional')).toBeTruthy();
   });
 
   /** The banners say "step 3 of 4": the list shows which one that is. */
@@ -121,7 +95,11 @@ describe('GettingStarted', () => {
       .mockResolvedValue(onboardingStatus([], { state: 'done' }));
     show(onboardingStatus(['instance', 'categories', 'rule', 'simulation']));
 
-    expect(screen.getByText('Routarr is set up.')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Routarr is set up. Apply the moves you agree with from the simulation, whenever you are ready.',
+      ),
+    ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Skip the guide' })).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
 

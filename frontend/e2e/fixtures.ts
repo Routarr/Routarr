@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { test as base, expect, type Page, type Request } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 const API = `${process.env.ROUTARR_E2E_URL ?? 'http://127.0.0.1:9877'}/api/v1`;
 
@@ -215,36 +215,6 @@ async function unfold(page: Page): Promise<void> {
 }
 
 /**
- * The writes the page sends while `act` runs and once the page has had its
- * turn. A component resumes after an answer on a later task, so a check made
- * as the dialog closes passes against one that ignores Cancel.
- */
-async function writesDuring(page: Page, act: () => Promise<void>): Promise<string[]> {
-  const writes: string[] = [];
-  const open = new Set<Request>();
-  const started = (request: Request) => {
-    open.add(request);
-    if (request.method() !== 'GET') {
-      writes.push(`${request.method()} ${new URL(request.url()).pathname}`);
-    }
-  };
-  const ended = (request: Request) => open.delete(request);
-  page.on('request', started);
-  page.on('requestfinished', ended);
-  page.on('requestfailed', ended);
-  try {
-    await act();
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-    await expect.poll(() => open.size).toBe(0);
-  } finally {
-    page.off('request', started);
-    page.off('requestfinished', ended);
-    page.off('requestfailed', ended);
-  }
-  return writes;
-}
-
-/**
  * Answer the proof a session gives before it makes or withdraws a key, with
  * the key the harness serves: the dialog opens above the one that asked.
  */
@@ -268,7 +238,6 @@ export {
   proveWithKey,
   screenShown,
   unfold,
-  writesDuring,
   API,
   ARR,
   AXE_TAGS,

@@ -13,20 +13,6 @@ import LibraryFacets from './LibraryFacets.svelte';
  * rules.
  */
 
-const STRINGS = {
-  InYourLibrary: 'In your library ({count})',
-  FacetGenres: 'Genres',
-  FacetLanguages: 'Languages',
-  FacetCountries: 'Origin countries',
-  FacetCertifications: 'Certifications',
-  FacetTags: 'Tags',
-  FacetSeriesTypes: 'Series types',
-  FacetRootFolders: 'Root folders',
-  FacetsEmpty: 'Nothing counted yet.',
-  FacetsMore: 'and {count} more',
-  FacetsNoMetadata: 'Without metadata: {count}',
-};
-
 const facets = {
   total_media: 38,
   vocabularies: {
@@ -46,7 +32,8 @@ const facets = {
   root_folders: [{ value: '/movies/standard', count: 30 }],
 };
 
-const show = () => renderWithI18n(LibraryFacets, { props: { facets }, strings: STRINGS }).container;
+const show = (over: Partial<typeof facets> = {}) =>
+  renderWithI18n(LibraryFacets, { props: { facets: { ...facets, ...over } } }).container;
 
 /**
  * Open it the way a browser does.
@@ -84,6 +71,21 @@ describe('LibraryFacets', () => {
     expect(screen.getByText('Japanese (ja)')).toBeInTheDocument();
     // Only the axes carrying something: an empty card teaches nothing.
     expect(screen.queryByText('Certifications')).toBeNull();
+    // Nor a count of titles without metadata when every title has some.
+    expect(screen.queryByText(/^Items with neither a genre/)).toBeNull();
+  });
+
+  /** A rule matching nothing may be waiting on titles no metadata condition can see. */
+  it('counts the titles that carry nothing a metadata condition can match', async () => {
+    const container = show({ without_metadata: 3 });
+
+    await disclose(container);
+
+    expect(
+      screen.getByText(
+        'Items with neither a genre nor an original language: 3. No metadata condition can see them.',
+      ),
+    ).toBeInTheDocument();
   });
 
   /**

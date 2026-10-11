@@ -1,4 +1,5 @@
 import { test, expect, api, openScreen } from './fixtures';
+import type { RuleDraft } from '../src/api/types';
 
 /**
  * The interface in a right-to-left language.
@@ -130,7 +131,7 @@ test.describe('right to left', () => {
         enabled: true,
         conditions: [{ type: 'title_contains', value: ['akira'] }],
         exclusions: [],
-      }),
+      } satisfies Partial<RuleDraft>),
     });
     await setLanguage('ar');
     await page.goto('/simulation');
@@ -237,7 +238,7 @@ test.describe('right to left', () => {
         enabled: true,
         instance_ids: [instanceId],
         conditions: [{ type: 'genre_contains', value: ['Animation'] }],
-      }),
+      } satisfies Partial<RuleDraft>),
     });
 
     await setLanguage('ar');

@@ -3,6 +3,7 @@ import type { Locator } from '@playwright/test';
 import { test, expect, api, openScreen, proveWithKey, unfold } from './fixtures';
 import { seedRows } from './seed';
 import { SCREENS as ROUTES } from './screens';
+import type { RuleDraft } from '../src/api/types';
 
 /**
  * Layout facts that only a real browser can establish. jsdom computes no
@@ -89,7 +90,7 @@ test.describe('a long title or path is read whole', () => {
         enabled: true,
         conditions: [{ type: 'title_contains', value: ['totoro'] }],
         exclusions: [],
-      }),
+      } satisfies Partial<RuleDraft>),
     });
     await openScreen(page, '/simulation');
     await page.getByRole('button', { name: /run simulation/i }).click();
@@ -588,7 +589,7 @@ test('selecting rows does not move the rows', async ({ page }) => {
       enabled: true,
       conditions: [{ type: 'title_contains', value: ['akira', 'totoro', 'perfect blue'] }],
       exclusions: [],
-    }),
+    } satisfies Partial<RuleDraft>),
   });
 
   await page.goto('/simulation');
@@ -655,21 +656,30 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
   // into the sampled strip, whatever the cover does.
   await page.mouse.move(0, 0);
 
-  // A row, not the header: `th` paints its own opaque background and would hide
-  // the container's regardless.
+  // Across the middle of the first data row, wherever it falls: not the
+  // header, whose `th` paints its own opaque background and would hide the
+  // container's regardless, and not below the last row, where the strip meets
+  // the table's corner rather than a row.
+  const row = container.locator('tbody tr').first();
+  await expect(row).toBeVisible();
+  const [rowBox, containerBox] = [await row.boundingBox(), await container.boundingBox()];
+  if (rowBox === null || containerBox === null) throw new Error('the table is not laid out');
+  const middle = rowBox.y + rowBox.height / 2 - containerBox.y;
   const shot = await container.screenshot();
-  const edges = await page.evaluate(async (bytes) => {
-    const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
-    const bitmap = await createImageBitmap(blob);
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(bitmap, 0, 0);
-    // Below the header row, wherever the first data row happens to fall.
-    const y = Math.min(bitmap.height - 1, 130);
-    const strip = (x: number) => Array.from(ctx.getImageData(x, y, 16, 1).data);
-    // Two pixels in: WebKit draws the container's edge one pixel wider.
-    return { left: strip(2), right: strip(bitmap.width - 18), width: bitmap.width };
-  }, Array.from(shot));
+  const edges = await page.evaluate(
+    async ([bytes, middle]) => {
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
+      const bitmap = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(bitmap, 0, 0);
+      const y = Math.round(middle * devicePixelRatio);
+      const strip = (x: number) => Array.from(ctx.getImageData(x, y, 16, 1).data);
+      // Two pixels in: WebKit draws the container's edge one pixel wider.
+      return { left: strip(2), right: strip(bitmap.width - 18), width: bitmap.width };
+    },
+    [Array.from(shot), middle] as const,
+  );
 
   // Each 16px strip must be one flat colour: a gradient means a shadow, three
   // units deep at least here. One unit per channel is an engine's rounding.

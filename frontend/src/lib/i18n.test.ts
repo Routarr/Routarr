@@ -1,12 +1,11 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 
 import { api } from '../api/client';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { formatCount } from '../api/format';
 import { SERVER_COUNTS } from '../test/counts';
 import { loadDictionary, seedDictionary, startDictionary, t } from './i18n.svelte';
+import { readBackend } from '../test/backend';
 
 describe('t', () => {
   /**
@@ -68,9 +67,10 @@ describe('a count in a sentence', () => {
    * table, held to the same cases in `localization.rs`.
    */
   it('is grouped as the server groups it, in every language', () => {
-    const cases = JSON.parse(
-      readFileSync(join(process.cwd(), '../backend/src/grouped_count_cases.json'), 'utf8'),
-    ) as { numbers: number[]; grouped: Record<string, string[]> };
+    const cases = JSON.parse(readBackend('backend/src/grouped_count_cases.json')) as {
+      numbers: number[];
+      grouped: Record<string, string[]>;
+    };
     for (const [language, grouped] of Object.entries(cases.grouped)) {
       expect(
         cases.numbers.map((n) => formatCount(n, language)),

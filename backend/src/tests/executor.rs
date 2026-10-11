@@ -1009,7 +1009,7 @@ async fn every_route_that_moves_sends_the_arr_the_files_choice_it_was_given() {
 /// another holds the lock, before writing anything, and go ahead once it is
 /// released.
 #[tokio::test]
-async fn every_route_that_moves_waits_for_the_move_already_running() {
+async fn every_route_that_moves_refuses_while_another_move_runs() {
     let every_question = ["batch", "capacity", "threshold", "unreachable"];
     for route in ["apply", "apply-all", "revert"] {
         let arr = FakeArr::start().await;

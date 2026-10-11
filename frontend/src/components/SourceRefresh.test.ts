@@ -11,14 +11,6 @@ import SourceRefresh from './SourceRefresh.svelte';
  * asks, and only those, since a pass reads the saved order and nothing else.
  */
 
-const STRINGS = {
-  SourceRefreshTitle: 'Read the answers again',
-  SourceRefreshHelp: 'Read a source again after it corrected its data.',
-  SourceRefresh: 'Read again',
-  SourceRefreshed: '{source}: read {enriched}, failed {failed}',
-  SourceRefreshNone: 'Nothing to read again',
-};
-
 function provider(id: string, over: Partial<MetadataProvider> = {}): MetadataProvider {
   return {
     id,
@@ -50,7 +42,7 @@ function report(over: Partial<EnrichmentReport> = {}): EnrichmentReport {
 
 function show(catalogue: MetadataProviders = CATALOGUE) {
   vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(catalogue);
-  return renderWithI18n(SourceRefresh, { strings: STRINGS });
+  return renderWithI18n(SourceRefresh);
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -72,7 +64,7 @@ describe('SourceRefresh', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Read again – TMDB' }));
 
-    expect(await screen.findByText('TMDB: read 3, failed 0')).toBeTruthy();
+    expect(await screen.findByText('TMDB: answers read again: 3, failed: 0')).toBeTruthy();
     expect(asked).toHaveBeenCalledWith('tmdb');
   });
 
@@ -83,7 +75,7 @@ describe('SourceRefresh', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Read again – TMDB' }));
 
     // A warning, not a success: part of what was asked was not done.
-    const said = await screen.findByText('TMDB: read 2, failed 1');
+    const said = await screen.findByText('TMDB: answers read again: 2, failed: 1');
     expect(said.closest('.banner-warning')).toBeTruthy();
   });
 
@@ -101,6 +93,10 @@ describe('SourceRefresh', () => {
   it('says so when no source can be read again', async () => {
     show({ ...CATALOGUE, order: ['arr'] });
 
-    expect(await screen.findByText('Nothing to read again')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "No source to read again: Radarr and Sonarr's metadata comes with each sync.",
+      ),
+    ).toBeTruthy();
   });
 });

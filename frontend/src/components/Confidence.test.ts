@@ -13,7 +13,7 @@ import Confidence from './Confidence.svelte';
  * makes that measurement true.
  */
 const show = (value: number, meter = false) =>
-  renderWithI18n(Confidence, { props: { value, meter }, strings: {} });
+  renderWithI18n(Confidence, { props: { value, meter } });
 
 describe('Confidence', () => {
   it('puts the figure outside the bar, not over the fill', () => {

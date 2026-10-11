@@ -12,36 +12,87 @@ async fn settings(app: &TestApp) -> serde_json::Value {
     app.get("/api/v1/settings").await.assert_ok().clone()
 }
 
-/// The claim the whole feature rests on: what is stored is sealed, and what is
-/// returned is nothing.
+/// A secret written as one to the setting `key`: what a test looks for in a
+/// row and an answer, and a value its own validation takes.
+fn secret_for(key: &str) -> String {
+    match key {
+        "notification_webhook_url" => "https://discord.com/api/webhooks/1/secret-8f3a".into(),
+        _ => format!("{key}-secret-8f3a"),
+    }
+}
+
+/// The claim every credential setting rests on: what is stored is sealed,
+/// and what is returned is nothing but whether one is set, through every
+/// answer that speaks of the settings or the sources.
 #[tokio::test]
-async fn a_saved_key_is_sealed_in_the_table_and_never_read_back() {
+async fn every_credential_setting_is_sealed_and_never_read_back() {
     let app = TestApp::new().await;
     app.list_tmdb().await;
-    assert_eq!(app.save_setting("tmdb_api_key", "super-secret-value").await.status, 200);
+    let keys = crate::services::settings::sealed_keys();
+    for credential in [
+        "tmdb_api_key",
+        "omdb_api_key",
+        "tvdb_api_key",
+        "notification_webhook_url",
+        "backup_passphrase",
+    ] {
+        assert!(keys.contains(&credential), "{credential} is not sealed: {keys:?}");
+    }
 
-    let stored: String =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'tmdb_api_key'")
+    for key in keys {
+        let secret = secret_for(key);
+        // The passphrase has a route of its own, which reseals the archives.
+        let saved = if key == crate::services::backup::PASSPHRASE_SETTING {
+            let body = serde_json::json!({ "passphrase": secret });
+            app.put("/api/v1/backups/passphrase", body).await.status
+        } else {
+            app.save_setting(key, &secret).await.status
+        };
+        assert!(saved.is_success(), "{key}: {saved}");
+
+        let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert!(stored.starts_with("enc:v2:"), "stored in the clear: {stored}");
-    assert!(!stored.contains("super-secret"), "the plaintext survived in the row");
+        assert!(stored.starts_with("enc:v2:"), "{key} stored in the clear: {stored}");
+        assert_eq!(app.state.secrets.open(&stored).unwrap(), secret, "{key}");
 
-    let body = settings(&app).await;
-    assert!(body.get("tmdb_api_key").is_none(), "the value came back out");
-    assert_eq!(body["tmdb_api_key_configured"], true, "the screen cannot tell one is set");
+        let body = settings(&app).await;
+        assert!(body.get(key).is_none(), "{key} came back out");
+        assert_eq!(body[format!("{key}_configured")], true, "the screen cannot tell {key} is set");
+        for path in [
+            "/api/v1/settings",
+            "/api/v1/metadata/providers",
+            "/api/v1/health?probe=false",
+            "/api/v1/config/export",
+        ] {
+            let answer = app.text(path).await;
+            assert!(!answer.contains("secret-8f3a"), "{key} appears in {path}");
+        }
+    }
+}
 
-    // Every answer that speaks about the source, or about the settings.
-    for path in [
-        "/api/v1/settings",
-        "/api/v1/metadata/providers",
-        "/api/v1/health?probe=false",
-        "/api/v1/config/export",
-    ] {
-        let answer = app.text(path).await;
-        assert!(answer.contains("tmdb"), "{path} answered something else: {answer}");
-        assert!(!answer.contains("super-secret"), "the plaintext appears in {path}");
+/// A database from before sealing holds a credential in the clear. The pass
+/// that seals every secret at startup covers each one, and each opens to the
+/// text it held.
+#[tokio::test]
+async fn every_credential_setting_stored_in_the_clear_is_sealed_at_startup() {
+    let app = TestApp::new().await;
+    for key in crate::services::settings::sealed_keys() {
+        app.store_setting(key, &secret_for(key)).await;
+    }
+
+    crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
+
+    for key in crate::services::settings::sealed_keys() {
+        let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+        assert!(stored.starts_with("enc:v2:"), "{key} left in the clear: {stored}");
+        assert_eq!(app.state.secrets.open(&stored).unwrap(), secret_for(key), "{key}");
     }
 }
 
@@ -139,25 +190,6 @@ async fn a_listed_source_without_its_key_does_not_block_a_save() {
         .await;
 
     saved.assert_ok();
-}
-
-/// A rotation that leaves the metadata keys behind is a rotation that silently
-/// stops the conditions reading them from matching.
-#[tokio::test]
-async fn the_resealing_pass_covers_the_metadata_keys_too() {
-    let app = TestApp::new().await;
-    // Plaintext, as a database upgraded from before sealing would hold.
-    app.store_setting("omdb_api_key", "bare").await;
-
-    crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
-
-    let stored: String =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'omdb_api_key'")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
-    assert!(stored.starts_with("enc:v2:"), "left in the clear: {stored}");
-    assert_eq!(app.state.provider_key("omdb").await.as_deref(), Some("bare"));
 }
 
 /// A settings secret no key can open is left exactly as it was.

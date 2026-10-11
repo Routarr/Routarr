@@ -12,16 +12,6 @@ import SourceCredits from './SourceCredits.svelte';
  * a source used outside its terms.
  */
 
-const STRINGS = {
-  SourceCreditsTitle: 'Data sources',
-  CreditTmdb: 'Routarr uses TMDB and the TMDB APIs but is not endorsed by TMDB.',
-  CreditTvdb: 'Metadata provided by TheTVDB.',
-  CreditOmdb: 'Data from OMDb, licensed under CC BY-NC 4.0.',
-  CreditAnilist: 'Data from AniList.',
-  CreditJikan: 'Data from MyAnimeList, read through Jikan.',
-  TmdbLogo: 'TMDB logo',
-};
-
 function source(id: string, website: string | null): MetadataProvider {
   return {
     id,
@@ -53,13 +43,21 @@ afterEach(() => vi.restoreAllMocks());
 describe('SourceCredits', () => {
   it('credits every source as its terms ask, enabled or not, and links to it', async () => {
     vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(CATALOGUE);
-    renderWithI18n(SourceCredits, { strings: STRINGS });
+    renderWithI18n(SourceCredits);
 
-    const tmdb = (await screen.findByText(STRINGS.CreditTmdb)).closest('li')!;
+    const tmdb = (
+      await screen.findByText(
+        'Routarr uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.',
+      )
+    ).closest('li')!;
     expect(within(tmdb).getByRole('img', { name: 'TMDB logo' })).toBeTruthy();
     expect(within(tmdb).getByRole('link')).toHaveAttribute('href', 'https://www.themoviedb.org');
 
-    const tvdb = screen.getByText(STRINGS.CreditTvdb).closest('li')!;
+    const tvdb = screen
+      .getByText(
+        'Metadata provided by TheTVDB. Please consider adding missing information or subscribing.',
+      )
+      .closest('li')!;
     expect(within(tvdb).getByRole('link', { name: 'thetvdb.com' })).toHaveAttribute(
       'href',
       'https://thetvdb.com',
@@ -70,8 +68,8 @@ describe('SourceCredits', () => {
     const omdb = licence.closest('li')!;
     expect(omdb.textContent?.split('CC BY-NC 4.0')).toHaveLength(2);
     expect(within(omdb).getByRole('link', { name: 'www.omdbapi.com' })).toBeTruthy();
-    expect(screen.getByText(STRINGS.CreditAnilist)).toBeTruthy();
-    expect(screen.getByText(STRINGS.CreditJikan)).toBeTruthy();
+    expect(screen.getByText('Data from AniList.')).toBeTruthy();
+    expect(screen.getByText('Data from MyAnimeList, read through Jikan.')).toBeTruthy();
     // The Arrs supply their own library: nothing of theirs to credit.
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
   });
@@ -80,7 +78,7 @@ describe('SourceCredits', () => {
     vi.spyOn(api, 'getMetadataProviders').mockRejectedValue(
       new ApiError('The server is unreachable.', 0, 'network'),
     );
-    renderWithI18n(SourceCredits, { strings: STRINGS });
+    renderWithI18n(SourceCredits);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The server is unreachable.');
   });

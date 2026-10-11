@@ -20,43 +20,6 @@ import RootFolders from './RootFolders.svelte';
  * item has to land somewhere.
  */
 
-const STRINGS = {
-  DeclareDestination: 'Destination folder',
-  DeclareDestinationPlaceholder: '/media/movies/anime',
-  DeclareDestinationHelp: 'A folder the instance can reach.',
-  AddDestination: 'Add',
-  DestinationDeclared: "Destination '{path}' added",
-  DestinationRemoved: "Destination '{path}' removed",
-  Remove: 'Remove',
-  Instance: 'Instance',
-  RootFolders: 'Categories and folders',
-  Categories: 'Categories',
-  FolderMappings: 'Folder mappings',
-  NewCategory: 'New category',
-  RenameCategory: 'Rename category',
-  CategoryRenamed: 'Category renamed',
-  DefaultCategoryBadge: 'default',
-  Delete: 'Delete',
-  Unmapped: 'Unmapped',
-  CategoryForFolder: 'Category for {path}',
-  MappingUpdated: 'Mapping updated',
-  Name: 'Name',
-  Save: 'Save',
-  None: '-',
-  Accessible: 'accessible',
-  Inaccessible: 'unreachable',
-  LastAnswered: 'Last answered {since}',
-  NeverAnswered: 'Has never answered',
-  NoRootFolderDiscovered: 'No root folder',
-  Create: 'Create',
-  Cancel: 'Cancel',
-  CategoryCreated: 'Category {name} created',
-  CategoryDeleted: 'Category deleted',
-  ConfirmRemoveDestination: 'Remove the destination {path}?',
-  ConfirmDeleteCategory: 'Delete the category "{name}"?',
-  ConfirmLeaveUnsavedMappings: 'Leave without saving the folder categories? Unsaved: {count}',
-};
-
 function category(over: Partial<Category> = {}): Category {
   return {
     id: 'c1',
@@ -103,7 +66,7 @@ function show(
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   vi.spyOn(api, 'getMappingConflicts').mockResolvedValue(conflicts);
   vi.spyOn(api, 'getInstances').mockResolvedValue(instances);
-  return renderWithI18n(RootFolders, { strings: STRINGS });
+  return renderWithI18n(RootFolders);
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -182,7 +145,7 @@ describe('Root folders', () => {
     expect(unloading()).toBe(true);
     navigate('/rules');
     expect(await answerConfirmation(null)).toBe(
-      'Leave without saving the folder categories? Unsaved: 1',
+      'Leave without saving the categories picked for the folders? Unsaved changes: 1',
     );
     expect(router.path).not.toBe('/rules');
     expect(picker).toHaveValue('anime');
@@ -217,7 +180,7 @@ describe('Root folders', () => {
   it('says when a folder last answered rather than calling it broken', async () => {
     show([folder({ accessible: false, last_accessible_at: new Date().toISOString() })], []);
 
-    const badge = await screen.findByText('unreachable');
+    const badge = await screen.findByText('Inaccessible');
     expect(badge.className).toContain('badge-warning');
     expect(badge.className).not.toContain('badge-danger');
     expect(screen.getByText(/Last answered/)).toBeInTheDocument();
@@ -420,7 +383,9 @@ describe('Root folders', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove – /data/anime' }));
 
-    expect(await answerConfirmation(null)).toBe('Remove the destination /data/anime?');
+    expect(await answerConfirmation(null)).toBe(
+      'Remove the destination /data/anime? A category mapped to it no longer routes there. Nothing is deleted on disk.',
+    );
     expect(remove).not.toHaveBeenCalled();
   });
 

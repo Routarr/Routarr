@@ -173,14 +173,11 @@ async fn a_preview_is_a_task_of_its_own_kind() {
     app.post("/api/v1/simulate", json!({})).await.assert_ok();
 
     let jobs = app.get("/api/v1/jobs").await;
-    let mut kinds: Vec<&str> = jobs.assert_ok()["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|job| job["kind"].as_str())
-        .collect();
+    let listed = jobs.assert_ok()["data"].as_array().unwrap().clone();
+    let mut kinds: Vec<&str> = listed.iter().filter_map(|job| job["kind"].as_str()).collect();
     kinds.sort_unstable();
     assert_eq!(kinds, ["preview", "simulate"]);
+    assert!(listed.iter().all(|job| job["status"] == "success"), "{listed:?}");
 }
 
 /// The task list is polled, and a preview's report holds up to thousands of

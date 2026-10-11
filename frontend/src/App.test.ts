@@ -36,11 +36,9 @@ describe('App', () => {
       warnings: [],
     });
     navigate('/move-log');
-    renderWithI18n(App, {
-      strings: { UnexpectedError: 'Unexpected error', ReloadPage: 'Reload the page' },
-    });
+    renderWithI18n(App);
 
     expect(await screen.findByRole('button', { name: 'Reload the page' })).toBeTruthy();
-    expect(screen.getByText('Unexpected error')).toBeTruthy();
+    expect(screen.getByText('This page stopped unexpectedly.')).toBeTruthy();
   });
 });

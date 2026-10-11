@@ -3,7 +3,7 @@ import { nthCall } from '../test/spy';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
-import { renderWithI18n } from '../test/render';
+import { ENGLISH, renderWithI18n } from '../test/render';
 import { SERVER_COUNTS } from '../test/counts';
 import { statusRevision } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
@@ -34,84 +34,12 @@ vi.mock('../lib/proof.svelte', () => ({
  * the banner must appear for the combination and only for it.
  */
 
-const STRINGS = {
-  Settings: 'Settings',
-  RangeBetween: 'Enter a whole number from {min} to {max}.',
-  SectionHasInvalid: '{section}: a value is outside its bounds',
-  SaveHeldInvalid: 'Save waits for every marked value to be within its bounds.',
-  LiveModeWarning: 'Live mode is on',
-  AutoApplyWarning: 'Automatic application is armed',
-  SettingsSaved: 'Saved',
-  SettingsSections: 'Sections',
-  SettingsTabGuardrails: 'Guardrails',
-  SettingBatchLimit: 'Batch limit',
-  SettingLogRetention: 'Log retention',
-  SettingsTabAutomation: 'Automation',
-  SettingsTabNotifications: 'Notifications',
-  Metadata: 'Metadata',
-  MetadataSources: 'Metadata sources',
-  SettingMetadataTtl: 'Cache lifetime',
-  SettingsTabGeneral: 'General',
-  SettingsTabSecurity: 'Security',
-  GuideTitle: 'Getting started',
-  GuideRestartText: 'Show the steps again.',
-  GuideRestart: 'Show the guide',
-  GuideLiveAction: 'Open the routing settings',
-  GuideLiveTitle: 'Turn off the global dry-run',
-  GuideOptionalDoneNext: 'Optional step done. Next: {next}',
-  SettingsTabMaintenance: 'Maintenance',
-  UnsavedChanges: 'Unsaved changes: {count}',
-  ConfirmLeaveUnsaved: 'Leave without saving? Unsaved changes: {count}',
-  SavesEverySection: 'Every section is saved together',
-  DiscardChanges: 'Discard',
-  Save: 'Save',
-  SettingNotificationFormat: 'Notification format',
-  SettingOn: 'On',
-  SettingOff: 'Off',
-  MoveUp: 'Move up',
-  MoveDown: 'Move down',
-  DisableSource: 'Disable',
-  EnableSource: 'Enable',
-  ProviderInactive: 'inactive',
-  ProviderNeedsKey: 'needs an API key',
-  SourcesActive: 'Active, in priority order',
-  SourcesInactive: 'Inactive',
-  ProviderKeyOrEnv: 'API key, or the {variable} variable',
-  ProviderKeyPlaceholder: 'API key',
-  RoutarrApiKey: 'Routarr API key',
-  ApiKeyHelp: 'Generated at first start',
-  ApiKeyHelpSession: 'For clients that cannot hold a session',
-  ApiKeyPinned: 'The environment sets it',
-  ApiKeyMintedOnce: 'Copy it now',
-  RegenerateKey: 'Regenerate',
-  CreateKey: 'Create a key',
-  RemoveKey: 'Remove the key',
-  ConfirmRotateKey: 'Regenerate the key?',
-  ConfirmRemoveKey: 'Remove the key?',
-  ApiKeyRemoved: 'API key removed.',
-  PurgeNow: 'Purge now',
-  ExportConfig: 'Export configuration',
-  ConfirmPurge: 'Remove everything past its retention?',
-  PurgeResult: '{decisions} decisions, {logs} logs, {jobs} jobs removed',
-  Backups: 'Backups',
-  NoBackupsYet: 'No backup yet',
-  BackupNow: 'Back up now',
-  SettingGlobalDryRun: 'Global dry-run',
-  SettingAutoApply: 'Apply automatically',
-  SecretConfiguredPlaceholder: 'A key is stored – type to replace it',
-  SecretStoredPlaceholder: 'A value is stored – type to replace it',
-  SecretRemovedOnSave: 'Removed when you save',
-  SettingNotificationWebhook: 'Notification webhook',
-  Remove: 'Remove',
-  ConfigImportResult: 'Restored: {settings} settings.',
-  NotValidJson: 'This file is not JSON.',
-  ImportReplaceQuestion: 'Replace the rules, or add to them?',
-  ImportAppend: 'Add',
-  ImportReplace: 'Replace',
-  ConfigImportSkipped: 'Not restored: {count}',
-  ConfigImportNeedsKey: 'Instances waiting for their API key: {names}',
-  ListSeparator: ', ',
-};
+const LIVE_MODE =
+  'Global dry-run is OFF: applying a decision will write to Radarr/Sonarr immediately.';
+const AUTO_APPLY_ARMED =
+  'Automatic application is armed: a routing decision for a media with no files yet is written to Radarr/Sonarr as soon as it is made, without confirmation.';
+const API_KEY_HELP =
+  'Routarr generates one at first start unless ROUTARR_API_KEY is set. Scripts send it as X-Api-Key. This browser sent it once to open a session, and keeps no copy.';
 
 const APIKEY_MODE: AuthMode = {
   mode: 'apikey',
@@ -172,7 +100,7 @@ function mount(
     ],
     order: provider.order ?? ['arr'],
   });
-  return renderWithI18n(page, { strings: STRINGS, direction });
+  return renderWithI18n(page, { direction });
 }
 
 /** The metadata sources screen, with the same stand-ins as Settings. */
@@ -197,7 +125,7 @@ async function save(): Promise<Record<string, string>> {
   vi.spyOn(api, 'getLocalization').mockResolvedValue({
     language: 'en',
     direction: 'ltr',
-    strings: STRINGS,
+    strings: { ...ENGLISH },
     counts: [...SERVER_COUNTS],
     isolated: [],
   });
@@ -220,22 +148,22 @@ describe('the unattended-writing warning', () => {
     // The tabs, not the heading: the heading draws before the settings load,
     // and an absence checked then holds whatever the loaded screen does.
     await screen.findByRole('tab', { name: 'Guardrails' });
-    expect(screen.queryByText('Automatic application is armed')).toBeNull();
+    expect(screen.queryByText(AUTO_APPLY_ARMED)).toBeNull();
   });
 
   it('stays quiet while automatic application is off', async () => {
     mount({ global_dry_run: 'false', auto_apply_enabled: 'false' });
 
-    await screen.findByText('Live mode is on');
-    expect(screen.queryByText('Automatic application is armed')).toBeNull();
+    await screen.findByText(LIVE_MODE);
+    expect(screen.queryByText(AUTO_APPLY_ARMED)).toBeNull();
   });
 
   /** Only the combination writes without anyone asking. */
   it('warns for the combination', async () => {
     mount({ global_dry_run: 'false', auto_apply_enabled: 'true' });
 
-    expect(await screen.findByText('Automatic application is armed')).toBeTruthy();
-    expect(screen.getByText('Live mode is on')).toBeTruthy();
+    expect(await screen.findByText(AUTO_APPLY_ARMED)).toBeTruthy();
+    expect(screen.getByText(LIVE_MODE)).toBeTruthy();
   });
 
   /** Said where the two switches are, not on a screen that cannot turn them off. */
@@ -243,8 +171,8 @@ describe('the unattended-writing warning', () => {
     mountSources({ global_dry_run: 'false', auto_apply_enabled: 'true' });
 
     await screen.findByText('Active, in priority order');
-    expect(screen.queryByText('Live mode is on')).toBeNull();
-    expect(screen.queryByText('Automatic application is armed')).toBeNull();
+    expect(screen.queryByText(LIVE_MODE)).toBeNull();
+    expect(screen.queryByText(AUTO_APPLY_ARMED)).toBeNull();
   });
 });
 
@@ -294,7 +222,7 @@ describe('the save bar', () => {
   it('saves the sources alone, from a screen with no section strip', async () => {
     mountSources({ metadata_providers: 'arr' });
 
-    await fireEvent.input(await screen.findByLabelText('Cache lifetime'), {
+    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
       target: { value: '14' },
     });
     expect(screen.queryByRole('tab')).toBeNull();
@@ -330,7 +258,9 @@ describe('the save bar', () => {
     await screen.findByText('Unsaved changes: 1');
 
     navigate('/rules');
-    expect(await answerConfirmation(null)).toBe('Leave without saving? Unsaved changes: 1');
+    expect(await answerConfirmation(null)).toBe(
+      'Leave the settings without saving? Unsaved changes: 1',
+    );
 
     expect(router.path).not.toBe('/rules');
     expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
@@ -413,7 +343,7 @@ describe('the save bar', () => {
     vi.spyOn(api, 'getLocalization').mockResolvedValue({
       language: 'en',
       direction: 'ltr',
-      strings: STRINGS,
+      strings: { ...ENGLISH },
       counts: [...SERVER_COUNTS],
       isolated: [],
     });
@@ -477,7 +407,7 @@ describe('the metadata sources', () => {
       { configured: true, order: ['arr', 'tmdb'] },
     );
 
-    await fireEvent.input(await screen.findByLabelText('Cache lifetime'), {
+    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
       target: { value: '14' },
     });
     const payload = await save();
@@ -525,7 +455,7 @@ describe('the metadata sources', () => {
   it('shows and saves the order the server resolved when none is stored', async () => {
     mountSources({ metadata_cache_ttl_days: '30' }, { configured: true, order: ['tmdb', 'arr'] });
 
-    await fireEvent.input(await screen.findByLabelText('Cache lifetime'), {
+    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
       target: { value: '14' },
     });
     expect((await save()).metadata_providers).toBe('tmdb,arr');
@@ -544,7 +474,9 @@ describe('the metadata sources', () => {
     );
     expect(await screen.findAllByRole('button', { name: 'Disable – TMDB' })).toHaveLength(1);
 
-    await fireEvent.input(screen.getByLabelText('Cache lifetime'), { target: { value: '14' } });
+    await fireEvent.input(screen.getByLabelText('Metadata cache TTL (days)'), {
+      target: { value: '14' },
+    });
     expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
@@ -592,7 +524,7 @@ describe('the notification webhook', () => {
 
     const field = await screen.findByLabelText('Notification webhook');
     expect(field.getAttribute('type')).toBe('password');
-    expect(field.getAttribute('placeholder')).toBe('A value is stored – type to replace it');
+    expect(field.getAttribute('placeholder')).toBe('A value is stored. Type to replace it');
 
     await userEvent.selectOptions(screen.getByLabelText('Notification format'), 'ntfy');
     const payload = await save();
@@ -630,8 +562,10 @@ it('offers a switch in words of its own', async () => {
   mount({ auto_apply_enabled: 'false' });
   await openSection('Automation');
 
-  const options = [...(screen.getByLabelText('Apply automatically') as HTMLSelectElement).options];
-  expect(options.map((option) => option.textContent?.trim())).toEqual(['On', 'Off']);
+  const options = [
+    ...(screen.getByLabelText('Automatic application') as HTMLSelectElement).options,
+  ];
+  expect(options.map((option) => option.textContent?.trim())).toEqual(['Enabled', 'Disabled']);
 });
 
 /**
@@ -794,9 +728,13 @@ describe('importing a configuration', () => {
     await openSection('Maintenance');
     const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'ImportConfig' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Import configuration' }));
     expect(pick).toHaveBeenCalledTimes(1);
   });
+
+  /** What the summary says of `BUNDLE`. */
+  const RESTORED =
+    'Restored. Settings: 3, categories: 1, instances: 0, mappings: 0, rules: 0, exceptions: 0.';
 
   const BUNDLE = {
     settings: 3,
@@ -834,7 +772,9 @@ describe('importing a configuration', () => {
     const withRules = { version: 1, rules: [{ name: 'Anime' }] };
 
     await importFile(withRules);
-    expect(await answerConfirmation(null)).toBe('Replace the rules, or add to them?');
+    expect(await answerConfirmation(null)).toBe(
+      'Replace every existing rule with the ones in this file?',
+    );
     await importFile(withRules);
     await answerConfirmation('replace');
     await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(1));
@@ -855,7 +795,7 @@ describe('importing a configuration', () => {
     mount({});
     await openSection('Maintenance');
     const regions = screen.getAllByRole('status');
-    const button = screen.getByRole('button', { name: 'ImportConfig' });
+    const button = screen.getByRole('button', { name: 'Import configuration' });
     button.focus();
 
     await importFile({ version: 1 });
@@ -863,7 +803,7 @@ describe('importing a configuration', () => {
     const said = await waitFor(() => {
       const region = screen
         .getAllByRole('status')
-        .find((node) => node.textContent?.includes('Restored: 3 settings.'));
+        .find((node) => node.textContent?.includes(RESTORED));
       expect(region).toBeDefined();
       return region;
     });
@@ -882,7 +822,7 @@ describe('importing a configuration', () => {
 
     await fireEvent.change(input, { target: { files: [file] } });
 
-    expect(await screen.findByText('This file is not JSON.')).toBeInTheDocument();
+    expect(await screen.findByText('That file is not valid JSON')).toBeInTheDocument();
     expect(importConfig).not.toHaveBeenCalled();
   });
 
@@ -940,7 +880,7 @@ describe('importing a configuration', () => {
 
     await importFile({ version: 1 });
 
-    await screen.findByText('Restored: 3 settings.');
+    await screen.findByText(RESTORED);
     await openSection('Guardrails');
     await waitFor(() =>
       expect((screen.getByLabelText('Batch limit') as HTMLInputElement).value).toBe('25'),
@@ -986,7 +926,7 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
 
     const summary = await screen.findByText(
-      'Restored: 3 settings. Instances waiting for their API key: Radarr, Sonarr',
+      'Restored. Settings: 3, categories: 1, instances: 2, mappings: 0, rules: 0, exceptions: 0. Instances waiting for their API key: Radarr, Sonarr',
     );
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.queryByRole('alert')).toBeNull();
@@ -1003,14 +943,14 @@ describe('importing a configuration', () => {
 
     await importFile({ version: 1 });
 
-    const summary = await screen.findByText('Restored: 3 settings. Not restored: 1');
+    const summary = await screen.findByText(`${RESTORED} Not restored: 1`);
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.getByText('instance "Radarr": unknown type')).toBeTruthy();
 
     await importFile({ version: 1 });
 
     await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(2));
-    await screen.findByText('Restored: 3 settings.');
+    await screen.findByText(RESTORED);
     expect(screen.queryByText('instance "Radarr": unknown type')).toBeNull();
   });
 
@@ -1031,7 +971,9 @@ describe('importing a configuration', () => {
 
     await importFile({ version: 1 });
 
-    const summary = await screen.findByText('Restored: 0 settings. Not restored: 1');
+    const summary = await screen.findByText(
+      'Restored. Settings: 0, categories: 0, instances: 0, mappings: 0, rules: 0, exceptions: 0. Not restored: 1',
+    );
     expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
   });
 });
@@ -1051,7 +993,7 @@ describe('the API key card', () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
 
     expect(await screen.findByRole('heading', { name: 'Routarr API key' })).toBeInTheDocument();
-    expect(screen.getByText('Generated at first start')).toBeInTheDocument();
+    expect(screen.getByText(API_KEY_HELP)).toBeInTheDocument();
   });
 
   it.each([['none' as const], ['external' as const]])(
@@ -1073,8 +1015,12 @@ describe('the API key card', () => {
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
 
     expect(await screen.findByRole('heading', { name: 'Routarr API key' })).toBeInTheDocument();
-    expect(screen.getByText('For clients that cannot hold a session')).toBeInTheDocument();
-    expect(screen.queryByText('Generated at first start')).toBeNull();
+    expect(
+      screen.getByText(
+        'Sign-in uses your session. This key is for clients that cannot hold one, such as scripts and monitoring, which send it as X-Api-Key.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(API_KEY_HELP)).toBeNull();
   });
 
   /**
@@ -1095,7 +1041,9 @@ describe('the API key card', () => {
   it('offers no button when the environment pins the key, and says why', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: true });
 
-    expect(await screen.findByText('The environment sets it')).toBeInTheDocument();
+    expect(
+      await screen.findByText('ROUTARR_API_KEY sets this key, so it cannot be changed here.'),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull();
   });
 
@@ -1109,7 +1057,9 @@ describe('the API key card', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }));
     // The question names what breaks, not just what is about to happen.
-    expect(await answerConfirmation()).toBe('Regenerate the key?');
+    expect(await answerConfirmation()).toBe(
+      'Regenerate the API key? Every client still using the current one stops working until it is updated.',
+    );
 
     await waitFor(() => expect(rotate).toHaveBeenCalledWith({ current_key: 'the-key-proven' }));
     expect(await screen.findByText('the-new-one')).toBeInTheDocument();
@@ -1145,7 +1095,9 @@ describe('the API key card', () => {
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));
-    expect(await answerConfirmation(null)).toBe('Remove the key?');
+    expect(await answerConfirmation(null)).toBe(
+      'Remove the API key? Clients using it stop working immediately.',
+    );
 
     expect(remove).not.toHaveBeenCalled();
   });
@@ -1273,7 +1225,7 @@ describe('a refused save', () => {
       .mockRejectedValueOnce(new ApiError('The settings could not be read', 409, 'conflict'))
       .mockResolvedValue({ global_dry_run: 'true' });
     cleanup();
-    renderWithI18n(Settings, { strings: STRINGS });
+    renderWithI18n(Settings);
     await screen.findByText('The settings could not be read');
     await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
@@ -1302,7 +1254,7 @@ describe('a refused save', () => {
       .mockRejectedValueOnce(new ApiError('The settings could not be read', 409, 'conflict'))
       .mockResolvedValue({ global_dry_run: 'true', batch_limit: '25' });
     cleanup();
-    renderWithI18n(Settings, { strings: STRINGS });
+    renderWithI18n(Settings);
     await screen.findByText('The settings could not be read');
     await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
@@ -1332,7 +1284,7 @@ describe('the getting-started guide', () => {
     expect(onboarding.current).toEqual(resumed);
   });
 
-  it('follows the guide from the sources screen to the routing settings', async () => {
+  it('follows the guide from the sources screen to the guardrails', async () => {
     const stop = interceptLinks();
     try {
       publishOnboarding(
@@ -1341,7 +1293,7 @@ describe('the getting-started guide', () => {
       window.history.replaceState({}, '', '/sources');
       mountSources({});
 
-      await fireEvent.click(await screen.findByRole('link', { name: 'Open the routing settings' }));
+      await fireEvent.click(await screen.findByRole('link', { name: 'Open the guardrails' }));
 
       await waitFor(() => expect(window.location.pathname).toBe('/settings'));
       expect(window.location.hash).toBe('#guardrails');

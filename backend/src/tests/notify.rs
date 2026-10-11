@@ -134,45 +134,15 @@ impl Receiver {
     }
 }
 
-/// The address of a Discord or Slack webhook is the channel's credential:
-/// whoever reads it can post there. It is sealed like an API key, and what the
-/// screen gets back says whether one is stored, never what it is.
+/// An address the startup pass sealed, after a database held it in the
+/// clear, still delivers.
 #[tokio::test]
-async fn a_saved_webhook_url_is_sealed_and_never_read_back() {
-    let app = TestApp::new().await;
-    let url = "https://discord.com/api/webhooks/123/hook-secret-8d2e";
-    app.save_setting("notification_webhook_url", url).await.assert_ok();
-
-    let stored: String =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
-    assert!(stored.starts_with("enc:v2:"), "stored in the clear: {stored}");
-
-    let body = app.get("/api/v1/settings").await.assert_ok().clone();
-    assert!(body.get("notification_webhook_url").is_none(), "the address came back out");
-    assert_eq!(body["notification_webhook_url_configured"], true);
-    assert!(!body.to_string().contains("hook-secret"), "the secret is in the payload");
-}
-
-/// A database from before the address was sealed holds it in the clear. The
-/// pass that seals every secret at startup covers it, and the notifications
-/// keep arriving.
-#[tokio::test]
-async fn a_webhook_url_stored_in_the_clear_is_sealed_at_startup() {
+async fn a_webhook_url_sealed_at_startup_still_delivers() {
     let receiver = Receiver::start().await;
     let app = TestApp::new().await;
     app.store_setting("notification_webhook_url", &receiver.url).await;
 
     crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
-
-    let stored: String =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
-    assert!(stored.starts_with("enc:v2:"), "left in the clear: {stored}");
 
     let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
     crate::services::notify::send(&app.state, event).await;

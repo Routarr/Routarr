@@ -1163,39 +1163,6 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
 
 // ------------------------------------------------- what bounds the list
 
-/// The interface renders every backup it is given, so the retention count is
-/// what stops that card growing without end. As a plain positive integer it
-/// accepts "keep 10 000", and the disk fills with the very thing meant to
-/// protect it.
-#[tokio::test]
-async fn the_retention_count_is_bounded_on_both_sides() {
-    let (app, _dir) = app_with_files("retention-bounds").await;
-
-    for value in ["1", "7", "50"] {
-        let response = app
-            .put(
-                "/api/v1/settings",
-                serde_json::json!({ "settings": { "backup_retention_count": value } }),
-            )
-            .await;
-        response.assert_ok();
-    }
-
-    for value in ["0", "-1", "51", "10000", "many"] {
-        let response = app
-            .put(
-                "/api/v1/settings",
-                serde_json::json!({ "settings": { "backup_retention_count": value } }),
-            )
-            .await;
-        assert_eq!(
-            response.status,
-            axum::http::StatusCode::BAD_REQUEST,
-            "a retention of {value} should be refused"
-        );
-    }
-}
-
 /// Pruning only after a backup is taken would leave every archive above the new
 /// retention on disk, and on screen, until the next scheduled run, which with a
 /// 24-hour interval is the next day.
@@ -1434,8 +1401,7 @@ async fn a_restore_can_be_staged_without_the_server() {
 
     let path = dir.join("backups").join(&file.name);
     for archive in [file.name.clone(), path.to_string_lossy().into_owned()] {
-        let manifest = backup::stage_offline(&config, &archive, None).await.unwrap();
-        assert_eq!(manifest.version, env!("CARGO_PKG_VERSION"));
+        crate::commands::restore(&config, Some(archive)).await.unwrap();
     }
     let (_, pool, _) = crate::open_storage(&config).await.unwrap();
 

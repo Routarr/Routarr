@@ -24,18 +24,6 @@ fn in_french(key: &str, values: &[(&str, &str)]) -> String {
 }
 
 #[tokio::test]
-async fn the_dictionary_is_served_without_authentication() {
-    // The shell needs its strings before it can even render an auth error.
-    let app = TestApp::with_api_key("s3cret").await;
-
-    let response = app.get("/api/v1/localization").await;
-    let body = response.assert_ok();
-
-    assert_eq!(body["language"], "en");
-    assert!(body["strings"]["Dashboard"].is_string());
-}
-
-#[tokio::test]
 async fn the_dictionary_follows_the_configured_language() {
     let app = TestApp::new().await;
     speak_french(&app).await;
@@ -204,6 +192,9 @@ async fn validation_messages_are_translated() {
     assert!(contradiction["message"].as_str().unwrap().contains("se contredisent"));
 }
 
+/// The global dry run is a state of the installation, not a fault in the
+/// request: told apart by its reason, the one refusal a setting clears, and
+/// said in the interface's language.
 #[tokio::test]
 async fn guardrail_refusals_are_translated() {
     let app = TestApp::new().await;
@@ -212,7 +203,7 @@ async fn guardrail_refusals_are_translated() {
     let response =
         app.post("/api/v1/decisions/apply", serde_json::json!({ "decision_ids": ["x"] })).await;
 
-    response.assert_status(StatusCode::CONFLICT);
+    assert_eq!(response.assert_status(StatusCode::CONFLICT)["reason"], "dry_run");
     assert!(response.message().contains("essai à blanc global"), "{}", response.message());
 }
 
@@ -448,18 +439,6 @@ async fn the_condition_catalog_is_translated() {
     assert_eq!(genre["label_key"], "ConditionLabelGenreContains");
 }
 
-#[tokio::test]
-async fn english_remains_the_default() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-    app.seed_anime_rule().await;
-
-    let response = app.post("/api/v1/simulate", serde_json::json!({})).await;
-    let reasons = response.assert_ok()["decisions"][0]["reasons"].as_array().unwrap().clone();
-
-    assert!(reasons[0].as_str().unwrap().contains("Original language"), "{reasons:?}");
-}
-
 /// The picker states how complete each language is, so an incomplete one can be
 /// offered honestly rather than hidden or refused.
 #[tokio::test]
@@ -478,12 +457,19 @@ async fn each_language_advertises_its_completion() {
 }
 
 /// A fresh installation states its language rather than leaving the field
-/// empty for every reader to fill in with a fallback of its own.
+/// empty for every reader to fill in with a fallback of its own, and speaks
+/// it: a run's reasons read in English.
 #[tokio::test]
 async fn a_fresh_installation_speaks_english_by_default() {
     let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
     let settings = app.get("/api/v1/settings").await;
     assert_eq!(settings.assert_ok()["ui_language"], "en");
+
+    let response = app.post("/api/v1/simulate", serde_json::json!({})).await;
+    let reasons = response.assert_ok()["decisions"][0]["reasons"].as_array().unwrap().clone();
+    assert!(reasons[0].as_str().unwrap().contains("Original language"), "{reasons:?}");
 }
 
 /// A key a language leaves untranslated is English, both in the dictionary
