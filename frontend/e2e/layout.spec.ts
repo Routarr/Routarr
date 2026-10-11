@@ -665,23 +665,37 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
   const [rowBox, containerBox] = [await row.boundingBox(), await container.boundingBox()];
   if (rowBox === null || containerBox === null) throw new Error('the table is not laid out');
   const middle = rowBox.y + rowBox.height / 2 - containerBox.y;
+  // Within the cells' own padding, where a row paints nothing of its content:
+  // further in, a badge in the first cell reads as a gradient.
+  const padding = await row.evaluate((tr) => {
+    const cells = tr.querySelectorAll('td');
+    const first = cells[0];
+    const last = cells[cells.length - 1];
+    if (!first || !last) throw new Error('the row has no cell');
+    return [getComputedStyle(first).paddingLeft, getComputedStyle(last).paddingRight].map(
+      parseFloat,
+    );
+  });
   const shot = await container.screenshot();
   const edges = await page.evaluate(
-    async ([bytes, middle]) => {
+    async ([bytes, middle, [start, end]]) => {
       const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
       const bitmap = await createImageBitmap(blob);
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(bitmap, 0, 0);
       const y = Math.round(middle * devicePixelRatio);
-      const strip = (x: number) => Array.from(ctx.getImageData(x, y, 16, 1).data);
       // Two pixels in: WebKit draws the container's edge one pixel wider.
-      return { left: strip(2), right: strip(bitmap.width - 18), width: bitmap.width };
+      const width = (padding: number) => Math.max(1, Math.floor((padding - 4) * devicePixelRatio));
+      const strip = (x: number, wide: number) => Array.from(ctx.getImageData(x, y, wide, 1).data);
+      const right = width(end ?? 0);
+      return { left: strip(2, width(start ?? 0)), right: strip(bitmap.width - 2 - right, right) };
     },
-    [Array.from(shot), middle] as const,
+    [Array.from(shot), middle, padding] as const,
   );
+  expect(edges.left.length / 4, 'the cells leave no padding to sample').toBeGreaterThanOrEqual(8);
 
-  // Each 16px strip must be one flat colour: a gradient means a shadow, three
+  // Each strip must be one flat colour: a gradient means a shadow, three
   // units deep at least here. One unit per channel is an engine's rounding.
   for (const [side, pixels] of [
     ['left', edges.left],
