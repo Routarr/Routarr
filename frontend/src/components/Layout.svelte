@@ -436,6 +436,7 @@
             title={t('Help')}
           >
             <HelpCircle size={14} aria-hidden="true" />
+            <span class="topbar-label">{t('Help')}</span>
           </button>
 
           <!-- Only where a browser holds a session, the key's included: a
@@ -450,7 +451,7 @@
               title={t('SignOut')}
             >
               <LogOut size={14} aria-hidden="true" />
-              <span class="sign-out-label">{t('SignOut')}</span>
+              <span class="topbar-label">{t('SignOut')}</span>
             </button>
           {/if}
         </div>
