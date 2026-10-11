@@ -828,14 +828,15 @@ async fn offline_warnings(
     // lowering it removes what is beyond it, and nothing but the operator's
     // own save may do that. Named here so the operator is the one who lowers
     // it: the screen refuses to save it as it stands, and this says why.
-    for (key, max) in crate::services::settings::retention_counts() {
+    for (key, label, max) in crate::services::settings::retention_counts() {
         let stored: i64 = settings.get(key);
         if stored > max {
+            let setting = localizer.translate(label, &[]);
             warnings.push(Warning::new(
                 "setting_above_maximum",
                 localizer.translate(
                     "WarnSettingAboveMaximum",
-                    &[("key", key), ("value", &stored.to_string()), ("max", &max.to_string())],
+                    &[("key", &setting), ("value", &stored.to_string()), ("max", &max.to_string())],
                 ),
             ));
         }
@@ -994,15 +995,16 @@ impl Reached {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Failure {
-    Upstream { status: u16, message: String },
+    Upstream { status: u16, upstream: crate::error::Upstream, message: String },
     Told { sentence: String },
 }
 
 impl Failure {
     fn of(error: &crate::error::AppError) -> Self {
         match error {
-            crate::error::AppError::ExternalApi { status, message, .. } => {
-                Failure::Upstream { status: *status, message: message.clone() }
+            crate::error::AppError::ExternalApi { status, kind, message, .. } => {
+                let upstream = kind.clone();
+                Failure::Upstream { status: *status, upstream, message: message.clone() }
             }
             other => Failure::Told { sentence: other.public_message() },
         }
@@ -1022,13 +1024,13 @@ impl Failure {
     /// `POST /instances/{id}/test` says it.
     fn told(&self, kind: &str, base_url: &str, localizer: &Localizer) -> String {
         match self {
-            Failure::Upstream { status, message } => {
-                let error = crate::error::AppError::ExternalApi {
-                    service: crate::services::connection::service_name(kind).to_string(),
-                    status: *status,
-                    message: message.clone(),
-                    retry_after: None,
-                };
+            Failure::Upstream { status, upstream: failed, message } => {
+                let error = crate::integrations::upstream(
+                    crate::services::connection::service_name(kind),
+                    *status,
+                    failed.clone(),
+                    message.clone(),
+                );
                 crate::services::connection::explained(error, kind, base_url, localizer)
                     .public_message()
             }
@@ -1098,7 +1100,10 @@ async fn counts_for(
         detail,
         version: reached.version,
         last_sync: instance.last_sync_at.clone(),
-        last_sync_status: instance.last_sync_status.clone(),
+        last_sync_status: crate::models::instance::sync_status_said(
+            instance.last_sync_status.clone(),
+            localizer,
+        ),
         media_count,
         mapped_root_folders,
     })

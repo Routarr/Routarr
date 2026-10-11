@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
+use crate::localization::Localizer;
 use crate::models::media::Media;
 use crate::models::metadata::MediaMetadata;
 use crate::services::routing;
@@ -54,8 +55,12 @@ pub struct RuleTestResult {
     pub passed: bool,
     /// The rule that won, so a failure names what took the decision.
     pub matched_rule: Option<String>,
-    /// Set when the fixture itself is the problem rather than the rules.
+    /// Set when the stored case itself is the problem rather than the rules,
+    /// in the interface's language.
     pub error: Option<String>,
+    /// What `error` says, for a program: `RuleTestSnapshotUnreadable` or
+    /// `RuleTestInstantUnreadable`. The list may grow.
+    pub error_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -77,13 +82,13 @@ pub async fn list(pool: &SqlitePool) -> AppResult<Vec<RuleTest>> {
 /// One load of the rules for the whole suite, and the default category read
 /// once: a case that matches nothing lands where the engine would actually put
 /// it, not in a `None` the caller has to interpret.
-pub async fn run_all(pool: &SqlitePool) -> AppResult<RuleTestRun> {
+pub async fn run_all(pool: &SqlitePool, localizer: &Localizer) -> AppResult<RuleTestRun> {
     let cases = list(pool).await?;
     let rules = routing::load_rules(pool).await?;
     let default_category = crate::state::AppState::default_category(pool).await?;
 
     let results: Vec<RuleTestResult> =
-        cases.iter().map(|case| run_one(case, &rules, &default_category)).collect();
+        cases.iter().map(|case| run_one(case, &rules, &default_category, localizer)).collect();
 
     let passed = results.iter().filter(|r| r.passed).count();
     Ok(RuleTestRun { total: results.len(), passed, failed: results.len() - passed, results })
@@ -109,32 +114,39 @@ fn run_one(
     case: &RuleTest,
     rules: &[crate::models::rule::Rule],
     default_category: &str,
+    localizer: &Localizer,
 ) -> RuleTestResult {
-    let fail = |error: String| RuleTestResult {
-        id: case.id.clone(),
-        name: case.name.clone(),
-        expected_category: case.expected_category.clone(),
-        actual_category: None,
-        passed: false,
-        matched_rule: None,
-        error: Some(error),
+    // The detail goes to the log: a parser's message means nothing on the
+    // screen it would land on.
+    let fail = |key: &str, detail: &dyn std::fmt::Display| {
+        tracing::warn!(case = %case.id, "The rule test '{}' cannot be replayed: {detail}", case.name);
+        RuleTestResult {
+            id: case.id.clone(),
+            name: case.name.clone(),
+            expected_category: case.expected_category.clone(),
+            actual_category: None,
+            passed: false,
+            matched_rule: None,
+            error: Some(localizer.translate(key, &[])),
+            error_key: Some(key.to_string()),
+        }
     };
 
     let media: Media = match serde_json::from_str(&case.media_json) {
         Ok(media) => media,
         // A fixture that fails to parse is a failure, never a skip: a case
         // that stops running is a case that stops protecting anything.
-        Err(e) => return fail(format!("the stored media snapshot no longer parses: {e}")),
+        Err(e) => return fail("RuleTestSnapshotUnreadable", &e),
     };
     let metadata: Option<MediaMetadata> = match case.metadata_json.as_deref() {
         None => None,
         Some(raw) => match serde_json::from_str(raw) {
             Ok(metadata) => Some(metadata),
-            Err(e) => return fail(format!("the stored metadata snapshot no longer parses: {e}")),
+            Err(e) => return fail("RuleTestSnapshotUnreadable", &e),
         },
     };
     let Some(now) = routing::parse_timestamp(&case.evaluated_at) else {
-        return fail(format!("unreadable evaluation instant: {}", case.evaluated_at));
+        return fail("RuleTestInstantUnreadable", &case.evaluated_at);
     };
 
     let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
@@ -148,6 +160,7 @@ fn run_one(
         actual_category: Some(actual),
         matched_rule,
         error: None,
+        error_key: None,
     }
 }
 

@@ -13,6 +13,7 @@ use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
 
+use crate::localization::Localizer;
 use crate::services::auto_apply::AutoApplyOutcome;
 use crate::services::sync;
 
@@ -256,11 +257,9 @@ async fn an_instance_going_down_notifies_once_not_on_every_tick() {
     assert_eq!(messages.len(), 1, "only the transition is worth a message, got {messages:?}");
     assert_eq!(messages[0]["event"], "instance_unreachable");
     assert_eq!(messages[0]["severity"], "error");
-    assert!(
-        messages[0]["message"].as_str().unwrap().contains("Fake radarr"),
-        "the message must name the instance: {:?}",
-        messages[0]["message"]
-    );
+    let text = messages[0]["message"].as_str().unwrap();
+    assert!(text.contains("Fake radarr"), "the message must name the instance: {text}");
+    assert!(!text.contains("\"key\""), "the cause is said, not stored: {text}");
 }
 
 #[tokio::test]
@@ -428,13 +427,15 @@ async fn an_unattended_move(app: &TestApp, arr: &FakeArr) -> String {
 }
 
 /// An unattended apply the Arr refused is the failure nobody is watching for,
-/// and the message says how many moves failed and the first reason.
+/// and the message says how many moves failed and the first reason, both in
+/// the language of the interface.
 #[tokio::test]
 async fn an_unattended_apply_the_arr_refuses_is_notified() {
     let receiver = Receiver::start().await;
     let arr = FakeArr::refusing_unimported_movie(500).await;
     let app = TestApp::new().await;
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+    app.store_setting("ui_language", "fr").await;
     let simulation = an_unattended_move(&app, &arr).await;
 
     let outcome = crate::services::auto_apply::apply_simulation(
@@ -452,8 +453,18 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
     assert_eq!(messages.len(), 1, "{messages:?}");
     assert_eq!(messages[0]["event"], "auto_apply_failed");
     assert_eq!(messages[0]["severity"], "error");
-    let text = messages[0]["message"].as_str().unwrap();
-    assert!(text.contains("Failures: 1") && text.contains("Totoro"), "{text}");
+    let refused: String =
+        sqlx::query_scalar("SELECT error_message FROM decisions WHERE status = 'failed'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    let error = crate::localization::said(&refused, &Localizer::new("fr"));
+    let in_language = |language: &str| {
+        let values = [("failed", "1"), ("applied", "0"), ("title", "Totoro"), ("error", &error)];
+        Localizer::new(language).translate("NotificationMessageAutoApplyFailed", &values)
+    };
+    assert_eq!(messages[0]["message"], in_language("fr"));
+    assert_ne!(in_language("fr"), in_language("en"), "said in English around a French error");
 }
 
 /// More moves than one unattended run may make leaves every one of them to a
@@ -533,6 +544,26 @@ async fn an_unattended_apply_that_moved_everything_raises_no_alarm() {
     let messages = receiver.arrived(1).await;
     let events: Vec<&str> = messages.iter().filter_map(|m| m["event"].as_str()).collect();
     assert_eq!(events, ["instance_unreachable"]);
+}
+
+/// A sync that fails on Routarr's side, a key it cannot open, is no Arr out
+/// of reach: announced as one, the operator would go and check an Arr that
+/// answers. The failed task says what it is.
+#[tokio::test]
+async fn an_internal_sync_failure_is_not_announced_as_an_unreachable_instance() {
+    let receiver = Receiver::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+    app.save_setting("notify_sync_failed", "true").await.assert_ok();
+    app.execute(&["UPDATE instances SET api_key = 'enc:v1:AAAA' WHERE id = 'inst-1'"]).await;
+
+    let by = crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE);
+    assert!(sync::sync_instance(&app.state, "inst-1", &by).await.is_err());
+
+    let messages = receiver.arrived(1).await;
+    let events: Vec<&str> = messages.iter().filter_map(|m| m["event"].as_str()).collect();
+    assert_eq!(events, ["sync_failed"], "{messages:?}");
 }
 
 /// And told on a task of its own: the webhook waits for the automatic apply,

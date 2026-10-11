@@ -16,6 +16,7 @@ use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::registry::JobLock;
 use crate::jobs::{Attribution, Detail, JobKind, Stop, detached};
+use crate::localization::Told;
 use crate::services::notify;
 use crate::state::AppState;
 
@@ -23,6 +24,7 @@ pub use follow::settle_requested;
 pub(crate) use guards::REVERTIBLE;
 pub use guards::{Confirmed, confirm};
 
+use crate::services::connection::Said;
 use follow::{Following, Sent, follow};
 use guards::{
     CapacityScope, guard_batch_limit, guard_capacity, guard_confirmation, guard_dry_run,
@@ -71,6 +73,10 @@ pub struct ApplyError {
     pub decision_id: String,
     pub media_title: String,
     pub message: String,
+    /// `message` as a column stores it, which a notification says in its own
+    /// language.
+    #[serde(skip)]
+    pub stored: String,
 }
 
 /// Columns shared by the apply and revert loaders.
@@ -564,30 +570,31 @@ async fn execute_moves(
 ) -> AppResult<ApplyReport> {
     let mut report = ApplyReport::default();
     let mut following = Vec::new();
+    let localizer = state.localizer().await;
 
     'instances: for batch in by_instance(moves) {
         let instance = match state.instance(&batch[0].instance_id).await {
             Ok(instance) => instance,
             Err(e) => {
-                fail_batch(state, &batch, &mut report, &e.to_string(), direction, by).await;
+                let failed = Said::of(&e, None, &localizer);
+                fail_batch(state, &batch, &mut report, &failed, direction, by).await;
                 continue;
             }
         };
         // "Enabled (synced and routed)": a proposal left from before the
         // switch was turned off must not reach an instance that is neither.
         if !instance.enabled {
-            let refusal = state
-                .localizer()
-                .await
-                .translate("ErrorInstanceDisabled", &[("name", &instance.name)]);
-            fail_batch(state, &batch, &mut report, &refusal, direction, by).await;
+            let refusal = Told::new("ErrorInstanceDisabled").with("name", &instance.name);
+            let failed = Said::told(&refusal, &localizer);
+            fail_batch(state, &batch, &mut report, &failed, direction, by).await;
             continue;
         }
 
         let adapter = match state.adapter(&instance) {
             Ok(a) => a,
             Err(e) => {
-                fail_batch(state, &batch, &mut report, &e.to_string(), direction, by).await;
+                let failed = Said::of(&e, Some(&instance), &localizer);
+                fail_batch(state, &batch, &mut report, &failed, direction, by).await;
                 continue;
             }
         };
@@ -602,9 +609,11 @@ async fn execute_moves(
                 break 'instances;
             }
             let outcome = match record_requested(&state.pool, mv, direction).await {
-                Ok(()) => send(&adapter, mv, move_files).await.map_err(|e| e.to_string()),
+                Ok(()) => send(&adapter, mv, move_files)
+                    .await
+                    .map_err(|e| Said::of(&e, Some(&instance), &localizer)),
                 // Unrecorded, a move the Arr made is lost to a stop or a crash.
-                Err(e) => Err(e.to_string()),
+                Err(e) => Err(Said::of(&e, None, &localizer)),
             };
             match outcome {
                 Ok(path) if move_files => {
@@ -615,7 +624,7 @@ async fn execute_moves(
                     record_success(state, mv, &path, direction, by).await;
                     report.applied += 1;
                 }
-                Err(message) => fail(state, mv, &message, &mut report, direction, by).await,
+                Err(failed) => fail(state, mv, &failed, &mut report, direction, by).await,
             }
         }
         if !sent.is_empty() {

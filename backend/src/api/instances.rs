@@ -25,7 +25,8 @@ pub async fn list(
     axum::Extension(identity): axum::Extension<Identity>,
 ) -> AppResult<Json<Vec<InstanceResponse>>> {
     let instances = state.instances(false).await?;
-    Ok(Json(instances.into_iter().map(|i| shown(&state, &identity, i)).collect()))
+    let localizer = state.localizer().await;
+    Ok(Json(instances.into_iter().map(|i| shown(&state, &identity, &localizer, i)).collect()))
 }
 
 /// Fetch one instance, with its API key masked like the list endpoint.
@@ -34,14 +35,20 @@ pub async fn get_one(
     axum::Extension(identity): axum::Extension<Identity>,
     Path(id): Path<String>,
 ) -> AppResult<Json<InstanceResponse>> {
-    Ok(Json(shown(&state, &identity, state.instance(&id).await?)))
+    let localizer = state.localizer().await;
+    Ok(Json(shown(&state, &identity, &localizer, state.instance(&id).await?)))
 }
 
 /// An instance as `identity` may read it. An application key reads neither
 /// the webhook's address, whose token lets anyone post events as the Arr, nor
 /// any part of the Arr's key.
-fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceResponse {
-    let response = InstanceResponse::from_instance(instance, &state.config.base_path);
+fn shown(
+    state: &AppState,
+    identity: &Identity,
+    localizer: &Localizer,
+    instance: Instance,
+) -> InstanceResponse {
+    let response = InstanceResponse::from_instance(instance, &state.config.base_path, localizer);
     match identity.application {
         Some(_) => InstanceResponse {
             webhook_url: None,
@@ -94,8 +101,8 @@ pub async fn create(
     .await
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
 
-    let created =
-        InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path);
+    let instance = state.instance(&id).await?;
+    let created = InstanceResponse::from_instance(instance, &state.config.base_path, &localizer);
     Ok(super::Created::at(&state, format!("/instances/{id}"), created))
 }
 
@@ -157,7 +164,8 @@ pub async fn update(
     }
     tx.commit().await?;
 
-    Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
+    let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
+    Ok(Json(InstanceResponse::from_instance(instance, &state.config.base_path, &localizer)))
 }
 
 pub async fn remove(
@@ -167,10 +175,8 @@ pub async fn remove(
     // Not under a sync of it: its writes would fail on rows gone, and the
     // failure would be notified for an instance that no longer exists.
     let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
-        return Err(AppError::InProgress {
-            reason: "sync_running",
-            message: "This instance is being synced. Delete it once the sync has finished.".into(),
-        });
+        let message = state.localizer().await.translate("ErrorInstanceSyncing", &[]);
+        return Err(AppError::InProgress { reason: "sync_running", message });
     };
     // One transaction: the proposals go with the instance or not at all.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
@@ -485,7 +491,8 @@ pub async fn rotate_webhook_token(
     .execute(&state.pool)
     .await?;
 
-    Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
+    let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
+    Ok(Json(InstanceResponse::from_instance(instance, &state.config.base_path, &localizer)))
 }
 
 /// Whether an instance may be written as given, and its address as stored:
@@ -499,7 +506,9 @@ pub(crate) fn validate(
     base_url: &str,
     localizer: &Localizer,
 ) -> AppResult<String> {
-    instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?;
+    instance_type.parse::<InstanceType>().map_err(|_| {
+        AppError::BadRequest(localizer.translate("InstanceTypeUnknown", &[("type", instance_type)]))
+    })?;
 
     if name.trim().is_empty() {
         return Err(AppError::BadRequest(localizer.translate("InstanceNameRequired", &[])));

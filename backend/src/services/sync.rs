@@ -8,6 +8,8 @@ use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::Instance;
+use crate::models::instance::SYNC_FAILED;
+use crate::services::connection::Said;
 use crate::services::notify;
 use crate::state::AppState;
 
@@ -48,6 +50,7 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
     // the API returns and what the interface lists, and rows that shuffle
     // between two runs are a table nobody can read.
 
+    let localizer = &state.localizer().await;
     let reports = futures::stream::iter(instances.into_iter().map(|instance| async move {
         match sync_instance_inner(state, &instance, by).await {
             Ok(report) => report,
@@ -56,10 +59,11 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
                 // caller still hears about it: last_sync_status alone only helps
                 // someone already looking at the instance list.
                 error!("Failed to sync instance '{}': {e}", instance.name);
+                let said = Said::of(&e, Some(&instance), localizer).said;
                 SyncReport {
                     instance_id: instance.id,
                     instance_name: instance.name,
-                    error: Some(e.to_string()),
+                    error: Some(said),
                     ..Default::default()
                 }
             }
@@ -89,11 +93,10 @@ async fn sync_instance_inner(
 ) -> AppResult<SyncReport> {
     // Refuse to pile up concurrent syncs of the same instance: the scheduler and
     // a user clicking "Sync" would otherwise fight over the same rows.
+    let localizer = state.localizer().await;
     let Some(_lock) = state.jobs.try_lock(&format!("sync:{}", instance.id)) else {
-        return Err(AppError::InProgress {
-            reason: "sync_running",
-            message: format!("A sync is already running for instance '{}'", instance.name),
-        });
+        let message = localizer.translate("ErrorSyncInProgress", &[("name", &instance.name)]);
+        return Err(AppError::InProgress { reason: "sync_running", message });
     };
 
     let mut job = state
@@ -110,7 +113,8 @@ async fn sync_instance_inner(
     // state. An Arr that has been down for a week must not produce a message on
     // every scheduler tick. That is how a useful alert becomes noise the
     // operator mutes, which is worse than having none.
-    let was_failing = instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with("error"));
+    let was_failing =
+        instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with(SYNC_FAILED));
 
     let list_folders = lists_folders(state, instance, by).await.unwrap_or(true);
     let outcome = do_sync(state, instance, list_folders, asked(by)).await;
@@ -140,22 +144,28 @@ async fn sync_instance_inner(
             }
         }
         Err(e) => {
-            update_sync_status(&state.pool, &instance.id, &format!("error: {e}")).await;
+            let said = Said::of(e, Some(instance), &localizer);
+            update_sync_status(&state.pool, &instance.id, &format!("{SYNC_FAILED}{}", said.stored))
+                .await;
             notify::send_later(
                 state,
                 notify::Event::SyncFailed {
                     instance_id: instance.id.clone(),
                     instance: instance.name.clone(),
-                    error: e.to_string(),
+                    error: said.stored.clone(),
                 },
             );
             job.fail(e).await;
-            if !was_failing {
+            // A database that refused the sync's writes, or a key that cannot
+            // be opened, is no Arr out of reach: said so, the operator checks
+            // an Arr that answers. The failed task and the log say what it is.
+            let unreachable = matches!(e, AppError::ExternalApi { .. } | AppError::UpstreamDown(_));
+            if !was_failing && unreachable {
                 notify::send_later(
                     state,
                     notify::Event::InstanceUnreachable {
                         instance: instance.name.clone(),
-                        error: e.to_string(),
+                        error: said.stored,
                     },
                 );
             }

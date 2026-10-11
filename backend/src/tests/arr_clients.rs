@@ -36,10 +36,11 @@ async fn an_answer_without_end_stops_at_the_cap() {
 
     let started = std::time::Instant::now();
     let answered = radarr.test_connection().await;
-    let Err(AppError::ExternalApi { message, .. }) = &answered else {
+    let Err(AppError::ExternalApi { kind: crate::error::Upstream::TooLarge, .. }) = &answered
+    else {
         panic!("an endless answer was read: {answered:?}");
     };
-    assert!(message.contains("larger than"), "{message}");
+    assert!(answered.unwrap_err().to_string().contains("larger than"));
     let refused = radarr.get_tags().await;
     assert!(matches!(refused, Err(AppError::ExternalApi { status: 400, .. })), "{refused:?}");
     assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
@@ -135,9 +136,10 @@ async fn a_refused_connection_is_named_unreachable_with_no_status() {
     let radarr = RadarrClient::new(client(), "http://127.0.0.1:1", "k");
 
     match radarr.test_connection().await.unwrap_err() {
-        AppError::ExternalApi { status, message, .. } => {
+        error @ AppError::ExternalApi { status, .. } => {
             assert_eq!(status, 0, "a transport failure has no HTTP status");
-            assert!(message.contains("unreachable"), "unhelpful message: {message}");
+            let said = error.to_string();
+            assert!(said.contains("unreachable"), "unhelpful message: {said}");
         }
         other => panic!("expected an ExternalApi error, got {other:?}"),
     }

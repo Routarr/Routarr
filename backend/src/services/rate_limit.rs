@@ -329,12 +329,12 @@ mod tests {
     }
 
     fn too_many() -> crate::error::AppResult<()> {
-        Err(crate::error::AppError::ExternalApi {
-            service: "AniList".into(),
-            status: 429,
-            message: String::new(),
-            retry_after: None,
-        })
+        Err(crate::integrations::upstream(
+            "AniList",
+            429,
+            crate::error::Upstream::Http,
+            String::new(),
+        ))
     }
 
     /// A 429 that names no wait still slows the source, for longer each time

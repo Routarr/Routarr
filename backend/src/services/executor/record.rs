@@ -9,6 +9,7 @@ use super::{ApplyError, ApplyReport, MoveDirection, PendingMove};
 use crate::error::AppResult;
 use crate::integrations::adapter::ArrMedia;
 use crate::jobs::Attribution;
+use crate::services::connection::Said;
 use crate::services::routing::format_timestamp;
 use crate::state::AppState;
 
@@ -16,33 +17,34 @@ pub(super) async fn fail_batch(
     state: &AppState,
     batch: &[PendingMove],
     report: &mut ApplyReport,
-    message: &str,
+    failed: &Said,
     direction: MoveDirection,
     by: &Attribution,
 ) {
     for mv in batch {
-        fail(state, mv, message, report, direction, by).await;
+        fail(state, mv, failed, report, direction, by).await;
     }
 }
 
 pub(super) async fn fail(
     state: &AppState,
     mv: &PendingMove,
-    message: &str,
+    failed: &Said,
     report: &mut ApplyReport,
     direction: MoveDirection,
     by: &Attribution,
 ) {
-    record_failure(state, mv, message, direction, by).await;
-    count_failure(report, mv, message.to_string());
+    record_failure(state, mv, failed, direction, by).await;
+    count_failure(report, mv, failed);
 }
 
-pub(super) fn count_failure(report: &mut ApplyReport, mv: &PendingMove, message: String) {
+pub(super) fn count_failure(report: &mut ApplyReport, mv: &PendingMove, failed: &Said) {
     report.failed += 1;
     report.errors.push(ApplyError {
         decision_id: mv.decision_id.clone(),
         media_title: mv.media_title.clone(),
-        message,
+        message: failed.said.clone(),
+        stored: failed.stored.clone(),
     });
 }
 
@@ -219,7 +221,7 @@ async fn write_outcome(
 pub(super) async fn record_failure(
     state: &AppState,
     mv: &PendingMove,
-    message: &str,
+    failed: &Said,
     direction: MoveDirection,
     by: &Attribution,
 ) {
@@ -228,7 +230,7 @@ pub(super) async fn record_failure(
             "UPDATE decisions SET status = 'failed', error_message = ?, applied_at = NULL
              WHERE id = ?",
         )
-        .bind(message),
+        .bind(&failed.stored),
         // A revert that fails leaves the move it tried to undo in place: the
         // decision is applied again, so the next Revert still finds it.
         MoveDirection::Revert => {
@@ -239,7 +241,8 @@ pub(super) async fn record_failure(
         error!(decision = %mv.decision_id, "Recording a failed move failed too: {e}");
     }
 
-    log_execution(&state.pool, by, direction.action(), "failed", false, Some(message), mv).await;
+    let stored = Some(failed.stored.as_str());
+    log_execution(&state.pool, by, direction.action(), "failed", false, stored, mv).await;
 }
 
 /// One line of the audit trail for a move or a revert.

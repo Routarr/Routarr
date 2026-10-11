@@ -55,11 +55,11 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryW
 /// constraint, and losing to the constraint means a raw sqlx error and a 500.
 /// The database is the arbiter either way, so it is the only one, and its
 /// refusal is translated rather than leaked.
-fn name_conflict(error: sqlx::Error, name: &str) -> AppError {
+fn name_conflict(error: sqlx::Error, name: &str, localizer: &Localizer) -> AppError {
     match &error {
         sqlx::Error::Database(db) if db.is_unique_violation() => AppError::Conflict {
             reason: "name_taken",
-            message: format!("Category '{name}' already exists"),
+            message: localizer.translate("ErrorCategoryNameTaken", &[("name", name)]),
         },
         _ => AppError::from(error),
     }
@@ -129,7 +129,8 @@ pub async fn create(
         let refusal = state.localizer().await.translate("ErrorFallbackOwnerOnly", &[]);
         return Err(AppError::Forbidden(refusal));
     }
-    let name = normalise(&req.name, &state.localizer().await)?;
+    let localizer = state.localizer().await;
+    let name = normalise(&req.name, &localizer)?;
 
     let id = format!("cat-{}", Uuid::new_v4());
     let mut tx = state.pool.begin().await?;
@@ -143,7 +144,7 @@ pub async fn create(
     .bind(req.display_order)
     .execute(&mut *tx)
     .await
-    .map_err(|e| name_conflict(e, &name))?;
+    .map_err(|e| name_conflict(e, &name, &localizer))?;
 
     if req.is_default {
         sqlx::query(
@@ -208,7 +209,8 @@ pub async fn rename(
     Path(id): Path<String>,
     Json(req): Json<RenameCategoryRequest>,
 ) -> AppResult<Json<Category>> {
-    let name = normalise(&req.name, &state.localizer().await)?;
+    let localizer = state.localizer().await;
+    let name = normalise(&req.name, &localizer)?;
 
     // Read in the transaction that writes, so the name renamed is the name
     // stored when the references move, whatever another writer did first.
@@ -239,7 +241,7 @@ pub async fn rename(
         }));
     }
 
-    move_references(&mut tx, &previous, &name).await?;
+    move_references(&mut tx, &previous, &name, &localizer).await?;
     tx.commit().await?;
 
     Ok(Json(Category {
@@ -257,6 +259,7 @@ pub(crate) async fn move_references(
     tx: &mut sqlx::SqliteConnection,
     previous: &str,
     name: &str,
+    localizer: &Localizer,
 ) -> AppResult<()> {
     for statement in [
         "UPDATE categories SET name = ? WHERE name = ?",
@@ -278,7 +281,7 @@ pub(crate) async fn move_references(
             .bind(previous)
             .execute(&mut *tx)
             .await
-            .map_err(|e| name_conflict(e, name))?;
+            .map_err(|e| name_conflict(e, name, localizer))?;
     }
     Ok(())
 }
@@ -290,6 +293,7 @@ pub async fn remove(
     // Every check and the delete in one transaction holding the write lock: a
     // rule, a mapping, a pin or a case naming the category cannot land between
     // the count that found none and the delete.
+    let localizer = state.localizer().await;
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let name: Option<String> = sqlx::query_scalar("SELECT name FROM categories WHERE id = ?")
         .bind(&id)
@@ -331,8 +335,15 @@ pub async fn remove(
     if rules + folders + overrides + tests > 0 {
         return Err(AppError::Conflict {
             reason: "in_use",
-            message: format!(
-                "Category '{name}' is still in use. Rules: {rules}, root folder mappings: {folders}, overrides: {overrides}, rule tests: {tests}"
+            message: localizer.translate(
+                "ErrorCategoryInUse",
+                &[
+                    ("name", &name),
+                    ("rules", &rules.to_string()),
+                    ("folders", &folders.to_string()),
+                    ("overrides", &overrides.to_string()),
+                    ("tests", &tests.to_string()),
+                ],
             ),
         });
     }
@@ -348,6 +359,7 @@ pub async fn remove(
 /// naming it with it. A name whose stored form another category holds is left,
 /// and said: merging two categories is the operator's to decide.
 pub async fn converge_names(state: &AppState) -> AppResult<()> {
+    let localizer = state.localizer().await;
     let names: Vec<String> =
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
     for previous in names {
@@ -362,7 +374,7 @@ pub async fn converge_names(state: &AppState) -> AppResult<()> {
             continue;
         }
         let mut tx = crate::db::write_transaction(&state.pool).await?;
-        move_references(&mut tx, &previous, &name).await?;
+        move_references(&mut tx, &previous, &name, &localizer).await?;
         tx.commit().await?;
         tracing::info!("The category '{previous}' is stored as '{name}'");
     }

@@ -356,14 +356,16 @@ impl Breaker {
 /// being unknown to it.
 ///
 /// A 404 means "this source does not have that item" and says nothing about the
-/// next one. A 429, a 5xx or a transport failure means asking again right now is
-/// pointless, and a 401 or a 403 (a refused key, a spent quota) is answered to
-/// every item alike: those are the ones that trip the breaker.
+/// next one, and neither does one answer that does not decode. A 429, a 5xx or
+/// a transport failure means asking again right now is pointless, and a 401 or
+/// a 403 (a refused key, a spent quota) is answered to every item alike: those
+/// are the ones that trip the breaker.
 fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
+    use crate::error::Upstream;
     matches!(
         outcome,
         Err(AppError::ExternalApi { status: 401 | 403 | 429 | 500 | 502..=504, .. })
-            | Err(AppError::ExternalApi { status: 0, .. })
+            | Err(AppError::ExternalApi { kind: Upstream::Transport(_), .. })
     )
 }
 
@@ -865,4 +867,37 @@ pub async fn resolve_for_media(
         &regions,
         country.as_deref(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{Transport, Upstream};
+    use crate::integrations::upstream;
+
+    /// The source is down, or refuses every title alike: those trip the
+    /// breaker. One title it answers with a record that does not decode, or
+    /// does not have, says nothing about the next title.
+    #[test]
+    fn only_a_failure_of_the_source_trips_the_breaker() {
+        let failed =
+            |status, kind| -> AppResult<()> { Err(upstream("TMDB", status, kind, String::new())) };
+        for down in [
+            failed(0, Upstream::Transport(Transport::TimedOut)),
+            failed(0, Upstream::Transport(Transport::Failed)),
+            failed(503, Upstream::Http),
+            failed(401, Upstream::RefusedWith200),
+            failed(429, Upstream::QuotaSpent),
+        ] {
+            assert!(is_source_level_failure(&down), "{down:?}");
+        }
+        for one_title in [
+            failed(0, Upstream::Unreadable),
+            failed(0, Upstream::TooLarge),
+            failed(404, Upstream::Http),
+            failed(200, Upstream::RefusedWith200),
+        ] {
+            assert!(!is_source_level_failure(&one_title), "{one_title:?}");
+        }
+    }
 }

@@ -1,6 +1,7 @@
 //! Archives sealed with the backup passphrase: worth nothing without it, and
 //! restored with it, by the interface and with the server stopped.
 
+use crate::localization::Localizer;
 use axum::http::StatusCode;
 use serde_json::json;
 
@@ -131,7 +132,10 @@ async fn the_archives_on_disk_follow_the_passphrase() {
     set_passphrase(&app, "").await;
     assert_eq!(archives(&dir), std::slice::from_ref(&plain.name));
     let archive = dir.join("backups").join(&plain.name);
-    assert!(backup::read_manifest(&archive).is_ok(), "the archive was not opened back");
+    assert!(
+        backup::read_manifest(&archive, &Localizer::new("en")).is_ok(),
+        "the archive was not opened back"
+    );
 }
 
 /// A passphrase set and unreadable, as after the master key changed under
@@ -234,7 +238,7 @@ async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
     let out = dir.join("read-by-hand.zip").to_string_lossy().into_owned();
 
     let written = backup::decrypt_offline(&config, &file.name, &out, None).await.unwrap();
-    assert!(backup::read_manifest(&written).unwrap().includes_master_key);
+    assert!(backup::read_manifest(&written, &Localizer::new("en")).unwrap().includes_master_key);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -256,7 +260,7 @@ async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
     assert!(matches!(asked, Err(crate::error::AppError::PassphraseRequired(_))), "{asked:?}");
     let given = Some(backup::passphrase_of(PASSPHRASE.to_string()));
     backup::decrypt_offline(&other, &archive, &out, given).await.unwrap();
-    assert!(backup::read_manifest(std::path::Path::new(&out)).is_ok());
+    assert!(backup::read_manifest(std::path::Path::new(&out), &Localizer::new("en")).is_ok());
 }
 
 /// Changing the passphrase asks the proof a key asks for: removing it opens

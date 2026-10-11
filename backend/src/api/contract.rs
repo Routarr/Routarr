@@ -108,7 +108,8 @@ The notification webhook set in Routarr's settings receives a `Notification` for
 and for the syncs that failed, the simulations and the moves that finished when asked to. A \
 format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, \
 writes the same events in that receiver's own shape instead, which this contract does not \
-cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across \
+cover. Its `message` is written in the language set for Routarr's interface, so a program reads \
+`event` and `data`, which never change with it. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across \
 retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of \
 `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A \
 delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\n\

@@ -313,6 +313,13 @@ export interface RulePreview {
   changed_total: number;
 }
 
+/** One line of a decision's justification. */
+export interface ReasonLine {
+  text: string;
+  /** True for a condition met or the deciding exception, null for a line stored as a sentence. */
+  matched: boolean | null;
+}
+
 export interface AlternativeDecision {
   rule_name: string;
   category: string;
@@ -335,6 +342,8 @@ export interface Decision {
   matched_rule_name: string | null;
   is_override: boolean;
   reasons: string[];
+  /** The same lines, each with whether it states what decided. */
+  reason_lines: ReasonLine[];
   alternatives: AlternativeDecision[];
   action: DecisionAction;
   status: DecisionStatus;
@@ -823,7 +832,10 @@ export interface RuleTestResult {
   actual_category: string | null;
   passed: boolean;
   matched_rule: string | null;
+  /** Why the stored case cannot be replayed, in the interface language. */
   error: string | null;
+  /** The same, as a key a program reads. */
+  error_key: string | null;
 }
 
 export interface RuleTestRun {

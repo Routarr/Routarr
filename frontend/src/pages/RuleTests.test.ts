@@ -43,6 +43,7 @@ const PASSED: RuleTestRun = {
       passed: true,
       matched_rule: 'Anime',
       error: null,
+      error_key: null,
     },
   ],
 };
@@ -102,6 +103,7 @@ describe('RuleTests', () => {
           passed: false,
           matched_rule: null,
           error: null,
+          error_key: null,
         },
       ],
     });

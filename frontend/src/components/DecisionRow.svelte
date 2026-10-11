@@ -111,12 +111,12 @@
       class:is-expanded={expanded}
       bind:this={reasons}
     >
-      {#each decision.reasons as reason, index (index)}
+      {#each decision.reason_lines as reason, index (index)}
         <span
-          class="reason-line {reason.startsWith('✓') ? 'explain-match' : 'text-muted'}"
-          title={reason}
+          class="reason-line {reason.matched ? 'explain-match' : 'text-muted'}"
+          title={reason.text}
         >
-          {reason}
+          {reason.text}
         </span>
       {/each}
       {#each decision.alternatives as alternative, index (index)}

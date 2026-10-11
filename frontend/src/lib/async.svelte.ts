@@ -16,12 +16,15 @@ export function describeError(err: unknown): string {
       const said = t('ServerAnsweredStatus', { status: err.status });
       return err.requestId ? `${said} (${t('RequestId', { id: err.requestId })})` : said;
     }
+    // The server says a failure of its own in English: a panic answers before
+    // any setting is read.
+    const message = err.kind === 'internal_error' ? t('InternalError') : err.message;
     // A server-side failure is one the operator will look for in the log, and
     // the id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {
-      return `${err.message} (${t('RequestId', { id: err.requestId })})`;
+      return `${message} (${t('RequestId', { id: err.requestId })})`;
     }
-    return err.message;
+    return message;
   }
   if (err instanceof Error) return err.message;
   return String(err);

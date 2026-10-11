@@ -35,6 +35,10 @@ use crate::state::AppState;
 /// itself, and the operator has to act on it. What finished well is sent only
 /// to a webhook that asked for it, by its setting: a channel a person reads
 /// must not fill with a message per simulation.
+///
+/// An `error` from an Arr is what a column stores, a key and its values or a
+/// sentence (`localization::said`), so the delivery says it in the language
+/// it says the rest in.
 #[derive(Debug, Clone)]
 pub enum Event {
     /// A sync could not reach an Arr. Sent on the transition only.
@@ -42,8 +46,9 @@ pub enum Event {
     /// The same instance answered again. Closes the loop so the operator does
     /// not have to go and check whether the problem is still there.
     InstanceRecovered { instance: String },
-    /// An unattended apply wrote to an Arr and the Arr refused.
-    AutoApplyFailed { failed: usize, applied: usize, first_error: String },
+    /// An unattended apply wrote to an Arr and the Arr refused. `title` and
+    /// `error` are the first refusal.
+    AutoApplyFailed { failed: usize, applied: usize, title: String, error: String },
     /// An unattended pass found more moves than one run may make, and made
     /// none. Sent on the transition only.
     AutoApplyHeld { candidates: usize, cap: usize },
@@ -54,7 +59,8 @@ pub enum Event {
     SimulationCompleted { simulation_id: String, total: usize, moves: usize },
     /// An apply or a revert finished. Asked for by `notify_moves_completed`.
     MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize, moving: usize },
-    /// A scheduled backup could not be written, every time it fails.
+    /// A scheduled backup could not be written, every time it fails. `error`
+    /// is what the system answered, as it answered it.
     BackupFailed { error: String },
     /// Sent from Settings to check the address and the format.
     Test,
@@ -116,62 +122,77 @@ impl Event {
         }
     }
 
-    /// The human sentence. Deliberately English: this goes to a machine relay,
-    /// not to the interface, and a notification whose language depends on a UI
-    /// setting is a notification nobody can grep.
-    fn message(&self) -> String {
+    /// The sentence for a person, in `localizer`'s language.
+    fn message(&self, localizer: &Localizer) -> String {
+        let said = |stored: &str| crate::localization::said(stored, localizer);
+        let count = |n: &usize| n.to_string();
         match self {
-            Event::InstanceUnreachable { instance, error } => {
-                format!("Routarr can no longer reach '{instance}': {error}")
-            }
-            Event::InstanceRecovered { instance } => {
-                format!("Routarr can reach '{instance}' again.")
-            }
-            Event::AutoApplyFailed { failed, applied, first_error } => format!(
-                "Routarr failed to apply routing decisions automatically. Failures: {failed} \
-                 ({applied} succeeded). First error: {first_error}"
+            Event::InstanceUnreachable { instance, error } => localizer.translate(
+                "NotificationMessageInstanceUnreachable",
+                &[("instance", instance), ("error", &said(error))],
             ),
-            Event::AutoApplyHeld { candidates, cap } => format!(
-                "Routarr held back {candidates} automatic moves, more than the {cap} one \
-                 unattended run may make. Apply them from the Simulation screen, or raise the \
-                 batch limit."
+            Event::InstanceRecovered { instance } => localizer
+                .translate("NotificationMessageInstanceRecovered", &[("instance", instance)]),
+            Event::AutoApplyFailed { failed, applied, title, error } => localizer.translate(
+                "NotificationMessageAutoApplyFailed",
+                &[
+                    ("failed", &count(failed)),
+                    ("applied", &count(applied)),
+                    ("title", title),
+                    ("error", &said(error)),
+                ],
             ),
-            Event::SyncFailed { instance, error, .. } => {
-                format!("Routarr could not sync '{instance}': {error}")
-            }
+            Event::AutoApplyHeld { candidates, cap } => localizer.translate(
+                "NotificationMessageAutoApplyHeld",
+                &[("candidates", &count(candidates)), ("cap", &count(cap))],
+            ),
+            Event::SyncFailed { instance, error, .. } => localizer.translate(
+                "NotificationMessageSyncFailed",
+                &[("instance", instance), ("error", &said(error))],
+            ),
             Event::BackupFailed { error } => {
-                format!("Routarr could not write its scheduled backup: {error}")
+                localizer.translate("NotificationMessageBackupFailed", &[("error", error)])
             }
-            Event::SimulationCompleted { total, moves, .. } => {
-                format!("Routarr simulated the library. Titles: {total}, moves proposed: {moves}.")
-            }
-            Event::MovesCompleted { reverted, applied, failed, skipped, moving } => format!(
-                "Routarr {} titles. Moved: {applied}, still moving: {moving}, failed: {failed}, \
-                 skipped: {skipped}.",
-                if *reverted { "moved back" } else { "moved" }
+            Event::SimulationCompleted { total, moves, .. } => localizer.translate(
+                "NotificationMessageSimulationCompleted",
+                &[("total", &count(total)), ("moves", &count(moves))],
             ),
-            Event::Test => {
-                "Routarr reaches this address. Its notifications arrive here like this one."
-                    .to_string()
+            Event::MovesCompleted { reverted, applied, failed, skipped, moving } => {
+                let key = if *reverted {
+                    "NotificationMessageRevertCompleted"
+                } else {
+                    "NotificationMessageApplyCompleted"
+                };
+                localizer.translate(
+                    key,
+                    &[
+                        ("applied", &count(applied)),
+                        ("moving", &count(moving)),
+                        ("failed", &count(failed)),
+                        ("skipped", &count(skipped)),
+                    ],
+                )
             }
+            Event::Test => localizer.translate("NotificationMessageTest", &[]),
         }
     }
 
     /// What happened in a few words, the title a receiver shows above the
-    /// message. English, like the message.
-    fn headline(&self) -> &'static str {
-        match self {
-            Event::InstanceUnreachable { .. } => "Instance unreachable",
-            Event::InstanceRecovered { .. } => "Instance reachable again",
-            Event::AutoApplyFailed { .. } => "Automatic apply failed",
-            Event::AutoApplyHeld { .. } => "Automatic apply held back",
-            Event::SyncFailed { .. } => "Sync failed",
-            Event::BackupFailed { .. } => "Backup failed",
-            Event::SimulationCompleted { .. } => "Simulation finished",
-            Event::MovesCompleted { reverted: false, .. } => "Apply finished",
-            Event::MovesCompleted { reverted: true, .. } => "Revert finished",
-            Event::Test => "Test notification",
-        }
+    /// message.
+    fn headline(&self, localizer: &Localizer) -> String {
+        let key = match self {
+            Event::InstanceUnreachable { .. } => "NotificationHeadlineInstanceUnreachable",
+            Event::InstanceRecovered { .. } => "NotificationHeadlineInstanceRecovered",
+            Event::AutoApplyFailed { .. } => "NotificationHeadlineAutoApplyFailed",
+            Event::AutoApplyHeld { .. } => "NotificationHeadlineAutoApplyHeld",
+            Event::SyncFailed { .. } => "NotificationHeadlineSyncFailed",
+            Event::BackupFailed { .. } => "NotificationHeadlineBackupFailed",
+            Event::SimulationCompleted { .. } => "NotificationHeadlineSimulationCompleted",
+            Event::MovesCompleted { reverted: false, .. } => "NotificationHeadlineApplyCompleted",
+            Event::MovesCompleted { reverted: true, .. } => "NotificationHeadlineRevertCompleted",
+            Event::Test => "NotificationHeadlineTest",
+        };
+        localizer.translate(key, &[])
     }
 
     /// Ids and counts, never prose: what a program reads.
@@ -273,7 +294,7 @@ fn clipped(text: &str, max: usize, size: impl Fn(char) -> usize) -> String {
         .collect()
 }
 
-fn payload(event: &Event, at: &str, format: Format) -> Payload {
+fn payload(event: &Event, at: &str, format: Format, localizer: &Localizer) -> Payload {
     let json = |value: serde_json::Value| Payload {
         body: value.to_string(),
         content_type: "application/json",
@@ -281,15 +302,15 @@ fn payload(event: &Event, at: &str, format: Format) -> Payload {
     };
     match format {
         Format::Json => Payload {
-            body: serde_json::to_string(&notification(event, at)).unwrap_or_default(),
+            body: serde_json::to_string(&notification(event, at, localizer)).unwrap_or_default(),
             content_type: "application/json",
             headers: Vec::new(),
         },
         Format::Discord => json(serde_json::json!({
             "username": "Routarr",
             "embeds": [{
-                "title": event.headline(),
-                "description": clipped(&event.message(), DISCORD_DESCRIPTION, |_| 1),
+                "title": event.headline(localizer),
+                "description": clipped(&event.message(localizer), DISCORD_DESCRIPTION, |_| 1),
                 "color": event.colour(),
                 "timestamp": at,
                 "footer": { "text": event.kind() },
@@ -297,22 +318,22 @@ fn payload(event: &Event, at: &str, format: Format) -> Payload {
             "allowed_mentions": AllowedMentions::default(),
         })),
         Format::Ntfy => Payload {
-            body: clipped(&event.message(), NTFY_BODY, char::len_utf8),
+            body: clipped(&event.message(localizer), NTFY_BODY, char::len_utf8),
             content_type: "text/plain; charset=utf-8",
             headers: vec![
-                ("Title", event.headline().to_string()),
+                ("Title", event.headline(localizer)),
                 ("Priority", event.ntfy_priority().to_string()),
                 ("Tags", event.ntfy_tag().to_string()),
             ],
         },
         Format::Gotify => json(serde_json::json!({
-            "title": event.headline(),
-            "message": event.message(),
+            "title": event.headline(localizer),
+            "message": event.message(localizer),
             "priority": event.gotify_priority(),
         })),
         Format::Apprise => json(serde_json::json!({
-            "title": event.headline(),
-            "body": event.message(),
+            "title": event.headline(localizer),
+            "body": event.message(localizer),
             "type": event.outcome(),
             "format": "text",
         })),
@@ -384,7 +405,9 @@ pub struct Notification {
     pub source: &'static str,
     /// Always `Routarr`.
     pub title: &'static str,
-    /// A sentence in English for a person.
+    /// A sentence for a person, in the language set for Routarr's
+    /// interface. A program reads `event` and `data`, which never change with
+    /// it.
     pub message: String,
     /// The message again, where Discord reads it.
     pub content: String,
@@ -399,8 +422,8 @@ pub struct Notification {
     pub data: serde_json::Value,
 }
 
-fn notification(event: &Event, at: &str) -> Notification {
-    let message = event.message();
+fn notification(event: &Event, at: &str, localizer: &Localizer) -> Notification {
+    let message = event.message(localizer);
     Notification {
         event: event.kind(),
         timestamp: at.to_string(),
@@ -610,7 +633,8 @@ impl Delivery {
             }
         };
         let format = state.setting::<String>("notification_format").await;
-        let payload = payload(&self.event, &self.at, Format::of(&format, &url));
+        let localizer = state.localizer().await;
+        let payload = payload(&self.event, &self.at, Format::of(&format, &url), &localizer);
         // Signed at each attempt: a receiver refuses a timestamp too old, and a
         // retry five minutes on would carry one.
         let timestamp = chrono::Utc::now().timestamp().to_string();
@@ -755,7 +779,12 @@ mod receivers {
         vec![
             Event::InstanceUnreachable { instance: "Radarr".into(), error: "refused".into() },
             Event::InstanceRecovered { instance: "Radarr".into() },
-            Event::AutoApplyFailed { failed: 1, applied: 0, first_error: "Totoro: no".into() },
+            Event::AutoApplyFailed {
+                failed: 1,
+                applied: 0,
+                title: "Totoro".into(),
+                error: "no".into(),
+            },
             Event::AutoApplyHeld { candidates: 60, cap: 50 },
             Event::SyncFailed {
                 instance_id: "inst-1".into(),
@@ -772,12 +801,16 @@ mod receivers {
 
     const AT: &str = "2026-10-04T12:00:00Z";
 
+    fn english() -> Localizer {
+        Localizer::new("en")
+    }
+
     fn sent(event: &Event) -> serde_json::Value {
-        serde_json::to_value(notification(event, AT)).unwrap()
+        serde_json::to_value(notification(event, AT, &english())).unwrap()
     }
 
     fn posted(event: &Event, format: Format) -> serde_json::Value {
-        serde_json::from_str(&payload(event, AT, format).body).unwrap()
+        serde_json::from_str(&payload(event, AT, format, &english()).body).unwrap()
     }
 
     /// Each event names itself, says how serious it is, and carries the ids
@@ -877,7 +910,7 @@ mod receivers {
     #[test]
     fn ntfy_shows_routarrs_json_for_every_event_as_text() {
         for event in every_event() {
-            let sent = serde_json::to_string(&notification(&event, AT)).unwrap();
+            let sent = serde_json::to_string(&notification(&event, AT, &english())).unwrap();
             assert!(sent.len() <= 4096, "{} bytes", sent.len());
         }
     }
@@ -916,7 +949,7 @@ mod receivers {
         for event in every_event() {
             let sent = posted(&event, Format::Discord);
             let embed = &sent["embeds"][0];
-            assert_eq!(embed["title"], event.headline(), "{sent}");
+            assert_eq!(embed["title"], event.headline(&english()), "{sent}");
             let description = embed["description"].as_str().unwrap_or_default();
             assert!(!description.is_empty() && description.chars().count() <= 4096, "{sent}");
             assert_eq!(sent["allowed_mentions"], serde_json::json!({ "parse": [] }), "{sent}");
@@ -935,14 +968,14 @@ mod receivers {
             payload.headers.iter().find(|(key, _)| *key == name).map(|(_, value)| value.clone())
         };
         let unreachable = &every_event()[0];
-        let sent = payload(unreachable, AT, Format::Ntfy);
-        assert_eq!(sent.body, unreachable.message());
+        let sent = payload(unreachable, AT, Format::Ntfy, &english());
+        assert_eq!(sent.body, unreachable.message(&english()));
         assert!(sent.content_type.starts_with("text/plain"));
         assert_eq!(header(&sent, "Title").as_deref(), Some("Instance unreachable"));
         assert_eq!(header(&sent, "Priority").as_deref(), Some("4"));
         assert_eq!(header(&sent, "Tags").as_deref(), Some("rotating_light"));
 
-        let finished = payload(&every_event()[7], AT, Format::Ntfy);
+        let finished = payload(&every_event()[7], AT, Format::Ntfy, &english());
         assert_eq!(header(&finished, "Priority").as_deref(), Some("2"));
         assert_eq!(header(&finished, "Tags").as_deref(), Some("white_check_mark"));
     }
@@ -959,7 +992,7 @@ mod receivers {
         let discord = posted(&event, Format::Discord);
         let description = discord["embeds"][0]["description"].as_str().unwrap();
         assert_eq!(description.chars().count(), 4096);
-        let ntfy = payload(&event, AT, Format::Ntfy).body;
+        let ntfy = payload(&event, AT, Format::Ntfy, &english()).body;
         assert!(ntfy.len() <= 4096 && ntfy.len() > 4000, "{} bytes", ntfy.len());
     }
 

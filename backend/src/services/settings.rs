@@ -163,11 +163,10 @@ pub fn check(
     categories: &[String],
     localizer: &Localizer,
 ) -> AppResult<()> {
-    let kind = KNOWN
-        .iter()
-        .find(|(k, _, _)| *k == key)
-        .map(|(_, kind, _)| *kind)
-        .ok_or_else(|| AppError::BadRequest(format!("Unknown setting '{key}'")))?;
+    let kind =
+        KNOWN.iter().find(|(k, _, _)| *k == key).map(|(_, kind, _)| *kind).ok_or_else(|| {
+            AppError::BadRequest(localizer.translate("ErrorSettingUnknown", &[("key", key)]))
+        })?;
     validate(key, value, kind, categories, localizer)
 }
 
@@ -184,14 +183,20 @@ pub fn names_a_category(key: &str) -> bool {
     KNOWN.iter().any(|(k, kind, _)| *k == key && matches!(kind, Kind::Category))
 }
 
-/// The label a typed setting is shown under, for a refusal that names it.
+/// The label a setting is shown under, for a refusal or a warning that names
+/// it.
 ///
-/// Only the settings an operator types and only the server checks: the others
-/// are chosen from a list, or held to their bounds by the form before a save.
+/// The settings an operator types and only the server checks, and the
+/// retentions a warning names above their ceiling: the others are chosen from
+/// a list, or held to their bounds by the form before a save.
 fn label(key: &str) -> &str {
     match key {
         "notification_webhook_url" => "SettingNotificationWebhook",
         "certification_regions" => "SettingCertificationRegions",
+        "backup_retention_count" => "SettingBackupRetention",
+        "decision_retention_days" => "SettingDecisionRetention",
+        "log_retention_days" => "SettingLogRetention",
+        "security_log_retention_days" => "SettingSecurityLogRetention",
         other => other,
     }
 }
@@ -211,11 +216,11 @@ pub fn bounds(key: &str) -> Option<(i64, i64)> {
     })
 }
 
-/// Every retention count with its ceiling, for the warning that names a
-/// stored value above one.
-pub fn retention_counts() -> impl Iterator<Item = (&'static str, i64)> {
+/// Every retention count with the key of its label and its ceiling, for the
+/// warning that names a stored value above one.
+pub fn retention_counts() -> impl Iterator<Item = (&'static str, &'static str, i64)> {
     KNOWN.iter().filter_map(|(k, kind, _)| match kind {
-        Kind::Retention(_, max) => Some((*k, *max)),
+        Kind::Retention(_, max) => Some((*k, label(k), *max)),
         _ => None,
     })
 }

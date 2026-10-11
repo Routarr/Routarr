@@ -96,13 +96,13 @@ COUNTS_SOURCE = ROOT / "backend" / "src" / "localization.rs"
 # already written with their unit, years, ids, statuses and ordinals.
 NOT_COUNTS = {
     "address", "age", "arr", "base", "category", "cause", "certification", "code", "condition",
-    "countries", "country", "detail", "ends", "error", "expected", "field", "file", "first", "found",
-    "free", "handle", "host", "id", "index", "instance", "key", "kind", "label", "language", "max",
-    "message", "min", "minimum", "name", "names", "needed", "next", "number", "observed", "opened",
-    "origin", "path", "paths", "provider", "query", "reason", "regions", "route", "rule", "scope",
-    "scopes", "screen", "second", "section", "service", "setting", "since", "size", "source",
-    "sources", "status", "tab", "title", "url", "used", "value", "values",
-    "variable", "version", "when", "year",
+    "countries", "country", "detail", "ends", "entry", "error", "expected", "field", "file", "first",
+    "folder", "found", "free", "handle", "host", "id", "index", "instance", "key", "kind", "label",
+    "language", "last", "max", "message", "min", "minimum", "name", "names", "needed", "next",
+    "number", "observed", "opened", "origin", "path", "paths", "provider", "query", "reason",
+    "reasons", "regions", "route", "rule", "schema", "scope", "scopes", "screen", "second",
+    "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
+    "tab", "title", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
 }
 
 

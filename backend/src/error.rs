@@ -1,7 +1,9 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::error as log_error;
+
+use crate::localization::Told;
 
 /// Unified application error type.
 #[derive(Debug, thiserror::Error)]
@@ -90,12 +92,15 @@ pub enum AppError {
     /// An outbound call failed: an Arr, a metadata source, the identity
     /// provider or the notification webhook.
     ///
-    /// `status` is 0 for a transport failure (refused, timed out, unreadable
-    /// body), and the cause is always in `message`.
-    #[error("{}", describe_external(service, *status, message))]
+    /// `kind` says what became of the call, `message` the detail it came
+    /// with. `status` is the status the service gave, 0 when no answer came
+    /// back usable, and for a service that answers 200 and refuses in its
+    /// body (`Upstream::RefusedWith200`), the one its refusal amounts to.
+    #[error("{}", describe_external(service, *status, kind, message))]
     ExternalApi {
         service: String,
         status: u16,
+        kind: Upstream,
         message: String,
         /// Seconds the upstream asked us to wait, from its `Retry-After`.
         ///
@@ -138,6 +143,16 @@ impl AppError {
         )
     }
 
+    /// An upstream failure as a key and its values.
+    pub fn told(&self) -> Option<Told> {
+        match self {
+            AppError::ExternalApi { service, status, kind, message, .. } => {
+                Some(told_external(service, *status, kind, message))
+            }
+            _ => None,
+        }
+    }
+
     /// The text a caller may read, in a response, a job row or a placement.
     ///
     /// The human sentence alone: the `error` field already carries the
@@ -167,16 +182,135 @@ impl AppError {
     }
 }
 
-/// Render an upstream failure so the cause survives into logs and API responses.
-///
-/// Rendered by status alone, a deserialization failure and a refused connection
-/// both read "Radarr returned 0", with no way to tell them apart.
-fn describe_external(service: &str, status: u16, message: &str) -> String {
-    match (status, message.trim()) {
-        (0, "") => format!("{service} is unreachable"),
-        (0, cause) => format!("{service} is unreachable: {cause}"),
-        (status, "") => format!("{service} returned HTTP {status}"),
-        (status, cause) => format!("{service} returned HTTP {status}: {cause}"),
+/// What became of an outbound call that failed. The code decides on it and
+/// the reader is told it, so it travels as a value: a decision read back out
+/// of a sentence breaks on the first rewording.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
+pub enum Upstream {
+    /// No usable answer came back.
+    Transport(Transport),
+    /// An answer came back that is not the API's: a web page, another
+    /// service, a record that is not an object.
+    Unreadable,
+    /// The answer outgrew the most read of it, which `message` names.
+    TooLarge,
+    /// A write was redirected, and would reach the new address as a read.
+    WriteRedirected,
+    /// A redirect towards this other host, which the client stopped.
+    RedirectedTo(String),
+    /// A 401 from something in front of the service, asking for its own
+    /// sign-in.
+    SignInInFront,
+    /// An error status on the status line.
+    Http,
+    /// An answer of 200 whose body refuses.
+    RefusedWith200,
+    /// The requests the source allows today are spent.
+    QuotaSpent,
+    /// The Arr's answer to a write does not show it made.
+    NotListed,
+}
+
+/// What stopped a request before any usable answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Transport {
+    NameUnresolved,
+    /// Nothing listens at the address, or the network does not reach it.
+    Unreachable,
+    TimedOut,
+    /// The TLS handshake failed: a certificate not trusted, or `https` on a
+    /// port that serves plain HTTP.
+    HandshakeFailed,
+    /// What answered is not HTTP, as TLS on a port given with `http`.
+    NotHttp,
+    /// Redirects that never leave the origin. One towards another origin is
+    /// stopped by the client's policy and arrives as its 3xx status.
+    RedirectLoop,
+    /// A cloud host's metadata service answers at the address, where
+    /// Routarr does not connect.
+    MetadataAddress,
+    /// Anything else, `message` holding the deepest cause.
+    Failed,
+}
+
+impl Transport {
+    fn english(self) -> &'static str {
+        match self {
+            Transport::NameUnresolved => "the host name does not resolve",
+            Transport::Unreachable => "connection refused or host unreachable",
+            Transport::TimedOut => "request timed out",
+            Transport::HandshakeFailed => "the TLS handshake failed",
+            Transport::NotHttp => "the server did not answer in HTTP",
+            Transport::RedirectLoop => "the server redirects in a loop",
+            Transport::MetadataAddress => "a cloud host's metadata service answers at the address",
+            Transport::Failed => "",
+        }
+    }
+}
+
+/// An upstream failure in English, for the log, so the cause survives into
+/// it: rendered by status alone, a body that does not decode and a refused
+/// connection both read "Radarr returned 0".
+fn describe_external(service: &str, status: u16, kind: &Upstream, message: &str) -> String {
+    let said = message.trim();
+    let with = |sentence: String| {
+        if said.is_empty() { sentence } else { format!("{sentence}: {said}") }
+    };
+    match kind {
+        Upstream::Transport(Transport::Failed) => with(format!("{service} is unreachable")),
+        Upstream::Transport(transport) => {
+            format!("{service} is unreachable: {}", transport.english())
+        }
+        Upstream::Unreadable => with(format!("{service} answered something unreadable")),
+        Upstream::TooLarge => format!("{service}'s answer is larger than {said}"),
+        Upstream::WriteRedirected => {
+            format!("{service} redirected the write, which would reach the new address as a read")
+        }
+        Upstream::RedirectedTo(host) => {
+            format!("{service} returned HTTP {status}: redirected to {host}")
+        }
+        Upstream::SignInInFront => {
+            format!("{service} returned HTTP {status}: a sign-in is asked for in front of it")
+        }
+        Upstream::Http => with(format!("{service} returned HTTP {status}")),
+        Upstream::RefusedWith200 => with(format!("{service} answered with an error")),
+        Upstream::QuotaSpent => format!("{service} allows no more requests today"),
+        Upstream::NotListed => with(format!("{service} did not make the change")),
+    }
+}
+
+/// What an upstream failure says in the reader's language: the same
+/// sentence as [`describe_external`], as a key and its values.
+fn told_external(service: &str, status: u16, kind: &Upstream, message: &str) -> Told {
+    let said = message.trim();
+    let told = |key: &str| Told::new(key).with("service", service);
+    let with_detail = |key: &str, detailed: &str| {
+        if said.is_empty() { told(key) } else { told(detailed).with("detail", said) }
+    };
+    match kind {
+        Upstream::Transport(Transport::Failed) => {
+            with_detail("UpstreamUnreachable", "UpstreamFailed")
+        }
+        Upstream::Transport(Transport::NameUnresolved) => told("UpstreamNameUnresolved"),
+        Upstream::Transport(Transport::Unreachable) => told("UpstreamUnreachable"),
+        Upstream::Transport(Transport::TimedOut) => told("UpstreamTimedOut"),
+        Upstream::Transport(Transport::HandshakeFailed) => told("UpstreamHandshakeFailed"),
+        Upstream::Transport(Transport::NotHttp) => told("UpstreamNotHttp"),
+        Upstream::Transport(Transport::RedirectLoop) => told("UpstreamRedirectLoop"),
+        Upstream::Transport(Transport::MetadataAddress) => told("UpstreamMetadataAddress"),
+        Upstream::Unreadable => with_detail("UpstreamUnreadable", "UpstreamUnreadableSaid"),
+        Upstream::TooLarge => told("UpstreamTooLarge").with("size", said),
+        Upstream::WriteRedirected => told("UpstreamWriteRedirected"),
+        Upstream::RedirectedTo(host) => told("UpstreamRedirectedTo").with("host", host),
+        Upstream::SignInInFront => told("UpstreamSignInInFront"),
+        Upstream::Http => {
+            with_detail("UpstreamStatus", "UpstreamStatusSaid").with("status", status)
+        }
+        Upstream::RefusedWith200 => with_detail("UpstreamRefused", "UpstreamRefusedSaid"),
+        Upstream::QuotaSpent => told("UpstreamQuotaSpent"),
+        Upstream::NotListed => with_detail("UpstreamNotListed", "UpstreamNotListedSaid"),
     }
 }
 
@@ -312,6 +446,7 @@ mod tests {
         let error = AppError::ExternalApi {
             service: "Radarr".into(),
             status: 422,
+            kind: Upstream::Http,
             message: "movie already exists".into(),
             retry_after: None,
         };
@@ -323,7 +458,8 @@ mod tests {
         let error = AppError::ExternalApi {
             service: "Sonarr".into(),
             status: 0,
-            message: "connection refused or host unreachable".into(),
+            kind: Upstream::Transport(Transport::Unreachable),
+            message: String::new(),
             retry_after: None,
         };
         assert_eq!(
@@ -334,8 +470,47 @@ mod tests {
 
     #[test]
     fn an_empty_cause_still_reads_as_a_sentence() {
-        assert_eq!(describe_external("TMDB", 0, "   "), "TMDB is unreachable");
-        assert_eq!(describe_external("TMDB", 500, ""), "TMDB returned HTTP 500");
+        let failed = Upstream::Transport(Transport::Failed);
+        assert_eq!(describe_external("TMDB", 0, &failed, "   "), "TMDB is unreachable");
+        assert_eq!(describe_external("TMDB", 500, &Upstream::Http, ""), "TMDB returned HTTP 500");
+    }
+
+    /// An answer that arrived is never said to be unreachable, and a body of
+    /// 200 that refuses is never said to be an HTTP status.
+    #[test]
+    fn each_kind_of_upstream_failure_says_what_happened() {
+        let english = |status, kind: Upstream, message: &str| {
+            describe_external("OMDb", status, &kind, message)
+        };
+        assert_eq!(
+            english(0, Upstream::Unreadable, "expected value at line 1"),
+            "OMDb answered something unreadable: expected value at line 1"
+        );
+        assert_eq!(
+            english(401, Upstream::RefusedWith200, "Invalid API key!"),
+            "OMDb answered with an error: Invalid API key!"
+        );
+        assert_eq!(english(429, Upstream::QuotaSpent, ""), "OMDb allows no more requests today");
+
+        let french = crate::localization::Localizer::new("fr");
+        for (status, kind, message) in [
+            (0, Upstream::Transport(Transport::TimedOut), ""),
+            (0, Upstream::Transport(Transport::Failed), "connection reset"),
+            (0, Upstream::Unreadable, "expected value"),
+            (0, Upstream::TooLarge, "16 MiB"),
+            (0, Upstream::WriteRedirected, ""),
+            (302, Upstream::RedirectedTo("sso.example".into()), ""),
+            (401, Upstream::SignInInFront, ""),
+            (500, Upstream::Http, "boom"),
+            (401, Upstream::RefusedWith200, "Invalid API key!"),
+            (429, Upstream::QuotaSpent, ""),
+            (0, Upstream::NotListed, "the path did not change"),
+        ] {
+            let told = told_external("OMDb", status, &kind, message);
+            let english = crate::localization::Localizer::new("en");
+            assert_ne!(english.translate(&told.key, &[]), told.key, "{kind:?}: en.json lacks it");
+            assert!(told.render(&french).contains("OMDb"), "{kind:?}: {told:?}");
+        }
     }
 
     /// The database names its constraints, and the webhook is reachable without

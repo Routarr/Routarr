@@ -7,9 +7,9 @@
 
 use std::net::IpAddr;
 
-use crate::error::AppError;
-use crate::integrations::{self, Transport};
-use crate::localization::Localizer;
+use crate::error::{AppError, Transport, Upstream};
+use crate::localization::{Localizer, Told};
+use crate::models::Instance;
 
 /// Why an address did not answer as the Arr it was declared to be.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,34 +73,37 @@ impl Cause {
 /// Anything else, a database error or a sync already running, is not about
 /// what the operator typed and passes through as it is.
 pub fn cause_of(error: &AppError) -> Option<Cause> {
-    let AppError::ExternalApi { status, message, .. } = error else {
+    let AppError::ExternalApi { status, kind, .. } = error else {
         return None;
     };
-    match *status {
-        0 => match integrations::transport_failure(message)? {
-            Transport::NameUnresolved => Some(Cause::NameUnresolved),
-            Transport::MetadataAddress => Some(Cause::MetadataAddress),
-            Transport::Unreachable => Some(Cause::Unreachable),
-            Transport::TimedOut => Some(Cause::TimedOut),
-            Transport::HandshakeFailed => Some(Cause::HandshakeFailed),
-            Transport::NotHttp => Some(Cause::NotHttp),
-            Transport::RedirectLoop => Some(Cause::RedirectLoop),
-            Transport::Unreadable => Some(Cause::NotTheApi),
-            Transport::TooLarge => Some(Cause::TooLarge),
+    match kind {
+        Upstream::Transport(Transport::NameUnresolved) => Some(Cause::NameUnresolved),
+        Upstream::Transport(Transport::MetadataAddress) => Some(Cause::MetadataAddress),
+        Upstream::Transport(Transport::Unreachable) => Some(Cause::Unreachable),
+        Upstream::Transport(Transport::TimedOut) => Some(Cause::TimedOut),
+        Upstream::Transport(Transport::HandshakeFailed) => Some(Cause::HandshakeFailed),
+        Upstream::Transport(Transport::NotHttp) => Some(Cause::NotHttp),
+        Upstream::Transport(Transport::RedirectLoop) => Some(Cause::RedirectLoop),
+        Upstream::Transport(Transport::Failed) => None,
+        Upstream::Unreadable => Some(Cause::NotTheApi),
+        Upstream::TooLarge => Some(Cause::TooLarge),
+        Upstream::RedirectedTo(host) => Some(Cause::RedirectedElsewhere(host.clone())),
+        Upstream::SignInInFront => Some(Cause::SignInInFront),
+        Upstream::Http => match *status {
+            300..=399 => Some(Cause::Redirected),
+            401 => Some(Cause::KeyRefused),
+            // Radarr and Sonarr answer a wrong key with 401. A 403 comes from a
+            // firewall, an allow list or a sign-in policy in front of them.
+            403 => Some(Cause::RefusedInFront),
+            404 | 405 => Some(Cause::NotTheApi),
+            502..=504 => Some(Cause::UnreachableBehind(*status)),
+            500..=599 => Some(Cause::ServerError(*status)),
+            _ => None,
         },
-        300..=399 => Some(match integrations::redirected_to(message) {
-            Some(host) => Cause::RedirectedElsewhere(host.to_string()),
-            None => Cause::Redirected,
-        }),
-        401 if integrations::signs_in_in_front(message) => Some(Cause::SignInInFront),
-        401 => Some(Cause::KeyRefused),
-        // Radarr and Sonarr answer a wrong key with 401. A 403 comes from a
-        // firewall, an allow list or a sign-in policy in front of them.
-        403 => Some(Cause::RefusedInFront),
-        404 | 405 => Some(Cause::NotTheApi),
-        502..=504 => Some(Cause::UnreachableBehind(*status)),
-        500..=599 => Some(Cause::ServerError(*status)),
-        _ => None,
+        Upstream::WriteRedirected
+        | Upstream::RefusedWith200
+        | Upstream::QuotaSpent
+        | Upstream::NotListed => None,
     }
 }
 
@@ -137,58 +140,75 @@ pub fn service_name(kind: &str) -> &'static str {
 ///
 /// `kind` is the declared type, `radarr` or `sonarr`.
 pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer) -> String {
-    let masked = crate::http::masked(base_url);
-    let address: &str = &masked;
+    told(cause, kind, base_url).render(localizer)
+}
+
+/// [`explain`]'s sentence as a key and its values, for a row that stores it
+/// and says it again in each reader's language.
+pub fn told(cause: &Cause, kind: &str, base_url: &str) -> Told {
+    let address = crate::http::masked(base_url);
     let service = service_name(kind);
-    let url_base = format!("/{}", service.to_ascii_lowercase());
-    let status;
-    let (key, params): (&str, Vec<(&str, &str)>) = match cause {
-        Cause::NameUnresolved => {
-            ("ArrNameUnresolved", vec![("service", service), ("address", address)])
-        }
-        Cause::Unreachable if is_loopback(base_url) => {
-            ("ArrUnreachableLoopback", vec![("service", service), ("address", address)])
-        }
-        Cause::Unreachable => ("ArrUnreachable", vec![("service", service), ("address", address)]),
-        Cause::TimedOut => ("ArrTimedOut", vec![("service", service), ("address", address)]),
-        Cause::HandshakeFailed => {
-            ("ArrHandshakeFailed", vec![("service", service), ("address", address)])
-        }
-        Cause::NotHttp => ("ArrNotHttp", vec![("service", service), ("address", address)]),
-        Cause::Redirected => ("ArrRedirected", vec![("address", address)]),
-        Cause::RedirectedElsewhere(host) => (
-            "ArrRedirectedElsewhere",
-            vec![("service", service), ("address", address), ("host", host.as_str())],
-        ),
-        Cause::RedirectLoop => {
-            ("ArrRedirectLoop", vec![("service", service), ("address", address)])
-        }
+    let at = |key: &str| Told::new(key).with("service", service).with("address", &address);
+    match cause {
+        Cause::NameUnresolved => at("ArrNameUnresolved"),
+        Cause::Unreachable if is_loopback(base_url) => at("ArrUnreachableLoopback"),
+        Cause::Unreachable => at("ArrUnreachable"),
+        Cause::TimedOut => at("ArrTimedOut"),
+        Cause::HandshakeFailed => at("ArrHandshakeFailed"),
+        Cause::NotHttp => at("ArrNotHttp"),
+        Cause::Redirected => Told::new("ArrRedirected").with("address", &address),
+        Cause::RedirectedElsewhere(host) => at("ArrRedirectedElsewhere").with("host", host),
+        Cause::RedirectLoop => at("ArrRedirectLoop"),
         // Only a library listing grows without bound in an Arr. A status or a
         // folder list past the cap is something else streaming at the address.
-        Cause::NotTheApi | Cause::TooLarge => (
-            "ArrNotTheApi",
-            vec![("service", service), ("address", address), ("base", url_base.as_str())],
-        ),
-        Cause::KeyRefused => ("ArrKeyRefused", vec![("service", service)]),
-        Cause::MetadataAddress => {
-            ("ArrMetadataAddress", vec![("service", service), ("address", address)])
+        Cause::NotTheApi | Cause::TooLarge => {
+            at("ArrNotTheApi").with("base", format!("/{}", service.to_ascii_lowercase()))
         }
-        Cause::SignInInFront => ("ArrProxySignIn", vec![("service", service)]),
-        Cause::RefusedInFront => ("ArrProxyRefused", vec![("service", service)]),
+        Cause::KeyRefused => Told::new("ArrKeyRefused").with("service", service),
+        Cause::MetadataAddress => at("ArrMetadataAddress"),
+        Cause::SignInInFront => Told::new("ArrProxySignIn").with("service", service),
+        Cause::RefusedInFront => Told::new("ArrProxyRefused").with("service", service),
         Cause::UnreachableBehind(code) => {
-            status = code.to_string();
-            ("ArrProxyUnreachable", vec![("service", service), ("status", status.as_str())])
+            Told::new("ArrProxyUnreachable").with("service", service).with("status", code)
         }
         Cause::ServerError(code) => {
-            status = code.to_string();
-            ("ArrServerError", vec![("service", service), ("status", status.as_str())])
+            Told::new("ArrServerError").with("service", service).with("status", code)
         }
-        Cause::WrongApp(found) => (
-            "ArrWrongApp",
-            vec![("service", service), ("address", address), ("found", found.as_str())],
-        ),
-    };
-    localizer.translate(key, &params)
+        Cause::WrongApp(found) => at("ArrWrongApp").with("found", found),
+    }
+}
+
+/// A failure of a call to an Arr twice over: as a row keeps it, said again in
+/// each reader's language (`localization::said`), and as this reader reads it.
+pub struct Said {
+    pub stored: String,
+    pub said: String,
+}
+
+impl Said {
+    /// `error`, told as what to change when `instance`'s address or key
+    /// explains it, as the instance's own test tells it.
+    pub fn of(error: &AppError, instance: Option<&Instance>, localizer: &Localizer) -> Self {
+        let told = instance
+            .and_then(|instance| told_of(error, &instance.instance_type, &instance.base_url))
+            .or_else(|| error.told());
+        match told {
+            Some(told) => Self::told(&told, localizer),
+            None => {
+                let said = error.public_message();
+                Self { stored: said.clone(), said }
+            }
+        }
+    }
+
+    pub fn told(told: &Told, localizer: &Localizer) -> Self {
+        Self { stored: told.stored(), said: told.render(localizer) }
+    }
+}
+
+/// `error`, told as what to change, when the address or the key explains it.
+pub fn told_of(error: &AppError, kind: &str, base_url: &str) -> Option<Told> {
+    cause_of(error).map(|cause| told(&cause, kind, base_url))
 }
 
 /// The error the caller receives for `cause`, told in `sentence`: a 502 for
@@ -219,12 +239,9 @@ mod tests {
     use super::*;
 
     fn upstream(status: u16, message: &str) -> AppError {
-        AppError::ExternalApi {
-            service: "Radarr".into(),
-            status,
-            message: message.into(),
-            retry_after: None,
-        }
+        let kind =
+            if status == 0 { Upstream::Transport(Transport::Failed) } else { Upstream::Http };
+        crate::integrations::upstream("Radarr", status, kind, message.into())
     }
 
     #[test]

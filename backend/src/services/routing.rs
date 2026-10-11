@@ -18,7 +18,7 @@ use crate::error::AppResult;
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::metadata::{self, ProviderInfo};
-use crate::services::rule_engine::{self, EvalContext, OVERRIDE_RULE_ID, RuleMatch};
+use crate::services::rule_engine::{self, EvalContext, OVERRIDE_RULE_ID};
 
 /// How often a simulation followed by a job says how far it has gone.
 const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
@@ -489,34 +489,43 @@ fn decide(
     let localizer = &wording.localizer;
     let Route { evaluation, category, target, action, .. } = route;
     let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
-    let (matched_rule_id, matched_rule_name, reasons, confidence) = match &evaluation.winner {
-        Some(m) if is_override => (
-            Some(m.rule_id.clone()),
-            Some(localizer.translate("ManualOverrideRuleName", &[])),
-            vec![localizer.translate("ReasonManualOverride", &[])],
-            m.confidence,
-        ),
-        Some(m) => (
-            Some(m.rule_id.clone()),
-            Some(m.rule_name.clone()),
-            localizer.describe_all(&m.evaluations, m.excluded_by.as_ref()),
-            m.confidence,
-        ),
+    let (matched_rule_id, matched_rule_name, told, confidence) = match &evaluation.winner {
+        Some(m) if is_override => {
+            (Some(m.rule_id.clone()), None, vec![Reason::ManualOverride], m.confidence)
+        }
+        Some(m) => {
+            let mut told: Vec<Reason> =
+                m.evaluations.iter().cloned().map(Reason::Condition).collect();
+            told.extend(m.excluded_by.clone().map(Reason::Excluded));
+            (Some(m.rule_id.clone()), Some(m.rule_name.clone()), told, m.confidence)
+        }
         None => (
             None,
             None,
-            vec![
-                localizer.translate("ReasonNoRuleMatched", &[("category", &ctx.default_category)]),
-            ],
+            vec![Reason::NoRuleMatched { category: ctx.default_category.clone() }],
             0.0,
         ),
     };
-    let alternatives: Vec<AlternativeDecision> = evaluation
+    let told_alternatives: Vec<AlternativeTold> = evaluation
         .alternatives
         .iter()
         .chain(&evaluation.excluded)
-        .map(|m| to_alternative(m, localizer))
+        .map(|m| AlternativeTold {
+            rule_name: m.rule_name.clone(),
+            category: m.category.clone(),
+            evaluations: m.evaluations.clone(),
+            excluded_by: m.excluded_by.clone(),
+            confidence: m.confidence,
+        })
         .collect();
+    let reason_lines: Vec<ReasonLine> = told.iter().map(|reason| reason.line(localizer)).collect();
+    let alternatives = told_alternatives.iter().map(|told| told.said(localizer)).collect();
+    let stored_reasons = serde_json::to_string(&told).unwrap_or_default();
+    let stored_alternatives = serde_json::to_string(&told_alternatives).unwrap_or_default();
+    let matched_rule_name = match is_override {
+        true => Some(localizer.translate("ManualOverrideRuleName", &[])),
+        false => matched_rule_name,
+    };
 
     Decision {
         actor: Some(wording.trigger.clone()),
@@ -535,8 +544,11 @@ fn decide(
         matched_rule_id,
         matched_rule_name,
         is_override,
-        reasons,
+        reasons: reason_lines.iter().map(|line| line.text.clone()).collect(),
+        reason_lines,
         alternatives,
+        stored_reasons,
+        stored_alternatives,
         action,
         status: DecisionStatus::Pending,
         confidence,
@@ -700,17 +712,92 @@ pub struct Counters {
     pub excluded_by_rule: usize,
 }
 
-fn to_alternative(m: &RuleMatch, localizer: &Localizer) -> AlternativeDecision {
-    AlternativeDecision {
-        rule_name: m.rule_name.clone(),
-        category: m.category.clone(),
-        reason: localizer.describe_all(&m.evaluations, None).join(" · "),
-        excluded_by: m
-            .excluded_by
-            .as_ref()
-            .map(|veto| localizer.localize_outcome(veto.clone()).expected),
-        confidence: m.confidence,
+/// One line of a decision's justification, as a run stores it: said in the
+/// language of whoever reads the decision, not in the run's.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "line", rename_all = "snake_case")]
+pub enum Reason {
+    Condition(rule_engine::ConditionOutcome),
+    Excluded(rule_engine::ConditionOutcome),
+    ManualOverride,
+    NoRuleMatched { category: String },
+}
+
+impl Reason {
+    fn line(&self, localizer: &Localizer) -> ReasonLine {
+        let (text, matched) = match self {
+            Reason::Condition(outcome) => (localizer.describe(outcome), outcome.matched),
+            Reason::Excluded(veto) => (localizer.describe_exclusion(veto), false),
+            Reason::ManualOverride => (localizer.translate("ReasonManualOverride", &[]), true),
+            Reason::NoRuleMatched { category } => {
+                (localizer.translate("ReasonNoRuleMatched", &[("category", category)]), false)
+            }
+        };
+        ReasonLine { text, matched: Some(matched) }
     }
+}
+
+/// A rule that matched and lost, as a run stores it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AlternativeTold {
+    rule_name: String,
+    category: String,
+    evaluations: Vec<rule_engine::ConditionOutcome>,
+    excluded_by: Option<rule_engine::ConditionOutcome>,
+    confidence: f32,
+}
+
+impl AlternativeTold {
+    fn said(&self, localizer: &Localizer) -> AlternativeDecision {
+        AlternativeDecision {
+            rule_name: self.rule_name.clone(),
+            category: self.category.clone(),
+            reason: localizer.describe_all(&self.evaluations, None).join(" · "),
+            excluded_by: self
+                .excluded_by
+                .as_ref()
+                .map(|veto| localizer.localize_outcome(veto.clone()).expected),
+            confidence: self.confidence,
+        }
+    }
+}
+
+/// What a decision's two columns hold: values a run stores, or sentences,
+/// which a row may hold and which are read as they are.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredReason {
+    Told(Reason),
+    Said(String),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredAlternative {
+    Told(AlternativeTold),
+    Said(AlternativeDecision),
+}
+
+/// A stored decision's reasons, in `localizer`'s language.
+pub fn stored_reasons(stored: &str, localizer: &Localizer) -> Vec<ReasonLine> {
+    let read: Vec<StoredReason> = serde_json::from_str(stored).unwrap_or_default();
+    read.into_iter()
+        .map(|reason| match reason {
+            StoredReason::Told(reason) => reason.line(localizer),
+            StoredReason::Said(text) => ReasonLine { text, matched: None },
+        })
+        .collect()
+}
+
+/// A stored decision's alternatives, in `localizer`'s language.
+pub fn stored_alternatives(stored: &str, localizer: &Localizer) -> Vec<AlternativeDecision> {
+    let read: Vec<StoredAlternative> = serde_json::from_str(stored).unwrap_or_default();
+    read.into_iter()
+        .map(|alternative| match alternative {
+            StoredAlternative::Told(told) => told.said(localizer),
+            StoredAlternative::Said(said) => said,
+        })
+        .collect()
 }
 
 /// Two rule sets over one library, as the rule preview shows them.
@@ -1417,10 +1504,11 @@ async fn store_run(
         .bind(&decision.target_root_folder)
         .bind(&decision.target_category)
         .bind(&decision.matched_rule_id)
-        .bind(&decision.matched_rule_name)
+        // An exception's name is the reader's word for it (`api::decisions`).
+        .bind(decision.matched_rule_name.as_ref().filter(|_| !decision.is_override))
         .bind(decision.is_override)
-        .bind(serde_json::to_string(&decision.reasons)?)
-        .bind(serde_json::to_string(&decision.alternatives)?)
+        .bind(&decision.stored_reasons)
+        .bind(&decision.stored_alternatives)
         .bind(decision.action)
         .bind(decision.status)
         .bind(&decision.decided_at)

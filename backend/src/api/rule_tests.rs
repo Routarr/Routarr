@@ -36,7 +36,7 @@ pub async fn list(
 }
 
 pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> {
-    Ok(Json(rule_tests::run_all(&state.pool).await?))
+    Ok(Json(rule_tests::run_all(&state.pool, &state.localizer().await).await?))
 }
 
 /// Snapshot a library item and pin the category it must keep producing.

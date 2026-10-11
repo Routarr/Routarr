@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{send_json, send_ok};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 
 /// One Arr's API, as a move reaches it.
 pub(crate) struct Api<'a> {
@@ -43,15 +43,8 @@ impl Api<'_> {
         // answering 200 with a cached `[]`, or a base URL pointing at another
         // service on the same host, is enough to get one.
         if !record.is_object() {
-            return Err(AppError::ExternalApi {
-                service: self.service.to_string(),
-                status: 0,
-                message: format!(
-                    "{resource} {id} came back as {}, not an object",
-                    kind_of(&record)
-                ),
-                retry_after: None,
-            });
+            let said = format!("{resource} {id} came back as {}, not an object", kind_of(&record));
+            return Err(super::upstream(self.service, 0, crate::error::Upstream::Unreadable, said));
         }
         let path = join_path(root, &folder_name(&record));
         record["rootFolderPath"] = Value::String(root.to_string());

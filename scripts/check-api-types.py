@@ -72,6 +72,7 @@ PAIRS: dict[str, str] = {
     "Listed": "Session",
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
+    "ReasonLine": "ReasonLine",
     "Application": "Application",
     "ApplyReport": "ApplyReport",
     "BatchApplyReport": "BatchApplyReport",

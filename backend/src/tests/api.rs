@@ -1205,7 +1205,7 @@ async fn a_category_the_api_would_refuse_is_not_created_by_a_bundle() {
         "the refusal names the category and the reason: {skipped:?}"
     );
     assert!(
-        skipped.iter().any(|s| s.starts_with("'Family'") && s.contains("does not exist")),
+        skipped.iter().any(|s| s.starts_with("Rule 'Family'") && s.contains("does not exist")),
         "the rule is refused for the category it cannot have: {skipped:?}"
     );
 
@@ -1853,7 +1853,11 @@ async fn unknown_settings_are_rejected() {
         .put("/api/v1/settings", serde_json::json!({ "settings": { "global_dryrun": "false" } }))
         .await;
     response.assert_status(StatusCode::BAD_REQUEST);
-    assert!(response.message().contains("Unknown setting"));
+    assert!(
+        response.message().contains("no setting named 'global_dryrun'"),
+        "{}",
+        response.message()
+    );
 }
 
 #[tokio::test]

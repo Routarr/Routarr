@@ -34,6 +34,7 @@ use tracing::{info, warn};
 use super::{Scaffold, backup_dir, list, partial_path};
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobKind};
+use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::state::AppState;
 
 /// A passphrase, wiped from memory when dropped.
@@ -83,6 +84,12 @@ struct Cost {
     memory_kib: u32,
     passes: u32,
     lanes: u32,
+}
+
+impl Cost {
+    fn params(&self) -> Result<argon2::Params, argon2::Error> {
+        argon2::Params::new(self.memory_kib, self.passes, self.lanes, Some(64))
+    }
 }
 
 /// Whether an archive's name says it is sealed.
@@ -165,9 +172,7 @@ fn keys(
     cost: Cost,
 ) -> AppResult<zeroize::Zeroizing<[u8; 64]>> {
     let params =
-        argon2::Params::new(cost.memory_kib, cost.passes, cost.lanes, Some(64)).map_err(|e| {
-            AppError::BadRequest(format!("the archive asks for a cost Argon2 refuses: {e}"))
-        })?;
+        cost.params().map_err(|e| AppError::Internal(format!("cannot use the cost: {e}")))?;
     let argon2 = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     let mut keys = zeroize::Zeroizing::new([0u8; 64]);
     argon2
@@ -267,14 +272,19 @@ struct Unsealer {
 
 /// The header of `sealed`, and the cipher `passphrase` gives for it. `None`
 /// when the passphrase is not the one it was sealed with.
-fn unsealer(sealed: &Path, passphrase: &Passphrase) -> AppResult<Option<Unsealer>> {
+fn unsealer(
+    sealed: &Path,
+    passphrase: &Passphrase,
+    localizer: &Localizer,
+) -> AppResult<Option<Unsealer>> {
+    let refused = |key: &str| AppError::BadRequest(localizer.translate(key, &[]));
     let mut file =
         std::fs::File::open(sealed).map_err(|_| AppError::NotFound("Unknown backup".into()))?;
     let mut header = vec![0u8; HEADER_LEN];
-    if fill(&mut file, &mut header).map_err(|e| AppError::BadRequest(e.to_string()))? < HEADER_LEN
+    if fill(&mut file, &mut header).map_err(|_| refused("ErrorBackupSealedUnknown"))? < HEADER_LEN
         || &header[..MAGIC.len()] != MAGIC
     {
-        return Err(AppError::BadRequest("not a sealed archive this version can read".into()));
+        return Err(refused("ErrorBackupSealedUnknown"));
     }
     let number = |at: usize| {
         let start = MAGIC.len() + at * 4;
@@ -286,11 +296,16 @@ fn unsealer(sealed: &Path, passphrase: &Passphrase) -> AppResult<Option<Unsealer
     if cost.memory_kib > OPENING_LIMIT.memory_kib
         || cost.passes > OPENING_LIMIT.passes
         || cost.lanes > OPENING_LIMIT.lanes
+        || cost.params().is_err()
     {
-        return Err(AppError::BadRequest(format!(
-            "the archive asks for a cost above what a restore accepts: {} KiB, {} passes, {} lanes",
-            cost.memory_kib, cost.passes, cost.lanes
-        )));
+        warn!(
+            "{} asks for a cost a restore refuses: {} KiB, {} passes, {} lanes",
+            sealed.display(),
+            cost.memory_kib,
+            cost.passes,
+            cost.lanes
+        );
+        return Err(refused("ErrorBackupSealedCost"));
     }
     let salt_at = MAGIC.len() + 12;
     let salt = &header[salt_at..salt_at + SALT_LEN];
@@ -299,7 +314,7 @@ fn unsealer(sealed: &Path, passphrase: &Passphrase) -> AppResult<Option<Unsealer
     let checked = HEADER_LEN - CHECK_LEN;
     let digested = checked - DIGEST_LEN;
     if digest(&header[..digested]) != header[digested..checked] {
-        return Err(AppError::BadRequest("the archive is damaged: its header was altered".into()));
+        return Err(refused("ErrorBackupSealedDamaged"));
     }
     let keys = keys(passphrase, salt, cost)?;
     let expected = check(&keys[32..], &header[..checked])?;
@@ -313,12 +328,18 @@ fn unsealer(sealed: &Path, passphrase: &Passphrase) -> AppResult<Option<Unsealer
 
 /// Open `sealed` into `plain` with `passphrase`. `Ok(false)` when the
 /// passphrase does not open it, which only the person restoring can mend.
-pub(super) fn open(sealed: &Path, plain: &Path, passphrase: &Passphrase) -> AppResult<bool> {
-    let Some(Unsealer { mut file, header, mut decryptor }) = unsealer(sealed, passphrase)? else {
+pub(super) fn open(
+    sealed: &Path,
+    plain: &Path,
+    passphrase: &Passphrase,
+    localizer: &Localizer,
+) -> AppResult<bool> {
+    let Some(Unsealer { mut file, header, mut decryptor }) =
+        unsealer(sealed, passphrase, localizer)?
+    else {
         return Ok(false);
     };
-    let damaged =
-        || AppError::BadRequest("the archive is damaged: a part of it does not open".into());
+    let damaged = || AppError::BadRequest(localizer.translate("ErrorBackupSealedDamaged", &[]));
     let written =
         |e: std::io::Error| AppError::Internal(format!("cannot write {}: {e}", plain.display()));
     let mut out = crate::crypto::create_private(plain, false).map_err(written)?;
@@ -344,8 +365,12 @@ pub(super) fn open(sealed: &Path, plain: &Path, passphrase: &Passphrase) -> AppR
 }
 
 /// Whether `passphrase` opens `sealed`. Reads the header alone.
-pub(super) fn opens(sealed: &Path, passphrase: &Passphrase) -> AppResult<bool> {
-    Ok(unsealer(sealed, passphrase)?.is_some())
+pub(super) fn opens(
+    sealed: &Path,
+    passphrase: &Passphrase,
+    localizer: &Localizer,
+) -> AppResult<bool> {
+    Ok(unsealer(sealed, passphrase, localizer)?.is_some())
 }
 
 /// A sealed archive opened in the work directory, removed with the value
@@ -362,11 +387,12 @@ pub(super) fn opened_copy(
     data_dir: &Path,
     archive: &Path,
     passphrases: &[&Passphrase],
+    localizer: &Localizer,
 ) -> AppResult<Option<Opened>> {
     let path = super::work_file(data_dir, "opened.zip")?;
     let scaffold = Scaffold(vec![path.clone()]);
     for passphrase in passphrases {
-        if open(archive, &path, passphrase)? {
+        if open(archive, &path, passphrase, localizer)? {
             return Ok(Some(Opened { path, _scaffold: scaffold }));
         }
     }
@@ -380,12 +406,14 @@ pub(super) fn opened_copy(
 pub(super) fn manifest(
     sealed: &Path,
     passphrase: &Passphrase,
+    localizer: &Localizer,
 ) -> AppResult<Option<super::BackupManifest>> {
-    let Some(Unsealer { mut file, header, mut decryptor }) = unsealer(sealed, passphrase)? else {
+    let Some(Unsealer { mut file, header, mut decryptor }) =
+        unsealer(sealed, passphrase, localizer)?
+    else {
         return Ok(None);
     };
-    let damaged =
-        || AppError::BadRequest("the archive is damaged: a part of it does not open".into());
+    let damaged = || AppError::BadRequest(localizer.translate("ErrorBackupSealedDamaged", &[]));
     let mut first = vec![0u8; CHUNK + TAG_LEN];
     let length = fill(&mut file, &mut first).map_err(|_| damaged())?;
     let mut probe = [0u8; 1];
@@ -397,15 +425,14 @@ pub(super) fn manifest(
     }
     .map_err(|_| damaged())?;
     let mut start = std::io::Cursor::new(opened);
-    let unreadable =
-        |e: &dyn std::fmt::Display| AppError::BadRequest(format!("unreadable manifest: {e}"));
+    let unreadable = |e: &dyn std::fmt::Display| super::manifest_unreadable(sealed, e, localizer);
     let Some(mut entry) =
         zip::read::read_zipfile_from_stream(&mut start).map_err(|e| unreadable(&e))?
     else {
-        return Err(AppError::BadRequest("the archive carries no manifest".into()));
+        return Err(AppError::BadRequest(localizer.translate("ErrorBackupNoManifest", &[])));
     };
     if entry.name() != super::MANIFEST_ENTRY {
-        return Err(AppError::BadRequest("the archive does not start with its manifest".into()));
+        return Err(AppError::BadRequest(localizer.translate("ErrorBackupNoManifest", &[])));
     }
     let mut raw = String::new();
     entry.read_to_string(&mut raw).map_err(|e| unreadable(&e))?;
@@ -441,7 +468,7 @@ pub async fn reseal(
     else {
         return Err(AppError::InProgress {
             reason: "backup_running",
-            message: "A backup held the folder for an hour".into(),
+            message: state.localizer().await.translate("ErrorBackupFolderHeld", &[]),
         });
     };
     let job =
@@ -451,8 +478,11 @@ pub async fn reseal(
     let names: Vec<String> = list(state).into_iter().map(|file| file.name).collect();
     let outcome = tokio::task::spawn_blocking(move || {
         let mut resealed = Resealed::default();
+        // What fails here is said in the log alone.
+        let localizer = Localizer::new(DEFAULT_LANGUAGE);
         for name in names {
-            match reseal_one(&data_dir, &dir, &name, old.as_ref(), new.as_ref()) {
+            let (old, new) = (old.as_ref(), new.as_ref());
+            match reseal_one(&data_dir, &dir, &name, old, new, &localizer) {
                 Ok(Some(true)) => resealed.changed += 1,
                 Ok(Some(false)) => {}
                 Ok(None) => resealed.left += 1,
@@ -491,6 +521,7 @@ fn reseal_one(
     name: &str,
     old: Option<&Passphrase>,
     new: Option<&Passphrase>,
+    localizer: &Localizer,
 ) -> AppResult<Option<bool>> {
     let path = dir.join(name);
     let sealed = is_sealed_file(&path);
@@ -510,19 +541,19 @@ fn reseal_one(
             // Already sealed for the new passphrase, as an interrupted pass
             // leaves the archives it reached.
             if let Some(new) = new
-                && opens(&path, new)?
+                && opens(&path, new, localizer)?
             {
                 return Ok(Some(false));
             }
             let Some(old) = old else { return Ok(None) };
             match new {
                 None => {
-                    if !open(&path, &partial, old)? {
+                    if !open(&path, &partial, old, localizer)? {
                         return Ok(None);
                     }
                 }
                 Some(new) => {
-                    let Some(opened) = opened_copy(data_dir, &path, &[old])? else {
+                    let Some(opened) = opened_copy(data_dir, &path, &[old], localizer)? else {
                         return Ok(None);
                     };
                     seal(&opened.path, &partial, new)?;
@@ -610,6 +641,15 @@ mod tests {
         Passphrase::new(words.to_string())
     }
 
+    fn english() -> Localizer {
+        Localizer::new("en")
+    }
+
+    fn refused_with(key: &str) -> impl Fn(&AppResult<bool>) -> bool {
+        let said = english().translate(key, &[]);
+        move |refused| matches!(refused, Err(AppError::BadRequest(m)) if *m == said)
+    }
+
     /// `content` sealed and opened again, in a directory of its own.
     fn round_trip(label: &str, content: &[u8]) -> Vec<u8> {
         let dir = crate::tests::TempDir::new(label);
@@ -617,7 +657,7 @@ mod tests {
         std::fs::write(&plain, content).unwrap();
         seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
         assert!(is_sealed_file(&sealed));
-        assert!(open(&sealed, &opened, &passphrase("the passphrase")).unwrap());
+        assert!(open(&sealed, &opened, &passphrase("the passphrase"), &english()).unwrap());
         std::fs::read(opened).unwrap()
     }
 
@@ -641,9 +681,9 @@ mod tests {
         std::fs::write(&plain, b"a database").unwrap();
         seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
 
-        assert!(!open(&sealed, &opened, &passphrase("another one")).unwrap());
+        assert!(!open(&sealed, &opened, &passphrase("another one"), &english()).unwrap());
         assert!(!opened.exists(), "a wrong passphrase wrote something");
-        assert!(opens(&sealed, &passphrase("the passphrase")).unwrap());
+        assert!(opens(&sealed, &passphrase("the passphrase"), &english()).unwrap());
     }
 
     /// Each way a sealed file can be altered after it was written: a byte
@@ -673,12 +713,9 @@ mod tests {
         {
             let altered = dir.join(label);
             std::fs::write(&altered, bytes).unwrap();
-            let opened =
-                open(&altered, &dir.join(format!("{label}.opened")), &passphrase("the passphrase"));
-            assert!(
-                matches!(opened, Err(AppError::BadRequest(ref m)) if m.contains("damaged")),
-                "{label}: {opened:?}"
-            );
+            let target = dir.join(format!("{label}.opened"));
+            let opened = open(&altered, &target, &passphrase("the passphrase"), &english());
+            assert!(refused_with("ErrorBackupSealedDamaged")(&opened), "{label}: {opened:?}");
         }
     }
 
@@ -698,16 +735,13 @@ mod tests {
             greedy[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
             let path = dir.join(label);
             std::fs::write(&path, greedy).unwrap();
-            let refused = opens(&path, &passphrase("the passphrase"));
-            assert!(
-                matches!(refused, Err(AppError::BadRequest(ref m)) if m.contains("cost")),
-                "{label}: {refused:?}"
-            );
+            let refused = opens(&path, &passphrase("the passphrase"), &english());
+            assert!(refused_with("ErrorBackupSealedCost")(&refused), "{label}: {refused:?}");
         }
 
         assert!(!is_sealed_file(&plain));
-        let refused = opens(&plain, &passphrase("the passphrase"));
-        assert!(matches!(refused, Err(AppError::BadRequest(_))), "{refused:?}");
+        let refused = opens(&plain, &passphrase("the passphrase"), &english());
+        assert!(refused_with("ErrorBackupSealedUnknown")(&refused), "{refused:?}");
     }
 
     /// A header altered is damage, said as such: taken for a wrong passphrase,
@@ -722,11 +756,8 @@ mod tests {
         altered[MAGIC.len() + 12] ^= 1;
         std::fs::write(&sealed, altered).unwrap();
 
-        let refused = opens(&sealed, &passphrase("the passphrase"));
-        assert!(
-            matches!(refused, Err(AppError::BadRequest(ref m)) if m.contains("damaged")),
-            "{refused:?}"
-        );
+        let refused = opens(&sealed, &passphrase("the passphrase"), &english());
+        assert!(refused_with("ErrorBackupSealedDamaged")(&refused), "{refused:?}");
     }
 
     /// An archive damaged past its first chunk is refused once part of it was
@@ -741,7 +772,7 @@ mod tests {
         damaged[HEADER_LEN + 2 * (CHUNK + TAG_LEN) + 10] ^= 1;
         std::fs::write(&sealed, damaged).unwrap();
 
-        let refused = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")]);
+        let refused = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")], &english());
 
         assert!(
             matches!(refused, Err(AppError::BadRequest(_))),
@@ -762,8 +793,12 @@ mod tests {
         std::fs::write(&plain, b"a database").unwrap();
         seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
 
-        let first = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")]).unwrap().unwrap();
-        let second = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")]).unwrap().unwrap();
+        let first = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")], &english())
+            .unwrap()
+            .unwrap();
+        let second = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")], &english())
+            .unwrap()
+            .unwrap();
 
         assert_ne!(first.path, second.path);
         assert_eq!(std::fs::read(&first.path).unwrap(), b"a database");

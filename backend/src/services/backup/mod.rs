@@ -32,6 +32,7 @@ pub use sealed::{
 
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobKind};
+use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::state::AppState;
 
 /// Written into every archive so a restore can refuse what it cannot honour.
@@ -140,6 +141,7 @@ const APPLICATION_GAP: std::time::Duration = std::time::Duration::from_secs(10 *
 
 /// Take a backup now.
 pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile> {
+    let localizer = state.localizer().await;
     let by_application = by.key.is_some();
     if by_application
         && let Some(left) = list(state)
@@ -150,16 +152,14 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
             .filter(|left| !left.is_zero())
     {
         let seconds = left.as_secs() + 1;
-        let message = state
-            .localizer()
-            .await
-            .translate("ErrorBackupTooSoon", &[("seconds", &seconds.to_string())]);
+        let message =
+            localizer.translate("ErrorBackupTooSoon", &[("seconds", &seconds.to_string())]);
         return Err(AppError::TooManyRequests { message, retry_after: seconds });
     }
     let Some(_lock) = state.jobs.try_lock("backup") else {
         return Err(AppError::InProgress {
             reason: "backup_running",
-            message: "A backup is already running".into(),
+            message: localizer.translate("ErrorBackupRunning", &[]),
         });
     };
 
@@ -173,6 +173,13 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         }
         Err(e) => Err(e),
     };
+    let outcome = outcome.map_err(|e| match e {
+        AppError::InProgress { reason: TAKEN_THIS_SECOND, .. } => AppError::InProgress {
+            reason: TAKEN_THIS_SECOND,
+            message: localizer.translate("ErrorBackupThisSecond", &[]),
+        },
+        other => other,
+    });
 
     match &outcome {
         Ok(file) => {
@@ -321,10 +328,13 @@ async fn write_archive(
     Ok(BackupFile { name, size_bytes, created_at: manifest.created_at, encrypted })
 }
 
-/// An archive is named to the second, and the name is taken.
+const TAKEN_THIS_SECOND: &str = "backup_just_taken";
+
+/// An archive is named to the second, and the name is taken. Said in English
+/// here, for the log of a start, and in the reader's language by `create`.
 fn taken_this_second() -> AppError {
     AppError::InProgress {
-        reason: "backup_just_taken",
+        reason: TAKEN_THIS_SECOND,
         message: "A backup was taken this second. Try again in a moment.".into(),
     }
 }
@@ -597,21 +607,37 @@ pub fn delete(state: &AppState, name: &str) -> AppResult<()> {
 }
 
 /// Read an archive's manifest without extracting anything.
-pub fn read_manifest(archive: &Path) -> AppResult<BackupManifest> {
+pub fn read_manifest(archive: &Path, localizer: &Localizer) -> AppResult<BackupManifest> {
     let file =
         std::fs::File::open(archive).map_err(|_| AppError::NotFound("Unknown backup".into()))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .map_err(|e| AppError::BadRequest(format!("not a readable archive: {e}")))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| unreadable(archive, &e, localizer))?;
 
     let mut entry = zip
         .by_name(MANIFEST_ENTRY)
-        .map_err(|_| AppError::BadRequest("the archive carries no manifest".into()))?;
+        .map_err(|_| AppError::BadRequest(localizer.translate("ErrorBackupNoManifest", &[])))?;
 
     let mut raw = String::new();
     std::io::Read::read_to_string(&mut entry, &mut raw)
-        .map_err(|e| AppError::BadRequest(format!("unreadable manifest: {e}")))?;
+        .map_err(|e| manifest_unreadable(archive, &e, localizer))?;
 
-    serde_json::from_str(&raw).map_err(|e| AppError::BadRequest(format!("invalid manifest: {e}")))
+    serde_json::from_str(&raw).map_err(|e| manifest_unreadable(archive, &e, localizer))
+}
+
+/// `archive` is no zip this build reads. What the reader made of it goes to
+/// the log, since it names offsets and signatures nobody restoring can use.
+fn unreadable(archive: &Path, e: &dyn std::fmt::Display, localizer: &Localizer) -> AppError {
+    warn!("{} cannot be read as an archive: {e}", archive.display());
+    AppError::BadRequest(localizer.translate("ErrorBackupUnreadable", &[]))
+}
+
+/// The manifest of `archive` is there and cannot be read.
+pub(super) fn manifest_unreadable(
+    archive: &Path,
+    e: &dyn std::fmt::Display,
+    localizer: &Localizer,
+) -> AppError {
+    warn!("The manifest of {} cannot be read: {e}", archive.display());
+    AppError::BadRequest(localizer.translate("ErrorBackupManifestUnreadable", &[]))
 }
 
 /// Validate an archive and stage it for the next startup.
@@ -640,10 +666,11 @@ pub async fn stage_restore(
     if !is_valid_backup_name(name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
+    let localizer = state.localizer().await;
     let Some(lock) = state.jobs.try_lock("restore") else {
         return Err(AppError::InProgress {
             reason: "restore_staging",
-            message: "A restore is already being staged".into(),
+            message: localizer.translate("ErrorRestoreStaging", &[]),
         });
     };
 
@@ -653,11 +680,10 @@ pub async fn stage_restore(
         let _lock = lock;
         let archive = backup_dir(&state).join(&name);
         let stored = sealed::passphrase(&state).await.ok().flatten();
-        let localizer = state.localizer().await;
         let opened =
             opened_if_sealed(&state.config.data_dir, &archive, given, stored, &localizer).await?;
         let source = opened.as_ref().map_or(archive.as_path(), |opened| opened.path.as_path());
-        stage(&state.config, Some(&state.pool), source, &name).await
+        stage(&state.config, Some(&state.pool), source, &name, &localizer).await
     })
     .await
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))?
@@ -681,17 +707,16 @@ async fn opened_if_sealed(
         archive.file_name().is_some_and(|name| sealed::is_sealed_name(&name.to_string_lossy()));
     if !sealed::is_sealed_file(archive) {
         if named_sealed {
-            return Err(AppError::BadRequest(
-                "this archive is named as encrypted and is not: it is not restored".into(),
-            ));
+            return Err(AppError::BadRequest(localizer.translate("ErrorBackupNotSealed", &[])));
         }
         return Ok(None);
     }
     let refusal = if given.is_some() { "ErrorPassphraseWrong" } else { "ErrorPassphraseNeeded" };
     let tried: Vec<Passphrase> = given.into_iter().chain(stored).collect();
     let (data_dir, path) = (data_dir.to_path_buf(), archive.to_path_buf());
+    let opening = localizer.clone();
     let opened = tokio::task::spawn_blocking(move || {
-        sealed::opened_copy(&data_dir, &path, &tried.iter().collect::<Vec<_>>())
+        sealed::opened_copy(&data_dir, &path, &tried.iter().collect::<Vec<_>>(), &opening)
     })
     .await
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
@@ -748,18 +773,18 @@ async fn stage(
     live: Option<&sqlx::SqlitePool>,
     archive: &Path,
     name: &str,
+    localizer: &Localizer,
 ) -> AppResult<BackupManifest> {
     let archive = archive.to_path_buf();
-    let manifest = read_manifest(&archive)?;
+    let manifest = read_manifest(&archive, localizer)?;
 
     // A bundle from a newer schema would leave the database ahead of the binary
     // that has to read it. Refusing is the only honest answer: migrations only
     // ever go forward.
     if crate::db::is_newer_schema(&manifest.schema) {
-        return Err(AppError::BadRequest(format!(
-            "this backup was taken at schema '{}', which this version of Routarr does not know. Upgrade Routarr first.",
-            manifest.schema
-        )));
+        return Err(AppError::BadRequest(
+            localizer.translate("ErrorBackupNewerSchema", &[("schema", &manifest.schema)]),
+        ));
     }
 
     // Off the runtime for the same reason the archive is written there: the
@@ -773,18 +798,20 @@ async fn stage(
 
     let named = name.to_string();
     let listed_key = manifest.includes_master_key;
-    let staged =
-        tokio::task::spawn_blocking(move || extract_staged(&archive, &targets, &named, listed_key))
-            .await
-            .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
+    let extracting = localizer.clone();
+    let staged = tokio::task::spawn_blocking(move || {
+        extract_staged(&archive, &targets, &named, listed_key, &extracting)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
 
     // A zero-byte or truncated file opens as a database, and would be moved
     // over the live one.
     let staged_database = staging_path(&config.db_path);
     if let Err(reason) = check_database(&staged_database).await {
-        return Err(AppError::BadRequest(format!(
-            "the archive's database cannot be restored: {reason}"
-        )));
+        return Err(AppError::BadRequest(
+            localizer.translate("ErrorBackupCannotRestore", &[("reason", &reason)]),
+        ));
     }
     let key_withdrawn = match live {
         Some(live) => is_withdrawn(live, Credential::MasterApiKey).await?,
@@ -793,7 +820,7 @@ async fn stage(
     if let Some(live) = live {
         keep_withdrawn_credentials(live, &staged_database).await?;
     }
-    opened_by_the_next_start(config, &staged_database).await?;
+    opened_by_the_next_start(config, &staged_database, localizer).await?;
 
     // A new restore replaces an earlier one entirely, and only once it is
     // known to be one: a file the new archive does not carry would otherwise
@@ -851,10 +878,10 @@ pub async fn stage_offline(
             Some(live) => sealed::stored_passphrase(config, live).await.ok().flatten(),
             None => None,
         };
-        let localizer = crate::localization::Localizer::new("en");
+        let localizer = Localizer::new(DEFAULT_LANGUAGE);
         let opened = opened_if_sealed(&config.data_dir, &path, given, stored, &localizer).await?;
         let source = opened.as_ref().map_or(path.as_path(), |opened| opened.path.as_path());
-        stage(config, live.as_ref(), source, &name).await
+        stage(config, live.as_ref(), source, &name, &localizer).await
     }
     .await;
     if let Some(live) = live {
@@ -952,12 +979,16 @@ pub fn newest_openable(
     passphrase: Option<&Passphrase>,
 ) -> Option<String> {
     let dir = backups_in(&config.data_dir);
+    // Read at a start, where a refusal only counts the archive out.
+    let localizer = Localizer::new(DEFAULT_LANGUAGE);
     list_in(&dir).into_iter().map(|file| file.name).find(|name| {
         let archive = dir.join(name);
         let manifest = match (sealed::is_sealed_file(&archive), passphrase) {
-            (false, _) => read_manifest(&archive).ok(),
+            (false, _) => read_manifest(&archive, &localizer).ok(),
             (true, None) => None,
-            (true, Some(passphrase)) => sealed::manifest(&archive, passphrase).ok().flatten(),
+            (true, Some(passphrase)) => {
+                sealed::manifest(&archive, passphrase, &localizer).ok().flatten()
+            }
         };
         manifest.is_some_and(|m| !crate::db::is_newer_schema(&m.schema))
     })
@@ -974,11 +1005,13 @@ fn extract_staged(
     targets: &[(&str, PathBuf); 3],
     name: &str,
     listed_key: bool,
+    localizer: &Localizer,
 ) -> AppResult<Scaffold> {
+    let refused =
+        |key: &str, values: &[(&str, &str)]| AppError::BadRequest(localizer.translate(key, values));
     let file =
         std::fs::File::open(archive).map_err(|_| AppError::NotFound("Unknown backup".into()))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .map_err(|e| AppError::BadRequest(format!("not a readable archive: {e}")))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| unreadable(archive, &e, localizer))?;
 
     let mut scaffold = Scaffold(Vec::new());
     for (entry, target) in targets {
@@ -988,16 +1021,14 @@ fn extract_staged(
                 // The keys alone, restored under a database they were not
                 // sealed for, are not a restore.
                 if *entry == DB_ENTRY {
-                    return Err(AppError::BadRequest("the archive carries no database".into()));
+                    return Err(refused("ErrorBackupNoDatabase", &[]));
                 }
                 // The manifest records whether the key was there when the
                 // archive was written, so a key it lists and the archive lacks
                 // has been lost, and the restore would leave every sealed
                 // credential unreadable.
                 if *entry == MASTER_KEY_ENTRY && listed_key {
-                    return Err(AppError::BadRequest(
-                        "the archive lists its master key and does not carry it".into(),
-                    ));
+                    return Err(refused("ErrorBackupKeyMissing", &[]));
                 }
                 // Said out loud. An archive without the master key restores a
                 // database whose every sealed credential this installation
@@ -1013,16 +1044,15 @@ fn extract_staged(
             // Present and unreadable is a damaged archive, not a missing entry:
             // taken for an absent key, the restore would go ahead without it.
             Err(e) => {
-                return Err(AppError::BadRequest(format!(
-                    "the archive is damaged: {entry} cannot be read ({e})"
-                )));
+                warn!("{entry} of backup {name} cannot be read: {e}");
+                return Err(refused("ErrorBackupDamaged", &[("entry", entry)]));
             }
         };
         let staging = staging_path(target);
         scaffold.0.push(staging.clone());
         let mut out = crate::crypto::create_private(&staging, false)
             .map_err(|e| AppError::Internal(format!("cannot stage {}: {e}", staging.display())))?;
-        std::io::copy(&mut source, &mut out).map_err(|e| copy_error(entry, e))?;
+        std::io::copy(&mut source, &mut out).map_err(|e| copy_error(entry, e, localizer))?;
         // On disk before a rename marks it pending: after a power cut, a
         // pending file must hold what was checked, not what was cached.
         out.sync_all().map_err(|e| AppError::Internal(format!("cannot stage {entry}: {e}")))?;
@@ -1035,11 +1065,12 @@ fn extract_staged(
 /// operator chose and can replace, so it is said as such rather than as an
 /// internal error. The CRC of an entry is checked only at its end, so this is
 /// found after part of it was copied.
-fn copy_error(entry: &str, e: std::io::Error) -> AppError {
+fn copy_error(entry: &str, e: std::io::Error, localizer: &Localizer) -> AppError {
     use std::io::ErrorKind::{InvalidData, InvalidInput, UnexpectedEof};
     match e.kind() {
         InvalidData | InvalidInput | UnexpectedEof => {
-            AppError::BadRequest(format!("the archive is damaged: {entry} cannot be read ({e})"))
+            warn!("{entry} cannot be read out of the archive: {e}");
+            AppError::BadRequest(localizer.translate("ErrorBackupDamaged", &[("entry", entry)]))
         }
         _ => AppError::Internal(format!("cannot stage {entry}: {e}")),
     }
@@ -1258,7 +1289,11 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
 /// with the key file the archive brings back, or the one in place when it
 /// brings none, and that file has to be the one its credentials were sealed
 /// with.
-async fn opened_by_the_next_start(config: &crate::config::Config, staged: &Path) -> AppResult<()> {
+async fn opened_by_the_next_start(
+    config: &crate::config::Config,
+    staged: &Path,
+    localizer: &Localizer,
+) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
     let brought_back = staging_path(&config.secret_key_path());
@@ -1291,17 +1326,13 @@ async fn opened_by_the_next_start(config: &crate::config::Config, staged: &Path)
     connection.close().await.ok();
 
     let refusal = if config.secret_key.is_some() {
-        "the credentials in this archive cannot be opened with ROUTARR_SECRET_KEY, which the next \
-         start uses instead of the archive's routarr.key. Set ROUTARR_SECRET_KEY to the key the \
-         archive was taken with, or unset it, then restore again."
+        "ErrorBackupKeyMismatchVariable"
     } else {
-        "the credentials in this archive cannot be opened with the routarr.key the next start \
-         would use. Set ROUTARR_SECRET_KEY to the key the archive was taken with, then restore \
-         again."
+        "ErrorBackupKeyMismatchFile"
     };
     match sealed {
         Some(sealed) if next_start.open(&sealed).is_err() => {
-            Err(AppError::BadRequest(refusal.into()))
+            Err(AppError::BadRequest(localizer.translate(refusal, &[])))
         }
         _ => Ok(()),
     }
@@ -1321,7 +1352,8 @@ fn key_in_place(config: &crate::config::Config, key_file: &Path) -> Option<Strin
 /// Whether `passphrase` opens the sealed `archive`, as a restore would.
 #[cfg(test)]
 pub(crate) fn sealed_with(archive: &Path, passphrase: &str) -> bool {
-    sealed::opens(archive, &Passphrase::new(passphrase.to_string())).unwrap_or(false)
+    let english = Localizer::new(DEFAULT_LANGUAGE);
+    sealed::opens(archive, &Passphrase::new(passphrase.to_string()), &english).unwrap_or(false)
 }
 
 /// Whether a file is a Routarr database this build can open.

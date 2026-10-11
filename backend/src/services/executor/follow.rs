@@ -10,6 +10,8 @@ use crate::error::AppResult;
 use crate::integrations::adapter::{ArrAdapter, ArrMedia};
 use crate::integrations::arr_moves::{CommandState, MoveCommand};
 use crate::jobs::Attribution;
+use crate::localization::Told;
+use crate::services::connection::Said;
 use crate::state::AppState;
 
 /// A move with files the Arr took, carried in a command of its own.
@@ -74,17 +76,18 @@ pub(super) async fn follow(
                     },
                 };
                 let target = &sent.mv.to;
-                match undone(&localizer, &instance.arr, command, held.as_ref(), target, UNDONE) {
+                match undone(&instance.arr, command, held.as_ref(), target, UNDONE) {
                     None => {
                         record_confirmed(&state.pool, &sent.mv, direction).await;
                         report.applied += 1;
                     }
                     Some(reason) => {
-                        record_failure(state, &sent.mv, &reason, direction, by).await;
+                        let failed = Said::told(&reason, &localizer);
+                        record_failure(state, &sent.mv, &failed, direction, by).await;
                         if let Some(Some(held)) = &held {
                             record_held(&state.pool, &sent.mv, held).await;
                         }
-                        count_failure(report, &sent.mv, reason);
+                        count_failure(report, &sent.mv, &failed);
                     }
                 }
             }
@@ -124,25 +127,25 @@ pub(super) fn latest_move<'a>(
 /// or gone. `held` is the title as the Arr holds it now, `Some(None)` once it
 /// holds it no more.
 pub(super) fn undone(
-    localizer: &crate::localization::Localizer,
     arr: &str,
     command: Option<&MoveCommand>,
     held: Option<&Option<ArrMedia>>,
     target: &str,
     elsewhere: &str,
-) -> Option<String> {
+) -> Option<Told> {
     if let Some(MoveCommand { state: CommandState::Ended(status), message, .. }) = command {
-        return Some(localizer.translate(
-            "ErrorMoveCommandEnded",
-            &[("arr", arr), ("status", status), ("message", message.as_deref().unwrap_or("-"))],
-        ));
+        let ended = Told::new("ErrorMoveCommandEnded").with("arr", arr).with("status", status);
+        return Some(match message.as_deref().map(str::trim).filter(|said| !said.is_empty()) {
+            Some(said) => ended.with("message", said),
+            None => Told { key: "ErrorMoveCommandEndedSilent".into(), ..ended },
+        });
     }
     match held {
-        Some(None) => Some(localizer.translate("ErrorMoveTitleGone", &[("arr", arr)])),
+        Some(None) => Some(Told::new("ErrorMoveTitleGone").with("arr", arr)),
         Some(Some(media)) => {
             let path = media.path.as_deref().unwrap_or_default();
             (!crate::paths::within(path, target))
-                .then(|| localizer.translate(elsewhere, &[("arr", arr), ("path", path)]))
+                .then(|| Told::new(elsewhere).with("arr", arr).with("path", path))
         }
         None => None,
     }
@@ -227,10 +230,10 @@ pub async fn settle_requested(
                 }
             },
         };
-        match undone(&localizer, &instance.name, command, held.as_ref(), &mv.to, NOT_MADE) {
+        match undone(&instance.name, command, held.as_ref(), &mv.to, NOT_MADE) {
             None => record_confirmed(&state.pool, &mv, direction).await,
             Some(reason) => {
-                record_failure(state, &mv, &reason, direction, by).await;
+                record_failure(state, &mv, &Said::told(&reason, &localizer), direction, by).await;
                 if let Some(Some(held)) = &held {
                     record_held(&state.pool, &mv, held).await;
                 }
