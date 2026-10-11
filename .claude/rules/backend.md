@@ -151,6 +151,9 @@ Each of these questions has one function. Call it, never spell the question agai
 - Translate a refusal naming something the operator typed, since it is read under that field.
   An error about an id the interface sent stays English. `backend/src/tests/localization.rs`
   pins both sides.
+- A text a row keeps for later (a decision's reasons, a failed move, a sync status) is a `Told`,
+  stored by `Told::stored` and said by `localization::said` in the language it is read in. An
+  outbound failure carries its `Upstream` kind (`integrations::upstream`), which code branches on.
 - A new key needs `en.json` alone, since every language falls back to English key by key.
   `scripts/check-locales.py` fails on a key the code uses and `en.json` lacks, a key another
   language has and English lacks, a changed `{placeholder}`, an empty value, a key no source

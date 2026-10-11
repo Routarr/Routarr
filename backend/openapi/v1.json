@@ -1197,7 +1197,7 @@
             "type": "boolean"
           },
           "observed": {
-            "description": "What the media actually carried, verbatim.",
+            "description": "What the title carried, as the reader's language writes it. Empty\nwhen it carried nothing.",
             "type": "string"
           },
           "params": {
@@ -1508,7 +1508,15 @@
           "media_type": {
             "type": "string"
           },
+          "reason_lines": {
+            "description": "The same lines, each with whether it states what decided.",
+            "items": {
+              "$ref": "#/components/schemas/ReasonLine"
+            },
+            "type": "array"
+          },
           "reasons": {
+            "description": "Why the title goes where it goes, one line each, in the reader's\nlanguage: the texts of `reason_lines`.",
             "items": {
               "type": "string"
             },
@@ -1573,6 +1581,7 @@
           "target_category",
           "is_override",
           "reasons",
+          "reason_lines",
           "alternatives",
           "action",
           "status",
@@ -2885,7 +2894,7 @@
             "type": "string"
           },
           "message": {
-            "description": "A sentence in English for a person.",
+            "description": "A sentence for a person, in the language set for Routarr's\ninterface. A program reads `event` and `data`, which never change with\nit.",
             "type": "string"
           },
           "severity": {
@@ -3554,6 +3563,26 @@
         ],
         "type": "object"
       },
+      "ReasonLine": {
+        "description": "One line of a decision's justification.",
+        "properties": {
+          "matched": {
+            "description": "True for a condition the title meets and for the exception that\ndecides it, false for a condition it misses, a veto and the fallback.\nNull for a line a run stored as a sentence.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "text": {
+            "description": "The line, in the reader's language.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
       "RenameCategoryRequest": {
         "additionalProperties": false,
         "description": "Request body for renaming a category.",
@@ -4003,7 +4032,14 @@
             ]
           },
           "error": {
-            "description": "Set when the fixture itself is the problem rather than the rules.",
+            "description": "Set when the stored case itself is the problem rather than the rules,\nin the interface's language.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_key": {
+            "description": "What `error` says, for a program: `RuleTestSnapshotUnreadable` or\n`RuleTestInstantUnreadable`. The list may grow.",
             "type": [
               "string",
               "null"
@@ -4462,7 +4498,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. Its `message` is written in the language set for Routarr's interface, so a program reads `event` and `data`, which never change with it. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"

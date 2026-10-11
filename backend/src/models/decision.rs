@@ -58,7 +58,11 @@ pub struct Decision {
     pub matched_rule_id: Option<String>,
     pub matched_rule_name: Option<String>,
     pub is_override: bool,
+    /// Why the title goes where it goes, one line each, in the reader's
+    /// language: the texts of `reason_lines`.
     pub reasons: Vec<String>,
+    /// The same lines, each with whether it states what decided.
+    pub reason_lines: Vec<ReasonLine>,
     pub alternatives: Vec<AlternativeDecision>,
     // Published as a string and its values, which a client may not read as
     // all there will ever be: a retype from the first release's string would
@@ -114,6 +118,23 @@ pub struct Decision {
     // `executor::REVERTIBLE` decides it.
     #[serde(default)]
     pub revertible: bool,
+    // The reasons and the alternatives as a run stores them, to be said in
+    // the language of whoever reads them (`routing::stored_reasons`).
+    #[serde(skip)]
+    pub stored_reasons: String,
+    #[serde(skip)]
+    pub stored_alternatives: String,
+}
+
+/// One line of a decision's justification.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+pub struct ReasonLine {
+    /// The line, in the reader's language.
+    pub text: String,
+    /// True for a condition the title meets and for the exception that
+    /// decides it, false for a condition it misses, a veto and the fallback.
+    /// Null for a line a run stored as a sentence.
+    pub matched: Option<bool>,
 }
 
 /// An alternative decision that was considered but not selected.

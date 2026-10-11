@@ -29,6 +29,7 @@ export function decision(over: Partial<Decision> = {}): Decision {
     matched_rule_name: 'Japanese',
     is_override: false,
     reasons: [],
+    reason_lines: [],
     alternatives: [],
     action: 'move',
     status: 'pending',

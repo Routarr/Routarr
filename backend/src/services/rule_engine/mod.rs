@@ -20,7 +20,7 @@ use crate::models::{Condition, MatchMode, Media, MediaMetadata, Rule};
 // Structured rather than pre-rendered prose: the engine stays language-agnostic
 // and the wording is resolved through the dictionary at the edges
 // (`Localizer::describe`).
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, utoipa::ToSchema)]
 pub struct ConditionOutcome {
     pub kind: String,
     pub matched: bool,
@@ -28,7 +28,10 @@ pub struct ConditionOutcome {
     pub key: String,
     /// Placeholder values for `key`.
     pub params: BTreeMap<String, String>,
-    /// What the media actually carried, verbatim.
+    /// What the title carried, as the reader's language writes it. Empty
+    /// when it carried nothing.
+    // The engine stores it raw, a size in bytes, a switch as `true`, and
+    // `Localizer::localize_outcome` writes it for the reader.
     pub observed: String,
     /// What the condition asked for, in the interface language.
     // Filled in by `Localizer::localize_outcome`.
@@ -434,7 +437,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 contains_any(&tags, values),
                 "ConditionTagIn",
                 &[("values", values.join(", "))],
-                if tags.is_empty() { "-".to_string() } else { tags.join(", ") },
+                tags.join(", "),
             )
         }
 
@@ -445,7 +448,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 contains_all(&tags, values),
                 "ConditionTagInAll",
                 &[("values", values.join(", "))],
-                if tags.is_empty() { "-".to_string() } else { tags.join(", ") },
+                tags.join(", "),
             )
         }
 
@@ -458,22 +461,18 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 !actual.is_empty() && values.iter().any(|v| v.trim().eq_ignore_ascii_case(&actual)),
                 "ConditionSeriesTypeIs",
                 &[("values", values.join(", "))],
-                if actual.is_empty() { "-".to_string() } else { actual },
+                actual,
             )
         }
 
         Condition::SizeOnDiskOverGb(threshold) => {
             const GB: i64 = 1024 * 1024 * 1024;
-            let bytes = media.size_on_disk.unwrap_or(0);
             ConditionOutcome::new(
                 kind,
                 media.size_on_disk.is_some_and(|size| size > threshold.saturating_mul(GB)),
                 "ConditionSizeOnDiskOverGb",
                 &[("value", threshold.to_string())],
-                match media.size_on_disk {
-                    Some(_) => format!("{:.1} GB", bytes as f64 / GB as f64),
-                    None => "-".to_string(),
-                },
+                media.size_on_disk.map(|bytes| bytes.to_string()).unwrap_or_default(),
             )
         }
 
@@ -482,7 +481,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             media.season_count.is_some_and(|count| count > *threshold),
             "ConditionSeasonCountOver",
             &[("value", threshold.to_string())],
-            media.season_count.map_or_else(|| "-".to_string(), |c| c.to_string()),
+            media.season_count.map(|count| count.to_string()).unwrap_or_default(),
         ),
 
         Condition::TitleContains(values) => {
@@ -1455,8 +1454,10 @@ mod tests {
     /// leaves `{values}` on the panel.
     #[test]
     fn every_condition_produces_a_reason() {
-        let (media, metadata) = (media(), metadata());
+        let (mut media, metadata) = (media(), metadata());
+        media.size_on_disk = Some(13_207_024_435);
         let english = crate::localization::Localizer::new("en");
+        let french = crate::localization::Localizer::new("fr");
         let mut seen = std::collections::HashSet::new();
         let mut condition = next_kind(None);
         while let Some(current) = condition {
@@ -1467,6 +1468,12 @@ mod tests {
             let reason = english.describe(&outcome);
             assert!(!reason.contains(&outcome.key), "{} has no sentence: {reason}", outcome.kind);
             assert!(!reason.contains('{'), "{} left a placeholder: {reason}", outcome.kind);
+            // Said in the reader's language whole: no switch read as `true`,
+            // no size in English units, no time of day nobody asked for.
+            let reason = french.describe(&outcome);
+            for english_only in ["true", "false", " GB", "T00:", ":00Z", "[-]"] {
+                assert!(!reason.contains(english_only), "{}: {reason}", outcome.kind);
+            }
             assert!(seen.insert(current.kind()), "{} is visited twice", current.kind());
             condition = next_kind(Some(&current));
         }

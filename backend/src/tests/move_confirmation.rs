@@ -26,12 +26,16 @@ async fn apply_with_files(app: &TestApp, decision_id: &str) -> executor::ApplyRe
     .unwrap()
 }
 
+/// The decision's status and its error, as an English reader reads it.
 async fn decision(app: &TestApp, decision_id: &str) -> (String, Option<String>) {
-    sqlx::query_as("SELECT status, error_message FROM decisions WHERE id = ?")
-        .bind(decision_id)
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap()
+    let (status, stored): (String, Option<String>) =
+        sqlx::query_as("SELECT status, error_message FROM decisions WHERE id = ?")
+            .bind(decision_id)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    let english = crate::localization::Localizer::new("en");
+    (status, stored.map(|stored| crate::localization::said(&stored, &english)))
 }
 
 async fn totoro_path(app: &TestApp) -> String {

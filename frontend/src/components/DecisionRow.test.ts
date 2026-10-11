@@ -164,7 +164,11 @@ describe('DecisionRow', () => {
 
     it('is clamped on screen, and offered in full behind a button', async () => {
       layOut(80);
-      show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
+      show({
+        decision: decision({ reason_lines: [{ text: reason, matched: true }] }),
+        selected: false,
+        onToggle: vi.fn(),
+      });
 
       const line = screen.getByText(reason);
       expect(line.className).toContain('reason-line');
@@ -182,13 +186,40 @@ describe('DecisionRow', () => {
 
     it('offers no button when every line fits', async () => {
       layOut(32);
-      show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
+      show({
+        decision: decision({ reason_lines: [{ text: reason, matched: true }] }),
+        selected: false,
+        onToggle: vi.fn(),
+      });
       // The lines are measured in the frame after the observer reports.
       await new Promise((frame) => requestAnimationFrame(frame));
 
       expect(screen.queryByRole('button', { name: /^Show in full/ })).toBeNull();
     });
   });
+});
+
+/**
+ * A line the title meets is marked as one by the flag the server sends with
+ * it, whatever its first character: a translation may move the mark, or open
+ * the line with a direction mark.
+ */
+it('marks the lines the title meets, by what the server says of each', () => {
+  show({
+    decision: decision({
+      reason_lines: [
+        { text: '\u200fGenre contains Animation ✓', matched: true },
+        { text: '✓ looks met, is not', matched: false },
+        { text: 'A sentence a row stored', matched: null },
+      ],
+    }),
+    selected: false,
+    onToggle: vi.fn(),
+  });
+
+  expect(screen.getByText('\u200fGenre contains Animation ✓').className).toContain('explain-match');
+  expect(screen.getByText('✓ looks met, is not').className).toContain('text-muted');
+  expect(screen.getByText('A sentence a row stored').className).toContain('text-muted');
 });
 
 /** Told apart by shape and colour on screen, and by a word to a screen reader. */

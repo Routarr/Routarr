@@ -13,22 +13,7 @@ pub mod tvdb;
 
 use serde::Deserialize;
 
-use crate::error::{AppError, AppResult};
-
-/// The transport failures an `ExternalApi` message states, each written by
-/// this module and read back by [`transport_failure`] through the same
-/// constant, so a rewording moves both sides at once.
-const TIMED_OUT: &str = "request timed out";
-const NAME_UNRESOLVED: &str = "the host name does not resolve";
-const UNREACHABLE: &str = "connection refused or host unreachable";
-const HANDSHAKE_FAILED: &str = "the TLS handshake failed";
-const NOT_HTTP: &str = "the server did not answer in HTTP";
-const REDIRECT_LOOP: &str = "the server redirects in a loop";
-const METADATA_ADDRESS: &str = "a cloud host's metadata service answers at the address";
-const WRITE_REDIRECTED: &str =
-    "the write was redirected, and would reach the new address as a read";
-const UNREADABLE: &str = "unreadable ";
-const TOO_LARGE: &str = "the answer is larger than ";
+use crate::error::{AppError, AppResult, Transport, Upstream};
 
 /// The most of an answer read before the request is given up, a library
 /// listing aside (`ROUTARR_MAX_LIBRARY_MIB`): a metadata answer or an Arr's
@@ -40,64 +25,6 @@ pub(crate) const MAX_BODY: usize = 16 << 20;
 pub(crate) const MAX_BODY: usize = 1 << 20;
 /// The most of an error body read: what is shown of it is cut far shorter.
 const MAX_ERROR_BODY: usize = 64 << 10;
-
-/// What a refusal with a status says beyond it, written and read back here
-/// like the transport failures: the host a stopped redirect leads to, and a
-/// sign-in asked for by something in front of the service.
-const REDIRECTED_TO: &str = "redirected to ";
-const SIGN_IN_IN_FRONT: &str = "a sign-in is asked for in front of the service";
-
-/// What stopped a request before a usable answer came back.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Transport {
-    NameUnresolved,
-    /// Nothing listens at the address, or the network does not reach it.
-    Unreachable,
-    TimedOut,
-    /// The TLS handshake failed: a certificate not trusted, or `https` on a
-    /// port that serves plain HTTP.
-    HandshakeFailed,
-    /// What answered is not HTTP, as TLS on a port given with `http`.
-    NotHttp,
-    /// Redirects that never leave the origin. One towards another origin is
-    /// stopped by the client's policy and arrives as its 3xx status.
-    RedirectLoop,
-    /// Something answered 2xx with a body that is not what the API returns.
-    Unreadable,
-    /// The answer outgrew the most read of it.
-    TooLarge,
-    /// A cloud host's metadata service answers at the address, where
-    /// Routarr does not connect.
-    MetadataAddress,
-}
-
-/// The transport failure a status-0 `ExternalApi` message states, if any.
-pub(crate) fn transport_failure(message: &str) -> Option<Transport> {
-    match message {
-        TIMED_OUT => Some(Transport::TimedOut),
-        NAME_UNRESOLVED => Some(Transport::NameUnresolved),
-        UNREACHABLE => Some(Transport::Unreachable),
-        HANDSHAKE_FAILED => Some(Transport::HandshakeFailed),
-        NOT_HTTP => Some(Transport::NotHttp),
-        REDIRECT_LOOP => Some(Transport::RedirectLoop),
-        METADATA_ADDRESS => Some(Transport::MetadataAddress),
-        other if other.starts_with(UNREADABLE) => Some(Transport::Unreadable),
-        other if other.starts_with(TOO_LARGE) => Some(Transport::TooLarge),
-        _ => None,
-    }
-}
-
-/// The host a 3xx leads to, when the client stopped it there for being
-/// another host rather than another port or scheme of the same one.
-pub(crate) fn redirected_to(message: &str) -> Option<&str> {
-    message.strip_prefix(REDIRECTED_TO)
-}
-
-/// Whether a 401 came from something in front of the service, which asked
-/// for its own sign-in, rather than from the service refusing its key.
-pub(crate) fn signs_in_in_front(message: &str) -> bool {
-    message == SIGN_IN_IN_FRONT
-}
 
 /// Send a request and decode its JSON body, turning any non-2xx into a typed
 /// `ExternalApi` error carrying the upstream status.
@@ -177,25 +104,20 @@ async fn json_capped<T: serde::de::DeserializeOwned>(
     cap: usize,
     variable: Option<&str>,
 ) -> AppResult<T> {
-    let failed = |message: String| AppError::ExternalApi {
-        service: service.to_string(),
-        status: 0,
-        message,
-        retry_after: None,
-    };
     let body = match read_up_to(response, cap).await {
         Ok((body, false)) => body,
         Ok((_, true)) => {
             let raise = variable.map(|name| format!(", which {name} raises")).unwrap_or_default();
-            return Err(failed(format!("{TOO_LARGE}{} MiB{raise}", cap >> 20)));
+            let size = format!("{} MiB{raise}", cap >> 20);
+            return Err(upstream(service, 0, Upstream::TooLarge, size));
         }
         // A body that stopped coming, timed out or cut, is a transport
         // failure, and only one that arrived whole and did not decode is
         // unreadable.
-        Err(e) => return Err(failed(describe_transport_error(&e))),
+        Err(e) => return Err(transport_failure(service, &e)),
     };
     serde_json::from_slice(&body)
-        .map_err(|e| failed(format!("{UNREADABLE}{service} response: {e}")))
+        .map_err(|e| upstream(service, 0, Upstream::Unreadable, e.to_string()))
 }
 
 /// The body, up to `cap` bytes, and whether more was coming.
@@ -227,34 +149,24 @@ async fn check_status(
     service: &'static str,
     request: reqwest::RequestBuilder,
 ) -> AppResult<reqwest::Response> {
-    let refused = |message: String| AppError::ExternalApi {
-        service: service.to_string(),
-        status: 0,
-        message,
-        retry_after: None,
-    };
     let (client, request) = request.build_split();
-    let request = request.map_err(|e| refused(describe_transport_error(&e)))?;
+    let request = request.map_err(|e| transport_failure(service, &e))?;
     // A literal address never reaches the resolver that keeps names off the
     // metadata addresses, so it is checked here, the one way out.
     let literal = request.url().host_str().and_then(|host| {
         host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().ok()
     });
     if literal.is_some_and(crate::http::is_metadata_address) {
-        return Err(refused(METADATA_ADDRESS.to_string()));
+        let metadata = Upstream::Transport(Transport::MetadataAddress);
+        return Err(upstream(service, 0, metadata, String::new()));
     }
     let (method, sent_to) = (request.method().clone(), request.url().clone());
-    let response = client.execute(request).await.map_err(|e| AppError::ExternalApi {
-        service: service.to_string(),
-        status: 0,
-        message: describe_transport_error(&e),
-        retry_after: None,
-    })?;
+    let response = client.execute(request).await.map_err(|e| transport_failure(service, &e))?;
     // A 301, 302 or 303 turns a write into a GET without its body, and the
     // GET's success is not the write's. The redirect policy follows only
     // within the origin, so an answer from another address was redirected.
     if !method.is_safe() && response.url() != &sent_to {
-        return Err(refused(WRITE_REDIRECTED.to_string()));
+        return Err(upstream(service, 0, Upstream::WriteRedirected, String::new()));
     }
 
     if response.status().is_success() {
@@ -265,11 +177,13 @@ async fn check_status(
     // Read before the body is consumed: the header is the only place a source
     // states how long it wants to be left alone.
     let retry_after = parse_retry_after(response.headers());
-    let said_beyond_the_status =
-        redirect_host(&response).map(|host| format!("{REDIRECTED_TO}{host}")).or_else(|| {
-            (status == 401 && challenged_in_front(&response, service))
-                .then(|| SIGN_IN_IN_FRONT.to_string())
-        });
+    let beyond_the_status = redirect_host(&response).map(Upstream::RedirectedTo).or_else(|| {
+        (status == 401 && challenged_in_front(&response, service))
+            .then_some(Upstream::SignInInFront)
+    });
+    if let Some(kind) = beyond_the_status {
+        return Err(upstream(service, status, kind, String::new()));
+    }
     let body = read_up_to(response, MAX_ERROR_BODY)
         .await
         .map(|(body, _)| String::from_utf8_lossy(&body).into_owned())
@@ -277,28 +191,26 @@ async fn check_status(
     Err(AppError::ExternalApi {
         service: service.to_string(),
         status,
+        kind: Upstream::Http,
         retry_after,
-        message: said_beyond_the_status.unwrap_or_else(|| upstream_message(&body)),
+        message: upstream_message(&body),
     })
 }
 
-/// What a source with a daily quota answers once today's requests are spent.
-const QUOTA_SPENT: &str = "the requests allowed today are spent";
+/// An upstream failure with no `Retry-After`.
+pub(crate) fn upstream(service: &str, status: u16, kind: Upstream, message: String) -> AppError {
+    AppError::ExternalApi { service: service.to_string(), status, kind, message, retry_after: None }
+}
 
 /// The refusal of a source whose daily quota is spent: a 429 naming no wait,
 /// since the wait lasts until the quota renews.
 pub(crate) fn quota_spent(service: &str) -> AppError {
-    AppError::ExternalApi {
-        service: service.to_string(),
-        status: 429,
-        message: QUOTA_SPENT.to_string(),
-        retry_after: None,
-    }
+    upstream(service, 429, Upstream::QuotaSpent, String::new())
 }
 
 /// Whether `error` is [`quota_spent`]'s.
 pub(crate) fn is_quota_spent(error: &AppError) -> bool {
-    matches!(error, AppError::ExternalApi { status: 429, message, .. } if message == QUOTA_SPENT)
+    matches!(error, AppError::ExternalApi { kind: Upstream::QuotaSpent, .. })
 }
 
 /// The host a redirect the client stopped leads to, when it is not the host
@@ -359,18 +271,26 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 /// and returned to the caller, so using it verbatim would publish the key on an
 /// ordinary network hiccup. The source chain carries the useful part ("dns
 /// error", "connection reset") and never the URL, so report that instead.
-fn describe_transport_error(e: &reqwest::Error) -> String {
+fn transport_failure(service: &str, e: &reqwest::Error) -> AppError {
+    let (transport, cause) = describe_transport_error(e);
+    upstream(service, 0, Upstream::Transport(transport), cause)
+}
+
+/// Which transport failure `e` is, and its deepest cause when it is none of
+/// the named ones.
+fn describe_transport_error(e: &reqwest::Error) -> (Transport, String) {
+    let named = |transport| (transport, String::new());
     if e.is_timeout() {
-        return TIMED_OUT.to_string();
+        return named(Transport::TimedOut);
     }
     // Before the resolver's own failure, which carries it.
     if in_chain(e, &|error| error.is::<crate::http::MetadataAddress>()) {
-        return METADATA_ADDRESS.to_string();
+        return named(Transport::MetadataAddress);
     }
     // The connector resolves the name, opens the socket and runs the TLS
     // handshake, and all three fail as one kind of error.
     if e.is_dns() {
-        return NAME_UNRESOLVED.to_string();
+        return named(Transport::NameUnresolved);
     }
     if e.is_connect() {
         let tls = in_chain(e, &|error| {
@@ -378,17 +298,17 @@ fn describe_transport_error(e: &reqwest::Error) -> String {
                 .downcast_ref::<std::io::Error>()
                 .is_some_and(|io| io.kind() == std::io::ErrorKind::InvalidData)
         });
-        return if tls { HANDSHAKE_FAILED } else { UNREACHABLE }.to_string();
+        return named(if tls { Transport::HandshakeFailed } else { Transport::Unreachable });
     }
     if e.is_redirect() {
-        return REDIRECT_LOOP.to_string();
+        return named(Transport::RedirectLoop);
     }
     if in_chain(e, &|error| {
         error.downcast_ref::<hyper::Error>().is_some_and(hyper::Error::is_parse)
     }) {
-        return NOT_HTTP.to_string();
+        return named(Transport::NotHttp);
     }
-    deepest_cause(e)
+    (Transport::Failed, deepest_cause(e))
 }
 
 /// The deepest cause, the most specific description that is still URL-free.
@@ -506,15 +426,19 @@ pub(crate) fn directory_query(path: &str) -> String {
 ///
 /// Radarr and Sonarr answer `{"message", "description"}`, the description a
 /// .NET stack trace meant for their own operator, and a validation refusal as
-/// a list of fields each with its `errorMessage`. Anything else is kept as it
-/// came, capped: bodies can be huge HTML error pages, and the cap keeps the log
-/// and the API response readable.
+/// a list of fields each with its `errorMessage`. TMDB says it in
+/// `status_message`, a GraphQL service in `errors[0].message`. Anything else
+/// is kept as it came, capped: bodies can be huge HTML error pages, and the
+/// cap keeps the log and the API response readable.
 fn upstream_message(body: &str) -> String {
     use serde_json::Value;
     let said = match serde_json::from_str::<Value>(body) {
-        Ok(Value::Object(envelope)) => {
-            envelope.get("message").and_then(Value::as_str).map(str::to_string)
-        }
+        Ok(Value::Object(envelope)) => envelope
+            .get("message")
+            .or_else(|| envelope.get("status_message"))
+            .or_else(|| envelope.get("errors")?.get(0)?.get("message"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
         Ok(Value::Array(fields)) => {
             let sentences: Vec<&str> =
                 fields.iter().filter_map(|field| field.get("errorMessage")?.as_str()).collect();
@@ -590,7 +514,7 @@ mod tests {
             "precondition changed, reqwest no longer echoes the URL: {error}"
         );
 
-        let described = describe_transport_error(&error);
+        let described = transport_failure("TMDB", &error).to_string();
         assert!(!described.contains("SUPERSECRET123"), "the key leaked: {described}");
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
     }
@@ -615,13 +539,8 @@ mod tests {
             .expect_err("a closed connection must fail");
         assert!(error.to_string().contains("SUPERSECRET123"), "precondition changed: {error}");
 
-        let described = describe_transport_error(&error);
-        let named =
-            [TIMED_OUT, NAME_UNRESOLVED, UNREACHABLE, HANDSHAKE_FAILED, REDIRECT_LOOP, NOT_HTTP];
-        assert!(
-            !named.contains(&described.as_str()),
-            "a named failure, not the fallback: {described}"
-        );
+        let (transport, described) = describe_transport_error(&error);
+        assert_eq!(transport, Transport::Failed, "a named failure, not the fallback");
         assert!(!described.contains("SUPERSECRET123"), "the key leaked: {described}");
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
     }
@@ -719,6 +638,16 @@ mod tests {
     fn a_validation_refusal_keeps_every_sentence() {
         let body = r#"[{"propertyName":"Path","errorMessage":"Path is already configured"},{"propertyName":"Tags","errorMessage":"Tag does not exist"}]"#;
         assert_eq!(upstream_message(body), "Path is already configured Tag does not exist");
+    }
+
+    /// TMDB's refusal and a GraphQL error each say their sentence in a field
+    /// of their own, which is all a reader needs of the body.
+    #[test]
+    fn a_source_error_keeps_its_sentence_rather_than_its_json() {
+        let tmdb = r#"{"status_code":7,"status_message":"Invalid API key: You must be granted a valid key.","success":false}"#;
+        assert_eq!(upstream_message(tmdb), "Invalid API key: You must be granted a valid key.");
+        let graphql = r#"{"data":null,"errors":[{"message":"Too Many Requests.","status":429}]}"#;
+        assert_eq!(upstream_message(graphql), "Too Many Requests.");
     }
 
     #[test]

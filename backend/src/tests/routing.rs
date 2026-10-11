@@ -228,15 +228,15 @@ async fn an_override_wins_over_the_rules() {
     assert!(result.decisions[0].is_override);
     assert_eq!(result.decisions[0].confidence, 1.0);
     // Stored as the exception it is, not as the rule it outranked.
-    let (rule, reasons): (Option<String>, String) =
-        sqlx::query_as("SELECT matched_rule_name, reasons FROM decisions")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
+    let listed = app.get("/api/v1/decisions").await;
+    let stored = &listed.assert_ok()["data"][0];
     let localizer = app.state.localizer().await;
-    assert_eq!(rule, Some(localizer.translate("ManualOverrideRuleName", &[])));
-    let reasons: Vec<String> = serde_json::from_str(&reasons).unwrap();
-    assert_eq!(reasons, [localizer.translate("ReasonManualOverride", &[])]);
+    assert_eq!(stored["matched_rule_name"], localizer.translate("ManualOverrideRuleName", &[]));
+    assert_eq!(
+        stored["reasons"],
+        serde_json::json!([localizer.translate("ReasonManualOverride", &[])])
+    );
+    assert_eq!(stored["reason_lines"][0]["matched"], true);
 }
 
 #[tokio::test]

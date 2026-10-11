@@ -135,12 +135,13 @@ impl TvdbClient {
         // success. Cached, it would send an empty bearer with every read.
         let token = response.data.map(|data| data.token).filter(|token| !token.is_empty());
         let Some(token) = token else {
-            return Err(crate::error::AppError::ExternalApi {
-                service: SERVICE.to_string(),
-                status: 401,
-                message: "the login answered without a token".to_string(),
-                retry_after: None,
-            });
+            let said = "the login answered without a token".to_string();
+            return Err(super::upstream(
+                SERVICE,
+                401,
+                crate::error::Upstream::RefusedWith200,
+                said,
+            ));
         };
         *guard = Some(CachedToken { key: self.api_key.clone(), token: token.clone() });
         Ok(token)

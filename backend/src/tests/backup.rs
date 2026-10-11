@@ -5,6 +5,7 @@
 //! database restored without `routarr.key` opens fine and has no readable Arr
 //! credential in it, which is the failure a backup exists to prevent.
 
+use crate::localization::Localizer;
 use crate::services::backup;
 use crate::state::AppState;
 
@@ -59,7 +60,7 @@ async fn a_key_from_the_environment_is_not_claimed_by_the_archive() {
 
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
-    assert!(!backup::read_manifest(&archive).unwrap().includes_master_key);
+    assert!(!backup::read_manifest(&archive, &Localizer::new("en")).unwrap().includes_master_key);
     assert!(!entries(&archive).contains(&"routarr.key".to_string()), "a stale key file travelled");
 }
 
@@ -78,7 +79,7 @@ async fn a_backup_carries_everything_a_restore_needs() {
     assert!(names.contains(&"routarr.api_key".to_string()));
     assert!(names.contains(&"manifest.json".to_string()));
 
-    let manifest = backup::read_manifest(&archive).unwrap();
+    let manifest = backup::read_manifest(&archive, &Localizer::new("en")).unwrap();
     assert!(manifest.includes_master_key);
     assert_eq!(manifest.version, env!("CARGO_PKG_VERSION"));
 }
@@ -158,8 +159,11 @@ async fn a_retention_count_above_the_maximum_is_kept_until_the_operator_lowers_i
     assert_eq!(backup::prune(&app.state).await.unwrap(), 0, "archives went without a save");
 
     let status = app.get("/api/v1/status").await.assert_ok().clone();
-    let named = warning_messages(&status).iter().any(|w| w.contains("backup_retention_count"));
-    assert!(named, "the warnings do not name the key: {status}");
+    let warnings = warning_messages(&status);
+    let named = warnings.iter().any(|w| w.contains("'Backups kept' is 200"));
+    assert!(named, "the warnings do not name the setting by its label: {status}");
+    let raw = warnings.iter().any(|w| w.contains("backup_retention_count"));
+    assert!(!raw, "a warning names the setting by its key: {status}");
 
     // Saved as it stands it is refused, and the warning is what explains why.
     app.put(
@@ -255,7 +259,7 @@ async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
     let outcome =
         backup::stage_restore(&app.state, "routarr-backup-99999999-000000.zip", None).await;
     let message = outcome.expect_err("a newer schema must be refused").to_string();
-    assert!(message.contains("Upgrade Routarr first"), "unhelpful refusal: {message}");
+    assert!(message.contains("Upgrade Routarr, then restore"), "unhelpful refusal: {message}");
 
     // And nothing was staged: a refusal that still wrote files would be worse
     // than no check at all.
@@ -695,7 +699,7 @@ fn restore_leftovers(dir: &std::path::Path) -> Vec<String> {
 /// The zip reader checks an entry's CRC only once it has read the entry to its
 /// end, so the damage is found after part of it has already been copied out,
 /// which is the moment a restore has to recover from.
-fn damage_entry(archive: &std::path::Path, entry: &str) {
+pub(crate) fn damage_entry(archive: &std::path::Path, entry: &str) {
     let (start, size) = {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(archive).unwrap()).unwrap();
         let file = zip.by_name(entry).unwrap();
@@ -1264,7 +1268,7 @@ async fn an_archive_without_the_master_key_says_so() {
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
 
-    let manifest = backup::read_manifest(&archive).unwrap();
+    let manifest = backup::read_manifest(&archive, &Localizer::new("en")).unwrap();
     assert!(!manifest.includes_master_key, "the manifest has to admit it");
 
     // And the restore hands that answer to the caller rather than swallowing
@@ -1491,7 +1495,9 @@ async fn a_start_that_migrates_takes_a_backup_first() {
 
     let taken = backups(&upgraded);
     assert_eq!(taken.len(), 1, "{taken:?}");
-    let manifest = backup::read_manifest(&upgraded.join("backups").join(&taken[0])).unwrap();
+    let manifest =
+        backup::read_manifest(&upgraded.join("backups").join(&taken[0]), &Localizer::new("en"))
+            .unwrap();
     assert_eq!(manifest.schema, "023_constraints_the_code_keeps");
 }
 

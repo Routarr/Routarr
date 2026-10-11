@@ -226,6 +226,24 @@ async fn a_failing_sync_is_recorded_rather_than_swallowed() {
     assert_eq!(job_status, "failed");
 }
 
+/// What a sync stores of a failure any key reads, through `/instances` and
+/// `/health`: a key that cannot be opened is said in the generic sentence of
+/// an internal failure, and its detail, which names the variables of the
+/// master key, stays in the log.
+#[tokio::test]
+async fn a_failing_sync_records_no_internal_detail() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    app.execute(&["UPDATE instances SET api_key = 'enc:v1:AAAA' WHERE id = 'inst-1'"]).await;
+
+    let by = crate::jobs::Attribution::manual(None);
+    assert!(sync::sync_instance(&app.state, "inst-1", &by).await.is_err());
+
+    let listed = app.get("/api/v1/instances/inst-1").await;
+    let status = listed.assert_ok()["last_sync_status"].as_str().unwrap().to_string();
+    assert_eq!(status, "error: An internal error occurred. See the server log for details.");
+}
+
 #[tokio::test]
 async fn media_removed_upstream_is_removed_locally() {
     let arr = FakeArr::start().await;

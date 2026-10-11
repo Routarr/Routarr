@@ -120,9 +120,10 @@ pub async fn list(
     }
     let total = count_query.fetch_one(&state.pool).await?;
 
+    let localizer = state.localizer().await;
     let decisions = rows
         .into_iter()
-        .map(decision_from_row)
+        .map(|row| decision_from_row(row, &localizer))
         .map(|decision| Decision {
             subject: identity.shown_subject(decision.subject, decision.subject_key.as_deref()),
             ..decision
@@ -245,7 +246,14 @@ where
     Ok(async move { work.await.map_err(|e| identity.refer(e)) })
 }
 
-fn decision_from_row(r: DecisionRow) -> Decision {
+/// A stored decision, its words said in `localizer`'s language.
+fn decision_from_row(r: DecisionRow, localizer: &crate::localization::Localizer) -> Decision {
+    let reason_lines = crate::services::routing::stored_reasons(&r.reasons, localizer);
+    // The exception's name is the reader's word for it, whatever the run's was.
+    let matched_rule_name = match r.is_override {
+        true => Some(localizer.translate("ManualOverrideRuleName", &[])),
+        false => r.matched_rule_name,
+    };
     Decision {
         actor: r.actor,
         subject: r.subject,
@@ -261,13 +269,16 @@ fn decision_from_row(r: DecisionRow) -> Decision {
         target_root_folder: r.target_root_folder,
         target_category: r.target_category,
         matched_rule_id: r.matched_rule_id,
-        matched_rule_name: r.matched_rule_name,
+        matched_rule_name,
         is_override: r.is_override,
-        reasons: serde_json::from_str(&r.reasons).unwrap_or_default(),
-        alternatives: serde_json::from_str(&r.alternatives).unwrap_or_default(),
+        reasons: reason_lines.iter().map(|line| line.text.clone()).collect(),
+        reason_lines,
+        alternatives: crate::services::routing::stored_alternatives(&r.alternatives, localizer),
+        stored_reasons: String::new(),
+        stored_alternatives: String::new(),
         action: r.action,
         status: r.status,
-        error_message: r.error_message,
+        error_message: r.error_message.map(|stored| crate::localization::said(&stored, localizer)),
         decided_at: r.decided_at,
         applied_at: r.applied_at,
         confidence: r.confidence,

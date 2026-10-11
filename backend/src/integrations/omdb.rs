@@ -120,12 +120,7 @@ fn refusal(raw: &RawResponse) -> Option<AppError> {
     Some(if is_quota(error) {
         super::quota_spent(SERVICE)
     } else {
-        AppError::ExternalApi {
-            service: SERVICE.into(),
-            status: 401,
-            message: error.to_string(),
-            retry_after: None,
-        }
+        super::upstream(SERVICE, 401, crate::error::Upstream::RefusedWith200, error.to_string())
     })
 }
 
@@ -145,12 +140,12 @@ fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
         // Anything else is OMDb failing on its side ("Error getting data."
         // for titles it holds): neither cached as a miss for the cache's
         // lifetime nor counted against the source, asked again next pass.
-        return Err(AppError::ExternalApi {
-            service: SERVICE.into(),
-            status: 200,
-            message: format!("OMDb answered an error: {said}"),
-            retry_after: None,
-        });
+        return Err(super::upstream(
+            SERVICE,
+            200,
+            crate::error::Upstream::RefusedWith200,
+            said.to_string(),
+        ));
     }
 
     Ok(OmdbDetails {

@@ -254,14 +254,16 @@ pub async fn import(
     .with("instances", req.bundle.instances.len())
     .with("rules", req.bundle.rules.len());
     let bundle = req.bundle;
+    let localizer = state.localizer().await;
     if bundle.version != BUNDLE_VERSION {
-        return Err(AppError::BadRequest(format!(
-            "Unsupported bundle version {}. This Routarr understands version {BUNDLE_VERSION}",
-            bundle.version
+        return Err(AppError::BadRequest(localizer.translate(
+            "ErrorBundleVersion",
+            &[("version", &bundle.version.to_string()), ("supported", &BUNDLE_VERSION.to_string())],
         )));
     }
 
     let mut report = ImportReport::default();
+    let skip = |key: &str, values: &[(&str, &str)]| localizer.translate(key, values);
 
     // What `default_category` and a folder mapping are allowed to name: the
     // categories already here *plus* the ones this bundle is about to create.
@@ -269,7 +271,6 @@ pub async fn import(
     // so validating against the table alone would reject every bundle that
     // brings its own categories, which is every bundle from another
     // installation.
-    let localizer = state.localizer().await;
     let mut categories = with_bundled(
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?,
         &bundle,
@@ -305,10 +306,10 @@ pub async fn import(
             if errors.is_empty() {
                 importable.push(bundled);
             } else {
-                report.skipped.push(format!(
-                    "rule '{}': {}",
-                    bundled.rule.name,
-                    errors.join(" · ")
+                let reason = errors.join(" · ");
+                report.skipped.push(skip(
+                    "ImportSkippedRule",
+                    &[("name", &bundled.rule.name), ("reason", &reason)],
                 ));
             }
         }
@@ -333,9 +334,7 @@ pub async fn import(
         // people share. The export writes none, but a bundle edited by hand, or
         // exported by a build that kept the setting in the clear, can carry one.
         if crate::services::settings::is_secret(key) {
-            report.skipped.push(format!(
-                "setting '{key}' is a credential a bundle does not carry. Set it again"
-            ));
+            report.skipped.push(skip("ImportSkippedCredential", &[("key", key)]));
             continue;
         }
 
@@ -346,15 +345,14 @@ pub async fn import(
         // can be, and `skipped` is what says how far.
         let checked = crate::api::settings::stored_value(key, &setting.value);
         if let Err(e) = crate::services::settings::check(key, &checked, &categories, &localizer) {
-            report.skipped.push(format!("setting {:?}: {e}", setting.key));
+            let reason = e.public_message();
+            report.skipped.push(skip("ImportSkippedSetting", &[("key", key), ("reason", &reason)]));
             continue;
         }
         let mut value = checked;
         if key == "metadata_providers" && !keyless.is_empty() {
             for id in &keyless {
-                report.skipped.push(format!(
-                    "source '{id}' has no key here: set its key, then enable the source"
-                ));
+                report.skipped.push(skip("ImportSkippedSourceKeyless", &[("source", id)]));
             }
             value = value
                 .split(',')
@@ -387,7 +385,11 @@ pub async fn import(
         let name = match crate::api::categories::normalise(&category.name, &localizer) {
             Ok(name) => name,
             Err(e) => {
-                report.skipped.push(format!("category {:?}: {e}", category.name));
+                let reason = e.public_message();
+                report.skipped.push(skip(
+                    "ImportSkippedCategory",
+                    &[("name", &category.name), ("reason", &reason)],
+                ));
                 continue;
             }
         };
@@ -419,10 +421,10 @@ pub async fn import(
         let base_url = match checked {
             Ok(base_url) => base_url,
             Err(e) => {
-                report.skipped.push(format!(
-                    "instance '{}': {}",
-                    instance.name,
-                    e.public_message()
+                let reason = e.public_message();
+                report.skipped.push(skip(
+                    "ImportSkippedInstance",
+                    &[("name", &instance.name), ("reason", &reason)],
                 ));
                 continue;
             }
@@ -441,9 +443,7 @@ pub async fn import(
                 .await?;
 
         if existing.is_some() {
-            report
-                .skipped
-                .push(format!("instance '{}' already exists and was left alone", instance.name));
+            report.skipped.push(skip("ImportSkippedInstanceExists", &[("name", &instance.name)]));
             continue;
         }
 
@@ -476,11 +476,13 @@ pub async fn import(
         // database would stop a mapping naming one that does not exist. It
         // would simply route nowhere, and the unmapped-category warning could
         // not fire either, since there is no category row to count.
+        let mapped = [
+            ("path", mapping.path.as_str()),
+            ("category", mapping.category.as_str()),
+            ("instance", mapping.instance_name.as_str()),
+        ];
         if !categories.contains(&category) {
-            report.skipped.push(format!(
-                "mapping '{}' → '{}' on '{}': that category does not exist",
-                mapping.path, mapping.category, mapping.instance_name
-            ));
+            report.skipped.push(skip("ImportSkippedMappingNoCategory", &mapped));
             continue;
         }
 
@@ -499,10 +501,8 @@ pub async fn import(
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(other) = taken {
-            report.skipped.push(format!(
-                "mapping '{}' → '{}' on '{}': that category already maps '{other}' there",
-                mapping.path, mapping.category, mapping.instance_name
-            ));
+            let values = [mapped.as_slice(), &[("folder", other.as_str())]].concat();
+            report.skipped.push(skip("ImportSkippedMappingTaken", &values));
             continue;
         }
 
@@ -521,10 +521,7 @@ pub async fn import(
         if affected == 0 {
             // Expected on a fresh install: root folders only exist once the
             // instance has been synced.
-            report.skipped.push(format!(
-                "mapping '{}' → '{}' on '{}': sync that instance, then import again",
-                mapping.path, mapping.category, mapping.instance_name
-            ));
+            report.skipped.push(skip("ImportSkippedMappingUnsynced", &mapped));
         } else {
             report.root_folders += 1;
         }
@@ -551,15 +548,17 @@ pub async fn import(
         .fetch_all(&mut *tx)
         .await?;
 
+        let pinned =
+            [("title", over.media_title.as_str()), ("category", over.target_category.as_str())];
         if media_ids.is_empty() {
-            let place = over.instance_name.as_deref().map_or_else(
-                || "the library".to_string(),
-                |instance| format!("the library of '{instance}'"),
-            );
-            report.skipped.push(format!(
-                "override for '{}' → '{}': that media is not in {place} yet",
-                over.media_title, over.target_category
-            ));
+            let skipped = match over.instance_name.as_deref() {
+                Some(instance) => {
+                    let values = [pinned.as_slice(), &[("instance", instance)]].concat();
+                    skip("ImportSkippedExceptionNotOnInstance", &values)
+                }
+                None => skip("ImportSkippedExceptionNotInLibrary", &pinned),
+            };
+            report.skipped.push(skipped);
             continue;
         }
 
@@ -569,21 +568,14 @@ pub async fn import(
         // a partial restore is supposed to be visible.
         let category = over.target_category.trim().to_lowercase();
         if !categories.contains(&category) {
-            report.skipped.push(format!(
-                "override for '{}' → '{}': that category does not exist",
-                over.media_title, over.target_category
-            ));
+            report.skipped.push(skip("ImportSkippedExceptionNoCategory", &pinned));
             continue;
         }
 
         if over.instance_name.is_none() && media_ids.len() > 1 {
-            report.skipped.push(format!(
-                "override for '{}' → '{}': the bundle names no instance, so it is pinned on \
-                 every copy ({})",
-                over.media_title,
-                over.target_category,
-                media_ids.len()
-            ));
+            let copies = media_ids.len().to_string();
+            let values = [pinned.as_slice(), &[("copies", copies.as_str())]].concat();
+            report.skipped.push(skip("ImportExceptionOnEveryCopy", &values));
         }
         // As `POST /overrides` pins: the importer named as who set it, and the
         // proposals the pin now decides withdrawn.
@@ -594,7 +586,10 @@ pub async fn import(
         {
             Ok(()) => report.overrides += media_ids.len(),
             Err(AppError::BadRequest(why)) => {
-                report.skipped.push(format!("override for '{}': {why}", over.media_title));
+                report.skipped.push(skip(
+                    "ImportSkippedException",
+                    &[("title", &over.media_title), ("reason", &why)],
+                ));
             }
             Err(e) => return Err(e),
         }
@@ -612,9 +607,9 @@ pub async fn import(
     for bundled in importable {
         let target = bundled.rule.target_category.trim().to_lowercase();
         if !categories.contains(&target) {
-            report.skipped.push(format!(
-                "rule '{}': category '{target}' was removed meanwhile",
-                bundled.rule.name
+            report.skipped.push(skip(
+                "ImportSkippedRuleCategoryRemoved",
+                &[("name", &bundled.rule.name), ("category", &target)],
             ));
             continue;
         }
@@ -633,7 +628,7 @@ pub async fn import(
     if req.replace_rules && !restored.is_empty() {
         sqlx::query("DELETE FROM rules").execute(&mut *tx).await?;
     } else if req.replace_rules && !bundle.rules.is_empty() {
-        report.skipped.push("rules: none could be restored, so the rules in place are kept".into());
+        report.skipped.push(skip("ImportRulesKept", &[]));
     }
     for rule in &restored {
         super::rules::insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule, &localizer).await?;

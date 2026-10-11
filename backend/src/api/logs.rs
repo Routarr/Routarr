@@ -10,6 +10,7 @@ use sqlx::AssertSqlSafe;
 use crate::api::auth::Identity;
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
+use crate::localization::{Localizer, said};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
@@ -125,8 +126,9 @@ pub async fn list(
 
     let entries = list_query.bind(per_page).bind(offset).fetch_all(&state.pool).await?;
     let total = count_query.fetch_one(&state.pool).await?;
+    let localizer = state.localizer().await;
 
-    Ok(Json(Page::new(shown(&identity, entries), page, per_page, total)))
+    Ok(Json(Page::new(shown(&identity, &localizer, entries), page, per_page, total)))
 }
 
 /// The rows an export holds at most, the newest.
@@ -151,7 +153,8 @@ pub async fn export(
     let truncated = count_query.fetch_one(&state.pool).await? > EXPORTED_AT_MOST;
 
     let (sender, body) = futures::channel::mpsc::channel(4);
-    tokio::spawn(write_csv(state.pool.clone(), identity, filters, binds, sender));
+    let localizer = state.localizer().await;
+    tokio::spawn(write_csv(state.pool.clone(), identity, localizer, filters, binds, sender));
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/csv; charset=utf-8"));
@@ -179,6 +182,7 @@ type Chunk = Result<String, std::io::Error>;
 async fn write_csv(
     pool: sqlx::SqlitePool,
     identity: Identity,
+    localizer: Localizer,
     filters: String,
     binds: Vec<String>,
     mut sender: futures::channel::mpsc::Sender<Chunk>,
@@ -218,13 +222,13 @@ async fn write_csv(
         written += read;
         last = page.last().map(|entry| (entry.executed_at.clone(), entry.id.clone()));
         for entry in page {
-            let subject = identity.shown_subject(entry.subject, entry.subject_key.as_deref());
+            let entry = shown_entry(&identity, &localizer, entry);
             chunk.push_str(&format!(
                 "{},{},{},{},{},{},{},{}\n",
                 csv_field(&entry.executed_at),
                 csv_field(&entry.action),
                 csv_field(entry.actor.as_deref().unwrap_or("")),
-                csv_field(subject.as_deref().unwrap_or("")),
+                csv_field(entry.subject.as_deref().unwrap_or("")),
                 entry.success,
                 csv_field(entry.media_title.as_deref().unwrap_or("")),
                 csv_field(entry.details.as_deref().unwrap_or("")),
@@ -237,16 +241,19 @@ async fn write_csv(
     }
 }
 
-/// The entries as `identity` may read them: an application key reads its own
-/// name in `subject` and no one else's, as on every list that carries one.
-fn shown(identity: &Identity, entries: Vec<LogEntry>) -> Vec<LogEntry> {
-    entries
-        .into_iter()
-        .map(|entry| LogEntry {
-            subject: identity.shown_subject(entry.subject, entry.subject_key.as_deref()),
-            ..entry
-        })
-        .collect()
+/// The entries as `identity` may read them, in `localizer`'s language: an
+/// application key reads its own name in `subject` and no one else's, as on
+/// every list that carries one.
+fn shown(identity: &Identity, localizer: &Localizer, entries: Vec<LogEntry>) -> Vec<LogEntry> {
+    entries.into_iter().map(|entry| shown_entry(identity, localizer, entry)).collect()
+}
+
+fn shown_entry(identity: &Identity, localizer: &Localizer, entry: LogEntry) -> LogEntry {
+    LogEntry {
+        subject: identity.shown_subject(entry.subject, entry.subject_key.as_deref()),
+        error_message: entry.error_message.map(|stored| said(&stored, localizer)),
+        ..entry
+    }
 }
 
 fn build_filters(query: &LogFilter) -> (String, Vec<String>) {

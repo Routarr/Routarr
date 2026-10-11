@@ -21,6 +21,7 @@ seedDictionary({
   ServerAnsweredStatus: 'The server answered {status}',
   UnexpectedAnswer: 'A page that is not Routarr answered',
   TaskFailedSeeTasks: 'The task failed, see Tasks',
+  InternalError: 'Routarr failed on its side',
 });
 
 describe('describeError', () => {
@@ -66,8 +67,13 @@ describe('describeError', () => {
   });
 
   it('appends the request id to a server-side failure', () => {
-    const failure = new ApiError('An internal error occurred.', 500, 'database_error', 'req-8d1f');
-    expect(describeError(failure)).toBe('An internal error occurred. (request req-8d1f)');
+    const failure = new ApiError('Radarr timed out', 502, 'external_api_error', 'req-8d1f');
+    expect(describeError(failure)).toBe('Radarr timed out (request req-8d1f)');
+  });
+
+  it('says a failure of the server in the interface language, with its id', () => {
+    const failure = new ApiError('An internal error occurred.', 500, 'internal_error', 'req-9');
+    expect(describeError(failure)).toBe('Routarr failed on its side (request req-9)');
   });
 
   it('leaves a refusal alone even when it carries an id', () => {

@@ -15,7 +15,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use super::{StatedLimit, send_json, send_json_stating};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 
 const SERVICE: &str = "AniList";
 pub const DEFAULT_BASE_URL: &str = "https://graphql.anilist.co";
@@ -90,14 +90,14 @@ impl<T> GraphQlResponse<T> {
     fn data(self) -> AppResult<T> {
         self.data.ok_or_else(|| {
             let first = self.errors.first();
-            AppError::ExternalApi {
-                service: SERVICE.to_string(),
-                status: first.and_then(|error| error.status).unwrap_or(502),
-                message: first
+            super::upstream(
+                SERVICE,
+                first.and_then(|error| error.status).unwrap_or(502),
+                crate::error::Upstream::RefusedWith200,
+                first
                     .and_then(|error| error.message.clone())
                     .unwrap_or_else(|| "an answer with no data".to_string()),
-                retry_after: None,
-            }
+            )
         })
     }
 }

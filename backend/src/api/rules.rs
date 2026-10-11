@@ -454,19 +454,22 @@ pub async fn import(
     Json(req): Json<ImportRulesRequest>,
 ) -> AppResult<Json<RuleImportReport>> {
     let version = req.bundle.version;
+    let localizer = state.localizer().await;
     if !(1..=BUNDLE_VERSION).contains(&version) {
-        return Err(AppError::BadRequest(format!(
-            "Unsupported bundle version {version}. This Routarr understands versions 1 to \
-             {BUNDLE_VERSION}"
+        return Err(AppError::BadRequest(localizer.translate(
+            "ErrorRuleBundleVersion",
+            &[("version", &version.to_string()), ("last", &BUNDLE_VERSION.to_string())],
         )));
     }
     if req.bundle.rules.is_empty() {
-        return Err(AppError::BadRequest("The bundle contains no rule".into()));
+        return Err(AppError::BadRequest(localizer.translate("ErrorRuleBundleEmpty", &[])));
     }
 
     let mut skipped = Vec::new();
     let mut adjusted = Vec::new();
-    let localizer = state.localizer().await;
+    let skip = |key: &str, name: &str, reason: &str| {
+        localizer.translate(key, &[("name", name), ("reason", reason)])
+    };
 
     // Through the gate `POST /categories` applies: a name that skips it lands
     // in the table out of `rename`'s reach. A refused name is reported here,
@@ -487,7 +490,7 @@ pub async fn import(
                 Ok(name) => {
                     creating.insert(name);
                 }
-                Err(e) => skipped.push(format!("category {raw:?}: {e}")),
+                Err(e) => skipped.push(skip("ImportSkippedCategory", raw, &e.public_message())),
             }
         }
     }
@@ -534,14 +537,13 @@ pub async fn import(
             adjusted.extend(note);
             importable.push(rule);
         } else {
-            skipped.push(format!("'{}': {}", rule.name, errors.join(" · ")));
+            skipped.push(skip("ImportSkippedRule", &rule.name, &errors.join(" · ")));
         }
     }
     if req.replace && importable.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "No rule of the bundle can be imported, so the rules in place are kept. {}",
-            skipped.join(" · ")
-        )));
+        return Err(AppError::BadRequest(
+            localizer.translate("ErrorRuleImportNoneKept", &[("reasons", &skipped.join(" · "))]),
+        ));
     }
 
     let mut tx = crate::db::write_transaction(&state.pool).await?;
@@ -567,7 +569,7 @@ pub async fn import(
     for rule in &importable {
         let target = rule.target_category.trim().to_lowercase();
         if let Err(refused) = super::categories::ensure_exists(&mut tx, &target, &localizer).await {
-            skipped.push(format!("'{}': {refused}", rule.name));
+            skipped.push(skip("ImportSkippedRule", &rule.name, &refused.public_message()));
             continue;
         }
         insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule, &localizer).await?;

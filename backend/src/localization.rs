@@ -126,7 +126,8 @@ pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
 /// leading slash moves to its end. There only: in English the marks would be
 /// invisible noise in a log line or a payload. The interface reads this list
 /// from `/localization`.
-pub const ISOLATED: &[&str] = &["address", "file", "host", "path", "paths", "url", "variable"];
+pub const ISOLATED: &[&str] =
+    &["address", "file", "folder", "host", "path", "paths", "url", "variable"];
 
 /// The placeholders that hold a count, written with their digits grouped
 /// the way the language groups them (`12 345` in French). A year in `{min}`,
@@ -144,8 +145,10 @@ pub const COUNTS: &[&str] = &[
     "beforeMoves",
     "beforeUnmatched",
     "candidates",
+    "cap",
     "categories",
     "changed",
+    "copies",
     "count",
     "decisions",
     "done",
@@ -173,6 +176,7 @@ pub const COUNTS: &[&str] = &[
     "shown",
     "skipped",
     "synced",
+    "tests",
     "threshold",
     "total",
 ];
@@ -503,6 +507,47 @@ fn shipped(code: &str) -> Option<&'static str> {
         .find(|candidate| candidate.replace('_', "-").eq_ignore_ascii_case(code))
 }
 
+// ------------------------------------------------------------ told sentences
+
+/// A sentence as a row stores it: a dictionary key and its values, said in
+/// the language of whoever reads the row. A sentence written in the language
+/// of the moment it was stored would stay in that language for ever.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Told {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+}
+
+impl Told {
+    pub fn new(key: &str) -> Self {
+        Self { key: key.to_string(), params: BTreeMap::new() }
+    }
+
+    pub fn with(mut self, name: &str, value: impl ToString) -> Self {
+        self.params.insert(name.to_string(), value.to_string());
+        self
+    }
+
+    pub fn render(&self, localizer: &Localizer) -> String {
+        localizer.translate_map(&self.key, &self.params)
+    }
+
+    /// What a column stores, which [`said`] reads back.
+    pub fn stored(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+}
+
+/// A stored text in `localizer`'s language: a [`Told`] rendered, or a
+/// sentence a row holds as it was written, which is read as it is.
+pub fn said(stored: &str, localizer: &Localizer) -> String {
+    match serde_json::from_str::<Told>(stored) {
+        Ok(told) => told.render(localizer),
+        Err(_) => stored.to_string(),
+    }
+}
+
 // ------------------------------------------------------------ domain rendering
 
 impl Localizer {
@@ -514,10 +559,35 @@ impl Localizer {
         self.translate(key, &pairs)
     }
 
-    /// Fill in an outcome's wording for this language.
+    /// Fill in an outcome's wording for this language: what the condition
+    /// asked for, and what the title carried, each as this language writes
+    /// it. The engine leaves both raw.
     pub fn localize_outcome(&self, mut outcome: ConditionOutcome) -> ConditionOutcome {
-        outcome.expected = self.translate_map(&outcome.key, &outcome.params);
+        let kind = outcome.kind.clone();
+        let params: BTreeMap<String, String> = outcome
+            .params
+            .iter()
+            .map(|(name, value)| (name.clone(), self.engine_value(&kind, value)))
+            .collect();
+        outcome.expected = self.translate_map(&outcome.key, &params);
+        outcome.observed = self.engine_value(&kind, &outcome.observed);
         outcome
+    }
+
+    /// A value the engine reports raw, as this language writes it: a yes or
+    /// a no for a switch, a size in this language's units, the day a title
+    /// was added. Anything else, a genre or a path, is the title's own.
+    fn engine_value(&self, kind: &str, value: &str) -> String {
+        match (kind, value) {
+            ("has_files" | "monitored" | "has_metadata", "true") => self.translate("Yes", &[]),
+            ("has_files" | "monitored" | "has_metadata", "false") => self.translate("No", &[]),
+            ("size_on_disk_over_gb", bytes) if !bytes.is_empty() => {
+                bytes.parse().map_or_else(|_| bytes.to_string(), |n| human_bytes(n, self))
+            }
+            ("added_within_days", added) => crate::services::routing::parse_timestamp(added)
+                .map_or_else(|| added.to_string(), |added| added.format("%Y-%m-%d").to_string()),
+            (_, other) => other.to_string(),
+        }
     }
 
     /// One explanation line: the expectation and what was actually observed.

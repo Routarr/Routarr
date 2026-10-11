@@ -65,17 +65,16 @@ pub async fn apply_simulation(
             // An unattended write that the Arr refused is exactly what nobody
             // is watching for. Sent on its own task: the webhook waits for
             // this apply, and a slow receiver would hold its delivery.
-            if report.failed > 0 {
+            // Every failure counted carries its error, so a failed apply
+            // has a first one.
+            if let Some(first) = report.errors.first() {
                 notify::send_later(
                     state,
                     notify::Event::AutoApplyFailed {
                         failed: report.failed,
                         applied: report.applied,
-                        first_error: report
-                            .errors
-                            .first()
-                            .map(|e| format!("{}: {}", e.media_title, e.message))
-                            .unwrap_or_else(|| "unknown".into()),
+                        title: first.media_title.clone(),
+                        error: first.stored.clone(),
                     },
                 );
             }

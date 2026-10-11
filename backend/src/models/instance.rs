@@ -119,7 +119,11 @@ impl InstanceResponse {
     /// back, so it has to carry the sub-path Routarr is served under. A
     /// conversion that cannot see the configuration would silently produce a URL
     /// that 404s behind a reverse proxy, and only there.
-    pub fn from_instance(i: Instance, base_path: &str) -> Self {
+    pub fn from_instance(
+        i: Instance,
+        base_path: &str,
+        localizer: &crate::localization::Localizer,
+    ) -> Self {
         // The stored value may be ciphertext, and a prefix of it is never shown.
         let encrypted = crate::crypto::SecretBox::is_sealed(&i.api_key);
         let masked = if encrypted {
@@ -143,7 +147,7 @@ impl InstanceResponse {
             sync_interval_minutes: i.sync_interval_minutes,
             last_sync_at: i.last_sync_at,
             last_sync_attempt_at: i.last_sync_attempt_at,
-            last_sync_status: i.last_sync_status,
+            last_sync_status: sync_status_said(i.last_sync_status, localizer),
             created_at: i.created_at,
             updated_at: i.updated_at,
             webhook_url,
@@ -153,6 +157,22 @@ impl InstanceResponse {
         }
     }
 }
+
+/// The last sync's outcome, `success`, or `error: ` and why, the why said in
+/// `localizer`'s language: the sync stores it as a key and its values.
+pub fn sync_status_said(
+    stored: Option<String>,
+    localizer: &crate::localization::Localizer,
+) -> Option<String> {
+    stored.map(|status| match status.strip_prefix(SYNC_FAILED) {
+        Some(why) => format!("{SYNC_FAILED}{}", crate::localization::said(why, localizer)),
+        None => status,
+    })
+}
+
+/// What the last sync's outcome starts with when it failed, which every
+/// reader of it tells a failure by.
+pub const SYNC_FAILED: &str = "error: ";
 
 /// Show only enough of a legacy plaintext key to recognise it.
 fn mask(key: &str) -> String {
