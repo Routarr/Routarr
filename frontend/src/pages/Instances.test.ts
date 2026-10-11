@@ -12,6 +12,7 @@ import { dropFocus } from '../test/focus';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
+import { readBackend } from '../test/backend';
 
 /**
  * The only screen that holds an Arr credential. It must never show one back,
@@ -19,58 +20,9 @@ import Instances from './Instances.svelte';
  * must not let a user sync a library they have not connected yet.
  */
 
-const STRINGS = {
-  ArrInstances: 'Instances',
-  RotateWebhookToken: 'Rotate the webhook token',
-  ConfirmRotateWebhookToken: 'Rotate the webhook token of "{name}"?',
-  RangeBetween: 'Enter a whole number from {min} to {max}.',
-  AddInstance: 'Add instance',
-  NoInstanceConfigured: 'No instance configured',
-  SyncAll: 'Sync all',
-  SyncNow: 'Sync now',
-  Edit: 'Edit',
-  Save: 'Save',
-  Actions: 'Actions',
-  TestConnection: 'Test connection',
-  Name: 'Name',
-  Type: 'Type',
-  BaseUrl: 'Base URL',
-  ApiKey: 'API key',
-  ApiKeyEncrypted: 'encrypted',
-  ApiKeyKeepHint: 'Leave blank to keep the current key',
-  InstanceDisabled: 'disabled',
-  Never: 'never',
-  InstanceUpdated: 'Instance updated',
-  InstanceAdded: 'Instance added',
-  InstanceFirstSync: '{name} is saved. Reading its library for the first time.',
-  SyncResult: '{name} is synced. Titles: {media}, root folders: {folders}',
-  InstanceFirstSyncFailed: '{name} is saved, but its first sync failed.',
-  InstanceFirstSyncFinished: '{name} is synced.',
-  InstanceUrlHelp: "With the port. In Docker, use {service}'s container name.",
-  InstanceKeyHelp: 'In {service}: Settings → General → Security → API Key.',
-  ConnectionOk: '{name}: connected (v{version}), root folders: {folders}',
-  OpensInNewTab: 'opens in a new tab',
-  SyncEveryMinutes: 'Sync every (minutes)',
-  EnabledSyncedRouted: 'Enabled',
-  Cancel: 'Cancel',
-  SyncAllResult: 'Instances synced: {count}',
-  CopyUrl: 'Copy the webhook URL',
-  WebhookUrlCopied: 'Webhook URL copied',
-  WebhookUrlCopyFailed: 'The browser blocked the clipboard. Webhook URL: {url}',
-  WebhookUrl: 'Webhook URL',
-  WebhookToken: 'Token',
-  WebhookUrlWithToken: 'Webhook URL for an older Arr',
-  Delete: 'Delete',
-  Saving: 'Saving…',
-  ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
-  InstanceDeleted: 'Instance deleted',
-  ApiKeyPlaintextHint: 'Stored in plaintext. Save the instance again to encrypt it.',
-  ConfirmDiscardInstance: 'Close the instance without saving?',
-};
-
 const show = (list: ReturnType<typeof instance>[]) => {
   vi.spyOn(api, 'getInstances').mockResolvedValue(list);
-  return renderWithI18n(Instances, { strings: STRINGS });
+  return renderWithI18n(Instances);
 };
 
 afterEach(() => {
@@ -82,7 +34,7 @@ describe('Instances', () => {
   it('invites a first instance instead of showing an empty table', async () => {
     show([]);
 
-    expect(await screen.findByText('No instance configured')).toBeTruthy();
+    expect(await screen.findByText('No instance connected yet.')).toBeTruthy();
   });
 
   it('cannot sync everything when there is nothing to sync', async () => {
@@ -100,7 +52,7 @@ describe('Instances', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Sync all' }));
     await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
 
-    expect(await screen.findByRole('menuitem', { name: 'Copy the webhook URL' })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: 'Copy URL' })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: 'Rotate the webhook token' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
   });
@@ -119,7 +71,9 @@ describe('Instances', () => {
       await screen.findByRole('menuitem', { name: 'Rotate the webhook token' }),
     );
 
-    expect(await answerConfirmation(null)).toBe('Rotate the webhook token of "Radarr"?');
+    expect(await answerConfirmation(null)).toBe(
+      'Rotate the webhook token of "Radarr"? The Arr\'s webhook stops working until the new URL is pasted into it.',
+    );
     expect(rotate).not.toHaveBeenCalled();
   });
 
@@ -132,7 +86,7 @@ describe('Instances', () => {
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
     expect(await answerConfirmation(null)).toBe(
-      'Delete "Radarr" with its titles, mappings and exceptions?',
+      'Delete "Radarr"? Its media, mappings and exceptions are removed from Routarr (nothing is deleted in the Arr).',
     );
     expect(remove).not.toHaveBeenCalled();
   });
@@ -273,10 +227,10 @@ describe('Instances', () => {
 
     expect(unloading()).toBe(true);
     navigate('/rules');
-    expect(await answerConfirmation(null)).toBe('Close the instance without saving?');
+    expect(await answerConfirmation(null)).toBe('Close the instance without saving your changes?');
     expect(router.path).not.toBe('/rules');
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(await answerConfirmation(null)).toBe('Close the instance without saving?');
+    expect(await answerConfirmation(null)).toBe('Close the instance without saving your changes?');
     expect(name).toHaveValue('Radarr 4K');
   });
 
@@ -315,7 +269,7 @@ describe('Instances', () => {
     show([instance()]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
-    const every = await screen.findByLabelText('Sync every (minutes)');
+    const every = await screen.findByLabelText('Sync every (min)');
     const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     expect(save.disabled).toBe(false);
 
@@ -348,18 +302,29 @@ describe('Instances', () => {
   });
 
   /** A grey Save says nothing about the field that holds it. */
+  /**
+   * The ceiling is the one the scheduler clamps an interval to, read where
+   * the backend writes it: a form that let more through would save a number
+   * that is not the one running.
+   */
   it('says why an interval outside its bounds holds Save', async () => {
+    const jobs = readBackend('backend/src/jobs/mod.rs');
+    const written = /pub const MAX_SYNC_INTERVAL_MINUTES: i64 = ([\d_ *]+);/.exec(jobs)?.[1] ?? '';
+    const ceiling = written.split('*').reduce((product, factor) => product * Number(factor), 1);
+    expect(ceiling).toBeGreaterThan(1);
+    const bounds = `Enter a whole number from 1 to ${ceiling}.`;
     show([instance()]);
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
-    const every = await screen.findByLabelText('Sync every (minutes)');
+    const every = await screen.findByLabelText('Sync every (min)');
+    expect(every).toHaveAttribute('max', String(ceiling));
 
     await fireEvent.input(every, { target: { value: '' } });
 
     expect(every).toHaveAttribute('aria-invalid', 'true');
-    expect(every).toHaveAccessibleDescription('Enter a whole number from 1 to 1440.');
+    expect(every).toHaveAccessibleDescription(bounds);
     await fireEvent.input(every, { target: { value: '30' } });
     expect(every).not.toHaveAttribute('aria-invalid');
-    expect(screen.queryByText('Enter a whole number from 1 to 1440.')).toBeNull();
+    expect(screen.queryByText(bounds)).toBeNull();
   });
 
   it('syncs the instance whose button was pressed', async () => {
@@ -378,7 +343,7 @@ describe('Instances', () => {
   it('marks a disabled instance rather than hiding it', async () => {
     show([instance({ enabled: false })]);
 
-    expect(await screen.findByText('disabled')).toBeTruthy();
+    expect(await screen.findByText('Disabled')).toBeTruthy();
     expect(screen.getByText('Radarr')).toBeTruthy();
   });
 
@@ -474,7 +439,7 @@ describe('Instances', () => {
 
     const origin = window.location.origin;
     const path = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
-    const token = screen.getByLabelText('Token') as HTMLInputElement;
+    const token = screen.getByLabelText('Token for the X-Routarr-Token header') as HTMLInputElement;
     const older = screen.getByLabelText('Webhook URL for an older Arr') as HTMLInputElement;
     expect([path.value, token.value, older.value]).toEqual([
       `${origin}/api/v1/webhook/i1`,
@@ -487,7 +452,7 @@ describe('Instances', () => {
   async function copyWebhookUrl() {
     show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
     await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
-    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy the webhook URL' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy URL' }));
   }
 
   it('says the webhook URL was copied once the clipboard took it', async () => {
@@ -499,11 +464,13 @@ describe('Instances', () => {
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/api/v1/webhooks/i1/tok`),
     );
-    expect(screen.queryByText('Webhook URL copied')).toBeNull();
+    expect(screen.queryByText('Webhook URL copied to the clipboard')).toBeNull();
 
     settle();
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Webhook URL copied'));
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Webhook URL copied to the clipboard'),
+    );
   });
 
   /** The clipboard exists on secure origins only, and a homelab often serves plain http. */
@@ -515,7 +482,7 @@ describe('Instances', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       `${window.location.origin}/api/v1/webhooks/i1/tok`,
     );
-    expect(screen.queryByText('Webhook URL copied')).toBeNull();
+    expect(screen.queryByText('Webhook URL copied to the clipboard')).toBeNull();
   });
 
   it('hands the webhook URL over when the browser refuses the copy', async () => {
@@ -525,7 +492,7 @@ describe('Instances', () => {
     await copyWebhookUrl();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('/api/v1/webhooks/i1/tok');
-    expect(screen.queryByText('Webhook URL copied')).toBeNull();
+    expect(screen.queryByText('Webhook URL copied to the clipboard')).toBeNull();
   });
 
   async function addInstance(name: string) {
@@ -586,7 +553,9 @@ describe('Instances', () => {
 
     await addInstance('Films');
 
-    const summary = await screen.findByText('Films is saved, but its first sync failed.');
+    const summary = await screen.findByText(
+      'Films is saved, but its first sync failed. Check its address and API key, then sync it again.',
+    );
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.getByText('Radarr answered 401 Unauthorized')).toBeTruthy();
   });
@@ -608,7 +577,11 @@ describe('Instances', () => {
       expect(
         await screen.findByText('Films is saved. Reading its library for the first time.'),
       ).toBeTruthy();
-      expect(screen.queryByText('Films is saved, but its first sync failed.')).toBeNull();
+      expect(
+        screen.queryByText(
+          'Films is saved, but its first sync failed. Check its address and API key, then sync it again.',
+        ),
+      ).toBeNull();
       const before = statusRevision();
       vi.mocked(api.getInstances).mockResolvedValue([
         instance({
@@ -698,7 +671,7 @@ describe('Instances', () => {
     await openAdd();
 
     expect(await screen.findByLabelText('Base URL')).toHaveAccessibleDescription(
-      "With the port. In Docker, use Radarr's container name.",
+      "With the port, and the URL base if Radarr has one. In Docker, use Radarr's container name or the host's IP address: localhost is Routarr's own container. A proxy's user name and password, written user:password@ before the host, show as ***.",
     );
     await userEvent.selectOptions(screen.getByLabelText('Type'), 'sonarr');
     expect(screen.getByLabelText('API key')).toHaveAccessibleDescription(
@@ -731,7 +704,7 @@ describe('Instances', () => {
     expect(url.getAttribute('autocapitalize')).toBe('off');
 
     await typeAddressAndKey('radarr:7878', 'secret');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
     await waitFor(() =>
       expect(probe).toHaveBeenCalledWith(
         expect.objectContaining({ base_url: 'http://radarr:7878' }),
@@ -752,7 +725,7 @@ describe('Instances', () => {
   it('cannot try a new instance before its address and key are typed', async () => {
     show([]);
     const dialog = await openAdd();
-    const test = within(dialog).getByRole('button', { name: 'Test connection' });
+    const test = within(dialog).getByRole('button', { name: 'Test connectivity' });
 
     expect(test).toBeDisabled();
     await fireEvent.input(screen.getByLabelText('Base URL'), {
@@ -770,7 +743,7 @@ describe('Instances', () => {
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
 
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
 
     await waitFor(() =>
       expect(probe).toHaveBeenCalledWith(
@@ -790,12 +763,12 @@ describe('Instances', () => {
    * A focused button that turns disabled drops the focus to the page. A second
    * press starts the try over, so nothing needs holding it while it runs.
    */
-  it('leaves Test connection pressable while a try runs', async () => {
+  it('leaves Test connectivity pressable while a try runs', async () => {
     vi.spyOn(api, 'probeInstance').mockReturnValue(new Promise(() => {}));
     show([]);
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
-    const test = within(dialog).getByRole('button', { name: 'Test connection' });
+    const test = within(dialog).getByRole('button', { name: 'Test connectivity' });
 
     await fireEvent.click(test);
 
@@ -810,7 +783,7 @@ describe('Instances', () => {
     const region = within(dialog).getByRole('status');
     await typeAddressAndKey('http://radarr:7878', 'secret');
 
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
 
     await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
   });
@@ -824,7 +797,7 @@ describe('Instances', () => {
     const region = within(dialog).getByRole('status');
     await typeAddressAndKey('http://sonarr:8989', 'secret');
 
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
 
     await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
     expect(region).toHaveTextContent(older);
@@ -839,7 +812,7 @@ describe('Instances', () => {
     const dialog = await openAdd();
     await typeAddressAndKey('http://localhost:7878', 'secret');
 
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
       'Nothing answers at http://localhost:7878.',
@@ -857,7 +830,7 @@ describe('Instances', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     const dialog = await screen.findByRole('dialog');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
 
     await waitFor(() =>
       expect(probe).toHaveBeenCalledWith(
@@ -873,7 +846,7 @@ describe('Instances', () => {
     show([]);
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
     const result = within(dialog).getByRole('status');
     await waitFor(() => expect(result).toHaveTextContent(CONNECTED));
     const url = screen.getByLabelText('Base URL');
@@ -902,7 +875,7 @@ describe('Instances', () => {
     show([]);
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
     const result = within(dialog).getByRole('status');
     await waitFor(() => expect(result).toHaveTextContent(CONNECTED));
 
@@ -928,7 +901,7 @@ describe('Instances', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     let dialog = await screen.findByRole('dialog');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Sonarr' }));
     dialog = await screen.findByRole('dialog');
@@ -1039,7 +1012,7 @@ it('hands the focus to the instance that took the place of the deleted one', asy
   );
 });
 
-/** A row's Test connection asks the server about that instance and says what answered. */
+/** A row's Test connectivity asks the server about that instance and says what answered. */
 it('tests the connection of the instance whose row was used', async () => {
   const sonarr = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
   show([instance(), sonarr]);
@@ -1053,7 +1026,7 @@ it('tests the connection of the instance whose row was used', async () => {
   });
 
   await fireEvent.click(await screen.findByRole('button', { name: /Actions – Sonarr/ }));
-  await fireEvent.click(await screen.findByRole('menuitem', { name: 'Test connection' }));
+  await fireEvent.click(await screen.findByRole('menuitem', { name: 'Test connectivity' }));
 
   expect(await screen.findByText('Sonarr: connected (v4.0.1), root folders: 2')).toBeTruthy();
   expect(probe).toHaveBeenCalledExactlyOnceWith('i2');

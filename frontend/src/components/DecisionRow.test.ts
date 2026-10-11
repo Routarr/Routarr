@@ -11,26 +11,7 @@ import DecisionRowHarness from '../test/DecisionRowHarness.svelte';
  * discarded, and whether this one is actionable at all.
  */
 
-const STRINGS = {
-  SelectMoveFor: 'Select the move for "{title}"',
-  Movies: 'Movies',
-  Series: 'Series',
-  ManualOverride: 'manual override',
-  DefaultCategoryFallback: 'default category',
-  NoFolderForCategory: 'no folder for "{category}"',
-  AlsoMatched: '{rule} also matched, for {category}',
-  ExcludedAlternative: '{rule} was vetoed by {reason}',
-  None: '-',
-  NoneSpoken: 'none',
-  ActionMove: 'Move',
-  ActionSkip: 'Skip',
-  ActionNone: 'Already correct',
-  ReasonsShowAll: 'Show in full',
-  ReasonsShowLess: 'Show less',
-};
-
-const show = (props: Record<string, unknown>) =>
-  renderWithI18n(DecisionRowHarness, { props, strings: STRINGS });
+const show = (props: Record<string, unknown>) => renderWithI18n(DecisionRowHarness, { props });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -92,7 +73,7 @@ describe('DecisionRow', () => {
   it('marks a decision a human pinned', () => {
     show({ decision: decision({ is_override: true }), selected: false, onToggle: vi.fn() });
 
-    expect(screen.getByText('manual override')).toBeTruthy();
+    expect(screen.getByText('Manual exception')).toBeTruthy();
   });
 
   /**
@@ -128,8 +109,8 @@ describe('DecisionRow', () => {
       onToggle: vi.fn(),
     });
 
-    expect(screen.getByText(/Kids also matched, for kids/)).toBeTruthy();
-    expect(screen.getByText(/Concerts was vetoed by certification G/)).toBeTruthy();
+    expect(screen.getByText('also matched: Kids → kids')).toBeTruthy();
+    expect(screen.getByText(/Concerts excluded \(certification G\)/)).toBeTruthy();
   });
 
   /**

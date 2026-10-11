@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
 import { ApiError, api, onRefused } from './client';
 import { withBase } from '../test/base';
+import { readBackend } from '../test/backend';
 
 interface FakeResponse {
   ok?: boolean;
@@ -62,10 +61,7 @@ afterEach(() => {
  * call is read to the parenthesis that closes it, since a long one spans lines.
  */
 const SERVED: Set<string> = (() => {
-  const table = fs.readFileSync(
-    path.resolve(__dirname, '..', '..', '..', 'backend', 'src', 'main.rs'),
-    'utf-8',
-  );
+  const table = readBackend('backend/src/main.rs');
   const served = new Set<string>();
   for (const call of table.matchAll(/\.route\(/g)) {
     const start = (call.index ?? 0) + call[0].length;

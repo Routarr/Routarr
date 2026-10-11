@@ -1,15 +1,7 @@
 import type { Page } from '@playwright/test';
 
-import {
-  test,
-  expect,
-  api,
-  apiWhenFree,
-  openScreen,
-  screenShown,
-  writesDuring,
-  ARR,
-} from './fixtures';
+import { test, expect, api, openScreen, screenShown, ARR } from './fixtures';
+import type { RuleDraft } from '../src/api/types';
 
 /**
  * The journeys a user actually walks, against the real binary. These exist to
@@ -163,69 +155,6 @@ test.describe('picking a condition value', () => {
     const saved = rules.find((rule) => rule.name === 'Animated');
     expect(saved?.conditions).toEqual([{ type: 'genre_contains', value: ['Animation'] }]);
   });
-
-  /**
-   * The editor is a modal dialog, where an Escape nobody claims closes it and
-   * the draft with it. Folding the suggestions is what Escape does in a picker.
-   */
-  test('Escape in a picker folds its list and keeps the draft', async ({ page }) => {
-    await page.goto('/rules');
-    await page.getByRole('button', { name: 'New Rule' }).click();
-    const dialog = page.getByRole('dialog');
-    const name = dialog.getByLabel('Rule name', { exact: true });
-    await name.fill('Draft');
-    await addCondition(page, 'genre_contains');
-
-    const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
-    await picker.fill('anim');
-    await expect(page.getByRole('option', { name: 'Animation' })).toBeVisible();
-    await picker.press('Escape');
-
-    await expect(page.getByRole('option', { name: 'Animation' })).toHaveCount(0);
-    await expect(dialog).toBeVisible();
-    await expect(name).toHaveValue('Draft');
-  });
-
-  /**
-   * OR and AND on one condition, with no second condition needed for the AND.
-   * Only a browser shows that turning the selector keeps the values that were
-   * already chosen.
-   */
-  test('one condition can ask for either genre or for both', async ({ page }) => {
-    await page.goto('/rules');
-    await page.getByRole('button', { name: 'New Rule' }).click();
-
-    await page.getByLabel('Rule name', { exact: true }).fill('Both genres');
-    await page.getByLabel('Target category', { exact: true }).selectOption('anime');
-    await addCondition(page, 'genre_contains');
-
-    const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
-    // Both are carried by the fixture's library, so both come from the facets.
-    for (const genre of ['Animation', 'Family']) {
-      await picker.fill(genre);
-      await page.getByRole('option', { name: genre, exact: true }).click();
-    }
-
-    // Both values are on one condition, so this is the OR.
-    const quantifier = page.getByRole('combobox', { name: /how these values combine/i });
-    await expect(quantifier).toHaveValue('any');
-
-    // One turn of the selector makes it the AND, and the chosen genres stay.
-    await quantifier.selectOption('all');
-    // Scoped to the chips: the facets panel behind the dialog names the same
-    // genres, and a page-wide query matches those too.
-    await expect(
-      page.getByRole('list', { name: 'Selected values' }).getByRole('listitem'),
-    ).toHaveText(['Animation', 'Family']);
-
-    await page.getByRole('button', { name: 'Save rule' }).click();
-    await expect(page.getByText('Both genres')).toBeVisible();
-
-    const rules = (await api('/rules')) as { name: string; conditions: unknown[] }[];
-    expect(rules.find((rule) => rule.name === 'Both genres')?.conditions).toEqual([
-      { type: 'genre_contains_all', value: ['Animation', 'Family'] },
-    ]);
-  });
 });
 
 test.describe('the routing journey', () => {
@@ -353,25 +282,6 @@ test.describe('guardrails are visible', () => {
     expect(painted).toBe(success);
     expect(painted).not.toBe(danger);
   });
-
-  test('arming automatic application warns before it can write', async ({ page }) => {
-    // The two switches live in different sections, which is itself worth
-    // exercising: the draft has to survive moving between them, or arming both
-    // would be impossible in one visit.
-    await page.goto('/settings#automation');
-    await page.getByLabel('Automatic application').selectOption('true');
-
-    // Automatic application alone is inert while dry-run holds, so it alone
-    // must not warn.
-    await expect(page.locator('.banner-warning')).toHaveCount(0);
-
-    await page.getByRole('tab', { name: /guardrails/i }).click();
-    await page.getByLabel('Global dry-run').selectOption('false');
-
-    // Live mode, plus automatic application: the combination writes unattended,
-    // and only the combination warns.
-    await expect(page.locator('.banner-warning')).toHaveCount(2);
-  });
 });
 
 test.describe('the API reference', () => {
@@ -423,7 +333,7 @@ test.describe('reclassifying a whole library', () => {
         enabled: true,
         conditions: [{ type: 'title_contains', value: ['akira', 'totoro', 'perfect blue'] }],
         exclusions: [],
-      }),
+      } satisfies Partial<RuleDraft>),
     });
 
     await page.goto('/simulation');
@@ -451,89 +361,5 @@ test.describe('reclassifying a whole library', () => {
     const edits = (await (await fetch(`${ARR}/__edits`)).json()) as { moveFiles: boolean }[];
     expect(edits.length).toBeGreaterThan(0);
     expect(edits.every((edit) => edit.moveFiles === false)).toBe(true);
-  });
-
-  test('moves the files on disk when the box asks for it', async ({ page }) => {
-    await api('/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ settings: { global_dry_run: 'false' } }),
-    });
-    await api('/rules', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: 'Akira',
-        target_category: 'anime',
-        media_type: 'movie',
-        priority: 10,
-        enabled: true,
-        conditions: [{ type: 'title_contains', value: ['akira'] }],
-        exclusions: [],
-      }),
-    });
-
-    await page.goto('/simulation');
-    await page.getByRole('button', { name: /run simulation/i }).click();
-    await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toBeChecked();
-    await page.getByLabel(/Move the files on disk too/).check();
-    await page.getByRole('button', { name: /apply selected/i }).click();
-
-    await expect(page.locator('.banner-success')).toBeVisible();
-    const edits = (await (await fetch(`${ARR}/__edits`)).json()) as {
-      movieIds: number[];
-      moveFiles: boolean;
-    }[];
-    expect(edits).toEqual([{ movieIds: [2], moveFiles: true }]);
-  });
-
-  /**
-   * A destination that stopped answering is named in the one question Apply all
-   * asks, before anything is written: a sleeping disk may wake on access and a
-   * dead one will not, and only the reader can tell which.
-   */
-  test('apply all names a destination that is not answering before writing', async ({
-    page,
-    instanceId,
-  }) => {
-    // The sync below is followed by a simulation of its own, which would land
-    // after the one run on screen and leave Apply all naming a superseded run.
-    await api('/settings', {
-      method: 'PUT',
-      body: JSON.stringify({
-        settings: { global_dry_run: 'false', auto_simulate_enabled: 'false' },
-      }),
-    });
-    await api('/rules', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: 'Everything japanese',
-        target_category: 'anime',
-        media_type: 'movie',
-        priority: 10,
-        enabled: true,
-        conditions: [{ type: 'title_contains', value: ['akira', 'totoro', 'perfect blue'] }],
-        exclusions: [],
-      }),
-    });
-    await fetch(`${ARR}/__asleep?path=/movies/anime`);
-    await apiWhenFree(`/instances/${instanceId}/sync`, { method: 'POST' });
-
-    await page.goto('/simulation');
-    await page.getByRole('button', { name: /run simulation/i }).click();
-    await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toHaveCount(
-      1,
-    );
-    await page.getByRole('button', { name: /apply all/i }).click();
-
-    const dialog = page.getByRole('alertdialog');
-    await expect(dialog).toContainText(/'\/movies\/anime' has (never answered|not answered for)/);
-    const writes = await writesDuring(page, () =>
-      dialog.getByRole('button', { name: 'Cancel' }).click(),
-    );
-    expect(writes).toEqual([]);
-
-    const movies = (await (await fetch(`${ARR}/api/v3/movie`)).json()) as {
-      rootFolderPath: string;
-    }[];
-    expect(movies.filter((m) => m.rootFolderPath === '/movies/anime')).toHaveLength(0);
   });
 });

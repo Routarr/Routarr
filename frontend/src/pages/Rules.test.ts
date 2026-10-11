@@ -16,48 +16,6 @@ import { instance } from '../test/fixtures';
  * it is cosmetic.
  */
 
-const STRINGS = {
-  RulesEngine: 'Rules',
-  NewRule: 'New rule',
-  Dismiss: 'Dismiss',
-  NoRulesYet: 'No rule yet',
-  RaisePriority: 'Raise priority',
-  LowerPriority: 'Lower priority',
-  Edit: 'Edit',
-  SaveRule: 'Save rule',
-  Duplicate: 'Duplicate',
-  Actions: 'Actions',
-  Delete: 'Delete',
-  RuleDisabled: 'disabled',
-  PrioritiesUpdated: 'Priorities updated',
-  RuleDuplicated: 'Rule duplicated',
-  RuleDeleted: 'Rule deleted',
-  ConfirmDeleteRule: 'Delete the rule "{name}"?',
-  LogicAll: 'ALL',
-  LogicAny: 'ANY',
-  Both: 'Movies and series',
-  MoviesOnly: 'Movies only',
-  SeriesOnly: 'Series only',
-  ExceptPrefix: 'except',
-  ListSeparator: ', ',
-  ConditionPhraseGenreContains: 'Genres include any of {values}',
-  ConditionPhraseOriginalLanguage: 'Original language is one of {values}',
-  ConditionPhraseCertificationIn: 'Certification is one of {values}',
-  None: 'none',
-  AddCondition: 'Add a condition',
-  ImportResult: 'Rules imported: {count}',
-  ImportResultWithSkipped: 'Rules imported: {count}, skipped: {skipped}',
-  ImportReplaceQuestion: 'Replace the rules, or add to them?',
-  RuleAnalysisUnavailable: 'The rule analysis could not be read.',
-  RuleShadowed: 'Under {rule}',
-  RuleShadowedHint: 'Matched and never won: {count}. {rule} takes them first.',
-  RuleDuplicateOf: 'Same as {rule}',
-  RuleMatchedNothing: 'Matches nothing',
-  Retry: 'Retry',
-  ImportAppend: 'Add',
-  ImportReplace: 'Replace',
-};
-
 const catalog: ConditionCatalog = {
   match_modes: ['all', 'any'],
   conditions: [
@@ -138,7 +96,7 @@ function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en'
   if (!vi.isMockFunction(api.getLibraryFacets)) {
     vi.spyOn(api, 'getLibraryFacets').mockResolvedValue(NO_FACETS);
   }
-  return renderWithI18n(Rules, { strings: STRINGS, language });
+  return renderWithI18n(Rules, { language });
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -171,11 +129,17 @@ describe('Rules', () => {
       .mockResolvedValue({ total_media: 0, rules: [] });
     show([rule({ id: 'r1', name: 'Anime' })]);
 
-    const warning = await screen.findByText('The rule analysis could not be read.');
+    const warning = await screen.findByText(
+      'The rule analysis could not be read, so no badge says which rules decide nothing and the library panel is empty.',
+    );
     await fireEvent.click(within(warning.closest('.banner') as HTMLElement).getByText('Retry'));
 
     await waitFor(() =>
-      expect(screen.queryByText('The rule analysis could not be read.')).toBeNull(),
+      expect(
+        screen.queryByText(
+          'The rule analysis could not be read, so no badge says which rules decide nothing and the library panel is empty.',
+        ),
+      ).toBeNull(),
     );
     expect(report).toHaveBeenCalledTimes(2);
   });
@@ -185,7 +149,11 @@ describe('Rules', () => {
     await screen.findByRole('button', { name: 'Actions – Anime' });
     await waitFor(() => expect(api.getLibraryFacets).toHaveBeenCalled());
 
-    expect(screen.queryByText('The rule analysis could not be read.')).toBeNull();
+    expect(
+      screen.queryByText(
+        'The rule analysis could not be read, so no badge says which rules decide nothing and the library panel is empty.',
+      ),
+    ).toBeNull();
   });
 
   /** A label over a hidden input takes no focus, so the import is a button. */
@@ -203,7 +171,9 @@ describe('Rules', () => {
   it('invites a first rule instead of showing an empty table', async () => {
     show([]);
 
-    expect(await screen.findByText('No rule yet')).toBeTruthy();
+    expect(
+      await screen.findByText('No rules yet. Every media item falls back to the default category.'),
+    ).toBeTruthy();
   });
 
   it('names each row action after its rule', async () => {
@@ -301,7 +271,7 @@ describe('Rules', () => {
     );
     show([rule({ id: 'r1', name: 'Anime' }), rule({ id: 'r2', name: 'Kids', priority: 20 })]);
 
-    await rowAction('Anime', 'Duplicate');
+    await rowAction('Anime', 'Duplicate (disabled copy)');
     expect(await screen.findByText('Rule duplicated')).toBeTruthy();
 
     await rowAction('Kids', 'Delete');
@@ -320,7 +290,7 @@ describe('Rules', () => {
     const importRules = vi.spyOn(api, 'importRules');
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
 
-    await rowAction('Anime', 'Duplicate');
+    await rowAction('Anime', 'Duplicate (disabled copy)');
     expect(await screen.findByText('Rule duplicated')).toBeTruthy();
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -399,7 +369,7 @@ describe('Rules', () => {
     show([rule({ enabled: false, name: 'Japanese animation' })]);
 
     expect(await screen.findByText('Japanese animation')).toBeTruthy();
-    expect(screen.getByText('disabled')).toBeTruthy();
+    expect(screen.getByText('Disabled')).toBeTruthy();
   });
 
   /** The table reads as the editor does, never in the engine's own identifiers. */
@@ -567,13 +537,13 @@ describe('Rules', () => {
   }
 
   /** Replace deletes every rule first, so the answer must reach the request as given. */
-  it('adds the file to the rules when Add is chosen', async () => {
+  it('adds the file to the rules when Append is chosen', async () => {
     const importRules = await importFile({ imported: 1, skipped: [] });
     await waitFor(() => expect(importRules).toHaveBeenCalledTimes(1));
     expect(nthCall(importRules)[1]).toBe(false);
   });
 
-  it('replaces the rules only when Replace is chosen', async () => {
+  it('replaces the rules only when Replace all is chosen', async () => {
     const importRules = await importFile({ imported: 1, skipped: [] }, 'replace');
     await waitFor(() => expect(importRules).toHaveBeenCalledTimes(1));
     expect(nthCall(importRules)[1]).toBe(true);
@@ -672,10 +642,14 @@ describe('the rule health badges', () => {
     [
       'a shadowed rule names the rule taking its items',
       { shadowed: 4, shadowed_by: 'Movies' },
-      'Under Movies',
+      'shadowed by "Movies"',
     ],
-    ['a duplicate names the rule it repeats', { duplicate_of: 'Anime copy' }, 'Same as Anime copy'],
-    ['a rule that matches nothing says so', { matched_nothing: true }, 'Matches nothing'],
+    [
+      'a duplicate names the rule it repeats',
+      { duplicate_of: 'Anime copy' },
+      'same as "Anime copy"',
+    ],
+    ['a rule that matches nothing says so', { matched_nothing: true }, 'matches nothing'],
   ])('%s', async (_, over, badge) => {
     vi.spyOn(api, 'getRuleHealth').mockResolvedValue({
       total_media: 12,
@@ -697,7 +671,7 @@ describe('the rule health badges', () => {
 
     const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
     expect(
-      await within(row).findByText('Matched and never won: 4. Movies takes them first.'),
+      await within(row).findByText('Items matched and never won: 4. "Movies" takes them first.'),
     ).toBeTruthy();
   });
 
@@ -710,6 +684,6 @@ describe('the rule health badges', () => {
 
     const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
     await waitFor(() => expect(api.getRuleHealth).toHaveBeenCalled());
-    expect(within(row).queryByText(/Under|Same as|Matches nothing/)).toBeNull();
+    expect(within(row).queryByText(/shadowed by|same as|matches nothing/)).toBeNull();
   });
 });

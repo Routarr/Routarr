@@ -11,6 +11,7 @@ mod backup;
 mod base_path;
 mod batch_apply;
 mod categories;
+mod commands;
 mod config_bundle;
 mod connection;
 mod contract;
@@ -34,6 +35,7 @@ mod oidc;
 mod onboarding;
 mod outbound_http;
 mod placement;
+mod properties;
 mod provider_keys;
 pub(crate) mod races;
 mod ratings;
@@ -100,6 +102,17 @@ pub async fn listen() -> (tokio::net::TcpListener, String) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind a port");
     let address = format!("http://{}", listener.local_addr().expect("a local address"));
     (listener, address)
+}
+
+/// Wait until `reached` holds, for five seconds at most: a release that waits
+/// for the state a test proves, not for a time a fast machine happens to
+/// need. Past the bound the test goes on, and its assertions say what never
+/// happened.
+pub async fn until<Reached: std::future::Future<Output = bool>>(reached: impl Fn() -> Reached) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !reached().await && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
 }
 
 /// Serve `router` on `listener` until the returned handle is dropped.
@@ -540,8 +553,6 @@ impl TestApp {
             .simulation_id
     }
 
-    /// Write a setting straight into the table, as a hand edit or an older
-    /// release leaves it: nothing validates or seals the value.
     /// Run each statement on the test database, in order.
     pub async fn execute(&self, statements: &[&'static str]) {
         for statement in statements {
@@ -565,6 +576,8 @@ impl TestApp {
         .unwrap()
     }
 
+    /// Write a setting straight into the table, as a hand edit or an older
+    /// release leaves it: nothing validates or seals the value.
     pub async fn store_setting(&self, key: &str, value: &str) {
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES (?, ?)

@@ -13,17 +13,6 @@ import ValuePicker from './ValuePicker.svelte';
  * is store a value twice under two spellings, or lose one already saved.
  */
 
-const STRINGS = {
-  AddValue: 'Add "{value}"',
-  Loading: 'Loading…',
-  NoMatchingValue: 'No value matches',
-  NoValueInLibrary: 'The library carries no value for this yet',
-  PlaceholderPickValues: 'Search or type a value…',
-  Remove: 'Remove',
-  SelectedValues: 'Selected values',
-  PickerCountCaption: 'Titles in your library',
-};
-
 const OPTIONS = [
   { value: 'Animation', count: 27 },
   { value: 'Science Fiction', count: 12 },
@@ -43,7 +32,6 @@ function open(values: string[] = [], over: Record<string, unknown> = {}) {
   const onChange = vi.fn();
   renderWithI18n(ValuePicker, {
     props: { label: 'Genre contains', values, options: OPTIONS, onChange, ...over },
-    strings: STRINGS,
   });
   return { onChange, field: screen.getByLabelText('Genre contains') };
 }
@@ -309,7 +297,6 @@ describe('removing a chosen value', () => {
         options: OPTIONS,
         onChange: (next: string[]) => void view.rerender({ values: next }),
       },
-      strings: STRINGS,
     });
   }
 

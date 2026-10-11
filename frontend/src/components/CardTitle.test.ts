@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fireEvent, screen } from '@testing-library/svelte';
 
-import { renderWithI18n } from '../test/render';
+import { ENGLISH, renderWithI18n } from '../test/render';
 import { CARD_HELP } from '../lib/help';
 import CardTitleHarness from '../test/CardTitleHarness.svelte';
 
@@ -13,10 +13,6 @@ import CardTitleHarness from '../test/CardTitleHarness.svelte';
  */
 
 const card = Object.keys(CARD_HELP)[0]!;
-const STRINGS = {
-  HelpOn: 'Help:',
-  [CARD_HELP[card]!.text]: 'What this card shows.',
-};
 
 /** The browser's `toggle` event, which jsdom cannot fire for a popover it does not show. */
 async function toggle(bubble: Element, newState: 'open' | 'closed') {
@@ -27,7 +23,7 @@ async function toggle(bubble: Element, newState: 'open' | 'closed') {
 
 describe('CardTitle', () => {
   it('names its "?" after the card it explains', () => {
-    renderWithI18n(CardTitleHarness, { props: { card, title: 'Backups' }, strings: STRINGS });
+    renderWithI18n(CardTitleHarness, { props: { card, title: 'Backups' } });
 
     expect(screen.getByRole('heading', { level: 2, name: 'Backups' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Help: Backups' })).toHaveAttribute(
@@ -37,7 +33,7 @@ describe('CardTitle', () => {
   });
 
   it('writes its text into the bubble once it opens, and takes it back on closing', async () => {
-    renderWithI18n(CardTitleHarness, { props: { card, title: 'Backups' }, strings: STRINGS });
+    renderWithI18n(CardTitleHarness, { props: { card, title: 'Backups' } });
     const button = screen.getByRole('button', { name: 'Help: Backups' });
     const bubble = document.getElementById(button.getAttribute('popovertarget')!)!;
 
@@ -45,7 +41,7 @@ describe('CardTitle', () => {
     expect(bubble.textContent?.trim()).toBe('');
 
     await toggle(bubble, 'open');
-    expect(bubble).toHaveTextContent('What this card shows.');
+    expect(bubble).toHaveTextContent(ENGLISH[CARD_HELP[card]!.text]!);
     expect(button).toHaveAttribute('aria-expanded', 'true');
 
     await toggle(bubble, 'closed');
@@ -56,7 +52,6 @@ describe('CardTitle', () => {
   it('keeps an id something else points at', () => {
     renderWithI18n(CardTitleHarness, {
       props: { card, title: 'Getting started', id: 'guide-title' },
-      strings: STRINGS,
     });
 
     expect(screen.getByRole('heading', { name: 'Getting started' })).toHaveAttribute(
@@ -69,7 +64,6 @@ describe('CardTitle', () => {
   it('draws a title of the level its card asks for', () => {
     renderWithI18n(CardTitleHarness, {
       props: { card, title: 'Metadata', level: 3 },
-      strings: STRINGS,
     });
 
     expect(screen.getByRole('heading', { level: 3, name: 'Metadata' })).toBeInTheDocument();
@@ -96,7 +90,7 @@ describe('the bubble of a card title', () => {
   }
 
   async function opened() {
-    renderWithI18n(CardTitleHarness, { props: { card, title: 'Backups' }, strings: STRINGS });
+    renderWithI18n(CardTitleHarness, { props: { card, title: 'Backups' } });
     const button = screen.getByRole('button', { name: 'Help: Backups' });
     const bubble = document.getElementById(button.getAttribute('popovertarget')!)!;
     await toggle(bubble, 'open');

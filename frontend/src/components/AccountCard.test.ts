@@ -12,25 +12,11 @@ import AccountCard from './AccountCard.svelte';
  * sign-in, and a key minted by the revocation that nobody gets to copy.
  */
 
-const STRINGS = {
-  Account: 'Account',
-  CurrentPassword: 'Current password',
-  NewPassword: 'New password',
-  RepeatPassword: 'Repeat the new password',
-  PasswordMinimum: 'At least {min} characters.',
-  PasswordsDiffer: 'The two passwords differ.',
-  RevokeEveryKey: 'Also revoke every key',
-  ChangePassword: 'Change password',
-  PasswordChanged: 'Password changed.',
-  PasswordChangedKeysRevoked: 'Password changed and every key revoked.',
-  ApiKeyMintedOnce: 'Copy it now.',
-};
-
 const LONG_ENOUGH = 'twelve chars';
 
 function mount() {
   const outcome = createOutcome();
-  renderWithI18n(AccountCard, { props: { outcome }, strings: STRINGS });
+  renderWithI18n(AccountCard, { props: { outcome } });
   return outcome;
 }
 
@@ -55,7 +41,9 @@ describe('AccountCard', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
 
     expect(change).toHaveBeenCalledWith('the old one', LONG_ENOUGH, false);
-    await waitFor(() => expect(outcome.notice).toBe('Password changed.'));
+    await waitFor(() =>
+      expect(outcome.notice).toBe('Password changed. Every other session was ended.'),
+    );
     for (const label of ['Current password', 'New password', 'Repeat the new password']) {
       expect(screen.getByLabelText(label)).toHaveValue('');
     }
@@ -91,8 +79,12 @@ describe('AccountCard', () => {
 
     expect(change).toHaveBeenCalledWith('the old one', LONG_ENOUGH, true);
     expect(await screen.findByText('the-new-key')).toBeInTheDocument();
-    expect(screen.getByText('Copy it now.')).toBeInTheDocument();
-    expect(outcome.notice).toBe('Password changed and every key revoked.');
+    expect(
+      screen.getByText('Copy it now. It is shown once and cannot be read again.'),
+    ).toBeInTheDocument();
+    expect(outcome.notice).toBe(
+      'Password changed. Every other session was ended and every key revoked.',
+    );
     // Left ticked, the next change would revoke the keys just handed out.
     expect(screen.getByRole('checkbox', { name: /Also revoke every key/ })).not.toBeChecked();
   });

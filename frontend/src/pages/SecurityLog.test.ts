@@ -17,26 +17,6 @@ import SecurityLog from './SecurityLog.svelte';
  * `AuditSignedIn`.
  */
 
-const STRINGS = {
-  SecurityEvents: 'Security events',
-  NoSecurityEvents: 'No event recorded yet.',
-  SearchNameOrAddress: 'Search a name or an address',
-  FilterByEvent: 'Filter by event',
-  FilterByOutcome: 'Filter by outcome',
-  AllEvents: 'All events',
-  AllOutcomes: 'All outcomes',
-  SecurityOutcomeAllowed: 'Allowed',
-  SecurityOutcomeRefused: 'Refused',
-  SecurityKindSignIn: 'Sign-in',
-  SecurityKindApiKey: 'API key',
-  SecurityEventRepeated: 'Sent again within the minute: {count}',
-  AuditSignedIn: 'Signed in with the password.',
-  AuditApiKeyRefused: 'A request was sent with a key that opens nothing.',
-  AuditSessionEnded: 'The session {handle} was ended.',
-  ExportCsv: 'Export CSV',
-  None: '-',
-};
-
 function event(over: Partial<SecurityEvent> = {}): SecurityEvent {
   return {
     id: 1,
@@ -52,7 +32,7 @@ function event(over: Partial<SecurityEvent> = {}): SecurityEvent {
   };
 }
 
-const show = () => renderWithI18n(SecurityLog, { strings: STRINGS });
+const show = () => renderWithI18n(SecurityLog);
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -887,7 +887,7 @@ impl Config {
             // Deriving one anyway yields a *relative* path, and a test that
             // reaches the backup stage would create `backups/` in whatever
             // directory `cargo test` runs from.
-            data_dir: std::env::temp_dir().join(format!("routarr-tests-{}", std::process::id())),
+            data_dir: test_data_dir(),
             log_level: "error".into(),
             log_format: "text".into(),
             log_filter: None,
@@ -1008,6 +1008,32 @@ fn parse_setting<T: std::str::FromStr>(key: &str, raw: Option<String>, default: 
             ))
         }),
     }
+}
+
+/// The data folder of this test run, named by its process. The ones runs
+/// before it left are removed on first use, once the process that made each
+/// is gone: no hook runs after the last test, and the folder of a run still
+/// going is its own.
+#[cfg(test)]
+fn test_data_dir() -> PathBuf {
+    static SWEPT: std::sync::Once = std::sync::Once::new();
+    let base = std::env::temp_dir();
+    SWEPT.call_once(|| {
+        let Ok(entries) = std::fs::read_dir(&base) else { return };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let pid = name.to_str().and_then(|name| name.strip_prefix("routarr-tests-"));
+            let finished = pid.is_some_and(|pid| {
+                pid.parse::<u32>().is_ok_and(|pid| {
+                    pid != std::process::id() && !Path::new(&format!("/proc/{pid}")).exists()
+                })
+            });
+            if finished && Path::new("/proc/self").exists() {
+                std::fs::remove_dir_all(entry.path()).ok();
+            }
+        }
+    });
+    base.join(format!("routarr-tests-{}", std::process::id()))
 }
 
 #[cfg(test)]

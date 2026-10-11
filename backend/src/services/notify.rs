@@ -448,11 +448,11 @@ pub struct AllowedMentions {
 
 /// How long a failed delivery waits before each new attempt. The first
 /// attempt is made at once, and the last is followed by none.
-#[cfg(not(test))]
-const RETRIES: [Duration; 3] =
+const RETRIES: [Duration; 3] = if cfg!(test) { TESTED_RETRIES } else { SHIPPED_RETRIES };
+/// The waits the contract tells a receiver.
+const SHIPPED_RETRIES: [Duration; 3] =
     [Duration::from_secs(10), Duration::from_secs(60), Duration::from_secs(300)];
-#[cfg(test)]
-const RETRIES: [Duration; 3] =
+const TESTED_RETRIES: [Duration; 3] =
     [Duration::from_millis(10), Duration::from_millis(20), Duration::from_millis(30)];
 
 /// The notifications of one installation, sent one at a time.
@@ -913,6 +913,15 @@ mod receivers {
             let sent = serde_json::to_string(&notification(&event, AT, &english())).unwrap();
             assert!(sent.len() <= 4096, "{} bytes", sent.len());
         }
+    }
+
+    /// A release waits as the published contract says it does: the test
+    /// builds wait milliseconds, so only this sees the shipped waits.
+    #[test]
+    fn a_release_retries_on_the_schedule_the_contract_states() {
+        assert_eq!(SHIPPED_RETRIES.map(|wait| wait.as_secs()), [10, 60, 300]);
+        let contract = include_str!("../../openapi/v1.json");
+        assert!(contract.contains("is tried again after 10 s, 60 s and 5 min"));
     }
 
     #[test]

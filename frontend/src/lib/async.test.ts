@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 
 import { ApiError } from '../api/client';
 import { seedDictionary } from './i18n.svelte';
+import { ENGLISH } from '../test/render';
 import { describeError } from './async.svelte';
 import AsyncHarness from '../test/AsyncHarness.svelte';
 
@@ -13,31 +14,24 @@ import AsyncHarness from '../test/AsyncHarness.svelte';
  * then, since a refusal already says what to change.
  */
 
-seedDictionary({
-  Unauthorized: 'The key was refused',
-  RequestTimedOut: 'The server did not answer in time',
-  ServerUnreachable: 'The server could not be reached',
-  RequestId: 'request {id}',
-  ServerAnsweredStatus: 'The server answered {status}',
-  UnexpectedAnswer: 'A page that is not Routarr answered',
-  TaskFailedSeeTasks: 'The task failed, see Tasks',
-  InternalError: 'Routarr failed on its side',
-});
+seedDictionary({ ...ENGLISH });
 
 describe('describeError', () => {
   it('translates a refused key rather than echoing the server', () => {
     expect(describeError(new ApiError('Unauthorized', 401, 'unauthorized'))).toBe(
-      'The key was refused',
+      'Your sign-in ended, or the key was refused.',
     );
   });
 
   it('names a timeout by its kind, not by the exception it came from', () => {
-    expect(describeError(new ApiError('', 0, 'timeout'))).toBe('The server did not answer in time');
+    expect(describeError(new ApiError('', 0, 'timeout'))).toBe(
+      'The server did not answer in time. Check that Routarr is running, then try again.',
+    );
   });
 
   it('names a server it could not reach in the interface language', () => {
     expect(describeError(new ApiError('', 0, 'unreachable'))).toBe(
-      'The server could not be reached',
+      'The server could not be reached. Check that Routarr is running, then try again.',
     );
   });
 
@@ -46,15 +40,19 @@ describe('describeError', () => {
    * page drew one full of markup.
    */
   it('words a refusal that says nothing of its own by its status', () => {
-    expect(describeError(new ApiError('', 502, 'http_error'))).toBe('The server answered 502');
+    expect(describeError(new ApiError('', 502, 'http_error'))).toBe(
+      'The server answered 502 without saying why. A proxy in front of Routarr may have refused the request.',
+    );
     expect(describeError(new ApiError('', 502, 'http_error', 'req-1'))).toBe(
-      'The server answered 502 (request req-1)',
+      'The server answered 502 without saying why. A proxy in front of Routarr may have refused the request. (request req-1)',
     );
   });
 
   /** A followed job that failed without a message: the Tasks screen holds its detail. */
   it('sends a failed task with nothing to say to the Tasks screen', () => {
-    expect(describeError(new ApiError('', 0, 'job_failed'))).toBe('The task failed, see Tasks');
+    expect(describeError(new ApiError('', 0, 'job_failed'))).toBe(
+      'The task failed. The Tasks screen says what it ran into.',
+    );
     expect(describeError(new ApiError('Radarr answered 401', 0, 'job_failed'))).toBe(
       'Radarr answered 401',
     );
@@ -62,7 +60,7 @@ describe('describeError', () => {
 
   it('says a sign-in page answered rather than showing a parse error', () => {
     expect(describeError(new ApiError('', 200, 'unexpected_answer'))).toBe(
-      'A page that is not Routarr answered',
+      "The server answered with a page that is not Routarr's, often the sign-in of a proxy in front of it. Sign in again, then reload.",
     );
   });
 
@@ -73,7 +71,9 @@ describe('describeError', () => {
 
   it('says a failure of the server in the interface language, with its id', () => {
     const failure = new ApiError('An internal error occurred.', 500, 'internal_error', 'req-9');
-    expect(describeError(failure)).toBe('Routarr failed on its side (request req-9)');
+    expect(describeError(failure)).toBe(
+      'Routarr failed on its side. The server log says why. (request req-9)',
+    );
   });
 
   it('leaves a refusal alone even when it carries an id', () => {

@@ -17,28 +17,6 @@ import { dropFocus } from '../test/focus';
  * must not do is create one against nothing, or delete one without asking.
  */
 
-const STRINGS = {
-  Overrides: 'Overrides',
-  NewOverride: 'New override',
-  NoMediaMatches: 'Nothing matches.',
-  SearchShowingFirst: 'Showing {shown} of {total}. Refine the search.',
-  Title: 'Title',
-  Instance: 'Instance',
-  CurrentRootFolder: 'Current root folder',
-  NoOverrides: 'No override yet',
-  Delete: 'Delete',
-  Search: 'Search',
-  SelectItem: 'Select',
-  SearchLibrary: 'Search the library by title',
-  PinMediaTitle: 'Pin an item to a category',
-  ConfirmDeleteOverride: 'Remove the override on "{title}"?',
-  OverrideRemoved: 'Override removed',
-  CreateOverride: 'Pin it',
-  ForceCategoryFor: 'Force category for "{title}"',
-  None: '-',
-  Next: 'Next',
-};
-
 const categories = [
   {
     id: 'c1',
@@ -80,7 +58,7 @@ function override(over: Partial<OverrideEntry> = {}): OverrideEntry {
 function show(overrides: OverrideEntry[]) {
   vi.spyOn(api, 'getOverrides').mockResolvedValue(paginated(overrides));
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
-  return renderWithI18n(Overrides, { strings: STRINGS });
+  return renderWithI18n(Overrides);
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -89,7 +67,9 @@ describe('Overrides', () => {
   it('says there are none rather than showing an empty table', async () => {
     show([]);
 
-    expect(await screen.findByText('No override yet')).toBeTruthy();
+    expect(
+      await screen.findByText('No exception. Every media item is classified by the rules.'),
+    ).toBeTruthy();
   });
 
   it('names who set a pin under the day it was set', async () => {
@@ -107,7 +87,9 @@ describe('Overrides', () => {
 
     // Cancelled, and the question named the subject: "are you sure?" over a
     // table of twelve rows tells the user nothing about which one.
-    expect(await answerConfirmation(null)).toBe('Remove the override on "Akira"?');
+    expect(await answerConfirmation(null)).toBe(
+      'Remove the exception on "Akira"? The rules take over again.',
+    );
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -124,13 +106,13 @@ describe('Overrides', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
     await answerConfirmation();
-    expect(await screen.findByText('Override removed')).toBeTruthy();
+    expect(await screen.findByText('Exception removed')).toBeTruthy();
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Totoro' }));
     await answerConfirmation();
 
     expect(await screen.findByText('The override could not be removed')).toBeTruthy();
-    expect(screen.queryByText('Override removed')).toBeNull();
+    expect(screen.queryByText('Exception removed')).toBeNull();
   });
 
   it('removes it once the question is answered', async () => {
@@ -141,7 +123,7 @@ describe('Overrides', () => {
     await answerConfirmation();
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith('o1'));
-    expect(await screen.findByText('Override removed')).toBeTruthy();
+    expect(await screen.findByText('Exception removed')).toBeTruthy();
   });
 
   /**
@@ -153,8 +135,8 @@ describe('Overrides', () => {
     const create = vi.spyOn(api, 'createOverride');
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
-    const pin = await screen.findByRole('button', { name: 'Pin it' });
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
+    const pin = await screen.findByRole('button', { name: 'Create exception' });
 
     expect((pin as HTMLButtonElement).disabled).toBe(true);
     await fireEvent.click(pin);
@@ -172,7 +154,7 @@ describe('Overrides', () => {
     show([]);
     const user = userEvent.setup();
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     await fireEvent.input(search, { target: { value: 'perfect' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
@@ -190,13 +172,21 @@ describe('Overrides', () => {
     vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([]));
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    expect(screen.queryByText('Nothing matches.')).toBeNull();
+    expect(
+      screen.queryByText(
+        'No media matches. Sync an instance from the Instances page to populate this list.',
+      ),
+    ).toBeNull();
     await fireEvent.input(search, { target: { value: 'nothing' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
 
-    expect(await screen.findByText('Nothing matches.')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'No media matches. Sync an instance from the Instances page to populate this list.',
+      ),
+    ).toBeTruthy();
   });
 
   /**
@@ -209,13 +199,17 @@ describe('Overrides', () => {
     vi.spyOn(api, 'getMedia').mockResolvedValue(paginated(found, { total: 40 }));
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     const region = within(screen.getByRole('dialog')).getByRole('status');
     await fireEvent.input(search, { target: { value: 'star' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
 
-    await waitFor(() => expect(region).toHaveTextContent('Showing 15 of 40. Refine the search.'));
+    await waitFor(() =>
+      expect(region).toHaveTextContent(
+        'Showing the first 15 of 40. Refine the search to find the others.',
+      ),
+    );
     const dialog = screen.getByRole('dialog');
     expect(
       within(dialog)
@@ -232,19 +226,19 @@ describe('Overrides', () => {
     );
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     await fireEvent.input(search, { target: { value: 'perfect' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
     await fireEvent.click(await screen.findByText('Perfect Blue'));
-    await fireEvent.click(await screen.findByRole('button', { name: 'Pin it' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Create exception' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('already pinned');
   });
 
   /** The button turns disabled while it writes, which drops its focus out of the dialog. */
-  it('gives the focus back to Pin it once a pin is refused', async () => {
+  it('gives the focus back to Create exception once a pin is refused', async () => {
     vi.spyOn(api, 'getMedia').mockResolvedValue(
       paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
     );
@@ -254,12 +248,12 @@ describe('Overrides', () => {
     );
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     await fireEvent.input(search, { target: { value: 'perfect' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
     await fireEvent.click(await screen.findByText('Perfect Blue'));
-    const pin = await screen.findByRole('button', { name: 'Pin it' });
+    const pin = await screen.findByRole('button', { name: 'Create exception' });
     await userEvent.click(pin);
     await waitFor(() => expect(pin).toBeDisabled());
     dropFocus();
@@ -268,19 +262,19 @@ describe('Overrides', () => {
     await waitFor(() => expect(document.activeElement).toBe(pin));
   });
 
-  it('pins once however often Pin it is pressed', async () => {
+  it('pins once however often Create exception is pressed', async () => {
     vi.spyOn(api, 'getMedia').mockResolvedValue(
       paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
     );
     const create = vi.spyOn(api, 'createOverride').mockReturnValue(new Promise(() => {}));
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     await fireEvent.input(search, { target: { value: 'perfect' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
     await fireEvent.click(await screen.findByText('Perfect Blue'));
-    const pin = await screen.findByRole('button', { name: 'Pin it' });
+    const pin = await screen.findByRole('button', { name: 'Create exception' });
     await fireEvent.click(pin);
     await fireEvent.click(pin);
 
@@ -293,7 +287,7 @@ describe('Overrides', () => {
     const create = vi.spyOn(api, 'createOverride').mockResolvedValue(undefined as never);
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     await fireEvent.input(search, { target: { value: 'perfect' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
@@ -304,7 +298,7 @@ describe('Overrides', () => {
       await screen.findByLabelText('Force category for "Perfect Blue"'),
       'kids',
     );
-    await fireEvent.click(await screen.findByRole('button', { name: 'Pin it' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Create exception' }));
 
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(nthCall(create)[0]).toMatchObject({ media_id: 'm7', target_category: 'kids' });
@@ -314,7 +308,7 @@ describe('Overrides', () => {
   it('opens the pin dialog on its search field', async () => {
     show([]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
 
     expect(document.activeElement).toBe(
       await screen.findByRole('searchbox', { name: 'Search the library by title' }),
@@ -346,7 +340,7 @@ describe('more exceptions than a page holds', () => {
       .spyOn(api, 'getOverrides')
       .mockResolvedValue(paginated([override()], { total: 51, total_pages: 2 }));
     vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
-    renderWithI18n(Overrides, { strings: STRINGS });
+    renderWithI18n(Overrides);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
 
@@ -365,7 +359,7 @@ describe('more exceptions than a page holds', () => {
       .mockResolvedValue(paginated([override({ id: 'o3', media_title: 'Paprika' })]));
     vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
     vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
-    renderWithI18n(Overrides, { strings: STRINGS });
+    renderWithI18n(Overrides);
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 

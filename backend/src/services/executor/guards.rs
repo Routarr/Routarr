@@ -434,18 +434,23 @@ mod tests {
     /// The interface's `formatBytes` prints the reader's own symbols (`2.2 TB`
     /// in English, `2,2 To` in French) off a division by 1024. A capacity
     /// refusal and the root-folders table name the same figure, so a label that
-    /// differs describes one figure in two vocabularies. The unit comes from
-    /// the dictionary, and `frontend/src/api/format.test.ts` pins the other
-    /// side of the same claim.
+    /// differs describes one figure in two vocabularies. `byte_cases.json` holds
+    /// both sides to the same names, spaces read as plain ones.
     #[test]
     fn a_size_is_named_as_the_interface_names_it() {
-        assert_eq!(human_bytes(2_400_000_000_000, &Localizer::new("en")), "2.2 TB");
-        assert_eq!(human_bytes(2_400_000_000_000, &Localizer::new("fr")), "2,2 To");
-        assert_eq!(human_bytes(5_368_709_120, &Localizer::new("ru")), "5,0 ГБ");
-        assert_eq!(human_bytes(512, &Localizer::new("fr")), "512 o");
-        // Where `Intl` answers with a word, the symbol is derived. The interface
-        // applies the same rule, so neither side says `512 byte`.
-        assert_eq!(human_bytes(512, &Localizer::new("nl")), "512 B");
+        let cases: Vec<(i64, String, String)> =
+            serde_json::from_str(include_str!("../../byte_cases.json")).unwrap();
+        assert!(cases.len() > 10, "{cases:?}");
+        let parted: Vec<String> = cases
+            .into_iter()
+            .filter_map(|(bytes, language, named)| {
+                let said = human_bytes(bytes, &Localizer::new(&language))
+                    .replace(['\u{202f}', '\u{a0}'], " ");
+                (said != named)
+                    .then(|| format!("{bytes} bytes in {language}: {said:?}, not {named:?}"))
+            })
+            .collect();
+        assert!(parted.is_empty(), "the server names sizes otherwise:\n{}", parted.join("\n"));
     }
 
     /// Every guardrail name reaches `confirm::ALL`.

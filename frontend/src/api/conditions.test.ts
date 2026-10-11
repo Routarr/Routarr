@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { ConditionSpec, LibraryFacets } from './types';
 import {
@@ -18,6 +17,7 @@ import {
   nextPriority,
   statusKey,
 } from './conditions';
+import { readBackend } from '../test/backend';
 
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
   type: 'x',
@@ -50,10 +50,7 @@ describe('defaultConditionValue', () => {
  * the picker refuses, or a pair the editor accepts and the server refuses.
  */
 const FOLDING: [string, string][] = JSON.parse(
-  readFileSync(
-    join(process.cwd(), '../backend/src/services/rule_engine/normalise_value_cases.json'),
-    'utf8',
-  ),
+  readBackend('backend/src/services/rule_engine/normalise_value_cases.json'),
 ) as [string, string][];
 
 describe('canonicalKey', () => {
@@ -64,10 +61,7 @@ describe('canonicalKey', () => {
 
 /** The rating codes, keyed as the rule engine keys them. */
 const RATINGS: [string, string][] = JSON.parse(
-  readFileSync(
-    join(process.cwd(), '../backend/src/services/rule_engine/certification_key_cases.json'),
-    'utf8',
-  ),
+  readBackend('backend/src/services/rule_engine/certification_key_cases.json'),
 ) as [string, string][];
 
 describe('certificationKey', () => {
@@ -240,5 +234,36 @@ describe('nextPriority', () => {
   it('places a new rule after every other, as the server does', () => {
     expect(nextPriority([30, 10])).toBe(40);
     expect(nextPriority([])).toBe(10);
+  });
+});
+
+describe('the parsers of a typed value', () => {
+  /**
+   * Whatever is typed, a parser answers, and its answer typed back reads the
+   * same: an identifier is a whole number a source can hold, and a year one
+   * that reads back as itself.
+   */
+  it('read any input, and settle on their own output', () => {
+    const whole = fc.bigInt({ min: -(10n ** 30n), max: 10n ** 30n }).map(String);
+    const typed = fc.oneof(
+      fc.string(),
+      fc.stringMatching(/^[-\d ,]{0,40}$/),
+      fc.array(whole, { maxLength: 5 }).map((parts) => parts.join(', ')),
+    );
+    fc.assert(
+      fc.property(typed, (input) => {
+        const strings = parseStringList(input);
+        expect(parseStringList(strings.join(', '))).toEqual(strings);
+
+        const ids = parseNumberList(input);
+        expect(ids.every((id) => Number.isSafeInteger(id) && id > 0)).toBe(true);
+        expect(parseNumberList(ids.join(', '))).toEqual(ids);
+
+        const year = parseYearBound(input);
+        if (year !== null) expect(parseYearBound(String(year))).toBe(year);
+      }),
+      // A zero with its sign, and digits past an exact integer.
+      { examples: [['-0'], ['123456789012345678901234567890']] },
+    );
   });
 });

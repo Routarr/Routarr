@@ -460,6 +460,10 @@ mod tests {
     }
 
     /// The wire name of every `Condition` variant, from its serde rename.
+    ///
+    /// The enum renames no variant by rule, so a variant written without its
+    /// rename goes on the wire under its Rust name, which the renames alone
+    /// do not show: every variant line has to have one.
     fn wire_names() -> Vec<String> {
         let source = include_str!("../models/rule.rs");
         let enumeration = source
@@ -469,11 +473,19 @@ mod tests {
             .split("\n}")
             .next()
             .expect("its body");
-        enumeration
+        let variants = enumeration
+            .lines()
+            .filter(|line| {
+                line.strip_prefix("    ").is_some_and(|rest| rest.starts_with(char::is_uppercase))
+            })
+            .count();
+        let names: Vec<String> = enumeration
             .split("#[serde(rename = \"")
             .skip(1)
             .filter_map(|tail| tail.split('"').next().map(str::to_string))
-            .collect()
+            .collect();
+        assert_eq!(names.len(), variants, "a Condition variant has no serde rename");
+        names
     }
 
     /// Every axis a `Spec` names is an axis `/media/facets` answers with.

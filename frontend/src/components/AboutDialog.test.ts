@@ -7,31 +7,26 @@ import AboutDialog from './AboutDialog.svelte';
 
 /** What Routarr is: its version, its licence and where its source lives, and its sources' credits. */
 
-const STRINGS = {
-  AboutRoutarr: 'About Routarr',
-  AboutVersion: 'Version {version}',
-  AboutLicence: 'Free software under the GPL, its source code at',
-  SourceCreditsTitle: 'Data sources',
-  Dismiss: 'Close',
-};
-
 afterEach(() => vi.restoreAllMocks());
 
 describe('AboutDialog', () => {
   it('names the version and the licence, credits the sources, and closes', async () => {
     vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({ providers: [], order: [] });
     const onClose = vi.fn();
-    renderWithI18n(AboutDialog, { props: { version: '0.2.0', onClose }, strings: STRINGS });
+    renderWithI18n(AboutDialog, { props: { version: '0.2.0', onClose } });
 
     expect(screen.getByRole('dialog', { name: 'About Routarr' })).toBeTruthy();
     expect(screen.getByText('Version 0.2.0')).toBeTruthy();
+    expect(
+      screen.getByText(/^Free software under the GNU General Public License, version 3/),
+    ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'github.com/Routarr/Routarr' })).toHaveAttribute(
       'href',
       'https://github.com/Routarr/Routarr',
     );
     expect(await screen.findByRole('heading', { name: 'Data sources' })).toBeTruthy();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

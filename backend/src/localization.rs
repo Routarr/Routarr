@@ -113,12 +113,22 @@ pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
         value /= 1024.0;
         unit += 1;
     }
+    let space = if UNIT_AGAINST_ITS_NUMBER.contains(&base_tag(localizer.language()).as_str()) {
+        ""
+    } else {
+        " "
+    };
     if unit == 0 {
-        return format!("{} {}", bytes.max(0), units[0]);
+        return format!("{}{space}{}", bytes.max(0), units[0]);
     }
     let separator = decimal_separator(localizer.language());
-    format!("{} {}", format!("{value:.1}").replace('.', &separator.to_string()), units[unit])
+    let figure = format!("{value:.1}").replace('.', &separator.to_string());
+    format!("{figure}{space}{}", units[unit])
 }
+
+/// The languages that set a unit against its number, as `Intl` writes a size
+/// in the interface: `512B` in Korean.
+const UNIT_AGAINST_ITS_NUMBER: &[&str] = &["ko"];
 
 /// The placeholders that hold a machine format, an address, a path or a
 /// variable's name, which keeps its own direction in a sentence. In a

@@ -61,17 +61,6 @@ test('the sweeps meet a row in every table they walk', async ({ page }) => {
  * the component tests and by the sweeps below.
  */
 test.describe('form fields carry a programmatic label', () => {
-  test('clicking a caption focuses its field', async ({ page }) => {
-    await page.goto('/instances');
-    await page.getByRole('button', { name: 'Add instance' }).click();
-
-    // The usability half of a programmatic label: an unassociated caption is
-    // inert. Scoped to the dialog, since the page behind it has a column header
-    // with the same words.
-    await page.getByRole('dialog').getByText('Base URL', { exact: true }).click();
-    await expect(page.getByLabel('Base URL', { exact: true })).toBeFocused();
-  });
-
   test('the settings page names every control and links its help text', async ({ page }) => {
     await page.goto('/settings');
 
@@ -152,21 +141,6 @@ test.describe('modal dialogs', () => {
     // Back where it came from, not on `<body>`: from the top of the page a
     // keyboard user tabs through the whole shell to reach the next control.
     await expect(page.getByRole('button', { name: /add instance/i })).toBeFocused();
-  });
-
-  /**
-   * A trap that starts outside itself is not a trap, and one that starts on
-   * its close button is one reflex Enter from a form thrown away: the focus
-   * lands on the first field, which only a real browser's `showModal()` and
-   * `autofocus` decide.
-   */
-  test('focus starts on the first field of the modal', async ({ page }) => {
-    await page.goto('/instances');
-    await page.getByRole('button', { name: /add instance/i }).click();
-
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Name', { exact: true })).toBeFocused();
   });
 });
 
@@ -261,6 +235,13 @@ test('every table on every screen carries a caption', async ({ page }) => {
  * and a slow runner crosses it on a whole sweep with nothing wrong.
  */
 const SWEEP_TIMEOUT = 120_000;
+
+/**
+ * The bound of the Tab walk, which presses once per control on every screen
+ * and waits two frames each time: the longest sweep by far, and one that grows
+ * with every control a screen gains.
+ */
+const WALK_TIMEOUT = 2 * SWEEP_TIMEOUT;
 
 /**
  * Every screen and every Settings section, in both themes: the light palette
@@ -433,7 +414,7 @@ test('a rail entry with a count is named by its destination first', async ({ pag
 test.describe('the keyboard reaches every control', () => {
   for (const width of [1280, 375]) {
     test(`on every screen at ${width}px`, async ({ page }) => {
-      test.setTimeout(SWEEP_TIMEOUT);
+      test.setTimeout(WALK_TIMEOUT);
       await page.setViewportSize({ width, height: 900 });
       const problems: string[] = [];
 

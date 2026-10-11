@@ -5,6 +5,7 @@ import path from 'node:path';
 import { CARD_HELP, HELP, TERMS, glossary, helpScreen, searchHelp } from './help';
 import { SCREENS } from './routes';
 import { SECTIONS } from './settings';
+import { ENGLISH } from '../test/render';
 
 /**
  * Every screen, every card and every term has its help, in the dictionaries,
@@ -14,9 +15,7 @@ import { SECTIONS } from './settings';
  */
 
 const SRC = path.resolve(__dirname, '..');
-const english = JSON.parse(
-  fs.readFileSync(path.join(SRC, '..', '..', 'backend', 'locales', 'en.json'), 'utf-8'),
-) as Record<string, string>;
+const english = ENGLISH;
 
 /** Every `.svelte` file of the interface, as text. */
 function sources(): string[] {

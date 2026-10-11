@@ -14,8 +14,8 @@ paths:
   the webhook pass `Attribution::unattended(trigger)`. Mind the names: `Identity::actor()` fills
   the `subject` column, and the `actor` column of `decisions` and `execution_logs` holds the
   trigger.
-- `scripts/smoke-image.sh` looks for two log lines of `backend/src/main.rs`, `Generated an API
-  key` and `Routarr stopped cleanly`: reworded, either fails the image check in CI.
+- `scripts/smoke-image.sh` looks for `Generated an API key` (`backend/src/main.rs`) and `Routarr
+  stopped cleanly` (`backend/src/process.rs`) in the log: reworded, either fails the image check.
 - A new route is the owner's until `GRANTS` in `backend/src/api/applications.rs` names it with a
   scope, and a granted route is one an outside application relies on. A handler that moves files
   runs the executor through `on_behalf_of` (`backend/src/api/decisions.rs`), which holds an

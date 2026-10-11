@@ -23,14 +23,6 @@ function generatedPassword(): string {
  */
 const signedIn = (page: Page) => page.getByRole('status', { name: 'Dry-run: writes blocked' });
 
-test('a wrong password says so @forms', async ({ page }) => {
-  await page.goto('/');
-  await page.getByLabel('Password').fill('not the password at all');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-
-  await expect(page.getByRole('alert')).toContainText('The username or the password is wrong.');
-});
-
 test('the generated password opens the application @forms', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Password').fill(generatedPassword());

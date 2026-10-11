@@ -733,58 +733,33 @@ async fn a_key_names_who_made_it() {
     assert_eq!(listed.assert_ok()[0]["created_by"], Value::Null);
 }
 
-/// The last use is written at most once a minute: a use within the minute
-/// leaves it, one past it moves it.
-#[tokio::test]
-async fn the_last_use_is_written_at_most_once_a_minute() {
-    let app = TestApp::new().await;
-    let token = mint(&app, None, json!({ "name": "homepage" })).await;
-    let last_use = || async {
-        sqlx::query_scalar::<_, String>("SELECT last_used_at FROM api_keys")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap()
-    };
-
-    app.execute(&["UPDATE api_keys SET last_used_at = datetime('now', '-30 seconds')"]).await;
-    let recent = last_use().await;
-    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    assert_eq!(last_use().await, recent, "a use within the minute was written");
-
-    app.execute(&["UPDATE api_keys SET last_used_at = datetime('now', '-2 minutes')"]).await;
-    let old = last_use().await;
-    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
-    for _ in 0..100 {
-        if last_use().await != old {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("a use past the minute was not written");
-}
-
+/// A key's first use is recorded, and so is a use past the minute of the one
+/// before. Which use is due is `last_use_due`'s to say, and proven beside it.
 #[tokio::test]
 async fn the_last_use_of_a_key_is_recorded() {
     let app = TestApp::new().await;
     let token = mint(&app, None, json!({ "name": "homepage" })).await;
     let before = send(&app, "GET", "/api/v1/applications", None, None).await;
     assert_eq!(before.assert_ok()[0]["last_used_at"], Value::Null);
-
-    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
-
-    // Written off the request, so it lands a moment later.
-    for _ in 0..100 {
-        let used: Option<String> = sqlx::query_scalar("SELECT last_used_at FROM api_keys")
+    let last_use = || async {
+        sqlx::query_scalar::<_, Option<String>>("SELECT last_used_at FROM api_keys")
             .fetch_one(&app.state.pool)
             .await
-            .unwrap();
-        if used.is_some() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("the last use was never recorded");
+            .unwrap()
+    };
+
+    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
+    // Written off the request, so it lands a moment later.
+    let last_use = &last_use;
+    super::until(move || async move { last_use().await.is_some() }).await;
+    assert!(last_use().await.is_some(), "the first use was never recorded");
+
+    app.execute(&["UPDATE api_keys SET last_used_at = datetime('now', '-2 minutes')"]).await;
+    let old = last_use().await;
+    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
+    let moved = &old;
+    super::until(move || async move { last_use().await != *moved }).await;
+    assert_ne!(last_use().await, old, "a use past the minute was not recorded");
 }
 
 /// The owner routes are the owner's: a key cannot list, make or revoke keys,

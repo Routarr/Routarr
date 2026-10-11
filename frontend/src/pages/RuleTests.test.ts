@@ -9,17 +9,6 @@ import type { RuleTest, RuleTestRun } from '../api/types';
 import RuleTests from './RuleTests.svelte';
 import { answerConfirmation } from '../test/confirm';
 
-const STRINGS = {
-  RuleTests: 'Rule tests',
-  RunRuleTests: 'Run the tests',
-  RunningRuleTests: 'Running the tests…',
-  RuleTestsPassed: 'Every case holds. Checked: {total}',
-  RuleTestsFailed: 'Cases that moved: {failed} of {total}',
-  Passed: 'Passed',
-  Failed: 'Failed',
-  Next: 'Next',
-};
-
 const CASE: RuleTest = {
   id: 't1',
   name: 'Akira stays anime',
@@ -57,11 +46,11 @@ describe('RuleTests', () => {
   it('says the tests are running while they run', async () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE]));
     vi.spyOn(api, 'runRuleTests').mockReturnValue(new Promise(() => {}));
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Run the tests' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Run tests' }));
 
-    const running = await screen.findByRole('button', { name: 'Running the tests…' });
+    const running = await screen.findByRole('button', { name: 'Running tests…' });
     expect((running as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -74,17 +63,21 @@ describe('RuleTests', () => {
     vi.spyOn(api, 'runRuleTests')
       .mockResolvedValueOnce(PASSED)
       .mockRejectedValueOnce(new ApiError('The rules could not be read', 409, 'conflict'));
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Run the tests' }));
-    expect(await screen.findByText('Every case holds. Checked: 1')).toBeTruthy();
-    expect(screen.getByText('Passed')).toBeTruthy();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Run tests' }));
+    expect(
+      await screen.findByText('All cases still route where they were pinned. Checked: 1.'),
+    ).toBeTruthy();
+    expect(screen.getByText('Passes')).toBeTruthy();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Run the tests' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Run tests' }));
 
     expect(await screen.findByText('The rules could not be read')).toBeTruthy();
-    expect(screen.queryByText('Every case holds. Checked: 1')).toBeNull();
-    expect(screen.queryByText('Passed')).toBeNull();
+    expect(
+      screen.queryByText('All cases still route where they were pinned. Checked: 1.'),
+    ).toBeNull();
+    expect(screen.queryByText('Passes')).toBeNull();
   });
 
   /** A case that moved is a failure, stated before the table that shows which one. */
@@ -107,21 +100,25 @@ describe('RuleTests', () => {
         },
       ],
     });
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Run the tests' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Run tests' }));
 
-    const summary = await screen.findByText('Cases that moved: 1 of 1');
+    const summary = await screen.findByText(
+      'Cases no longer routing where they were pinned: 1 of 1.',
+    );
     expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
-    expect(screen.getByText('Failed')).toBeTruthy();
+    expect(screen.getByText('Fails')).toBeTruthy();
   });
 
   it('offers no run while there is no case to run', async () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([]));
-    renderWithI18n(RuleTests, { strings: { ...STRINGS, NoRuleTests: 'No pinned case yet' } });
+    renderWithI18n(RuleTests);
 
-    await screen.findByText('No pinned case yet');
-    expect(screen.getByRole('button', { name: 'Run the tests' })).toBeDisabled();
+    await screen.findByText(
+      "No pinned cases yet. Open any title's explanation and pin the decision: it becomes a case that fails if a later rule change moves it.",
+    );
+    expect(screen.getByRole('button', { name: 'Run tests' })).toBeDisabled();
   });
 });
 
@@ -131,7 +128,7 @@ describe('a suite longer than a page', () => {
     const list = vi
       .spyOn(api, 'getRuleTests')
       .mockResolvedValue(paginated([CASE], { total: 51, total_pages: 2 }));
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
 
@@ -149,7 +146,7 @@ describe('a suite longer than a page', () => {
       .mockResolvedValueOnce(paginated([], { page: 2, total: 50, total_pages: 1 }))
       .mockResolvedValue(paginated([OTHER_CASE], { total: 50, total_pages: 1 }));
     vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
@@ -178,7 +175,7 @@ describe('deleting a case', () => {
       .mockResolvedValueOnce(paginated([CASE, OTHER]))
       .mockReturnValueOnce(after.then((cases) => paginated(cases)));
     vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
     await userEvent.click(
       await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),
@@ -190,7 +187,7 @@ describe('deleting a case', () => {
   it('deletes nothing when the deletion is cancelled', async () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE, OTHER]));
     const remove = vi.spyOn(api, 'deleteRuleTest');
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
     await userEvent.click(
       await screen.findByRole('button', { name: 'Delete – Perfect Blue stays anime' }),
@@ -227,7 +224,7 @@ describe('deleting a case', () => {
       .mockResolvedValueOnce(paginated([CASE]))
       .mockResolvedValueOnce(paginated([]));
     vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
-    renderWithI18n(RuleTests, { strings: STRINGS });
+    renderWithI18n(RuleTests);
 
     await userEvent.click(
       await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),

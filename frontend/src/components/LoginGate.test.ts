@@ -15,18 +15,6 @@ import LoginGate from './LoginGate.svelte';
  * the generated password is rather than assuming they know.
  */
 
-const STRINGS = {
-  SignIn: 'Sign in',
-  SigningIn: 'Signing in…',
-  Username: 'Username',
-  Password: 'Password',
-  PasswordWhere: 'The password was generated at first start.',
-  SignInWithProvider: 'Sign in with your provider',
-  SignInWithProviderHelp: 'Routarr does not hold your password.',
-  Unauthorized: 'Unauthorized',
-  Dismiss: 'Dismiss',
-};
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -34,9 +22,13 @@ afterEach(() => {
 
 describe('LoginGate', () => {
   it('says where the password is, since nobody chose it', () => {
-    renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
+    renderWithI18n(LoginGate, { props: { mode: 'forms' } });
 
-    expect(screen.getByText('The password was generated at first start.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The password was generated at first start: it is in the server log, and in routarr.password beside the database.',
+      ),
+    ).toBeInTheDocument();
     // One account, so the name is filled in and only the password is asked for.
     expect(screen.getByLabelText('Username')).toHaveValue('admin');
   });
@@ -50,7 +42,7 @@ describe('LoginGate', () => {
     const login = vi.spyOn(api, 'login').mockResolvedValue({ username: 'admin' });
     const reload = vi.fn();
     vi.stubGlobal('location', { search: '', reload });
-    renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
+    renderWithI18n(LoginGate, { props: { mode: 'forms' } });
 
     await userEvent.type(screen.getByLabelText('Password'), 'deadbeef');
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -68,10 +60,7 @@ describe('LoginGate', () => {
     vi.spyOn(api, 'login').mockRejectedValue(
       new ApiError('Wrong username or password.', 401, 'unauthorized'),
     );
-    renderWithI18n(LoginGate, {
-      props: { mode: 'forms' },
-      strings: { ...STRINGS, SignInWrongCredentials: 'The username or the password is wrong.' },
-    });
+    renderWithI18n(LoginGate, { props: { mode: 'forms' } });
 
     await userEvent.type(screen.getByLabelText('Password'), 'nope');
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -87,7 +76,7 @@ describe('LoginGate', () => {
     vi.spyOn(api, 'login').mockReturnValue(
       new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
     );
-    renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
+    renderWithI18n(LoginGate, { props: { mode: 'forms' } });
 
     await userEvent.type(screen.getByLabelText('Password'), 'nope');
     const button = screen.getByRole('button', { name: 'Sign in' });
@@ -104,7 +93,7 @@ describe('LoginGate', () => {
    * origin, so the control is a link and not a button calling fetch.
    */
   it('offers the provider instead of a password field in oidc mode', () => {
-    renderWithI18n(LoginGate, { props: { mode: 'oidc' }, strings: STRINGS });
+    renderWithI18n(LoginGate, { props: { mode: 'oidc' } });
 
     const link = screen.getByRole('link', { name: 'Sign in with your provider' });
     expect(link).toHaveAttribute('href', expect.stringContaining('/auth/oidc/start'));
@@ -117,7 +106,7 @@ describe('LoginGate', () => {
    */
   it('lets the provider link leave the page with the router listening', async () => {
     const stop = interceptLinks();
-    renderWithI18n(LoginGate, { props: { mode: 'oidc' }, strings: STRINGS });
+    renderWithI18n(LoginGate, { props: { mode: 'oidc' } });
 
     const taken = click(screen.getByRole('link', { name: 'Sign in with your provider' }));
 
@@ -132,18 +121,15 @@ describe('LoginGate', () => {
    */
   it('says the provider refused, and takes the word out of the address', () => {
     window.history.replaceState({}, '', '/?signin=failed');
-    renderWithI18n(LoginGate, {
-      props: { mode: 'oidc' },
-      strings: { ...STRINGS, SignInRefused: 'The provider refused the sign-in' },
-    });
+    renderWithI18n(LoginGate, { props: { mode: 'oidc' } });
 
-    expect(screen.getByText('The provider refused the sign-in')).toBeTruthy();
+    expect(screen.getByText('The sign-in did not complete. Try again.')).toBeTruthy();
     expect(window.location.search).toBe('');
   });
 
   it('does not submit an empty password', async () => {
     const login = vi.spyOn(api, 'login');
-    renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
+    renderWithI18n(LoginGate, { props: { mode: 'forms' } });
 
     const button = screen.getByRole('button', { name: 'Sign in' });
     expect(button).toBeDisabled();

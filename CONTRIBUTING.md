@@ -68,7 +68,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo test --locked
-cargo llvm-cov --summary-only --fail-under-lines 96 --ignore-filename-regex 'src/(tests/|main\.rs)'
+cargo llvm-cov --summary-only --fail-under-lines 96 --ignore-filename-regex 'src/(tests/|process\.rs)'
 cargo audit
 python3 ../scripts/check-locales.py
 python3 ../scripts/check-api-types.py   # the response structs against types.ts

@@ -12,9 +12,9 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::error as log_error;
 use tracing::{info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod api;
+mod commands;
 mod config;
 mod crypto;
 mod db;
@@ -26,6 +26,7 @@ mod listener;
 mod localization;
 mod models;
 mod paths;
+mod process;
 mod race;
 mod services;
 mod state;
@@ -37,257 +38,8 @@ mod tests;
 use config::{AuthMode, Config};
 use state::AppState;
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
-    match run().await {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            // In one sentence, never Rust's dump of the error: through the log
-            // once it is set up, so a JSON log keeps the line, else on stderr.
-            if tracing::dispatcher::has_been_set() {
-                log_error!("{error}");
-            } else {
-                eprintln!("Error: {error}");
-            }
-            std::process::ExitCode::FAILURE
-        }
-    }
-}
-
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    dotenvy::dotenv().ok();
-
-    let config = Config::from_env()?;
-    match std::env::args().nth(1).as_deref() {
-        Some("healthcheck") => return healthcheck(&config).await,
-        Some("reset-account") => {
-            let revoke_keys = std::env::args().skip(2).any(|arg| arg == "--revoke-keys");
-            return reset_account(&config, revoke_keys).await;
-        }
-        Some("restore") => return restore(&config, std::env::args().nth(2)).await,
-        Some("decrypt-backup") => {
-            let mut args = std::env::args().skip(2);
-            return decrypt_backup(&config, args.next(), args.next()).await;
-        }
-        _ => {}
-    }
-    // Before anything binds a port: a value the server cannot honour should
-    // stop it with a sentence naming the variable, not with a panic from a
-    // dependency four layers down.
-    config.validate()?;
-    init_tracing(&config);
-    log_panics();
-    for note in config.startup_notes.iter().chain(&config.source_notes()) {
-        warn!("{note}");
-    }
-
-    info!("Starting Routarr v{}", env!("CARGO_PKG_VERSION"));
-
-    // Say where the data is, absolutely. `ROUTARR_DB_PATH` defaults to a
-    // *relative* path, so the working directory decides which library the
-    // server opens. Started from two places, it makes two installations, each
-    // with its own key and its own backups, and nothing on screen says which
-    // one is in use.
-    info!(
-        "Data directory: {}",
-        // `canonicalize` fails until the directory exists, which is the first
-        // start, the one where this line matters most. `absolute` answers
-        // then, since it only needs the working directory.
-        std::fs::canonicalize(&config.data_dir)
-            .or_else(|_| std::path::absolute(&config.data_dir))
-            .unwrap_or_else(|_| config.data_dir.clone())
-            .display()
-    );
-
-    let (api_key, pool, secrets) = open_storage(&config).await?;
-    let job_registry = jobs::JobRegistry::new(pool.clone());
-    job_registry.recover_orphans().await?;
-
-    let state = AppState {
-        http: http::build_client(&config)?,
-        audit: Arc::new(services::audit::Log::storing(pool.clone())),
-        pool,
-        secrets,
-        tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
-        paces: Default::default(),
-        jobs: job_registry,
-        api_key: Arc::new(std::sync::RwLock::new(api_key)),
-        sign_in: Arc::new(Default::default()),
-        oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
-        post_sync: Arc::new(tokio::sync::Mutex::new(None)),
-        auto_apply_held: Arc::default(),
-        notifications: Arc::default(),
-        key_rates: Arc::default(),
-        route_misses: Arc::default(),
-        last_probe: Arc::default(),
-        config: Arc::new(config),
-    };
-
-    services::maintenance::converge(&state).await?;
-    api::categories::converge_names(&state).await?;
-    // What a conversion interrupted by the last stop left in the clear.
-    services::backup::resume_sealing(&state).await;
-
-    // The single account, generated on first start like the API key. Only in
-    // the mode that reads it: creating one for an installation that
-    // authenticates another way would write a password nobody asked for.
-    if state.config.auth_mode == AuthMode::Forms {
-        services::accounts::ensure_account(&state.pool, &state.config.password_path()).await?;
-    }
-
-    warn_on_insecure_defaults(&state);
-
-    // Stopped before the pool closes: SQLite will not truncate a WAL another
-    // connection is writing, which is what a sweep in flight is doing. Told
-    // with the server, so no pass starts while the requests drain.
-    let (stopping, hurrying) = stop_on(shutdown_signal(), shutdown_signal());
-    let scheduler = jobs::scheduler::start(state.clone(), stopping.clone());
-
-    let bind_addr = state.config.bind_address();
-    // Kept past `build_router`, which consumes the state: the pool has to be
-    // closed *after* the server stops and the work in flight has recorded
-    // what it did, not dropped along with it.
-    let pool = state.pool.clone();
-    let jobs = state.jobs.clone();
-    let audit = Arc::clone(&state.audit);
-    let app = build_router(state);
-
-    let socket = tokio::net::TcpListener::bind(&bind_addr).await.map_err(|e| {
-        error::AppError::Config(format!(
-            "Routarr cannot listen on {bind_addr} (ROUTARR_HOST, ROUTARR_PORT): {e}"
-        ))
-    })?;
-    info!("Routarr web server listening on http://{bind_addr}");
-
-    listener::serve(
-        socket,
-        app,
-        fired(stopping),
-        fired(hurrying.clone()),
-        listener::HEADER_READ_TIMEOUT,
-        listener::DRAIN,
-    )
-    .await;
-
-    // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
-    // shutdown open for the full connect timeout, and a runtime that has sent
-    // SIGTERM is counting. Past the deadline SQLite rolls the sweep back and
-    // only the WAL truncation is lost. An apply ends before its next move and
-    // records the moves the Arr has made. With the drain, the stop fits the
-    // Compose file's 30s grace, and a second signal stops waiting.
-    let waits = async {
-        tokio::join!(
-            jobs.drain(std::time::Duration::from_secs(20)),
-            tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
-        )
-    };
-    tokio::select! {
-        (drained, scheduler) = waits => {
-            if !drained {
-                warn!("Moves were still being recorded after 20s, closing the database anyway");
-            }
-            if scheduler.is_err() {
-                warn!("The scheduler did not stop within 10s, closing the database anyway");
-            }
-        }
-        () = fired(hurrying) => warn!("Closing the database without waiting for the work in flight"),
-    }
-
-    audit.flush().await;
-    db::checkpoint_and_close(&pool).await;
-
-    // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
-    info!("Routarr stopped cleanly");
-    Ok(())
-}
-
-/// `routarr healthcheck`, the image's HEALTHCHECK. Only the API's own answer
-/// counts: a mount point the probe got wrong reaches the page the interface
-/// falls back to, which answers 200 as well.
-async fn healthcheck(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(4))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
-    let answer: serde_json::Value =
-        client.get(config.ping_url()).send().await?.error_for_status()?.json().await?;
-    if answer["status"] == "ok" {
-        Ok(())
-    } else {
-        Err(format!("{} answered without the ping's status", config.ping_url()).into())
-    }
-}
-
-/// `routarr restore <archive>`: stage a backup for the next start with the
-/// server stopped, which is the way back when a start refuses the database.
-async fn restore(
-    config: &Config,
-    archive: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(archive) = archive else {
-        return Err(
-            "usage: routarr restore <archive>, a name from the backup folder or a path".into()
-        );
-    };
-    let manifest =
-        asking_passphrase(|given| services::backup::stage_offline(config, &archive, given)).await?;
-    println!(
-        "{archive}, taken by Routarr v{} at schema {}, is restored at the next start.",
-        manifest.version, manifest.schema
-    );
-    if !manifest.includes_master_key {
-        println!(
-            "It carries no master key: the credentials in it open only with the key in place."
-        );
-    }
-    Ok(())
-}
-
-/// `routarr decrypt-backup <archive> <zip>`: write an encrypted archive
-/// opened, to read it by hand.
-async fn decrypt_backup(
-    config: &Config,
-    archive: Option<String>,
-    out: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (Some(archive), Some(out)) = (archive, out) else {
-        return Err("usage: routarr decrypt-backup <archive> <zip>, the archive a name from the \
-                    backup folder or a path, the zip a path outside it"
-            .into());
-    };
-    let written =
-        asking_passphrase(|given| services::backup::decrypt_offline(config, &archive, &out, given))
-            .await?;
-    println!(
-        "{} written. It carries the master key in clear: delete it once read.",
-        written.display()
-    );
-    Ok(())
-}
-
-/// Run `attempt` with the archive passphrase from the environment, and again
-/// with one typed at the prompt each time it answers that one is needed,
-/// while there is a terminal to type it in.
-async fn asking_passphrase<T, Attempt, Answer>(
-    mut attempt: Attempt,
-) -> Result<T, Box<dyn std::error::Error>>
-where
-    Attempt: FnMut(Option<services::backup::Passphrase>) -> Answer,
-    Answer: std::future::Future<Output = error::AppResult<T>>,
-{
-    let mut given = config::archive_passphrase().map(services::backup::passphrase_of);
-    loop {
-        match attempt(given.clone()).await {
-            Err(error::AppError::PassphraseRequired(refusal))
-                if std::io::IsTerminal::is_terminal(&std::io::stdin()) =>
-            {
-                println!("{refusal}");
-                let typed = rpassword::prompt_password("Passphrase: ")?;
-                given = Some(services::backup::passphrase_of(typed));
-            }
-            done => return Ok(done?),
-        }
-    }
+fn main() -> std::process::ExitCode {
+    process::main()
 }
 
 /// What a start reads from disk, in the one order that works: a staged
@@ -389,46 +141,6 @@ async fn refuse_a_lost_master_key(
          ROUTARR_ALLOW_NEW_MASTER_KEY=true",
         path.display()
     )))
-}
-
-/// `routarr reset-account`, for an operator locked out of the `forms` account:
-/// `docker exec routarr /app/routarr reset-account`. The image carries no
-/// `sqlite3`, and the server can keep running, since a sign-in reads the
-/// account each time.
-///
-/// With `--revoke-keys`, every application key is revoked and a new API key is
-/// written, for an operator who believes keys leaked with the password.
-async fn reset_account(
-    config: &Config,
-    revoke_keys: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let pool = db::init_pool(config).await?;
-    let password = services::accounts::reset_account(&pool, &config.password_path()).await?;
-    let revoked =
-        if revoke_keys { Some(services::applications::revoke_all(&pool).await?) } else { None };
-    pool.close().await;
-    println!(
-        "The account is reset. Sign in as '{}' with: {password}",
-        services::accounts::DEFAULT_USERNAME
-    );
-    println!(
-        "The password is also in {}. Every session was closed.",
-        config.password_path().display()
-    );
-    if let Some(revoked) = revoked {
-        println!("Every application key was revoked: {revoked}.");
-        if config.api_key.is_some() {
-            println!("ROUTARR_API_KEY pins the API key: change the variable and restart.");
-        } else {
-            let path = config.api_key_path();
-            crypto::write_api_key(&path, &crypto::generate_secret()?)?;
-            println!(
-                "A new API key is in {}. Restart Routarr for it to replace the old one.",
-                path.display()
-            );
-        }
-    }
-    Ok(())
 }
 
 /// The one route authenticated by its path, for an Arr that sends no custom
@@ -957,30 +669,6 @@ fn cors_layer(config: &Config) -> CorsLayer {
         .allow_credentials(true)
 }
 
-fn init_tracing(config: &Config) {
-    let filter = config
-        .log_filter
-        .as_deref()
-        .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
-        .unwrap_or_else(|| {
-            format!("routarr={},tower_http=warn,sqlx=warn", config.log_level).into()
-        });
-
-    let registry = tracing_subscriber::registry().with(filter);
-    // The time of the place the operator set in `TZ`, as Radarr and Sonarr log
-    // it, its offset written so the line reads the same anywhere.
-    let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339();
-
-    if config.log_format.eq_ignore_ascii_case("json") {
-        registry.with(tracing_subscriber::fmt::layer().json().with_timer(local)).init();
-    } else {
-        // Colours only on a terminal: in `docker logs` and in a file the
-        // escape codes stand between a fail2ban filter and the address.
-        let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
-        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours).with_timer(local)).init();
-    }
-}
-
 /// Make the security posture explicit at startup rather than a surprise later.
 fn warn_on_insecure_defaults(state: &AppState) {
     if state.config.auth_mode == AuthMode::External {
@@ -1004,54 +692,5 @@ fn warn_on_insecure_defaults(state: &AppState) {
             "ROUTARR_AUTH=none: the API is unauthenticated. Make sure Routarr is only \
              reachable from a trusted network, or from a proxy that authenticates for it."
         );
-    }
-}
-
-/// The stop, said at once to the server and the scheduler: `first` stops
-/// both, and `second`, awaited only once `first` has resolved, skips what the
-/// stop waits for.
-fn stop_on(
-    first: impl Future<Output = ()> + Send + 'static,
-    second: impl Future<Output = ()> + Send + 'static,
-) -> (tokio::sync::watch::Receiver<bool>, tokio::sync::watch::Receiver<bool>) {
-    let (stop, stopping) = tokio::sync::watch::channel(false);
-    let (hurry, hurrying) = tokio::sync::watch::channel(false);
-    tokio::spawn(async move {
-        first.await;
-        let _ = stop.send(true);
-        second.await;
-        warn!("A second signal: stopping without waiting");
-        let _ = hurry.send(true);
-    });
-    (stopping, hurrying)
-}
-
-/// Resolves once `flag` is raised.
-async fn fired(mut flag: tokio::sync::watch::Receiver<bool>) {
-    if flag.wait_for(|raised| *raised).await.is_err() {
-        std::future::pending::<()>().await;
-    }
-}
-
-/// Resolve on Ctrl-C or SIGTERM.
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c().await.expect("failed to install Ctrl-C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => info!("Received Ctrl-C, shutting down"),
-        _ = terminate => info!("Received SIGTERM, shutting down"),
     }
 }

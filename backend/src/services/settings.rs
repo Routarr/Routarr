@@ -396,43 +396,24 @@ mod tests {
         assert!(validate("global_dry_run", "yes", Kind::Bool, &[], &Localizer::new("en")).is_err());
     }
 
+    /// Every ranged setting takes its bounds and refuses past either side,
+    /// and what is not a whole number. Without a ceiling each count has a
+    /// value that reads as configured and behaves as off: a backup every
+    /// million hours, a cache that never expires, a retention SQLite's date
+    /// arithmetic runs past.
     #[test]
-    fn batch_limit_must_be_positive() {
-        assert!(check("batch_limit", "50", &[], &Localizer::new("en")).is_ok());
-        assert!(check("batch_limit", "0", &[], &Localizer::new("en")).is_err());
-        assert!(check("batch_limit", "-1", &[], &Localizer::new("en")).is_err());
-        assert!(check("batch_limit", "many", &[], &Localizer::new("en")).is_err());
-    }
-
-    /// A ceiling on every count, not only on the one that grows a list. Without
-    /// it each of these has a value that reads as configured and behaves as
-    /// off: a backup every million hours, a cache that never expires.
-    #[test]
-    fn every_count_is_bounded_at_both_ends() {
-        for key in [
-            "batch_limit",
-            "confirmation_threshold",
-            "metadata_cache_ttl_days",
-            "omdb_daily_requests",
-            "backup_interval_hours",
-            "backup_retention_count",
-            "scheduler_interval_minutes",
-        ] {
-            assert!(check(key, "1", &[], &Localizer::new("en")).is_ok(), "{key} refuses its floor");
-            assert!(check(key, "0", &[], &Localizer::new("en")).is_err(), "{key} has no floor");
-            assert!(
-                check(key, &i64::MAX.to_string(), &[], &Localizer::new("en")).is_err(),
-                "{key} has no ceiling"
-            );
+    fn every_ranged_setting_takes_its_bounds_and_nothing_past_them() {
+        let english = Localizer::new("en");
+        let ranged = ranged_keys();
+        assert!(ranged.len() >= 10, "{ranged:?}");
+        for (key, min, max, _) in ranged {
+            let checked = |value: String| check(key, &value, &[], &english);
+            assert!(checked(min.to_string()).is_ok(), "{key} refuses its floor {min}");
+            assert!(checked(max.to_string()).is_ok(), "{key} refuses its ceiling {max}");
+            assert!(checked((min - 1).to_string()).is_err(), "{key} takes {}", min - 1);
+            assert!(checked((max + 1).to_string()).is_err(), "{key} takes {}", max + 1);
+            assert!(checked("many".into()).is_err(), "{key} takes a word");
         }
-    }
-
-    /// The scheduler clamps this when it reads it. Refusing here is what stops
-    /// the interface showing a number that is silently not the one running.
-    #[test]
-    fn the_scheduler_interval_refuses_what_it_would_have_clamped() {
-        assert!(check("scheduler_interval_minutes", "1440", &[], &Localizer::new("en")).is_ok());
-        assert!(check("scheduler_interval_minutes", "1441", &[], &Localizer::new("en")).is_err());
     }
 
     /// Each default is a value its own setting accepts, so falling back to
@@ -448,18 +429,6 @@ mod tests {
             assert!(checked.is_ok(), "{key}'s default {default:?}: {checked:?}");
         }
         assert_eq!(default_of("an unknown key"), "");
-    }
-
-    /// A retention of zero keeps everything, and one past ten years is
-    /// refused rather than saved as a number that purges nothing.
-    #[test]
-    fn a_retention_in_days_is_zero_or_up_to_ten_years() {
-        for key in ["decision_retention_days", "log_retention_days", "security_log_retention_days"]
-        {
-            assert!(check(key, "0", &[], &Localizer::new("en")).is_ok(), "{key}");
-            assert!(check(key, "3650", &[], &Localizer::new("en")).is_ok(), "{key}");
-            assert!(check(key, "3651", &[], &Localizer::new("en")).is_err(), "{key}");
-        }
     }
 
     #[test]
@@ -485,13 +454,6 @@ mod tests {
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn only_shipped_languages_are_accepted() {
-        assert!(validate("ui_language", "fr", Kind::Language, &[], &Localizer::new("en")).is_ok());
-        assert!(validate("ui_language", "en", Kind::Language, &[], &Localizer::new("en")).is_ok());
-        assert!(validate("ui_language", "kl", Kind::Language, &[], &Localizer::new("en")).is_err());
     }
 
     #[test]

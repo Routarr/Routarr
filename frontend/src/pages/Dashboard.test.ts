@@ -18,25 +18,7 @@ import Dashboard from './Dashboard.svelte';
  * two encoding systems on one row with nothing saying where to look.
  */
 
-const STRINGS = {
-  Dashboard: 'Dashboard',
-  PendingDecisions: 'Awaiting review',
-  MoviesManaged: 'Movies',
-  FailedMovesLabel: 'Failed',
-  NoInstanceConfigured: 'No instance configured',
-  Diagnostics: 'Diagnostics',
-  Connected: 'connected',
-  Never: 'never',
-  Checking: 'checking…',
-  Unknown: 'unknown',
-  MetadataEnrichedCount: '{count} items enriched.',
-  MetadataComplete: 'Nothing missing.',
-  GuideTitle: 'Getting started',
-  GuideUnavailable: 'The getting-started guide could not be read: {error}',
-  Retry: 'Retry',
-};
-
-const show = () => renderWithI18n(Dashboard, { strings: STRINGS });
+const show = () => renderWithI18n(Dashboard);
 
 /** Both calls answer the same thing unless a test says otherwise. */
 const bothReturn = (value: ReturnType<typeof health>) =>
@@ -63,7 +45,7 @@ describe('Dashboard', () => {
     const banner = await screen.findByRole('alert');
     await userEvent.click(within(banner).getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByText('No instance configured')).toBeTruthy();
+    expect(await screen.findByText('No instance connected yet.')).toBeTruthy();
     expect(getHealth).toHaveBeenCalledTimes(4);
   });
 
@@ -72,7 +54,7 @@ describe('Dashboard', () => {
     bothReturn(health());
     show();
 
-    await screen.findByText('No instance configured');
+    await screen.findByText('No instance connected yet.');
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
@@ -122,7 +104,7 @@ describe('Dashboard', () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ stats: { ...health().stats, pending_decisions: 12345 } }),
     );
-    const { container } = renderWithI18n(Dashboard, { strings: STRINGS, language: 'fr' });
+    const { container } = renderWithI18n(Dashboard, { language: 'fr' });
 
     await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
     expect(container.querySelector('.headline-value')?.textContent).toBe(formatCount(12345, 'fr'));
@@ -140,7 +122,7 @@ describe('Dashboard', () => {
     );
     const { container } = show();
 
-    await screen.findByText('Failed');
+    await screen.findByText('Failed moves');
     const alerting = [...container.querySelectorAll('.metric.is-danger')];
     expect(alerting).toHaveLength(1);
     // Read after the length assertion, and still checked: `toHaveLength` tells
@@ -152,7 +134,7 @@ describe('Dashboard', () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     const { container } = show();
 
-    await screen.findByText('Failed');
+    await screen.findByText('Failed moves');
     expect(container.querySelectorAll('.metric.is-danger')).toHaveLength(0);
   });
 
@@ -182,7 +164,7 @@ describe('Dashboard', () => {
     );
     show();
 
-    expect(await screen.findByText('never')).toBeTruthy();
+    expect(await screen.findByText('Never')).toBeTruthy();
   });
 
   /**
@@ -213,8 +195,8 @@ describe('Dashboard', () => {
       );
       show();
 
-      expect(await screen.findByText('checking…')).toBeTruthy();
-      expect(screen.queryByText('connected')).toBeNull();
+      expect(await screen.findByText('Checking…')).toBeTruthy();
+      expect(screen.queryByText('Connected')).toBeNull();
     });
 
     /** A probe that failed is not one still running: the state is unknown. */
@@ -227,7 +209,7 @@ describe('Dashboard', () => {
       show();
 
       expect(await screen.findByText('unknown')).toBeTruthy();
-      expect(screen.queryByText('checking…')).toBeNull();
+      expect(screen.queryByText('Checking…')).toBeNull();
     });
 
     it('replaces it with the real state once the probe answers', async () => {
@@ -242,8 +224,8 @@ describe('Dashboard', () => {
       );
       show();
 
-      expect(await screen.findByText('connected')).toBeTruthy();
-      expect(screen.queryByText('checking…')).toBeNull();
+      expect(await screen.findByText('Connected')).toBeTruthy();
+      expect(screen.queryByText('Checking…')).toBeNull();
     });
   });
 

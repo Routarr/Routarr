@@ -13,22 +13,7 @@ import HealthPage from './Health.svelte';
  * has one job: report what is wrong without inventing a verdict of its own.
  */
 
-const STRINGS = {
-  Diagnostics: 'Diagnostics',
-  AllGood: 'Everything checks out.',
-  NoInstanceConfigured: 'No instance configured',
-  Connected: 'connected',
-  InstanceDisabled: 'disabled',
-  Error: 'error',
-  ProviderNeedsKey: 'needs an API key',
-  ProviderActive: 'active',
-  SettingMetadataProviders: 'Metadata sources',
-  ArrInstances: 'Arr instances',
-  Never: 'never',
-  None: '-',
-};
-
-const show = () => renderWithI18n(HealthPage, { strings: STRINGS });
+const show = () => renderWithI18n(HealthPage);
 
 const withProviders = (list: Health['metadata']['providers']) =>
   health({ metadata: { providers: list, cached_items: 0, media_missing_metadata: 0 } });
@@ -42,7 +27,7 @@ describe('Diagnostics', () => {
       .mockResolvedValueOnce(health())
       .mockReturnValue(new Promise(() => {}));
     show();
-    const recheck = await screen.findByRole('button', { name: 'Recheck' });
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
     await waitFor(() => expect(recheck).not.toHaveAttribute('aria-busy', 'true'));
 
     await fireEvent.click(recheck);
@@ -54,7 +39,7 @@ describe('Diagnostics', () => {
   it('asks for a fresh probe on a recheck alone', async () => {
     const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();
-    const recheck = await screen.findByRole('button', { name: 'Recheck' });
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
     await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(1));
     expect(getHealth).toHaveBeenLastCalledWith({ fresh: false }, expect.any(AbortSignal));
 
@@ -139,8 +124,8 @@ describe('Diagnostics', () => {
     await screen.findByText('TMDB');
     const rows = [...container.querySelectorAll('.source-row')];
     expect(within(rows[0] as HTMLElement).getByText('needs an API key')).toBeTruthy();
-    expect(within(rows[1] as HTMLElement).getByText('error')).toBeTruthy();
-    expect(within(rows[2] as HTMLElement).getByText('connected')).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).getByText('Error')).toBeTruthy();
+    expect(within(rows[2] as HTMLElement).getByText('Connected')).toBeTruthy();
   });
 
   /**
@@ -165,10 +150,10 @@ describe('Diagnostics', () => {
 
     await screen.findByText('active');
     // Scoped to the source list: the footer's database badge legitimately says
-    // "connected", so a page-wide assertion matches it instead.
+    // "Connected", so a page-wide assertion matches it instead.
     const row = container.querySelector('.source-row') as HTMLElement;
     expect(within(row).getByText('active')).toBeTruthy();
-    expect(within(row).queryByText('connected')).toBeNull();
+    expect(within(row).queryByText('Connected')).toBeNull();
   });
 
   it('reports an instance failure in its words, and what the server ran into beside them', async () => {
@@ -185,7 +170,7 @@ describe('Diagnostics', () => {
     );
     show();
 
-    const failed = await screen.findByText('error');
+    const failed = await screen.findByText('Error');
     expect(failed.closest('td')).toHaveTextContent('Nothing answers at the address');
   });
 
@@ -211,6 +196,6 @@ describe('Diagnostics', () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();
 
-    expect(await screen.findByText('No instance configured')).toBeTruthy();
+    expect(await screen.findByText('No instance connected yet.')).toBeTruthy();
   });
 });

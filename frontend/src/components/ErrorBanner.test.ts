@@ -10,10 +10,8 @@ import ErrorBanner from './ErrorBanner.svelte';
  * reader without being focused, and offer the way out when there is one.
  */
 
-const STRINGS = { Dismiss: 'Dismiss', Retry: 'Retry' };
-
 function render(props: Record<string, unknown>) {
-  renderWithI18n(ErrorBanner, { props, strings: STRINGS });
+  renderWithI18n(ErrorBanner, { props });
 }
 
 describe('ErrorBanner', () => {

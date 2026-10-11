@@ -19,30 +19,6 @@ import RuleEditor from './RuleEditor.svelte';
  * discovered as a rule that silently routes nothing.
  */
 
-const STRINGS = {
-  CreateRule: 'Create rule',
-  SaveRule: 'Save rule',
-  ValidationIssues: 'Validation results',
-  RuleName: 'Rule name',
-  Priority: 'Priority',
-  EnterWholeNumber: 'Enter a whole number.',
-  EnterNumber: 'Enter a number.',
-  Delete: 'Delete',
-  PlaceholderYearFrom: 'From',
-  PreviewImpact: 'Preview impact',
-  PreviewTitle: 'Impact preview',
-  PreviewSummary: 'Changing: {changed}. Moves from {beforeMoves} to {afterMoves}.',
-  PreviewTruncated: 'Shown: {shown} of {total}.',
-  AppliesTo: 'Applies to',
-  ConditionLogic: 'Condition logic',
-  RuleEnabled: 'Enabled',
-  Cancel: 'Cancel',
-  Dismiss: 'Close',
-  ConfirmDiscardRule: 'Close the rule without saving?',
-  Instances: 'Instances',
-  PriorityHint: 'Lower numbers are evaluated first',
-};
-
 const DRAFT: RuleDraft = {
   name: 'Anime',
   priority: 100,
@@ -87,7 +63,6 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
       onSaved: async () => {},
       ...extra,
     },
-    strings: STRINGS,
   });
 }
 
@@ -533,11 +508,15 @@ describe('the impact preview', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Preview impact' }));
 
-    expect(await screen.findByText('Changing: 1. Moves from 2 to 3.')).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'Media items changing category: 1. Moves required would go from 2 to 3, unclassified from 0 to 0.',
+      ),
+    ).toBeTruthy();
     const row = screen.getByRole('row', { name: /Akira/ });
     expect(row).toHaveTextContent(/films\s*anime/);
     expect(nthCall(preview)).toEqual([expect.objectContaining({ name: 'Anime' }), 'r1']);
-    expect(screen.queryByText(/Shown:/)).toBeNull();
+    expect(screen.queryByText(/^Changes shown:/)).toBeNull();
     for (const write of writes) expect(write).not.toHaveBeenCalled();
   });
 
@@ -554,7 +533,7 @@ describe('the impact preview', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Preview impact' }));
 
-    expect(await screen.findByText('Shown: 1 of 38.')).toBeTruthy();
+    expect(await screen.findByText('Changes shown: 1 of 38.')).toBeTruthy();
   });
 
   it('says a preview the server refused, and keeps the draft', async () => {
@@ -613,7 +592,7 @@ describe('closing the editor', () => {
 
   it.each([
     ['Cancel', 'Cancel'],
-    ['the close button', 'Close'],
+    ['the close button', 'Dismiss'],
   ])('keeps a changed rule open when %s is answered with Cancel', async (_, button) => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     const onClose = vi.fn();
@@ -621,7 +600,7 @@ describe('closing the editor', () => {
     await touch();
 
     await userEvent.click(screen.getByRole('button', { name: button }));
-    expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
+    expect(await answerConfirmation(null)).toBe('Close the rule without saving your changes?');
 
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
@@ -636,7 +615,7 @@ describe('closing the editor', () => {
 
     expect(unloading()).toBe(true);
     navigate('/rules');
-    expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
+    expect(await answerConfirmation(null)).toBe('Close the rule without saving your changes?');
     expect(router.path).not.toBe('/rules');
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
   });
@@ -732,7 +711,7 @@ describe('a condition field holding what it cannot read', () => {
 
   it('holds Save on a year bound that is not a whole year, and not on an empty one', async () => {
     const save = open('year_between', 'year_range', 'Year between', { min: 1990, max: null });
-    const from = await screen.findByLabelText('Year between – From');
+    const from = await screen.findByLabelText('Year between – from');
 
     await userEvent.clear(from);
     await userEvent.type(from, '1990.5');

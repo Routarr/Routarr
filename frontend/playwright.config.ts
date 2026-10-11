@@ -24,6 +24,7 @@ if (!(engine in ENGINES)) throw new Error(`ROUTARR_E2E_BROWSER names no engine: 
 
 export default defineConfig({
   testDir: './e2e',
+  globalTeardown: './e2e/teardown.ts',
   // The suite drives one shared server with real state, so the tests are
   // ordered and serial on purpose: parallel runs would fight over the library.
   fullyParallel: false,

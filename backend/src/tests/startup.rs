@@ -42,3 +42,33 @@ async fn an_unusable_data_directory_is_named_at_start() {
     assert!(refused.contains(&named.display().to_string()), "{refused}");
     assert!(refused.contains("chown"), "{refused}");
 }
+
+/// A start in a mode that opens the API, or that trusts what stands in front
+/// of it, says so in the log, each in the words of its own setting, and the
+/// mode that asks for a key says nothing.
+#[tokio::test]
+async fn a_start_that_opens_the_api_says_so() {
+    let cases = [
+        (AuthMode::None, false, Some("ROUTARR_AUTH=none")),
+        (AuthMode::External, false, Some("ROUTARR_AUTH=external")),
+        (AuthMode::Oidc, true, Some("ROUTARR_OIDC_ALLOW_ANYONE=true")),
+        (AuthMode::Oidc, false, None),
+        (AuthMode::ApiKey, false, None),
+    ];
+    for (mode, allow_anyone, said) in cases {
+        let mut config = Config::for_tests();
+        config.auth_mode = mode;
+        config.oidc_allow_anyone = allow_anyone;
+        let state = crate::state::AppState::for_tests().await.with_config(config);
+        let log = super::LogCapture::default();
+        let subscriber = tracing_subscriber::fmt().with_ansi(false).with_writer(log.clone());
+        tracing::subscriber::with_default(subscriber.finish(), || {
+            crate::warn_on_insecure_defaults(&state);
+        });
+        let logged = log.contents();
+        match said {
+            Some(setting) => assert!(logged.contains(setting), "{mode:?}: {logged}"),
+            None => assert!(logged.is_empty(), "{mode:?}: {logged}"),
+        }
+    }
+}

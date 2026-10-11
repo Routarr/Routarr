@@ -12,20 +12,6 @@ import ConditionList from './ConditionList.svelte';
  * saved condition disappears the next time somebody opens the rule.
  */
 
-const STRINGS = {
-  AddCondition: 'Add a condition',
-  Add: 'Add',
-  ConditionsAllOf: 'All of',
-  NeedsMetadataSuffix: '(needs metadata)',
-  Remove: 'Remove',
-  ConditionPhraseGenreContains: 'Genres include any of {values}',
-  ConditionPhraseGenreContainsAll: 'Genres include all of {values}',
-  ConditionPhraseOriginalLanguage: 'Original language is one of {values}',
-  ConditionPhraseOriginalLanguageNot: 'Original language is none of {values}',
-  QuantifierLabel: 'How these values combine',
-  PlaceholderStringList: 'comma separated',
-};
-
 const spec = (type: string, media_types: string[], label: string): ConditionSpec => ({
   type,
   label,
@@ -84,7 +70,6 @@ function render(
       onUpdate: () => {},
       onRemove: () => {},
     },
-    strings: STRINGS,
   });
 }
 
@@ -124,7 +109,7 @@ describe('ConditionList', () => {
 
     const picker = screen.getByRole('combobox', { name: 'All of' });
     const offered = [...picker.querySelectorAll('option')].map((o) => o.textContent?.trim());
-    expect(offered).toEqual(['Add a condition', 'Genre contains']);
+    expect(offered).toEqual(['+ Add a condition…', 'Genre contains']);
   });
 
   /** A pair is one question asked two ways: the selector holds both sentences. */
@@ -266,7 +251,6 @@ describe('deleting a condition', () => {
             keys: conditions.map((_, at) => at).filter((at) => at !== index),
           }),
       },
-      strings: STRINGS,
     });
   }
 

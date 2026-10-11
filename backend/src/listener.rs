@@ -118,3 +118,29 @@ fn is_the_peers(e: &std::io::Error) -> bool {
             | std::io::ErrorKind::ConnectionReset
     )
 }
+
+/// The stop, said at once to the server and the scheduler: `first` stops
+/// both, and `second`, awaited only once `first` has resolved, skips what the
+/// stop waits for.
+pub fn stop_on(
+    first: impl Future<Output = ()> + Send + 'static,
+    second: impl Future<Output = ()> + Send + 'static,
+) -> (tokio::sync::watch::Receiver<bool>, tokio::sync::watch::Receiver<bool>) {
+    let (stop, stopping) = tokio::sync::watch::channel(false);
+    let (hurry, hurrying) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        first.await;
+        let _ = stop.send(true);
+        second.await;
+        tracing::warn!("A second signal: stopping without waiting");
+        let _ = hurry.send(true);
+    });
+    (stopping, hurrying)
+}
+
+/// Resolves once `flag` is raised.
+pub async fn fired(mut flag: tokio::sync::watch::Receiver<bool>) {
+    if flag.wait_for(|raised| *raised).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}

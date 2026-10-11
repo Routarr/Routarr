@@ -274,7 +274,8 @@ async fn an_unattended_apply_waits_for_the_apply_already_running() {
         )
         .await
     });
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let jobs = &app.state.jobs;
+    super::until(move || async move { jobs.queued_for("apply") == 1 }).await;
     drop(running);
     let outcome = waiting.await.unwrap();
 

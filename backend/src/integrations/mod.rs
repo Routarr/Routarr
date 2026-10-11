@@ -19,10 +19,10 @@ use crate::error::{AppError, AppResult, Transport, Upstream};
 /// listing aside (`ROUTARR_MAX_LIBRARY_MIB`): a metadata answer or an Arr's
 /// folder list holds a few megabytes at most, and an address streaming without
 /// end must not fill memory first, once for each request in flight.
-#[cfg(not(test))]
-pub(crate) const MAX_BODY: usize = 16 << 20;
-#[cfg(test)]
-pub(crate) const MAX_BODY: usize = 1 << 20;
+pub(crate) const MAX_BODY: usize = if cfg!(test) { TESTED_BODY } else { SHIPPED_BODY };
+const SHIPPED_BODY: usize = 16 << 20;
+/// Small enough for a test to stream past it at once.
+const TESTED_BODY: usize = 1 << 20;
 /// The most of an error body read: what is shown of it is cut far shorter.
 const MAX_ERROR_BODY: usize = 64 << 10;
 
@@ -460,6 +460,14 @@ fn truncate(input: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A release reads a few megabytes of an answer and gives up past that,
+    /// as `MAX_BODY` says: the test builds read a smaller cap, so only this
+    /// sees the shipped one.
+    #[test]
+    fn a_release_reads_a_few_megabytes_of_an_answer_and_no_more() {
+        assert!((4 << 20..=64 << 20).contains(&SHIPPED_BODY), "{SHIPPED_BODY} bytes");
+    }
+
     use super::*;
 
     /// What a source states of its limit is read from its headers, and a

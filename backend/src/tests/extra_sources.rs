@@ -778,22 +778,11 @@ async fn a_source_without_its_key_is_reported_rather_than_probed() {
     assert_eq!(health["metadata"]["providers"][0]["configured"], false);
     assert_eq!(health["metadata"]["providers"][0]["connected"], serde_json::Value::Null);
     assert!(warning_messages(health).iter().any(|w| w.contains("OMDb")));
+    // A setting to look at, and no fault: a monitor reading the status stays quiet.
+    assert_eq!(health["status"], "ok");
 }
 
 // ------------------------------------------------------------------- units
-
-#[test]
-fn a_title_matches_whatever_punctuation_and_case_it_is_written_in() {
-    assert_eq!(
-        crate::services::rule_engine::normalise_value("My Neighbor Totoro!"),
-        "my neighbor totoro"
-    );
-    assert_eq!(crate::services::rule_engine::normalise_value("  ONE  PIECE  "), "one piece");
-    assert_eq!(
-        crate::services::rule_engine::normalise_value("Fullmetal Alchemist: Brotherhood"),
-        "fullmetal alchemist brotherhood"
-    );
-}
 
 #[test]
 fn the_local_key_prefers_the_most_stable_identifier_it_has() {
@@ -837,18 +826,19 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
 }
 
 /// A work a source does not have is an answer like any other: cached for the
-/// cache's lifetime, so the next pass does not ask again. TheTVDB is asked by
-/// the library's id, AniList and Jikan by one an earlier search resolved.
+/// cache's lifetime, so the next pass does not ask again, and a source counted
+/// by the day keeps its quota. TheTVDB and OMDb are asked by the library's id,
+/// AniList and Jikan by one an earlier search resolved.
 #[tokio::test]
 async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
-    for source in ["tvdb", "anilist", "jikan"] {
+    for source in ["tvdb", "omdb", "anilist", "jikan"] {
         let sources = FakeSources::start().await;
         let app = TestApp::one_film_on(&sources, source).await;
         if source == "tvdb" {
             app.execute(&[SERIES_ALONE]).await;
         }
         app.execute(&[
-            "UPDATE media SET tvdb_id = 999",
+            "UPDATE media SET tvdb_id = 999, imdb_id = 'tt0999999'",
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
              VALUES ('anilist', 'movie', 'tmdb:8392', '999'), ('jikan', 'movie', 'tmdb:8392', '999')",
         ])

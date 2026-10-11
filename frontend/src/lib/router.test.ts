@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { describe, it, expect, beforeEach, vi, afterEach, onTestFinished } from 'vitest';
 import { guardLeaving, href, interceptLinks, isCurrent, navigate, router } from './router.svelte';
 import { withBase } from '../test/base';
@@ -329,5 +330,25 @@ describe('a screen that guards its work', () => {
 
     expect(asked).not.toHaveBeenCalled();
     expect(router.path).toBe('/rules');
+  });
+});
+
+describe('under a mount point', () => {
+  /**
+   * Any route reached under the mount point is the route the router reads,
+   * with or without the separator a bookmark or a proxy closes it with, and
+   * the address carries the mount point in front of it.
+   */
+  it('reads the route it was sent to, whatever the route', () => {
+    withBase('/routarr/');
+    const names = fc.array(fc.stringMatching(/^[a-z0-9-]{1,8}$/), { maxLength: 4 });
+    fc.assert(
+      fc.property(names, fc.boolean(), (parts, closed) => {
+        const route = `/${parts.join('/')}`;
+        navigate(closed && route !== '/' ? `${route}/` : route);
+        expect(router.path).toBe(route);
+        if (!closed) expect(window.location.pathname).toBe(href(route));
+      }),
+    );
   });
 });

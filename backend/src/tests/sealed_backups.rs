@@ -105,7 +105,7 @@ async fn an_archive_the_stored_passphrase_seals_restores_without_asking() {
     backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     let config = (*app.state.config).clone();
     app.state.pool.close().await;
-    backup::stage_offline(&config, &file.name, None).await.unwrap();
+    crate::commands::restore(&config, Some(file.name.clone())).await.unwrap();
     assert_eq!(archives(&dir), [file.name]);
 }
 
@@ -237,7 +237,10 @@ async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
     app.state.pool.close().await;
     let out = dir.join("read-by-hand.zip").to_string_lossy().into_owned();
 
-    let written = backup::decrypt_offline(&config, &file.name, &out, None).await.unwrap();
+    crate::commands::decrypt_backup(&config, Some(file.name.clone()), Some(out.clone()))
+        .await
+        .unwrap();
+    let written = std::path::PathBuf::from(&out);
     assert!(backup::read_manifest(&written, &Localizer::new("en")).unwrap().includes_master_key);
     #[cfg(unix)]
     {

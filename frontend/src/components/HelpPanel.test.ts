@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
-import { renderWithI18n } from '../test/render';
+import { ENGLISH, renderWithI18n } from '../test/render';
 import { CARD_HELP, HELP, TERMS } from '../lib/help';
 import { screenKey } from '../lib/routes';
 import HelpPanel from './HelpPanel.svelte';
@@ -18,31 +18,8 @@ const RULES = HELP['/rules']!;
 const PROBLEM =
   HELP['/rules']!.problems.find((problem) => problem.to) ?? HELP['/rules']!.problems[0]!;
 const TERM = RULES.terms[0]!;
-const STRINGS = {
-  Help: 'Help',
-  HelpTitle: 'Help: {screen}',
-  HelpSearchLabel: 'Search the help',
-  HelpSearchPlaceholder: 'Search…',
-  HelpResults: 'Results: {count}',
-  HelpNoResults: 'Nothing matches "{query}".',
-  HelpThisScreen: 'This screen',
-  HelpGlossary: 'Glossary',
-  HelpTerms: 'Terms',
-  HelpProblems: 'When something goes wrong',
-  HelpCards: 'On this screen',
-  HelpFixOn: 'Open {screen}',
-  HelpUsedOn: 'Used on:',
-  ListSeparator: ', ',
-  Dismiss: 'Dismiss',
-  RulesEngine: 'Rules',
-  Dashboard: 'Dashboard',
-  Instances: 'Instances',
-  [RULES.purpose]: 'Rules decide where each title goes.',
-  [TERMS[TERM]!.name]: 'Quokka',
-  [TERMS[TERM]!.text]: 'A word only this test uses.',
-  [PROBLEM.problem]: 'A rule matches nothing.',
-  [PROBLEM.fix]: 'Check its conditions.',
-};
+/** A term renamed to a word no other help text holds, so a search for it finds that term alone. */
+const STRINGS = { [TERMS[TERM]!.name]: 'Quokka' };
 
 const show = (path = '/rules', onClose = vi.fn(), screenAt?: string) =>
   renderWithI18n(HelpPanel, { props: { path, screen: screenAt, onClose }, strings: STRINGS });
@@ -57,9 +34,9 @@ describe('HelpPanel', () => {
       'true',
     );
     expect(screen.getByRole('heading', { level: 3, name: 'Rules' })).toBeInTheDocument();
-    expect(screen.getByText('Rules decide where each title goes.')).toBeInTheDocument();
+    expect(screen.getByText(ENGLISH[RULES.purpose]!)).toBeInTheDocument();
     expect(screen.getByText('Quokka')).toBeInTheDocument();
-    expect(screen.getByText('A rule matches nothing.')).toBeInTheDocument();
+    expect(screen.getByText(ENGLISH[PROBLEM.problem]!)).toBeInTheDocument();
     expect(screen.getAllByRole('term').length).toBe(RULES.terms.length + RULES.cards.length);
   });
 
@@ -70,7 +47,7 @@ describe('HelpPanel', () => {
 
     const target = screenKey(PROBLEM.to);
     const link = screen.getByRole('link', {
-      name: `Open ${(STRINGS as Record<string, string>)[target] ?? target}`,
+      name: `Open ${ENGLISH[target]}`,
     });
     expect(link.getAttribute('href')).toContain(PROBLEM.to);
     await fireEvent.click(link);
@@ -98,7 +75,7 @@ describe('HelpPanel', () => {
     show();
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search the help' }), 'zzzz');
 
-    expect(screen.getByText('Nothing matches "zzzz".')).toBeInTheDocument();
+    expect(screen.getByText('Nothing in the help matches "zzzz".')).toBeInTheDocument();
   });
 
   it('lists every term in the glossary, each with the screens that use it', async () => {
@@ -133,7 +110,7 @@ describe('HelpPanel', () => {
     show();
 
     for (const id of RULES.cards) {
-      expect(screen.getByText(CARD_HELP[id]!.title)).toBeInTheDocument();
+      expect(screen.getByText(ENGLISH[CARD_HELP[id]!.title]!)).toBeInTheDocument();
     }
   });
   it('leaves out what a screen has none of, and links only a fix made elsewhere', () => {

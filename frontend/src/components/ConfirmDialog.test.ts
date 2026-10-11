@@ -13,14 +13,7 @@ import ConfirmDialog from './ConfirmDialog.svelte';
  * test answers through the store, never through these buttons.
  */
 
-const STRINGS = {
-  Cancel: 'Cancel',
-  Delete: 'Delete',
-  ImportAppend: 'Add',
-  ImportReplace: 'Replace',
-};
-
-const show = () => renderWithI18n(ConfirmDialog, { strings: STRINGS });
+const show = () => renderWithI18n(ConfirmDialog);
 
 describe('ConfirmDialog', () => {
   /**
@@ -68,7 +61,7 @@ describe('ConfirmDialog', () => {
       { label: 'ImportReplace', value: 'replace', danger: true },
     ]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Replace' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Replace all' }));
 
     expect(await answer).toBe('replace');
   });

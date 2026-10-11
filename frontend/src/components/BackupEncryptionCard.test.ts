@@ -19,27 +19,11 @@ vi.mock('../lib/proof.svelte', () => ({
   withProof: <T>(send: (proof: object) => Promise<T>) => send({ current_key: 'the-key-proven' }),
 }));
 
-const STRINGS = {
-  BackupEncryption: 'Backup encryption',
-  BackupEncryptionOn: 'Encrypted',
-  BackupEncryptionOff: 'Not encrypted',
-  NewPassphrase: 'New passphrase',
-  RepeatPassphrase: 'Repeat the passphrase',
-  PassphrasesDiffer: 'The two passphrases differ.',
-  PasswordMinimum: 'At least {min} characters.',
-  EncryptArchives: 'Encrypt the archives',
-  ChangePassphrase: 'Change the passphrase',
-  StopEncrypting: 'Stop encrypting',
-  ConfirmStopEncrypting: 'Stop encrypting the archives?',
-  PassphraseSaved: 'Passphrase saved.',
-  EncryptionStopped: 'Encryption stopped.',
-};
-
 const LONG_ENOUGH = 'twelve chars';
 
 function mount(configured: boolean) {
   const outcome = createOutcome();
-  renderWithI18n(BackupEncryptionCard, { props: { outcome, configured }, strings: STRINGS });
+  renderWithI18n(BackupEncryptionCard, { props: { outcome, configured } });
   return outcome;
 }
 
@@ -70,7 +54,11 @@ describe('BackupEncryptionCard', () => {
     await fireEvent.click(encrypt);
 
     expect(set).toHaveBeenCalledWith(LONG_ENOUGH, { current_key: 'the-key-proven' });
-    await waitFor(() => expect(outcome.notice).toBe('Passphrase saved.'));
+    await waitFor(() =>
+      expect(outcome.notice).toBe(
+        'Passphrase saved. The archives on disk are being converted, see Tasks.',
+      ),
+    );
     expect(screen.getByText('Encrypted')).toBeInTheDocument();
     expect(screen.getByLabelText('New passphrase')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Change the passphrase' })).toBeInTheDocument();
@@ -85,10 +73,16 @@ describe('BackupEncryptionCard', () => {
     expect(set).not.toHaveBeenCalled();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Stop encrypting' }));
-    expect(await answerConfirmation()).toBe('Stop encrypting the archives?');
+    expect(await answerConfirmation()).toBe(
+      'Stop encrypting the archives? Every archive on disk is opened and kept in the clear, master key included.',
+    );
 
     expect(set).toHaveBeenCalledWith('', { current_key: 'the-key-proven' });
-    await waitFor(() => expect(outcome.notice).toBe('Encryption stopped.'));
+    await waitFor(() =>
+      expect(outcome.notice).toBe(
+        'Encryption stopped. The archives on disk are being opened, see Tasks.',
+      ),
+    );
     expect(screen.getByText('Not encrypted')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop encrypting' })).toBeNull();
   });

@@ -10,13 +10,6 @@ import PagerHarness from '../test/PagerHarness.svelte';
  * end, is a request for a page that is not there.
  */
 
-const STRINGS = {
-  PageOf: 'Page {page} of {total}',
-  ItemCount: 'Items: {count}',
-  Previous: 'Previous',
-  Next: 'Next',
-};
-
 const pages = (page: number, total_pages: number) => ({
   page,
   per_page: 50,
@@ -25,7 +18,7 @@ const pages = (page: number, total_pages: number) => ({
 });
 
 const show = (pagination: ReturnType<typeof pages> | undefined) =>
-  renderWithI18n(PagerHarness, { props: { pagination }, strings: STRINGS });
+  renderWithI18n(PagerHarness, { props: { pagination } });
 
 describe('Pager', () => {
   /** Two buttons that can do nothing are noise under a table that fits on one page. */

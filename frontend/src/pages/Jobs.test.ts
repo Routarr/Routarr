@@ -16,29 +16,7 @@ import { answerConfirmation } from '../test/confirm';
  * identifier the database stores.
  */
 
-const STRINGS = {
-  Tasks: 'Tasks',
-  AllStatuses: 'All statuses',
-  FilterByStatus: 'Filter by status',
-  AutoRefreshing: 'Refreshing',
-  NoTaskYet: 'Nothing has run yet',
-  JobSync: 'Library sync',
-  JobSyncAll: 'Every instance synced',
-  TriggerSchedule: 'Scheduled',
-  TriggerApi: 'application',
-  StatusRunning: 'Running',
-  StatusSuccess: 'Succeeded',
-  StatusCancelled: 'Stopped',
-  JobApply: 'Apply',
-  StopTask: 'Stop',
-  ConfirmStopTask: 'Stop this task?',
-  TaskStopRequested: 'Stop requested',
-  None: '-',
-  Next: 'Next',
-  TaskCount: 'Tasks: {count}',
-};
-
-const show = () => renderWithI18n(Jobs, { strings: STRINGS });
+const show = () => renderWithI18n(Jobs);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -65,7 +43,9 @@ describe('Tasks', () => {
     await answerConfirmation();
 
     await waitFor(() => expect(cancelJob).toHaveBeenCalledWith('j-apply'));
-    expect(await screen.findByText('Stop requested')).toBeTruthy();
+    expect(
+      await screen.findByText('Stop requested: the task ends before its next move.'),
+    ).toBeTruthy();
   });
 
   /** A kind of two words reads its own label, not its raw name. */
@@ -73,7 +53,7 @@ describe('Tasks', () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ kind: 'sync_all' })]));
     show();
 
-    expect(await screen.findByText('Every instance synced')).toBeTruthy();
+    expect(await screen.findByText('Sync of every instance')).toBeTruthy();
   });
 
   /** Fifty tasks are half a day of syncs, and last night's failure sits on a later page. */
@@ -97,11 +77,11 @@ describe('Tasks', () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job()]));
     show();
 
-    expect(await screen.findByText('Library sync')).toBeTruthy();
-    // Scoped to the row: "Succeeded" is also an option in the status filter.
-    const row = screen.getByText('Library sync').closest('tr') as HTMLElement;
-    expect(within(row).getByText('Scheduled')).toBeTruthy();
-    expect(within(row).getByText('Succeeded')).toBeTruthy();
+    expect(await screen.findByText('Sync')).toBeTruthy();
+    // Scoped to the row: "Success" is also an option in the status filter.
+    const row = screen.getByText('Sync').closest('tr') as HTMLElement;
+    expect(within(row).getByText('Schedule')).toBeTruthy();
+    expect(within(row).getByText('Success')).toBeTruthy();
   });
 
   /** An application's key names it, and the task says which one asked. */
@@ -111,8 +91,8 @@ describe('Tasks', () => {
     );
     show();
 
-    const row = (await screen.findByText('Library sync')).closest('tr') as HTMLElement;
-    expect(within(row).getByText('application')).toBeTruthy();
+    const row = (await screen.findByText('Sync')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('Application')).toBeTruthy();
     expect(within(row).getByText('n8n')).toBeTruthy();
   });
 
@@ -134,15 +114,15 @@ describe('Tasks', () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
     show();
 
-    expect(await screen.findByText('Nothing has run yet')).toBeTruthy();
+    expect(await screen.findByText('No task has run yet.')).toBeTruthy();
   });
 
   it('claims nothing about refreshing once everything has finished', async () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ status: 'success' })]));
     show();
 
-    await screen.findByText('Library sync');
-    expect(screen.queryByText('Refreshing')).toBeNull();
+    await screen.findByText('Sync');
+    expect(screen.queryByText('Auto-refreshing')).toBeNull();
   });
 
   /**
@@ -157,7 +137,7 @@ describe('Tasks', () => {
       .mockResolvedValue(paginated([job({ status: 'running' })]));
     show();
 
-    await screen.findByText('Refreshing');
+    await screen.findByText('Auto-refreshing');
     const before = getJobs.mock.calls.length;
 
     await vi.advanceTimersByTimeAsync(3000);
@@ -165,7 +145,7 @@ describe('Tasks', () => {
 
     getJobs.mockResolvedValue(paginated([job({ status: 'success' })]));
     await vi.advanceTimersByTimeAsync(3000);
-    await waitFor(() => expect(screen.queryByText('Refreshing')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Auto-refreshing')).toBeNull());
 
     const settled = getJobs.mock.calls.length;
     await vi.advanceTimersByTimeAsync(3000);

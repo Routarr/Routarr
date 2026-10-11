@@ -12,25 +12,13 @@ import ProofDialog from './ProofDialog.svelte';
  * password typed had been wrong.
  */
 
-const STRINGS = {
-  Cancel: 'Cancel',
-  Continue: 'Continue',
-  CurrentPassword: 'Current password',
-  ProofPasswordTitle: 'Confirm with your password',
-  ProofKeyTitle: 'Confirm with the API key',
-  RoutarrApiKey: 'Routarr API key',
-  ProofPassphraseTitle: 'Archive passphrase',
-  ProofPassphraseHelp: 'This archive is encrypted.',
-  Passphrase: 'Passphrase',
-};
-
 function asking(mode: 'forms' | 'apikey') {
   vi.spyOn(api, 'authMode').mockResolvedValue({
     mode,
     api_key_configured: true,
     api_key_pinned: false,
   });
-  renderWithI18n(ProofDialog, { strings: STRINGS });
+  renderWithI18n(ProofDialog);
   const send = vi.fn().mockResolvedValue('written');
   return { send, result: withProof(send) };
 }
@@ -41,7 +29,7 @@ describe('ProofDialog', () => {
   it('hands back the password typed', async () => {
     const { send, result } = asking('forms');
 
-    expect(await screen.findByRole('dialog', { name: 'Confirm with your password' })).toBeVisible();
+    expect(await screen.findByRole('dialog', { name: 'Confirm it is you' })).toBeVisible();
     const field = screen.getByLabelText('Current password');
     expect(field).toHaveAttribute('autocomplete', 'current-password');
     await fireEvent.input(field, { target: { value: 'the password' } });
@@ -87,18 +75,22 @@ describe('ProofDialog', () => {
 
   /** Asked again, it says why rather than repeating the first question. */
   it('asks for an archive passphrase, and says why it asks again', async () => {
-    renderWithI18n(ProofDialog, { strings: STRINGS });
+    renderWithI18n(ProofDialog);
 
     const first = askPassphrase();
     expect(await screen.findByRole('dialog', { name: 'Archive passphrase' })).toBeVisible();
-    expect(screen.getByText('This archive is encrypted.')).toBeVisible();
+    expect(
+      screen.getByText('This archive is encrypted. Type the passphrase it was taken with.'),
+    ).toBeVisible();
     await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'wrong' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await first).toBe('wrong');
 
     const again = askPassphrase('That passphrase does not open this archive.');
     expect(await screen.findByRole('alert')).toHaveTextContent('does not open this archive');
-    expect(screen.queryByText('This archive is encrypted.')).toBeNull();
+    expect(
+      screen.queryByText('This archive is encrypted. Type the passphrase it was taken with.'),
+    ).toBeNull();
     await fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
     expect(await again).toBeNull();
   });

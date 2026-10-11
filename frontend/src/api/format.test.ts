@@ -1,4 +1,5 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { readBackend } from '../test/backend';
 import {
   describeCondition,
   failureDetail,
@@ -58,84 +59,34 @@ describe('localName', () => {
 
 describe('formatBytes', () => {
   const plain = (value: string) => value.replace(/\u202f|\u00a0/g, ' ');
-
-  it('scales in binary steps and rounds to one decimal past bytes', () => {
-    expect(plain(formatBytes(2048))).toBe('2.0 kB');
-    expect(plain(formatBytes(5_368_709_120))).toBe('5.0 GB');
-  });
-
-  /**
-   * The short form spaces the unit the way the language does, and the narrow
-   * form holds the abbreviation. Short alone writes the byte unit as `byte` in
-   * English and `Byte` in German (a wart on the one value that reaches it, an
-   * exact zero), and narrow alone drops the space French puts before it.
-   */
-  it("abbreviates the byte unit without losing the language's spacing", () => {
-    expect(plain(formatBytes(0))).toBe('0 B');
-    expect(plain(formatBytes(512))).toBe('512 B');
-    expect(plain(formatBytes(512, 'de'))).toBe('512 B');
-    expect(plain(formatBytes(512, 'fr'))).toBe('512 o');
-  });
+  const SIZES = JSON.parse(readBackend('backend/src/byte_cases.json')) as [
+    number,
+    string,
+    string,
+  ][];
 
   /**
-   * The byte symbol, where `Intl` has no abbreviation for it.
-   *
-   * The narrow form is the abbreviation for most of the shipped set, but
-   * Dutch, Greek, Turkish, Korean and Traditional Chinese answer with a *word*,
-   * and taken as it is, every size under 1 KiB reads `512 byte` in those five
-   * languages. The symbol is derived from the kilobyte's instead, which is the
-   * same symbol with an SI prefix in front of it, and that agrees with `Intl`
-   * everywhere it does abbreviate.
+   * Each size in each shipped language, named as the server names it, which
+   * the same cases hold the server to. Binary steps and one decimal past
+   * bytes, the unit and the decimal mark of the reader's language rather than
+   * the source's, and its spacing: none in Korean. The short form spaces the
+   * unit and the narrow form holds the abbreviation, and where `Intl` spells
+   * the byte out (Dutch, Greek, Turkish, Korean, Traditional Chinese) the
+   * symbol is the kilobyte's without its prefix. A language stored as
+   * `nb_NO` is read as Norwegian, where `Intl` refuses the underscore.
    */
-  it('abbreviates the byte unit even where Intl spells it out', () => {
-    expect(plain(formatBytes(512, 'nl'))).toBe('512 B');
-    expect(plain(formatBytes(512, 'el'))).toBe('512 B');
-    expect(plain(formatBytes(512, 'tr'))).toBe('512 B');
-    expect(plain(formatBytes(512, 'zh_TW'))).toBe('512 B');
-    // Korean writes no space before a unit, which is Korean and not a fault.
-    expect(plain(formatBytes(512, 'ko'))).toBe('512B');
-    // And the languages that do abbreviate are untouched.
-    expect(plain(formatBytes(512, 'ar'))).toBe('512 \u0628');
-    expect(plain(formatBytes(512, 'ru'))).toBe('512 \u0411');
-    expect(plain(formatBytes(512, 'fi'))).toBe('512 t');
+  it.each(SIZES)('names %d bytes in %s as %j', (bytes, language, named) => {
+    expect(plain(formatBytes(bytes, language))).toBe(named);
   });
 
   it('stops at the largest unit it knows', () => {
     expect(formatBytes(1024 ** 6)).toContain('PB');
   });
 
-  /**
-   * The unit follows `ui_language`, not the source. French writes `o`, `ko`,
-   * `Go`, and a fixed `B`, `KB`, `GB` would print English units whatever the
-   * interface language. `Intl` knows the whole shipped set, so a language
-   * added later is right without a translation of its own.
-   */
-  it("writes the unit in the reader's language", () => {
-    expect(plain(formatBytes(5_368_709_120, 'fr'))).toBe('5,0 Go');
-    expect(plain(formatBytes(2048, 'fr'))).toBe('2,0 ko');
-    expect(plain(formatBytes(512, 'fr'))).toBe('512 o');
-    expect(plain(formatBytes(5_368_709_120, 'ru'))).toBe('5,0 ГБ');
-    expect(plain(formatBytes(5_368_709_120, 'de'))).toBe('5,0 GB');
-  });
-
-  /**
-   * The settings store `zh_CN` where BCP-47 wants a hyphen, and an unfixed
-   * underscore makes `Intl` throw rather than fall back.
-   */
-  /**
-   * `nb_NO` is how the setting stores Norwegian, and `Intl` refuses the
-   * underscore. Read as it is stored, the size falls back to the full stop of
-   * the fallback, where Norwegian writes a comma.
-   */
-  it('accepts the stored locale form', () => {
-    expect(formatBytes(5_368_709_120, 'nb_NO')).toContain('5,0');
-  });
-
   it('says nothing rather than zero when the Arr reported no size', () => {
     expect(formatBytes(null)).toBe('-');
     expect(formatBytes(undefined)).toBe('-');
     expect(formatBytes(-1)).toBe('-');
-    expect(plain(formatBytes(0, 'fr'))).toBe('0 o');
     expect(plain(formatBytes(0))).toBe('0 B');
   });
 });

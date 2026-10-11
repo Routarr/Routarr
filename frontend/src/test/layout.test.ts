@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { ENGLISH } from './render';
+
 const SRC = path.resolve(__dirname, '..');
 
 function read(file: string): string {
@@ -800,9 +802,7 @@ describe('every value a screen shows is written for its reader', () => {
 });
 
 describe('every screen names and dates things one way', () => {
-  const english = JSON.parse(
-    fs.readFileSync(path.join(SRC, '..', '..', 'backend', 'locales', 'en.json'), 'utf-8'),
-  ) as Record<string, string>;
+  const english = ENGLISH;
 
   /** Each route with its navigation key and the key of the title its screen draws. */
   function titles(): { route: string; nav: string; title: string | undefined }[] {

@@ -13,42 +13,6 @@ import ExplanationModal from './ExplanationModal.svelte';
  * point, and it is what `/media/{id}/explain` exists to serve.
  */
 
-const STRINGS = {
-  PinAsRuleTest: 'Pin as a rule test',
-  PinRulesUnderException:
-    'An exception forces this title, so the test pins what the rules decide: {category}.',
-  ProposedCategory: 'Proposed category',
-  Confidence: 'Confidence',
-  ManualOverride: 'manual override',
-  MetadataTitle: 'Metadata',
-  // French spacing, so a literal colon or comma in the markup shows.
-  MetadataSourcesLine: 'Sources : {sources}',
-  ListSeparator: ' ; ',
-  MetadataSummary: 'Language: {language} · Countries: {countries} · Certification: {certification}',
-  MetadataFromSource: 'from {source}',
-  NoMetadataCached: 'No metadata cached',
-  RuleEvaluation: 'Rule evaluation',
-  NoRuleApplies: 'No rule applies',
-  OutcomeWinner: 'winner',
-  OutcomeExcluded: 'excluded',
-  OutcomeLowerPriority: 'lower priority',
-  OutcomeNotMatched: 'not matched',
-  VetoedByExclusion: 'vetoed by {reason}',
-  NoRootFolderMapped: 'no root folder',
-  Unknown: 'unknown',
-  Dismiss: 'Close',
-  ExplainInstanceOff: 'This instance is switched off.',
-  None: '-',
-  MetadataStatusLine: 'Status: {status}, from {source}',
-  SynopsisFrom: 'Synopsis from {source}',
-  ArrStatusReleased: 'Released',
-  RefreshTitleMetadata: 'Ask the sources again',
-  RefreshTitleMetadataHint: 'Reads this title again.',
-  PinAsRuleTestHint: 'Report it if a rule change moves it.',
-  TitleRefreshed: 'Sources that answered: {count}',
-  TitleRefreshedByNone: 'No source answered.',
-};
-
 function explanation(over: Partial<Explanation> = {}): Explanation {
   return {
     media: explainedMedia({ current_path: '/data/films/Akira' }),
@@ -70,11 +34,11 @@ function explanation(over: Partial<Explanation> = {}): Explanation {
  * The panel, the source catalogue left unanswered unless a test answers it:
  * until it does, each source is named by its id.
  */
-function show(data: Explanation) {
+function show(data: Explanation, strings?: Record<string, string>) {
   if (!vi.isMockFunction(api.getMetadataProviders)) {
     vi.spyOn(api, 'getMetadataProviders').mockReturnValue(new Promise(() => {}));
   }
-  return renderWithI18n(ExplanationModal, { props: { data, onClose: vi.fn() }, strings: STRINGS });
+  return renderWithI18n(ExplanationModal, { props: { data, onClose: vi.fn() }, strings });
 }
 
 function source(id: string, display_name: string, website: string | null): MetadataProvider {
@@ -112,12 +76,22 @@ describe('ExplanationModal', () => {
 
     expect(
       screen.getByRole('button', { name: 'Ask the sources again' }),
-    ).toHaveAccessibleDescription('Reads this title again.');
-    expect(screen.getByRole('button', { name: 'Pin as a rule test' })).toHaveAccessibleDescription(
-      'Report it if a rule change moves it.',
+    ).toHaveAccessibleDescription(
+      'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.',
     );
-    expect(screen.getByText('Reads this title again.')).toBeInTheDocument();
-    expect(screen.getByText('Report it if a rule change moves it.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pin as test' })).toHaveAccessibleDescription(
+      'Require this title to keep landing in this category, and report it if a rule change moves it.',
+    );
+    expect(
+      screen.getByText(
+        'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Require this title to keep landing in this category, and report it if a rule change moves it.',
+      ),
+    ).toBeInTheDocument();
   });
 
   /**
@@ -137,7 +111,7 @@ describe('ExplanationModal', () => {
         'An exception forces this title, so the test pins what the rules decide: anime.',
       ),
     ).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: /pin as a rule test/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
     expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
   });
 
@@ -146,7 +120,7 @@ describe('ExplanationModal', () => {
     show(explanation());
 
     expect(screen.queryByText(/An exception forces this title/)).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: /pin as a rule test/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
     expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
   });
 
@@ -154,7 +128,7 @@ describe('ExplanationModal', () => {
     vi.spyOn(api, 'pinRuleTest').mockRejectedValue(new ApiError('already a case', 409, 'conflict'));
     show(explanation());
 
-    await fireEvent.click(screen.getByRole('button', { name: /pin as a rule test/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('already a case');
   });
@@ -183,7 +157,9 @@ describe('ExplanationModal', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
 
-    expect(await screen.findByText('No source answered.')).toBeTruthy();
+    expect(
+      await screen.findByText('No source answered. The next pass asks them again.'),
+    ).toBeTruthy();
   });
 
   it('announces a refresh that was refused', async () => {
@@ -207,21 +183,27 @@ describe('ExplanationModal', () => {
   it('says so when the target category has no folder behind it', () => {
     show(explanation({ target_root_folder: null }));
 
-    expect(screen.getByText('no root folder')).toBeTruthy();
+    expect(screen.getByText('no root folder mapped')).toBeTruthy();
   });
 
   it('says a switched-off instance moves nothing, and only then', () => {
     show(explanation());
-    expect(screen.queryByText('This instance is switched off.')).toBeNull();
+    expect(
+      screen.queryByText(
+        'This instance is switched off: no run reads its titles, so nothing moves.',
+      ),
+    ).toBeNull();
 
     show(explanation({ instance_enabled: false }));
-    expect(screen.getByText('This instance is switched off.')).toBeTruthy();
+    expect(
+      screen.getByText('This instance is switched off: no run reads its titles, so nothing moves.'),
+    ).toBeTruthy();
   });
 
   it('marks a category a human pinned', () => {
     show(explanation({ override_category: 'kids' }));
 
-    expect(screen.getByText('manual override')).toBeTruthy();
+    expect(screen.getByText('Manual exception')).toBeTruthy();
   });
 
   /**
@@ -231,7 +213,11 @@ describe('ExplanationModal', () => {
   it('says no metadata is cached rather than showing an empty panel', () => {
     show(explanation({ metadata: null }));
 
-    expect(screen.getByText('No metadata cached')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'No external metadata cached, so genre, keyword and certification conditions cannot match.',
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText('Metadata')).toBeNull();
   });
 
@@ -253,6 +239,9 @@ describe('ExplanationModal', () => {
           sources: ['arr', 'tmdb'],
         } as Explanation['metadata'],
       }),
+      // French spacing, which the English shares with a colon written in the
+      // markup: only a sentence of its own tells the two apart.
+      { MetadataSourcesLine: 'Sources : {sources}' },
     );
 
     expect(screen.getByText('Animation')).toBeTruthy();
@@ -273,6 +262,9 @@ describe('ExplanationModal', () => {
           sources: ['arr'],
         } as unknown as Explanation['metadata'],
       }),
+      // The English separator is a comma, which a comma written in the markup
+      // would produce as well.
+      { ListSeparator: ' ; ' },
     );
 
     expect(screen.getByText(/Language: Japanese \(ja\)/)).toHaveTextContent(
@@ -330,7 +322,7 @@ describe('ExplanationModal', () => {
   it('says no rule applies rather than showing an empty list', () => {
     show(explanation({ rule_traces: [] }));
 
-    expect(screen.getByText('No rule applies')).toBeTruthy();
+    expect(screen.getByText('No rule applies to this media type and instance.')).toBeTruthy();
   });
 
   /**
@@ -373,7 +365,7 @@ describe('ExplanationModal', () => {
       .closest('.explain-row') as HTMLElement;
     expect(within(row).getByText(/en/)).toBeTruthy();
     expect(within(row).getByText(/from tmdb/)).toBeTruthy();
-    expect(screen.getByText('not matched')).toBeTruthy();
+    expect(screen.getByText('did not match')).toBeTruthy();
   });
 
   it('reports the exclusion that vetoed a rule which otherwise matched', () => {
@@ -394,7 +386,7 @@ describe('ExplanationModal', () => {
       }),
     );
 
-    expect(screen.getByText(/vetoed by certification in \[G\]/)).toBeTruthy();
+    expect(screen.getByText(/vetoed by exclusion: certification in \[G\]/)).toBeTruthy();
     expect(screen.getByText('excluded')).toBeTruthy();
   });
 

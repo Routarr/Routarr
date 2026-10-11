@@ -1,4 +1,5 @@
 import { api, apiWhenFree, ARR } from './fixtures';
+import type { RuleDraft } from '../src/api/types';
 
 /**
  * A row in every table the screens draw: three rules, one of them switched
@@ -29,7 +30,7 @@ export async function seedRows(): Promise<void> {
         enabled,
         conditions: [{ type: 'title_contains', value: titles }],
         exclusions: [],
-      }),
+      } satisfies Partial<RuleDraft>),
     });
   }
 

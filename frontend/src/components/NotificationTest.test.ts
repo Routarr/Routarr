@@ -13,13 +13,6 @@ import NotificationTest from './NotificationTest.svelte';
  * server's sentence saying why not.
  */
 
-const STRINGS = {
-  NotificationTest: 'Test notification',
-  NotificationTestHelp: 'Sends a message to the saved address.',
-  SendTestNotification: 'Send a test notification',
-  NotificationTestSent: 'The receiver accepted the test notification.',
-};
-
 afterEach(() => vi.restoreAllMocks());
 
 describe('NotificationTest', () => {
@@ -27,7 +20,7 @@ describe('NotificationTest', () => {
     const user = userEvent.setup();
     const outcome = createOutcome();
     const send = vi.spyOn(api, 'sendTestNotification').mockResolvedValue(undefined);
-    renderWithI18n(NotificationTest, { props: { outcome }, strings: STRINGS });
+    renderWithI18n(NotificationTest, { props: { outcome } });
 
     await user.click(screen.getByRole('button', { name: 'Send a test notification' }));
 
@@ -43,7 +36,7 @@ describe('NotificationTest', () => {
     vi.spyOn(api, 'sendTestNotification').mockRejectedValue(
       new Error('The receiver refused the test notification with HTTP 404.'),
     );
-    renderWithI18n(NotificationTest, { props: { outcome }, strings: STRINGS });
+    renderWithI18n(NotificationTest, { props: { outcome } });
 
     const button = screen.getByRole('button', { name: 'Send a test notification' });
     await user.click(button);
@@ -59,7 +52,7 @@ describe('NotificationTest', () => {
     vi.spyOn(api, 'sendTestNotification').mockReturnValue(
       new Promise<void>((resolve) => (release = resolve)),
     );
-    renderWithI18n(NotificationTest, { props: { outcome: createOutcome() }, strings: STRINGS });
+    renderWithI18n(NotificationTest, { props: { outcome: createOutcome() } });
 
     const button = screen.getByRole('button', { name: 'Send a test notification' });
     await user.click(button);

@@ -9,10 +9,7 @@ import ActionMenu from './ActionMenu.svelte';
  * past the screen, and the ones past the edge go off it with nothing saying so.
  */
 
-const STRINGS = { Actions: 'Actions' };
-
-const show = (actions: unknown[]) =>
-  renderWithI18n(ActionMenu, { props: { actions }, strings: STRINGS });
+const show = (actions: unknown[]) => renderWithI18n(ActionMenu, { props: { actions } });
 
 describe('ActionMenu', () => {
   it('keeps its items out of the tab order until it is opened', async () => {

@@ -13,26 +13,6 @@ import ProviderOrder from './ProviderOrder.svelte';
  * scrolling back and saving again.
  */
 
-const STRINGS = {
-  SourcesActive: 'Active, in priority order',
-  SourcesInactive: 'Inactive',
-  DisableSource: 'Disable',
-  EnableSource: 'Enable',
-  MoveUp: 'Move up',
-  MoveDown: 'Move down',
-  ProviderKeyPlaceholder: 'API key',
-  ProviderKeyOrEnv: 'API key or {variable}',
-  SecretConfiguredPlaceholder: 'A key is stored – type to replace it',
-  ProviderNeedsKey: 'Needs a key',
-  ProviderNoKeyNeeded: 'No key needed',
-  ProviderInactive: 'inactive',
-  FacetGenres: 'Genres',
-  FacetKeywords: 'Keywords',
-  FacetLanguages: 'Original languages',
-  ListSeparator: ' ; ',
-  ProviderSeriesOnly: 'series only',
-};
-
 function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
   return {
     id: 'tmdb',
@@ -68,10 +48,9 @@ it('names the fields a source supplies by their captions, and a source for serie
       keys: {},
       onKeyChange: vi.fn(),
     },
-    strings: STRINGS,
   });
 
-  const tmdb = await screen.findByText(/No key needed · Genres ; Keywords ; Original languages/);
+  const tmdb = await screen.findByText(/no key needed · Genres, Keywords, Original languages/);
   expect(tmdb.textContent).not.toContain('series only');
   expect(screen.getByText(/· series only/)).toBeTruthy();
 });
@@ -100,7 +79,6 @@ describe('a credential is edited in the row of the source it unlocks', () => {
         keys,
         onKeyChange,
       },
-      strings: STRINGS,
     });
 
     await userEvent.type(await screen.findByLabelText('TMDB'), 'ab');
@@ -130,7 +108,6 @@ describe('a credential is edited in the row of the source it unlocks', () => {
         keys: { tmdb_api_key: '' },
         // No `onKeyChange`.
       },
-      strings: STRINGS,
     });
 
     await screen.findByText('TMDB');
@@ -153,11 +130,10 @@ describe('a credential is edited in the row of the source it unlocks', () => {
         keys: { tmdb_api_key: '' },
         onKeyChange: vi.fn(),
       },
-      strings: STRINGS,
     });
 
     const field = await screen.findByLabelText('TMDB');
-    expect(field.getAttribute('placeholder')).toBe('A key is stored – type to replace it');
+    expect(field.getAttribute('placeholder')).toBe('A key is stored. Type to replace it');
   });
 });
 
@@ -180,7 +156,6 @@ describe('each source button names its source', () => {
         value: 'arr,anilist',
         onChange: vi.fn(),
       },
-      strings: STRINGS,
     });
 
     expect(await screen.findByRole('button', { name: 'Enable – TMDB' })).toBeTruthy();
@@ -215,7 +190,6 @@ describe('a source keeps the focus when its row moves', () => {
         keys: { tmdb_api_key: '' },
         onKeyChange: vi.fn(),
       },
-      strings: STRINGS,
     });
   }
 

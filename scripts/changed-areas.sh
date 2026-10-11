@@ -51,10 +51,12 @@ CONTROL='\.github/workflows/ci\.yml|scripts/changed-areas\.sh'
 # `scripts/` holds the locale and API type checks the backend job runs, and
 # both read the frontend's copy of the API types, as a backend test does.
 echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|$CONTROL)")"
-# The frontend job alone runs the bundle size check, the rule editor's folding
-# is held to the engine's table of cases, and a count is grouped as the
-# server's table and its list of count placeholders say.
-echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|backend/src/services/normalise_value_cases\.json|backend/src/(grouped_count_cases\.json|localization\.rs)|$CONTROL)")"
+# The frontend job alone runs the bundle size check, and its tests read these
+# backend files: the routes the client calls, the settings' defaults, the
+# count placeholders, the dictionary its components render, and the tables of
+# cases both sides are held to.
+FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod)\.rs|backend/src/services/(metadata|settings)\.rs|backend/src/.*\.json'
+echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$FRONTEND_READS|$CONTROL)")"
 # `site/check.mjs` reads the version out of the crate's manifest, holds the
 # README and the first-run screen to one command, the site's words to the
 # application's dictionaries and the API reference's sentences to the
