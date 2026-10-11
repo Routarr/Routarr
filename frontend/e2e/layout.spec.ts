@@ -787,3 +787,27 @@ test.describe('every screen draws a shared thing the same way', () => {
     await expect(tab.locator('svg')).toBeVisible();
   });
 });
+
+/**
+ * The library card's "?" lies over its summary, which cannot hold a button,
+ * and the summary ends on the chevron that folds the card. Drawn over each
+ * other, the two read as one glyph that is neither.
+ */
+test("the library card's help stays clear of its chevron", async ({ page }) => {
+  await openScreen(page, '/rules');
+  const help = page.locator('.facet-help');
+  await expect(help).toBeVisible();
+
+  const [helpEnd, chevronStart] = await page.evaluate(() => {
+    const summary = document.querySelector('.facet-panel > summary')!;
+    const chevron = getComputedStyle(summary, '::after');
+    // The chevron is a bordered square turned 45 degrees: its diagonal is
+    // what it takes on the line.
+    const side = parseFloat(chevron.width) + 2 * parseFloat(chevron.borderRightWidth);
+    const end =
+      summary.getBoundingClientRect().right - parseFloat(getComputedStyle(summary).paddingRight);
+    const helpBox = document.querySelector('.facet-help')!.getBoundingClientRect();
+    return [helpBox.right, end - side * Math.SQRT2];
+  });
+  expect(helpEnd).toBeLessThanOrEqual(chevronStart);
+});
