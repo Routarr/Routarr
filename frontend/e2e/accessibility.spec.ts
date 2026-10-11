@@ -237,6 +237,13 @@ test('every table on every screen carries a caption', async ({ page }) => {
 const SWEEP_TIMEOUT = 120_000;
 
 /**
+ * The bound of the Tab walk, which presses once per control on every screen
+ * and waits two frames each time: the longest sweep by far, and one that grows
+ * with every control a screen gains.
+ */
+const WALK_TIMEOUT = 2 * SWEEP_TIMEOUT;
+
+/**
  * Every screen and every Settings section, in both themes: the light palette
  * is a second set of colours, and contrast measured in one says nothing of the
  * other. Once more at the width of the rail, between a phone and a desktop,
@@ -407,7 +414,7 @@ test('a rail entry with a count is named by its destination first', async ({ pag
 test.describe('the keyboard reaches every control', () => {
   for (const width of [1280, 375]) {
     test(`on every screen at ${width}px`, async ({ page }) => {
-      test.setTimeout(SWEEP_TIMEOUT);
+      test.setTimeout(WALK_TIMEOUT);
       await page.setViewportSize({ width, height: 900 });
       const problems: string[] = [];
 
