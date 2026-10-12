@@ -71,7 +71,10 @@ jobs:
     env:
       # The build record carries the event that started the run, the pusher's
       # address included, and an artifact of a public repository is public.
+      # The metadata each build prints in its log carries the same event
+      # unless its provenance is off too.
       DOCKER_BUILD_RECORD_UPLOAD: "false"
+      BUILDX_METADATA_PROVENANCE: disabled
     strategy:
       # Both legs run to the end: one architecture failing while the other is
       # still building tells you less than two verdicts do.
@@ -137,8 +140,8 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           # BuildKit's provenance copies the event that started the run, the
-          # pusher's name and address included, into the image and into the
-          # log. The attestation the manifest job signs is the provenance.
+          # pusher's name and address included, into the image. The
+          # attestation the manifest job signs is the provenance.
           provenance: false
           load: true
           tags: routarr:smoke

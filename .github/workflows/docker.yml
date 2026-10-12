@@ -116,13 +116,14 @@ jobs:
         env:
           # The build record carries the event that started the run, the
           # pusher's address included, and an artifact of a public repository
-          # is public.
+          # is public. The metadata the step prints in its log carries the same
+          # event unless its provenance is off too.
           DOCKER_BUILD_RECORD_UPLOAD: "false"
+          BUILDX_METADATA_PROVENANCE: disabled
         with:
           context: .
           platforms: linux/amd64
-          # BuildKit's provenance copies that same event into the image and
-          # into the log.
+          # BuildKit's provenance copies that same event into the image.
           provenance: false
           push: false
           # Into the runner's Docker, so the next step can start it.
