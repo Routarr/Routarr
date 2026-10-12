@@ -30,7 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     build-essential \
-    pkg-config \
     python3 \
     git \
     bash \
@@ -62,31 +61,13 @@ RUN arch="$(dpkg --print-architecture)" \
 # Neither libssl-dev (reqwest uses rustls, and there is no openssl-sys in
 # Cargo.lock) nor libsqlite3-dev (libsqlite3-sys is built in bundled mode).
 
-# cargo-audit is a blocking CI gate: the prebuilt binary avoids the minutes
-# `cargo install` would spend compiling it on every container rebuild.
-# The release publishes no checksum file, so the sums are recorded here from
-# the archives themselves: a replaced asset under the same name fails the
-# build instead of running.
-ARG CARGO_AUDIT_VERSION=0.22.2
-ARG CARGO_AUDIT_SHA256_X64=7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
-ARG CARGO_AUDIT_SHA256_ARM64=c6603814ddaa45e51263dafd31c0ac98808f688d26f7395804f9670b0fd599dd
-RUN arch="$(dpkg --print-architecture)" \
-  && case "$arch" in \
-       amd64) target=x86_64-unknown-linux-musl; sum="$CARGO_AUDIT_SHA256_X64" ;; \
-       arm64) target=aarch64-unknown-linux-gnu; sum="$CARGO_AUDIT_SHA256_ARM64" ;; \
-       *) echo "unsupported arch: $arch" && exit 1 ;; \
-     esac \
-  && curl -fsSL -o /tmp/cargo-audit.tgz \
-     "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/cargo-audit-${target}-v${CARGO_AUDIT_VERSION}.tgz" \
-  && echo "$sum  /tmp/cargo-audit.tgz" | sha256sum -c - \
-  && tar -xzf /tmp/cargo-audit.tgz -C /tmp \
-  && mv "/tmp/cargo-audit-${target}-v${CARGO_AUDIT_VERSION}/cargo-audit" /usr/local/bin/ \
-  && rm -rf /tmp/cargo-audit.tgz "/tmp/cargo-audit-${target}-v${CARGO_AUDIT_VERSION}" \
-  && cargo-audit --version
-
-# cargo-llvm-cov, for the same reason and from its own release: `cargo install`
-# builds it from source on every container rebuild. In the image rather than in
-# the `/cargo` volume, so a fresh volume cannot lose a tool CI gates on.
+# cargo-llvm-cov, the coverage gate CI runs, from its release rather than
+# `cargo install`, which would build it from source on every container rebuild.
+# In the image rather than in the `/cargo` volume, so a fresh volume cannot
+# lose a tool CI gates on. The release publishes no checksum file, so the sums
+# are recorded here from the archives themselves, and match those
+# taiki-e/install-action records for the version `ci.yml` names: a replaced
+# asset under the same name fails the build instead of running.
 #
 # The check is `cargo llvm-cov`, not `cargo-llvm-cov`. This binary is a cargo
 # subcommand and nothing else: cargo passes the subcommand as its first
@@ -94,9 +75,9 @@ RUN arch="$(dpkg --print-architecture)" \
 # fails with "expected subcommand 'llvm-cov'". Going through cargo also checks
 # the one thing worth checking, that cargo resolves the subcommand from
 # /usr/local/bin. It needs no llvm-tools, so it holds before the rustup step.
-ARG CARGO_LLVM_COV_VERSION=0.9.0
-ARG CARGO_LLVM_COV_SHA256_X64=bc2122fd7bd9b6d3eb371690ed085f82e5a8bf1851f4645ef521d12ed04b2616
-ARG CARGO_LLVM_COV_SHA256_ARM64=3c299780e109d59fd77044e64734421d43c0067b92937a49be302fee66d04727
+ARG CARGO_LLVM_COV_VERSION=0.9.1
+ARG CARGO_LLVM_COV_SHA256_X64=3fca950394a3c49457657c158b1619cec8dfd2647ae5b48746734c0ab969a522
+ARG CARGO_LLVM_COV_SHA256_ARM64=49c0085628392a8d727c4464d91ec417c613c5015f5197cd16d5c05aa3fb5ad1
 RUN arch="$(dpkg --print-architecture)" \
   && case "$arch" in \
        amd64) target=x86_64-unknown-linux-musl; sum="$CARGO_LLVM_COV_SHA256_X64" ;; \
@@ -109,6 +90,36 @@ RUN arch="$(dpkg --print-architecture)" \
   && tar -xzf /tmp/cargo-llvm-cov.tar.gz -C /usr/local/bin \
   && rm /tmp/cargo-llvm-cov.tar.gz \
   && cargo llvm-cov --version
+
+# The two cargo subcommands the image build runs, at the versions and sums the
+# root `Dockerfile` names (`scripts/check-versions.py`): `cargo about` writes
+# the crates' licence notices from `backend/about.toml`, and `cargo auditable`
+# writes the crate list into the binary. Here so a licence a new crate brings
+# is met before the image build refuses it.
+ARG CARGO_ABOUT_VERSION=0.9.2
+ARG CARGO_ABOUT_SHA256_X64=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
+ARG CARGO_ABOUT_SHA256_ARM64=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8
+ARG CARGO_AUDITABLE_VERSION=0.7.7
+ARG CARGO_AUDITABLE_SHA256_X64=7676443367c5e33d9fb22acef63cccb5e9202de12dae1b0579995eb3e2bc7a18
+ARG CARGO_AUDITABLE_SHA256_ARM64=c324af56990601354bbf40080f582ba46f8ec8b807a1388e25bb7e429d285c18
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) target=x86_64-unknown-linux-musl; about="$CARGO_ABOUT_SHA256_X64"; auditable="$CARGO_AUDITABLE_SHA256_X64" ;; \
+       arm64) target=aarch64-unknown-linux-musl; about="$CARGO_ABOUT_SHA256_ARM64"; auditable="$CARGO_AUDITABLE_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/cargo-about.tgz \
+     "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${target}.tar.gz" \
+  && echo "$about  /tmp/cargo-about.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/cargo-about.tgz -C /usr/local/bin --strip-components=1 \
+     "cargo-about-${CARGO_ABOUT_VERSION}-${target}/cargo-about" \
+  && curl -fsSL -o /tmp/cargo-auditable.txz \
+     "https://github.com/rust-secure-code/cargo-auditable/releases/download/v${CARGO_AUDITABLE_VERSION}/cargo-auditable-${target}.tar.xz" \
+  && echo "$auditable  /tmp/cargo-auditable.txz" | sha256sum -c - \
+  && tar -xJf /tmp/cargo-auditable.txz -C /usr/local/bin --strip-components=1 \
+     "cargo-auditable-${target}/cargo-auditable" \
+  && rm /tmp/cargo-about.tgz /tmp/cargo-auditable.txz \
+  && cargo about --version && cargo auditable --version
 
 # The base image ships a bare toolchain (no rustfmt, no clippy, no rust-analyzer),
 # so in a fresh container the first `cargo fmt` stalls on a rustup download,
@@ -134,7 +145,7 @@ RUN cd /tmp/toolchain \
 
 # RTK (Rust Token Killer): a CLI proxy that compresses command output before an
 # AI coding agent reads it. Installed here rather than by `cargo install` for the
-# same reason as cargo-audit: the prebuilt binary costs seconds instead of
+# same reason as cargo-llvm-cov: the prebuilt binary costs seconds instead of
 # minutes on every rebuild.
 #
 # Two things are deliberate. The download is verified against the checksum
@@ -160,7 +171,7 @@ RUN arch="$(dpkg --print-architecture)" \
   && chmod 0755 /usr/local/bin/rtk \
   && rtk --version
 
-# The GitHub CLI. Same reasoning as cargo-audit and rtk above: the release
+# The GitHub CLI. Same reasoning as cargo-llvm-cov and rtk above: the release
 # tarball with a checksum pinned here, rather than the vendor apt repository,
 # which would add a signing key and a second package index to every build.
 #

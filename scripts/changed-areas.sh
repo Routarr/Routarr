@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Which deliverables changed between two commits: the `backend`, `frontend` and
-# `site` lines the `changes` job of ci.yml hands its jobs, and the `image` line
-# docker.yml reads.
+# `site` lines the `changes` job of ci.yml hands its jobs, and the `image` and
+# `devcontainer` lines docker.yml reads.
 #
 #   scripts/changed-areas.sh BASE [HEAD]
 #
@@ -70,3 +70,6 @@ echo "site=$(decide "^(site/|backend/(Cargo\.toml|locales/|openapi/v1\.json)|fro
 # compose file whose container name and data path the first-run command names.
 # Not ci.yml: nothing in it reaches the image.
 echo "image=$(decide '^(Dockerfile|\.dockerignore|backend/|frontend/|LICENSE|docker-compose\.yml|scripts/(changed-areas|smoke-image|install-runtime)\.sh|\.github/workflows/docker\.yml)')"
+# What the dev container's Dockerfile builds from: its own directory, the
+# toolchain file it copies, and the ignore file that decides what it can copy.
+echo "devcontainer=$(decide '^(\.devcontainer/|backend/rust-toolchain\.toml|\.dockerignore|scripts/changed-areas\.sh|\.github/workflows/docker\.yml)')"

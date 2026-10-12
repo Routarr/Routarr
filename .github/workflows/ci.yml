@@ -10,7 +10,9 @@ on:
   pull_request:
 
 # Nothing here writes to the repository: the token can only read it. A job that
-# one day needs more states it on the job, not here.
+# one day needs more states it on the job, not here. No checkout keeps the token
+# in its clone, where every later step could read it: `gh` takes `GH_TOKEN`,
+# and the rest reads the clone alone.
 permissions:
   contents: read
 
@@ -49,6 +51,7 @@ jobs:
         with:
           # Both sides of the comparison have to be present in the clone.
           fetch-depth: 0
+          persist-credentials: false
 
       # A pull request is compared with its base. A push to main is compared
       # with the last commit of main whose run succeeded, not with the one
@@ -107,6 +110,7 @@ jobs:
           # gitleaks reads every commit, not the last one, and the API contract
           # is compared with the last release's tag.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check the memory files stay short
         run: python3 scripts/check-claude-md.py
@@ -114,6 +118,16 @@ jobs:
       - name: Check the text a reader sees for plain punctuation
         if: ${{ !cancelled() }}
         run: python3 scripts/check-typography.py
+
+      # The npm packages the interface bundles and the notices the image carries
+      # read three files of two areas, and no area's job sees all three.
+      - name: Check the licences of what the image ships
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-licences.py
+
+      - name: Test the release guard and the licence check
+        if: ${{ !cancelled() }}
+        run: python3 -m unittest discover -s scripts/tests -v
 
       - name: Install the pinned linters
         id: tools
@@ -182,6 +196,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # No toolchain pin here on purpose: rustup reads rust-toolchain.toml, so
       # CI compiles with the exact version the release image ships.
@@ -194,7 +210,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Lint
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       # A broken intra-doc link is the one warning `clippy` does not see.
       - name: Check the documentation builds clean
@@ -218,23 +234,17 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-      # Fails on any RUSTSEC advisory. The dependency tree is pruned
-      # (`sqlx` with `default-features = false`) so this can be a hard gate.
-      - name: Audit dependencies
+      # The one gate on the crates: a RustSec advisory, an unmaintained or
+      # yanked crate, a licence the GPL cannot ship beside, a crate from a
+      # source nobody named. `deny.toml` states each rule. The dependency tree
+      # is pruned (`sqlx` with `default-features = false`) so this can be a
+      # hard gate.
+      - name: Check advisories, licences and sources
         uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
         with:
-          # Named rather than taken from the ref (`@cargo-audit`), whose
-          # meaning a commit pin silently changes.
-          tool: cargo-audit
-      - run: cargo audit
-
-      # What `cargo audit` does not look at: a licence the GPL cannot ship
-      # beside, a crate from a source nobody named, a yanked version.
-      # `deny.toml` states the allow-list.
-      - name: Check licences and sources
-        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
-        with:
-          # The version the dev container installs (`check-versions.py`).
+          # Named with its version rather than taken from the ref
+          # (`@cargo-deny`), whose meaning a commit pin silently changes. The
+          # version the dev container installs (`check-versions.py`).
           tool: cargo-deny@0.20.2
       - run: cargo deny --locked check
 
@@ -251,12 +261,16 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: backend
       - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
         with:
-          tool: cargo-llvm-cov
+          # The version the dev container installs (`check-versions.py`), so
+          # the floor is measured by one tool on both sides.
+          tool: cargo-llvm-cov@0.9.1
 
       # A floor at the whole figure below the measure, raised with it: a module
       # landing with no test trips it. `src/tests/` is excluded because
@@ -265,7 +279,7 @@ jobs:
       # stop.
       - name: Measure coverage
         run: |
-          cargo llvm-cov --summary-only --fail-under-lines 96 \
+          cargo llvm-cov --locked --summary-only --fail-under-lines 96 \
             --ignore-filename-regex 'src/(tests/|process\.rs)'
 
   frontend:
@@ -279,6 +293,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -286,24 +302,34 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      # No install script runs: the tree needs none (the Dockerfile builds it
+      # the same way), and one would run whatever a compromised release ships,
+      # on main, with the job's cache credentials.
+      - id: install
+        run: npm ci --ignore-scripts
 
-      # The counterpart of `cargo audit`, over the whole tree including
-      # development dependencies, for symmetry with what it checks in
-      # Cargo.lock. `high` rather than `moderate`: a gate that fires on
-      # everything is one people learn to skip. `--omit=dev` narrows it to what
-      # ships if dev-only advisories make it noisy.
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
+      # What ships in the image, the packages the bundle carries. A development
+      # tool's advisory is Dependabot's to raise, and an advisory with no fix
+      # yet would block every pull request with no way out. `high` rather than
+      # `moderate`: a gate that fires on everything is one people learn to skip.
+      #
+      # Each step below runs whatever the one before it answered, so a first
+      # failure hides none of the others.
+      - name: Audit the shipped dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Check formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run format:check
       - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run lint
 
       # Also in the backend job: the contract breaks from either side, and the
       # path filters gate the two separately.
       - name: Check the API contract
+        if: ${{ !cancelled() }}
         working-directory: .
         run: python3 scripts/check-api-types.py
 
@@ -313,6 +339,7 @@ jobs:
       # entry, rendered raw on screen, would pass here and fail on the next
       # person's backend change.
       - name: Check locales
+        if: ${{ !cancelled() }}
         working-directory: .
         run: python3 scripts/check-locales.py
 
@@ -320,22 +347,27 @@ jobs:
       # counts only the files a test imported, reporting a high number over a
       # small fraction of the tree.
       - name: Test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run coverage
 
       # `npm run build` runs svelte-check first, so this is the application's
       # type check too.
       - name: Build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build
 
       # The specs have a tsconfig of their own, which the build does not read,
       # and Playwright strips their types without checking them.
       - name: Type-check the end-to-end specs
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npx tsc -p e2e --noEmit
 
       # The two bundles every visit downloads, held to a ceiling: nothing else
       # measures them, and a size that drifts up is invisible until the
       # dashboard downloads the rule builder with it.
       - name: Check the bundle size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         working-directory: .
         run: node scripts/check-bundle-size.mjs
 
@@ -358,6 +390,8 @@ jobs:
       ROUTARR_E2E_BROWSER: ${{ matrix.browser }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: backend
@@ -367,7 +401,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
         working-directory: frontend
       - run: npx playwright install ${{ matrix.browser }} --with-deps
         working-directory: frontend
@@ -419,6 +453,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -427,8 +463,21 @@ jobs:
             site/package-lock.json
             frontend/package-lock.json
 
+      # With its install scripts: esbuild and workerd fetch their binaries in
+      # them.
       - run: npm ci
         working-directory: site
+
+      # Informational. Every package here builds the site and none reaches a
+      # visitor or the image, and an advisory against a build tool can stand
+      # with no fixed version for weeks. A gate would hold every site change
+      # hostage to it, so this warns and Dependabot's alerts follow it up.
+      - name: Audit the build tools
+        working-directory: site
+        run: |
+          if ! npm audit --audit-level=high; then
+            echo "::warning::npm audit reports a high advisory in the site's build tools"
+          fi
 
       # Everything below reads `site/dist`, which is what Cloudflare serves.
       # Checking the sources would test the intention. This tests the artefact.
@@ -445,7 +494,7 @@ jobs:
 
       # Playwright, for the browser pass below. The site has no runtime
       # dependency of its own.
-      - run: npm ci
+      - run: npm ci --ignore-scripts
         working-directory: frontend
       - run: npx playwright install chromium --with-deps
         working-directory: frontend

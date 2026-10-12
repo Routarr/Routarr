@@ -14,6 +14,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+# No permission unless a job names it: a job added without its own block holds
+# nothing, whatever the repository's default token.
+permissions: {}
+
 # Every `uses:` is pinned to a commit, with the tag it was in a comment beside
 # it. A tag is a mutable pointer its owner can move: `@v7` means "whatever the
 # owner calls v7 the next time this runs", and one of these workflows holds
@@ -24,8 +28,8 @@ concurrency:
 jobs:
   # A tag triggers the publish directly, whatever commit it was pushed onto.
   # `scripts/release-guard.sh` asks first whether that commit is on main, sets
-  # the version the tag names, is green everywhere, and is a version the
-  # registry does not hold yet.
+  # the version the tag names, passed CI and the image build on a push, and is
+  # a version the registry does not hold yet.
   guard:
     name: The commit may be published
     runs-on: ubuntu-latest
@@ -35,6 +39,8 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check the commit and the version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,9 +55,11 @@ jobs:
   # place the images people pull are ever started.
   #
   # On an amd64 runner the arm64 leg of a Rust release build runs under QEMU,
-  # for hours, and a leg killed at its ceiling publishes nothing. No warm cache
-  # shortens it: `docker.yml` builds `linux/amd64` alone, so the cache the
-  # default branch writes holds no arm64 layer.
+  # for hours, and a leg killed at its ceiling publishes nothing.
+  #
+  # Neither leg restores a cache. Any job running on main can write the cache
+  # `docker.yml` reads, an install script or a build script among them, and a
+  # layer restored here would be published under this workflow's signature.
   image:
     name: Build ${{ matrix.arch }}
     needs: guard
@@ -70,21 +78,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Main's `docker.yml` cache, which a tag can read. Nothing here
-          # writes one: a tag's cache is read by no later tag, and its layers
-          # would evict main's from a repository cache already full.
           - arch: amd64
             platform: linux/amd64
             runner: ubuntu-latest
-            cache: type=gha
           - arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
-            cache: ''
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      # BuildKit by digest, as every base image is: the daemon that runs the
+      # build is as much a part of the image as its base. Dependabot does not
+      # read this line, and `scripts/check-versions.py` holds the copies in
+      # `docker.yml` to it.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Sign in to the registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -125,9 +136,12 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          # BuildKit's provenance copies the event that started the run, the
+          # pusher's name and address included, into the image and into the
+          # log. The attestation the manifest job signs is the provenance.
+          provenance: false
           load: true
           tags: routarr:smoke
-          cache-from: ${{ matrix.cache }}
 
       - name: Start the image and check it serves
         run: bash scripts/smoke-image.sh routarr:smoke
@@ -140,14 +154,14 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          # A public repository gets the `max` level by default, which writes
-          # the build environment into the image, the triggering event
-          # included. The provenance that is verified is the signed one
-          # attested below.
-          provenance: mode=min
+          provenance: false
+          # The packages of the image, the crates `cargo auditable` wrote into
+          # the binary among them, for a scanner reading the registry. The
+          # scanner is an image too, pinned by digest for the same reason as
+          # BuildKit.
+          sbom: generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
           labels: ${{ steps.labels.outputs.value }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: ${{ matrix.cache }}
 
       - name: Hand the digest to the manifest job
         env:
@@ -180,6 +194,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # The images took long enough to build for the tag to have moved, or the
       # version to have been published by another run.
@@ -198,6 +214,8 @@ jobs:
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Sign in to the registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -239,8 +257,14 @@ jobs:
           done
           # Both expansions are meant to split into separate arguments: one
           # `-t` per tag, one reference per architecture.
+          #
+          # The labels sit on each platform's image, and the registry describes
+          # a multi-platform image from its index alone.
           # shellcheck disable=SC2046,SC2086
           docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.description=A routing and classification layer for the Servarr ecosystem" \
+            --annotation "index:org.opencontainers.image.licenses=GPL-3.0-only" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/Routarr/Routarr" \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $refs
 
@@ -256,16 +280,19 @@ jobs:
           echo "value=$value" >> "$GITHUB_OUTPUT"
 
       # Signed evidence of which workflow, on which commit, built this exact
-      # digest, attached to the image in the registry so that `gh attestation
-      # verify` answers it without trusting this repository's own word for it.
-      # An image people pull onto machines holding their media library is worth
-      # the three lines.
+      # digest, which `gh attestation verify` answers without trusting this
+      # repository's own word for it (SECURITY.md). An image people pull onto
+      # machines holding their media library is worth the three lines.
+      #
+      # Kept in GitHub's attestation store and not pushed beside the image: the
+      # registry lists a pushed attestation as the package's newest tag, and
+      # its page then offers to pull a signature.
       - name: Attest the build's provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.digest.outputs.value }}
-          push-to-registry: true
+          push-to-registry: false
           # The storage record is an organisation feature this repository does
           # not use, and it asks for a permission the job does not hold.
           create-storage-record: false
@@ -286,8 +313,11 @@ jobs:
       # is in, so it needs one to stand in even though nothing here reads a
       # file: without it the step fails with "not a git repository" before it
       # reaches the API. The default shallow fetch is enough, since the notes
-      # are generated server-side.
+      # are generated server-side. `gh` takes its token from `GH_TOKEN`, so the
+      # clone keeps none.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Create it
         env:

@@ -33,9 +33,9 @@ cargo test                                  # offline, in-memory SQLite
 cargo test services::rule_engine            # one module, or one test by name
 cargo test live_sources -- --ignored --nocapture   # the real AniList, Jikan, OMDb, TheTVDB
 cargo fmt
-cargo clippy --all-targets -- -D warnings
+cargo clippy --locked --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|process\.rs)'   # floor 96%
+cargo llvm-cov --locked --summary-only --ignore-filename-regex 'src/(tests/|process\.rs)'  # 96%
 python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts
 python3 ../scripts/check-versions.py        # every place a toolchain version is written
