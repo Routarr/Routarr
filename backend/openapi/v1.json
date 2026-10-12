@@ -5481,7 +5481,7 @@
     },
     "/instances/{id}/sync": {
       "post": {
-        "description": "A sync of an instance already running answers 409.",
+        "description": "A sync of an instance already running answers 409, and so does a disabled\ninstance, with the reason `instance_disabled`.",
         "operationId": "sync_instance",
         "parameters": [
           {

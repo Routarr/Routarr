@@ -676,7 +676,8 @@ fn sync_all() {}
 
 /// Read one Arr again
 ///
-/// A sync of an instance already running answers 409.
+/// A sync of an instance already running answers 409, and so does a disabled
+/// instance, with the reason `instance_disabled`.
 #[utoipa::path(
     post,
     path = "/instances/{id}/sync",

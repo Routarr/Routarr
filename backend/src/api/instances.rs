@@ -389,6 +389,15 @@ pub async fn sync_now(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> AppResult<Response> {
+    // Switched off, as the scheduler and the webhook take it: nothing is read.
+    let instance = state.instance(&id).await?;
+    if !instance.enabled {
+        let localizer = state.localizer().await;
+        return Err(AppError::Conflict {
+            reason: "instance_disabled",
+            message: localizer.translate("ErrorInstanceSyncDisabled", &[("name", &instance.name)]),
+        });
+    }
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move {
         match sync::sync_instance(&task_state, &id, &by).await {
