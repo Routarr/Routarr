@@ -150,16 +150,19 @@ def strip_comments(text: str) -> str:
     return "".join(out)
 
 
-def rust_structs(root: Path) -> dict[str, set[str]]:
-    """Serialized field names of every `Serialize` struct, by struct name."""
+def rust_structs(root: Path) -> tuple[dict[str, set[str]], dict[str, list[str]]]:
+    """Serialized field names of every `Serialize` struct, by struct name, and
+    the files of each name more than one struct carries: keyed by name, one of
+    them would hide the other."""
     found: dict[str, set[str]] = {}
+    files: dict[str, list[str]] = {}
     for path in sorted(root.rglob("*.rs")):
         source = strip_comments(path.read_text())
         # `derive(...)` on the line(s) before `pub struct X {`.
         for match in re.finditer(
             r"#\[derive\(([^)]*)\)\]((?:\s*#\[[^\]]*\])*)\s*pub struct (\w+)\s*\{([^}]*)\}",
             source,
-            re.S,
+            re.DOTALL,
         ):
             derives, attrs, name, body = match.groups()
             if "Serialize" not in derives:
@@ -195,8 +198,10 @@ def rust_structs(root: Path) -> dict[str, set[str]]:
             if "rename_all" in attrs:
                 fields.add("__rename_all__")
             found[name] = fields
+            files.setdefault(name, []).append(str(path.relative_to(root)))
 
-    return resolve_flattened(found)
+    duplicates = {name: paths for name, paths in files.items() if len(paths) > 1}
+    return resolve_flattened(found), duplicates
 
 
 def resolve_flattened(structs: dict[str, set[str]]) -> dict[str, set[str]]:
@@ -215,7 +220,7 @@ def resolve_flattened(structs: dict[str, set[str]]) -> dict[str, set[str]]:
     """
     for _ in range(len(structs) + 1):
         moved = False
-        for name, fields in structs.items():
+        for fields in structs.values():
             for marker in [f for f in fields if f.startswith("__flatten__:")]:
                 inner = structs.get(marker.split(":", 1)[1])
                 if inner is None or any(f.startswith("__flatten__") for f in inner):
@@ -228,8 +233,26 @@ def resolve_flattened(structs: dict[str, set[str]]) -> dict[str, set[str]]:
     return structs
 
 
+def top_level_fields(body: str) -> set[str]:
+    """The fields declared at the top of a type's body, not those of a shape
+    nested inside one of them."""
+    fields = set()
+    depth = 0
+    for line in body.splitlines():
+        if depth == 0:
+            field = re.match(r"\s*(\w+)\??\s*:", line)
+            if field:
+                fields.add(field.group(1))
+        depth += line.count("{") - line.count("}")
+    return fields
+
+
 def ts_interfaces(path: Path) -> dict[str, set[str]]:
     """Top-level field names of every exported interface, by interface name.
+
+    An object alias, `export type X = { a: string }`, is an interface written
+    another way and read as one. A mapped type (`{ [K in ...]: ... }`) declares
+    no field and is not a payload.
 
     Depth matters. Several interfaces inline their nested shapes rather than
     naming them, and a line-by-line read of `Health`, whose `instances` is
@@ -242,19 +265,17 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     bases: dict[str, list[str]] = {}
     for match in re.finditer(
-        r"export interface (\w+)(?:\s+extends\s+([\w\s,]+?))?\s*\{(.*?)\n\}", source, re.S
+        r"export interface (\w+)(?:\s+extends\s+([\w\s,]+?))?\s*\{(.*?)\n\}", source, re.DOTALL
     ):
         name, extends, body = match.groups()
-        fields = set()
-        depth = 0
-        for line in body.splitlines():
-            if depth == 0:
-                field = re.match(r"\s*(\w+)\??\s*:", line)
-                if field:
-                    fields.add(field.group(1))
-            depth += line.count("{") - line.count("}")
-        found[name] = fields
+        found[name] = top_level_fields(body)
         bases[name] = [base.strip() for base in (extends or "").split(",") if base.strip()]
+    for match in re.finditer(r"export type (\w+)\s*=\s*\{(.*?)\n\}", source, re.DOTALL):
+        name, body = match.groups()
+        fields = top_level_fields(body)
+        if fields:
+            found[name] = fields
+            bases[name] = []
     # What an interface extends is part of it, as a flattened struct is on the
     # Rust side: read alone, `SimulationResult` lacks every counter it carries.
     for _ in range(len(found) + 1):
@@ -275,10 +296,16 @@ def main() -> int:
         print(f"check-api-types: {TYPES} not found", file=sys.stderr)
         return 2
 
-    rust = rust_structs(RUST)
+    rust, duplicates = rust_structs(RUST)
     ts = ts_interfaces(TYPES)
     failures: list[str] = []
     skipped: list[str] = []
+
+    for name in sorted(set(duplicates) & set(PAIRS)):
+        failures.append(
+            f"{name}: a Serialize struct of that name is in {', '.join(duplicates[name])}, "
+            "so the pair would compare whichever was read last"
+        )
 
     for rust_name, ts_name in sorted(PAIRS.items()):
         if rust_name not in rust:

@@ -6,9 +6,9 @@ rules a user writes, and moves each item to the right root folder through the Ar
 Axum backend, Svelte 5 and Vite frontend, shipped as one Docker image.
 
 Each area has its own rules in `.claude/rules/`: `backend.md`, `frontend.md`, `site.md` and
-`ci.md`. A rule loads when Claude reads a file its `paths:` list matches with the Read tool.
-Reading through Bash (`cat`, `grep`, `sed`) loads none, so open a file with Read before
-changing it.
+`ci.md`. A rule loads when Claude opens a file its `paths:` list matches with Read, Edit or
+Write, or prints that one file with `cat` or `head`. A `grep` or a `sed` loads none, so open a
+file with Read before changing it.
 
 ## Layout
 
@@ -19,9 +19,6 @@ site/        the showcase site, deployed to Cloudflare, never in the image
 scripts/     the consistency checks CI runs, the locale tooling, the image smoke test
 Dockerfile   builds backend and frontend into one image, `site/` is in .dockerignore
 ```
-
-The crate stays in `backend/`: the Dockerfile, the CI path filters, the shell harnesses and the
-documentation links all address that shape, so moving it is not a rename.
 
 ## Commands
 
@@ -35,7 +32,8 @@ cargo test live_sources -- --ignored --nocapture   # the real AniList, Jikan, OM
 cargo fmt
 cargo clippy --locked --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo llvm-cov --locked --summary-only --ignore-filename-regex 'src/(tests/|process\.rs)'  # 96%
+cargo llvm-cov --locked --summary-only --fail-under-lines 96 \
+  --ignore-filename-regex 'src/(tests/|process\.rs)'
 python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts
 python3 ../scripts/check-versions.py        # every place a toolchain version is written
@@ -53,10 +51,10 @@ npm run coverage             # Vitest with its floors, over the whole tree
 npm run test:e2e             # builds everything, drives Chromium through Playwright
 npm run test:e2e:base        # the specs tagged @subpath, under the /routarr mount point
 npm run test:e2e:auth        # the specs tagged @forms and @oidc, each against a server in that mode
-npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high
 ```
 
-Full stack: `docker compose up -d --build`. The site's commands are in `.claude/rules/site.md`.
+The site's commands are in `.claude/rules/site.md`.
 
 The Rust build tree is under `/ramdisk` (`CARGO_TARGET_DIR`), a RAM tmpfs or, on a small machine,
 a link to disk, so nothing may assume where the binary is. `.devcontainer/prune.sh` runs at every
@@ -121,6 +119,6 @@ Invariants a change must keep:
 - The backend suite is offline, and no test depends on a third party answering.
 - A test is named as a claim about behaviour: `a_trailing_slash_does_not_create_a_phantom_move`.
 - A regression test is seen to fail before its fix, or with the check it guards removed.
-- Coverage floors: 96% of backend lines, and 95% of frontend statements with the other Vitest
-  floors in `frontend/vite.config.ts`. Raise a floor when the figure rises, never lower one to
-  pass a build.
+- The coverage floors live in `.github/workflows/ci.yml` (backend) and `frontend/vite.config.ts`
+  (frontend), and `scripts/check-versions.py` holds their copies to them. Raise a floor when the
+  figure rises, never lower one to pass a build.

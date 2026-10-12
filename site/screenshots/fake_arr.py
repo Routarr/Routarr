@@ -117,7 +117,7 @@ def series(i, title, year, tvdb_id, tmdb_id, root="/tv/standard", seasons=3, kin
         "seriesType": kind,
         "tags": [],
         "added": "2026-06-02T10:00:00Z",
-        "seasons": [{"seasonNumber": n} for n in range(0, seasons + 1)],
+        "seasons": [{"seasonNumber": n} for n in range(seasons + 1)],
         "statistics": {
             "episodeFileCount": seasons * 12,
             "episodeCount": seasons * 12,

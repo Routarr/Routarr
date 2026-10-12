@@ -176,7 +176,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | `ROUTARR_AUTH` | `apikey` | `apikey`, `forms`, `oidc`, `external` or `none` |
 | `ROUTARR_ALLOWED_HOSTS` | *(empty)* | Under `none`, the host names Routarr answers to beside its addresses |
 | `ROUTARR_API_KEY` | *(generated)* | Sets the API key instead of generating one |
-| `ROUTARR_SECRET_KEY` | *(generated)* | Encrypts the stored Radarr/Sonarr keys |
+| `ROUTARR_SECRET_KEY` | *(generated)* | Seals the stored credentials: the Arr and metadata keys, the notification address and the signing secret |
 | `ROUTARR_BASE_PATH` | *(empty)* | Sub-path behind a reverse proxy, e.g. `/routarr` |
 | `ROUTARR_LOG_LEVEL` | `info` | Log verbosity |
 | `TZ` | *(UTC)* | The time zone the log lines are dated in, e.g. `Europe/Paris` |
@@ -207,6 +207,9 @@ Routarr's address, and the browser would then let it act as Routarr.
 Rust (Axum, SQLx) and Svelte 5, one SQLite database, one image. [`CONTRIBUTING.md`](CONTRIBUTING.md)
 covers the setup, the dev container and the checks CI runs. Security issues go through
 [`SECURITY.md`](SECURITY.md).
+
+Questions and ideas go to [Discussions](https://github.com/Routarr/Routarr/discussions), bugs and
+translation fixes to [the issue forms](https://github.com/Routarr/Routarr/issues/new/choose).
 
 ## Licence
 
