@@ -210,7 +210,10 @@ covers the setup, the dev container and the checks CI runs. Security issues go t
 
 ## Licence
 
+Copyright (C) 2026 the Routarr contributors.
+
 [GPL-3.0-only](LICENSE), like Radarr and Sonarr. Routarr is not affiliated with the Servarr project.
+The licences of the components it is built with ship in the image, and the About dialog links them.
 
 ## Data sources
 

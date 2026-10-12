@@ -15,9 +15,15 @@ does about the obvious ones.
 That opens a private advisory only you and the maintainer can read.
 
 This is a single-maintainer project, so please do not expect a same-day reply.
-What you can expect: an acknowledgement that the report was received and, if
-it is a real issue, a fix and a release with the advisory published alongside
-it, crediting you unless you would rather not be.
+What you can expect:
+
+- **Within 7 days**, an acknowledgement that the report was received.
+- **Within 30 days**, a decision: whether it is a real issue and, if it is,
+  what the fix will be.
+- **Disclosure with the fix**: a release, with the advisory published
+  alongside it, crediting you unless you would rather not be. If no fix is out
+  90 days after the report, the advisory is published then, with what an
+  installation can do meanwhile.
 
 Useful in a report: what an attacker needs to be able to do first (reach the
 port? already have the API key? control a Radarr the instance talks to?), and
@@ -28,12 +34,32 @@ more than a scanner's output.
 
 Only the newest release is supported and there is no back-porting: a fix
 ships in the next release. Write a report against that version, or against
-`main`.
+`main`. A security fix in the base image, Alpine, ships in a patch release of
+its own rather than waiting for the next change to Routarr (the versions
+policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions)).
 
 | Version        | Supported |
 | -------------- | --------- |
 | newest `0.x.y` | ✅ |
 | older releases | ❌ (upgrade to the newest) |
+
+## Verifying an image
+
+Every image a release publishes carries a signed attestation of how it was
+built: by which workflow, at which tag, from which commit. GitHub's CLI checks
+it against the image's digest, without trusting this repository's word for it:
+
+```bash
+gh attestation verify oci://ghcr.io/routarr/routarr:<version> \
+  --repo Routarr/Routarr \
+  --signer-workflow Routarr/Routarr/.github/workflows/release.yml
+```
+
+It passes only for an image the release workflow of this repository built,
+and `--format json` names the tag and the commit. The image also carries the
+list of its packages, the Rust crates of the binary included, which an image
+scanner reads from the registry. The licences of those packages are in
+`/app/frontend/dist/third-party-notices.txt`, which the About dialog links.
 
 ## What is already in place
 
@@ -266,7 +292,9 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   Routarr and its own (see the README). On every change to the image, CI runs
   the whole smoke test under it against an amd64 build. A release runs the same
   test, without gVisor, on each architecture before publishing it.
-- **Every GitHub action is pinned to a commit**, not to a movable tag.
+- **Every GitHub action is pinned to a commit**, not to a movable tag, which
+  the repository's settings require. The base images and BuildKit are pinned
+  by digest, and no release build restores a cache another run wrote.
 
 Adversarial tests live in two files.
 [`backend/src/tests/security.rs`](backend/src/tests/security.rs) holds that
