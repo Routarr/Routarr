@@ -9,7 +9,9 @@
    * These hold the shape. `aria-hidden` because a screen reader is told the
    * table is busy, not shown grey rectangles.
    */
-  let { columns, rows = 6 }: { columns: number; rows?: number } = $props();
+  let { columns }: { columns: number } = $props();
+
+  const ROWS = 6;
 </script>
 
 <tr>
@@ -17,7 +19,7 @@
     <span class="visually-hidden" role="status">{t('Loading')}</span>
   </td>
 </tr>
-{#each { length: rows } as _, row (row)}
+{#each { length: ROWS } as _, row (row)}
   <tr aria-hidden="true">
     {#each { length: columns } as _, column (column)}
       <td>

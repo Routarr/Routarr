@@ -19,7 +19,7 @@ import { ApiError } from '../api/client';
  */
 
 /** One button. `label` is a dictionary key, not a rendered string. */
-export type Choice = { label: string; value: string; danger?: boolean };
+type Choice = { label: string; value: string; danger?: boolean };
 
 type Request = {
   message: string;

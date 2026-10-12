@@ -150,7 +150,7 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
 }
 
 /** The words a condition is described with, all of them the reader's language. */
-export interface ConditionWords {
+interface ConditionWords {
   /** The condition's caption from the catalogue, or its type where it has none. */
   label?: string;
   /** A sentence of the dictionary, its placeholders filled in, as `t()` writes it. */

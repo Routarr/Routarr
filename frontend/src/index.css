@@ -1917,9 +1917,6 @@ input[type='checkbox']:disabled {
 .gap-2 {
   gap: 8px;
 }
-.gap-4 {
-  gap: 16px;
-}
 .mono {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -2899,10 +2896,6 @@ td * {
 }
 .w-230 {
   width: 230px;
-}
-.w-auto {
-  width: auto;
-  flex: 0 0 auto;
 }
 .min-w-190 {
   min-width: 190px;

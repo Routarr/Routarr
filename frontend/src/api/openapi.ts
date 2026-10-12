@@ -32,7 +32,7 @@ interface OpenApiMedia {
   schema?: OpenApiSchema;
 }
 
-export interface OpenApiResponse {
+interface OpenApiResponse {
   description?: string;
   content?: Record<string, OpenApiMedia>;
 }
@@ -72,7 +72,7 @@ export interface Operation {
   responses: { code: string; description: string; schema: OpenApiSchema | null }[];
 }
 
-export interface Group {
+interface Group {
   tag: string;
   description: string;
   operations: Operation[];
@@ -91,7 +91,7 @@ function jsonSchema(content: Record<string, OpenApiMedia> | undefined): OpenApiS
   return content?.['application/json']?.schema ?? null;
 }
 
-/** Every operation, in the document's path order. */
+/** Every operation, in the document's path order. Exported for the tests. */
 export function operations(doc: OpenApiDocument): Operation[] {
   return Object.entries(doc.paths).flatMap(([path, item]) =>
     METHODS.filter((method) => item[method]).map((method) => {
@@ -131,11 +131,14 @@ export function byTag(doc: OpenApiDocument): Group[] {
 }
 
 /** `Decision` for `#/components/schemas/Decision`. */
-export function refName(schema: OpenApiSchema): string | null {
+function refName(schema: OpenApiSchema): string | null {
   return schema.$ref?.split('/').pop() ?? null;
 }
 
-/** The schema a reference points at, the schema itself otherwise. */
+/**
+ * The schema a reference points at, the schema itself otherwise. Exported for
+ * the tests, which read the backend's own contract through it.
+ */
 export function resolve(schema: OpenApiSchema, doc: OpenApiDocument): OpenApiSchema {
   const name = refName(schema);
   return name ? (doc.components?.schemas?.[name] ?? {}) : schema;

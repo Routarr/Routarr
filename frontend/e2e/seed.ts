@@ -78,7 +78,7 @@ export async function seedRows(): Promise<void> {
   await moveAkira(decisions);
 }
 
-export type Proposal = { id: string; media_title: string; action: string };
+type Proposal = { id: string; media_title: string; action: string };
 
 export async function simulate(): Promise<Proposal[]> {
   const { decisions } = (await apiWhenFree('/simulate', {

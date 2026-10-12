@@ -56,9 +56,9 @@ impl std::fmt::Display for MatchMode {
 impl std::str::FromStr for MatchMode {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "all" | "and" => Ok(MatchMode::All),
-            "any" | "or" => Ok(MatchMode::Any),
+        match s {
+            "all" => Ok(MatchMode::All),
+            "any" => Ok(MatchMode::Any),
             _ => Err(format!("Invalid match_mode '{s}': expected all or any")),
         }
     }

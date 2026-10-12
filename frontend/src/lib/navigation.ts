@@ -25,7 +25,7 @@ import { ROUTE_GROUPS, type Route } from './routes';
 
 export type { Counts } from './routes';
 
-export interface NavItem extends Route {
+interface NavItem extends Route {
   icon: Component<LucideProps>;
 }
 
@@ -54,6 +54,7 @@ const ICONS: Record<string, Component<LucideProps>> = {
   '/reference': BookOpen,
 };
 
+/** A screen's icon. Exported for the tests, which hold every route to one. */
 export function iconFor(route: Route): Component<LucideProps> {
   const icon = ICONS[route.to];
   if (!icon) throw new Error(`navigation: no icon for ${route.to}`);
