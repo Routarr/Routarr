@@ -79,6 +79,28 @@ test('the contract downloads through the prefix @subpath', async ({ page }) => {
   await expect(download).toHaveAttribute('href', `${BASE}/api/v1/openapi.json`);
 });
 
+/**
+ * The licences of what the interface bundles, a file the build writes beside
+ * it. The link is relative, so only the `<base href>` keeps it under the
+ * mount point, and a name outside ASCII in a licence reads right only if the
+ * server says the file is UTF-8.
+ */
+test('the third-party licences open under the prefix, in UTF-8 @subpath', async ({ page }) => {
+  await openScreen(page, `${BASE}/rules`);
+  await page.getByRole('button', { name: /^Routarr v/ }).click();
+
+  const link = page.getByRole('dialog', { name: 'About Routarr' }).getByRole('link', {
+    name: 'Third-party licences',
+  });
+  const address = await link.evaluate((a) => (a as HTMLAnchorElement).href);
+  expect(new URL(address).pathname).toBe(`${BASE}/third-party-notices.txt`);
+
+  const notices = await page.request.get(address);
+  expect(notices.status()).toBe(200);
+  expect(notices.headers()['content-type']).toBe('text/plain; charset=utf-8');
+  expect(await notices.text()).toContain('## svelte');
+});
+
 test('the API is reached through the prefix @subpath', async ({ page }) => {
   const calls: string[] = [];
   page.on('request', (r) => {

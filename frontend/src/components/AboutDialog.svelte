@@ -3,7 +3,8 @@
   import Modal from './Modal.svelte';
   import SourceCredits from './SourceCredits.svelte';
 
-  /** What Routarr is: its version, its licence, and its sources' credits. */
+  /** What Routarr is: its version, its licence and the licences of what it is
+   *  built with, and its sources' credits. */
   let { version, onClose }: { version: string; onClose: () => void } = $props();
 
   const REPOSITORY = 'https://github.com/Routarr/Routarr';
@@ -26,6 +27,13 @@
     {t('AboutLicence')}
     <a class="text-link" href={REPOSITORY} target="_blank" rel="noopener noreferrer"
       >github.com/Routarr/Routarr</a
+    >
+  </p>
+  <!-- Relative, so it resolves under the mount point. The server serves the
+       file the image build writes beside the interface. -->
+  <p class="text-md mt-2">
+    <a class="text-link" href="third-party-notices.txt" target="_blank" rel="noopener noreferrer"
+      >{t('AboutNotices')}</a
     >
   </p>
   <div class="mt-4">

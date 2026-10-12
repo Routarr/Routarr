@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "Про Routarr",
   "AboutVersion": "Версія {version}",
   "AboutLicence": "Вільне програмне забезпечення за ліцензією GNU General Public License версії 3, вихідний код доступний на",
+  "AboutNotices": "Ліцензії сторонніх компонентів",
   "SourceCreditsTitle": "Джерела даних",
   "CreditTmdb": "Routarr використовує TMDB та API TMDB, але не схвалений, не сертифікований і жодним іншим чином не затверджений TMDB.",
   "CreditTvdb": "Метадані надано TheTVDB. Будь ласка, розгляньте можливість додати відсутню інформацію або оформити підписку.",

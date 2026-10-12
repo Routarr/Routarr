@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "A Routarr névjegye",
   "AboutVersion": "Verzió: {version}",
   "AboutLicence": "Szabad szoftver a GNU General Public License 3. verziója szerint, a forráskódja itt érhető el:",
+  "AboutNotices": "Harmadik felek licencei",
   "SourceCreditsTitle": "Adatforrások",
   "CreditTmdb": "A Routarr a TMDB-t és a TMDB API-jait használja, de a TMDB nem támogatja, nem hitelesítette és más módon sem hagyta jóvá.",
   "CreditTvdb": "A metaadatokat a TheTVDB biztosítja. Kérjük, fontolja meg a hiányzó adatok hozzáadását vagy az előfizetést.",

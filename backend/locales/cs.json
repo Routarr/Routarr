@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "O aplikaci Routarr",
   "AboutVersion": "Verze {version}",
   "AboutLicence": "Svobodný software pod licencí GNU General Public License, verze 3, zdrojový kód je na",
+  "AboutNotices": "Licence třetích stran",
   "SourceCreditsTitle": "Zdroje dat",
   "CreditTmdb": "Routarr používá TMDB a rozhraní API TMDB, ale TMDB jej nezaštiťuje, necertifikuje ani jinak neschvaluje.",
   "CreditTvdb": "Metadata poskytuje TheTVDB. Zvažte prosím doplnění chybějících informací nebo předplatné.",

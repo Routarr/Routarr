@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "Tietoja Routarrista",
   "AboutVersion": "Versio {version}",
   "AboutLicence": "Vapaa ohjelmisto, lisenssi GNU General Public License, versio 3, lähdekoodi osoitteessa",
+  "AboutNotices": "Kolmansien osapuolten lisenssit",
   "SourceCreditsTitle": "Tietolähteet",
   "CreditTmdb": "Routarr käyttää TMDB:tä ja TMDB:n API-rajapintoja, mutta TMDB ei ole suositellut, sertifioinut tai muuten hyväksynyt sitä.",
   "CreditTvdb": "Metatiedot tarjoaa TheTVDB. Harkitsethan puuttuvien tietojen lisäämistä tai tilaajaksi ryhtymistä.",
