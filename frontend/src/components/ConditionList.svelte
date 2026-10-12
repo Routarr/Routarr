@@ -28,25 +28,18 @@
     /** One per condition, which keeps a row's own state with it when another is removed. */
     keys: number[];
     /**
-     * Every spec, for rendering what the rule already carries. Never filtered:
-     * a rule saved before its media type narrowed still has to display, and a
-     * condition with no spec found renders as nothing at all.
+     * Every spec, unfiltered: a rule saved before its media type narrowed still displays,
+     * and a condition with no spec shows only its raw type.
      */
     specs: ConditionSpec[];
-    /** The subset offerable for this rule's media type. Only the add picker. */
+    /** The specs the add picker offers for this rule's media type. */
     addable: ConditionSpec[];
-    /**
-     * What the library holds per axis, so a condition can offer its values
-     * instead of asking for an exact spelling. Absent while it loads.
-     */
+    /** The library's values per axis, offered as suggestions. Null while they load. */
     facets?: LibraryFacets | null;
     facetsLoading?: boolean;
     facetsError?: string | null;
     onAdd: (type: string) => void;
-    /**
-     * Swap a condition for the one asking the same question with the other
-     * quantifier, keeping its values.
-     */
+    /** Swap a condition for its counterpart with the other quantifier, keeping its values. */
     onRetype: (index: number, type: string) => void;
     /** `unreadable` when the field holds text `value` could not take in. */
     onUpdate: (index: number, value: unknown, unreadable: boolean) => void;
@@ -55,23 +48,18 @@
 
   const named = $derived(facets ? localFacets(facets, i18n.language) : null);
 
-  // A quantified pair is one question, so the row is captioned by the `any`
-  // half of it and the selector carries the difference. Captioning each half
-  // with its own label would say "all of" twice, once in words and once in a
-  // control.
+  // A quantified pair is captioned by its `any` half, since the selector already says "all of".
   function caption(spec?: ConditionSpec): string | undefined {
     if (spec?.quantifier !== 'all') return spec?.label;
     return specs.find((candidate) => candidate.type === spec.counterpart)?.label ?? spec.label;
   }
 
-  // Only one half of each pair is offered: the other is a turn of the selector,
-  // and listing both would put two entries that read alike in one picker.
+  // One half of each pair is offered, and the row's selector reaches the other.
   const offerable = $derived(addable.filter((spec) => spec.quantifier !== 'all'));
 
   /**
-   * The condition picked to add. On Windows and Linux an arrow key on a closed
-   * select fires `change`, so adding on `change` would add a condition at each
-   * arrow. Picking is free, and Add adds.
+   * The condition picked to add. Adding waits for the button: on Windows and Linux an arrow
+   * key on a closed select fires `change`.
    */
   let chosen = $state('');
 
@@ -79,26 +67,19 @@
     if (!chosen) return;
     onAdd(chosen);
     chosen = '';
-    // Add turns disabled with nothing picked, and a disabled button drops the
-    // focus: the picker takes it back, ready for the next condition.
+    // Add turns disabled with nothing picked, and a disabled button drops the focus.
     void handFocus(`rules-${list}-add`);
   }
 
-  /**
-   * Delete takes its own row away, and can take the focus with it. The
-   * condition that moved up into its place takes it, else the picker that adds
-   * one, rather than the page behind the dialog.
-   */
+  /** The focus goes to the row that moves up into the deleted one's place, else the picker. */
   function remove(index: number) {
     onRemove(index);
     void handFocus(`rules-${list}-${index}-delete`, `rules-${list}-add`);
   }
 
   /**
-   * A list condition's whole sentence, with a gap where its values go: each
-   * language says "any of", "all of" and "none of" in the place and the case
-   * its own grammar puts them, which no caption with a quantifier glued after
-   * it can do.
+   * A list condition's whole sentence with a gap for its values, since each language puts
+   * "any of", "all of" and "none of" where its own grammar wants them.
    */
   const sentence = (type: string) => t(phraseKey(type), { values: '…' });
 
@@ -106,19 +87,13 @@
     spec?.value_type === 'string_list' || spec?.value_type === 'number_list';
 </script>
 
-<!-- A caption over a *list* of controls is a group heading, not a label: a
-     `<label>` must point at exactly one control, and this component renders
-     twice (conditions and exclusions), so a fixed `for` would also duplicate
-     the id. -->
+<!-- A group heading rather than a `<label>`, which names exactly one control. -->
 <div class="form-group" role="group" aria-labelledby="rules-{list}-caption">
   <span class="form-label" id="rules-{list}-caption">{title}</span>
-  <!-- How the values inside a condition combine is the selector's business. The
-       match mode above combines the conditions themselves. -->
   {#if list === 'conditions'}
     <p class="text-muted text-sm mt-1">{t('ConditionValuesHelp')}</p>
   {:else}
-    <!-- What an exclusion does, under a short caption like the conditions'
-         own, rather than in a caption long enough to fold on a phone. -->
+    <!-- Explained here so the caption stays short enough not to fold on a phone. -->
     <p class="text-muted text-sm mt-1">{t('ExclusionsHelp')}</p>
   {/if}
 
@@ -127,8 +102,6 @@
       {@const spec = specs.find((candidate) => candidate.type === condition.type)}
       <div class="condition-row {list === 'exclusions' ? 'excluded' : ''}">
         {#if spec?.counterpart}
-          <!-- A pair is one question asked two ways, so the selector holds the
-               two sentences and the turn of it is the choice between them. -->
           {@const any = spec.quantifier === 'all' ? spec.counterpart : spec.type}
           {@const all = spec.quantifier === 'all' ? spec.type : spec.counterpart}
           <select
@@ -142,11 +115,8 @@
             <option value="all">{sentence(all)}</option>
           </select>
         {:else if listed(spec)}
-          <!-- No counterpart means the media side holds one value, so several
-               values can only be alternatives: the sentence says so where the
-               selector would stand, or the search box after the first value
-               reads as an invitation to give a title a second language. The
-               field names it as its description, so it is heard as well. -->
+          <!-- With no counterpart the media holds one value, so several are alternatives.
+               The sentence says so, and the field reads it out as its description. -->
           <span class="condition-caption min-w-190 text-md" id="rules-{list}-{index}-sentence"
             >{sentence(condition.type)}</span
           >
@@ -190,8 +160,7 @@
     >
       <option value="">{t('AddCondition')}</option>
       {#each offerable as spec (spec.type)}
-        <!-- Flagged only when no enabled source can answer it: with the Arr as
-             a source, a genre condition needs no warning at all. -->
+        <!-- Flagged only when no enabled source, the Arr included, can answer it. -->
         <option value={spec.type}>
           {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
         </option>

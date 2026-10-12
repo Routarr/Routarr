@@ -2,11 +2,7 @@
   import { formatCount } from '../api/format';
   import { i18n } from '../lib/i18n.svelte';
 
-  /**
-   * How far a task has gone, as a bar and its two figures. The Tasks screen
-   * draws one per task, and a screen following its own task draws that one,
-   * so the two never disagree about what progress looks like.
-   */
+  /** How far a task has gone, as a bar and its two figures. */
   let { current, total, label }: { current: number; total: number; label: string } = $props();
 
   const done = $derived(Math.min(current, total));

@@ -1,10 +1,8 @@
 import { vi } from 'vitest';
 
 /**
- * What the page would save, by name and content. jsdom follows no download, so
- * the object URL and the anchor's click are stood in for and read back: the
- * name a reader would find in their downloads, and the blob behind it.
- * The caller unstubs the globals after the test.
+ * What the page would save, by name and content, since jsdom follows no download. The caller
+ * unstubs the globals after the test.
  */
 export function captureDownloads(): { name: string; blob: Blob }[] {
   const saved: { name: string; blob: Blob }[] = [];

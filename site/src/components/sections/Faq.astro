@@ -5,15 +5,9 @@ interface Props { locale: Locale }
 const t = useTranslations(Astro.props.locale);
 
 /**
- * These are not questions, they are objections: what somebody weighs before
- * letting software touch their library. Five of the seven answers are no, and
- * the third column names the thing in the product that answers each one, so a
- * reassurance becomes something the reader can go and check.
- *
- * The objection and its verdict are never folded away, as an accordion over
- * the whole row would fold them: five noes are an argument only when they are
- * read together. What folds is the justification under the mechanism, the
- * part that makes the section long on a phone.
+ * Objections a reader weighs before letting software touch their library, each with its
+ * verdict and the mechanism that answers it. Only the detail folds: the verdicts make their
+ * case when read together, and the detail is what makes the section long on a phone.
  */
 type Verdict = 'no' | 'yes' | 'plain';
 const OBJECTIONS: { worry: Key; verdict: Key; kind: Verdict; mechanism: Key; detail: Key }[] = [

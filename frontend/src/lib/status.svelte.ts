@@ -1,31 +1,16 @@
 /**
  * When the shell's copy of `/status` has to be read again.
  *
- * The top bar and the navigation share one `createAsync` in `Layout`, so they
- * never disagree with each other, only with the *page*. A screen that maps a
- * category, enables an instance or saves a metadata key has just removed a
- * warning the bar is still counting. Without this, only the idle poll corrects
- * the shell, a minute later.
- *
- * A revision rather than a second copy of the state: `Layout` already owns the
- * request and its loading, error and 401 handling, and a store beside it would
- * be a second source to keep in step. Bumping this re-runs that one loader
- * through its `deps`, which drops a late response through the generation
- * counter it already has: one request, no duplicate, no global refresh.
- *
- * A module-level rune for the reason the dictionary and the confirmation dialog
- * are: there is exactly one shell, and every caller means the same one.
+ * `Layout` owns the one request, and a new revision re-runs it through its `deps`. Without
+ * it, a warning a screen just removed stays counted until the next idle poll.
  */
 const state = $state({ revision: 0 });
 
 /**
- * Say that something the shell draws has changed.
+ * Says that something the shell draws has changed.
  *
- * Call it after a write that could add or remove a warning, or tick or reopen
- * a step of the getting-started guide, never on a read. The warnings are
- * derived server-side from the instances, the mappings, the metadata sources
- * and the jobs. The guide also reads the rules and the decisions a simulation
- * leaves.
+ * Call it after a write that can add or remove a warning (instances, mappings, metadata
+ * sources, jobs) or move a step of the guide (rules, simulations), never after a read.
  */
 export function invalidateStatus(): void {
   state.revision += 1;

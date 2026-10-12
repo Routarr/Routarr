@@ -7,16 +7,10 @@ interface Props { locale: Locale }
 const { locale } = Astro.props;
 const t = useTranslations(locale);
 
-/* `#start` is on the landing page, not on this one, so the link is absolute
-   within the site. An anchor to a section that is not here scrolls nowhere. */
+/* `#start` is on the landing page, so the link names that page. */
 const install = `${pathFor(locale)}#start`;
 
-/**
- * A close that sums up rather than exhorts. Each line is something the page
- * proved a few screens above, so the last thing a hesitant reader sees is the
- * three facts that answer the three reasons not to install it, and the slogan
- * does not carry the section on its own.
- */
+/** Each line recalls a fact the page showed earlier. */
 const RECAP: { claim: Key; detail: Key }[] = [
   { claim: 'cta.recap', detail: 'cta.recap.p' },
   { claim: 'cta.recap.2', detail: 'cta.recap.p.2' },

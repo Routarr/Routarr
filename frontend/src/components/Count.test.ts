@@ -5,7 +5,6 @@ import { renderWithI18n } from '../test/render';
 import Count from './Count.svelte';
 
 describe('Count', () => {
-  /** One shape on every screen that counts folders, grouped as the language groups digits. */
   it('draws a count as a number, grouped the way the language writes it', () => {
     renderWithI18n(Count, { props: { value: 12345 }, language: 'de' });
 

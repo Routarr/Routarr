@@ -1,27 +1,19 @@
 #!/usr/bin/env bash
-# Install gVisor on a CI runner and register it with Docker as `runsc`, so
-# `scripts/smoke-image.sh` can start the image under it.
+# Install gVisor on an Ubuntu amd64 CI runner and register it with Docker as `runsc`, so
+# `scripts/smoke-image.sh` can start the image under it. A host follows the README instead.
 #
 #   sudo bash scripts/install-runtime.sh gvisor
-#
-# For an Ubuntu amd64 runner with Docker, not for an installation: the README
-# says how a host installs it. The version and checksum are pinned here, so an
-# upstream release changes nothing until this file does.
 set -euo pipefail
 
 RUNTIME="${1:?usage: install-runtime.sh gvisor}"
 
-# gVisor, a kernel in user space between the container and the host's. The
-# tarball holds `runsc` and the `gvisor-bin/` sidecars it looks for beside
-# itself, so both land in one directory.
 GVISOR_RELEASE=20260928
 GVISOR_SHA512=4ce35ca83aef7f96b06cde668e0b23aa98b05aa1829508e974196c2a1e02786c95f5bf79315fd7ddcfd88fe7a00f083ed8053e25eff7673d28d5256440caae8b
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Merged into the daemon's configuration rather than written over it: a runner
-# ships one of its own.
+# Merges into the daemon's configuration, since a runner ships one of its own.
 register() {
   local name=$1 runtime=$2 config=/etc/docker/daemon.json
   [ -s "$config" ] || echo '{}' >"$config"
@@ -39,6 +31,7 @@ case "$RUNTIME" in
     curl -fsSL -o "$WORK/gvisor.tar.zstd" \
       "https://storage.googleapis.com/gvisor/releases/release/$GVISOR_RELEASE/x86_64/gvisor.tar.zstd"
     echo "$GVISOR_SHA512  $WORK/gvisor.tar.zstd" | sha512sum -c --quiet
+    # `runsc` looks for its `gvisor-bin/` sidecars beside itself, so both land here.
     tar --zstd -xf "$WORK/gvisor.tar.zstd" -C /usr/local/bin
     register runsc '{"path": "/usr/local/bin/runsc"}'
     ;;

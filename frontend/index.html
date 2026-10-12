@@ -1,8 +1,6 @@
 <!DOCTYPE html>
-<!-- Dark is the default, stamped here so the first paint is already it: the
-     theme lives in the `ui_theme` setting, which the shell can only read after
-     its first request, and without it a light-system reader would see a white
-     frame until that lands. `auto` is what removes this attribute again. -->
+<!-- Dark is the default theme, set here because `ui_theme` arrives only after the first
+     request and a light system would flash white until then. `auto` removes it. -->
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />

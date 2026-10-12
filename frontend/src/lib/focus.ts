@@ -4,14 +4,11 @@ import { tick } from 'svelte';
 export type FocusTarget = HTMLElement | string | null | undefined;
 
 /**
- * Hands the focus on once the screen has redrawn, when the control that held
- * it went with the redraw.
+ * Once the screen has redrawn, hands the focus to the first target still on the page and
+ * enabled, when the control that held it is gone or disabled.
  *
- * A focused button that leaves the page with its row, or turns disabled while
- * its action runs, drops the focus to `<body>`, where a screen reader loses its
- * place. The first target still on the page and able to take it gets it. A
- * focus that is still somewhere, as in the field a save by Enter came from,
- * stays where it is.
+ * A control that goes or turns disabled drops the focus to `<body>`, where a screen reader
+ * loses its place. A focus held elsewhere, as in the field a save by Enter came from, stays.
  */
 export async function handFocus(...targets: FocusTarget[]): Promise<void> {
   await tick();
@@ -27,11 +24,11 @@ export async function handFocus(...targets: FocusTarget[]): Promise<void> {
 }
 
 /**
- * Move the focus to the heading of the screen `container` shows, as a page
- * load would, so a screen reader announces where a link led.
+ * Moves the focus to the heading of the screen `container` shows, so a screen reader
+ * announces where a link led.
  *
- * A screen is its own chunk and renders once that loads, so the heading is
- * waited for rather than looked up once. Returns what stops the wait.
+ * The heading may render later, once the screen's chunk loads, so it is waited for. Returns
+ * what stops the wait.
  */
 export function focusHeadingOf(container: HTMLElement): () => void {
   const focus = (): boolean => {

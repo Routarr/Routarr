@@ -1,11 +1,7 @@
 <script lang="ts">
   import Layout from '../components/Layout.svelte';
 
-  /**
-   * `Layout` takes its page as a snippet, and a test cannot hand a component a
-   * snippet. This is the smallest thing that can give it one, a heading
-   * included, as every screen has.
-   */
+  /** Gives `Layout` the page snippet a test cannot pass, with a heading as every screen has. */
 </script>
 
 <Layout>

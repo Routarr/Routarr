@@ -4,9 +4,8 @@
   import type { Outcome } from '../lib/outcome.svelte';
 
   /**
-   * The guide as the dashboard wires it: drawn from the published state, so a
-   * choice the server accepts replaces the block that held the pressed button,
-   * inside the content region the shell names `main`.
+   * The guide as the dashboard wires it, drawn from the published state inside the region the
+   * shell names `main`.
    */
   let { outcome }: { outcome: Outcome } = $props();
 </script>

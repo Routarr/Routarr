@@ -23,10 +23,7 @@ describe('handFocus', () => {
     expect(document.activeElement).toBe(next);
   });
 
-  /**
-   * A browser drops the focus of a control that turns disabled, and a test DOM
-   * may keep it there: either way nothing can be done from it.
-   */
+  /** A browser drops the focus of a control that turns disabled, but jsdom may keep it. */
   it('takes the focus back from a control left disabled', async () => {
     const pressed = button('pressed');
     pressed.focus();

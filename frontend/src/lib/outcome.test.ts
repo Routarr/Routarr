@@ -3,10 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { ApiError } from '../api/client';
 import { createOutcome } from './outcome.svelte';
 
-/**
- * What an action says about how it went, kept apart from what the page's load
- * says: a reload can neither erase a refusal nor offer to retry a write.
- */
 describe('createOutcome', () => {
   it('takes the error off screen when a success is shown', () => {
     const outcome = createOutcome();
@@ -48,7 +44,6 @@ describe('createOutcome', () => {
     expect(outcome.error).toBeNull();
   });
 
-  /** Part done and part failed is its own state, and replaces the others. */
   it('shows a partial result alone', () => {
     const outcome = createOutcome();
     outcome.fail('The Arr refused the move');
@@ -62,7 +57,6 @@ describe('createOutcome', () => {
     expect(outcome.warning).toBeNull();
   });
 
-  /** The failures a result is made of leave with it, whatever replaces it. */
   it('takes the details of a result off screen with it', () => {
     const outcome = createOutcome();
     outcome.warn('Moves made: 1 of 2', ['Heat: The Arr refused the move']);

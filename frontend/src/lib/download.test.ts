@@ -7,10 +7,7 @@ afterEach(() => {
 });
 
 describe('downloadBlob', () => {
-  /**
-   * The URL stays while the browser may still read the blob, and goes after:
-   * revoked on the line after the click, some browsers save an empty file.
-   */
+  /** Revoked right after the click, the URL leaves some browsers saving an empty file. */
   it('saves under the name it was given and lets go of the URL once read', () => {
     vi.useFakeTimers();
     const create = vi.fn(() => 'blob:routarr/1');

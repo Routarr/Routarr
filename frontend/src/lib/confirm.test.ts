@@ -7,10 +7,7 @@ import { answering } from './confirm.svelte';
 const question = (name: string, includes: string[] = []) =>
   new ApiError(`Asked about ${name}.`, 409, 'confirmation_required', null, name, includes);
 
-/**
- * A write two guardrails refuse asks twice, and the second request carries
- * both answers: one dropped, the server asks the first question again forever.
- */
+/** A dropped answer makes the server ask its question again, forever. */
 describe('answering', () => {
   it('sends every answer given so far with each new request', async () => {
     const send = vi

@@ -12,17 +12,9 @@
   }
 
   /**
-   * The actions a row has beyond the two it shows.
+   * The actions of a row beyond the two it shows, so that a row never runs off the screen.
    *
-   * A row with every action as a button overflows the screen, and the ones
-   * past the edge go off it with nothing saying so. No width fixes that: the
-   * number of actions does. Two stay visible, the rest live here.
-   *
-   * Built rather than borrowed because the alternative is a dropdown library for
-   * one menu, and the behaviour that matters is small: Escape closes it and
-   * hands the focus back, a click outside closes it, the trigger says whether
-   * it is open, and the arrows walk it. A `role="menu"` announces a menu, and a
-   * screen reader user then reaches for the arrows, not for Tab.
+   * The arrows walk the items, as a screen reader user expects of a `role="menu"`.
    */
   let {
     actions,
@@ -79,7 +71,7 @@
 
   $effect(() => {
     if (!open) return;
-    // Focus follows the menu in: the first item, as a menu button opens.
+    // A menu button opens with the focus on its first item.
     items()[0]?.focus();
 
     const onKey = (event: KeyboardEvent) => {
@@ -129,8 +121,7 @@
             tabindex="-1"
             class="action-menu-item{action.danger ? ' is-danger' : ''}"
             onclick={() => {
-              // A dialog the action opens hands the focus back to whatever
-              // held it, and the item is about to disappear.
+              // Focus the trigger first: a dialog the action opens hands the focus back to it.
               close(true);
               action.onSelect();
             }}

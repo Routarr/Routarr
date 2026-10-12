@@ -3,18 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 
 import ModalHarness from '../test/ModalHarness.svelte';
 
-/**
- * A plain `<div>` overlay leaves the page behind it announced, Tab walking out,
- * Escape inert and focus unrestored. The native `<dialog>` gives all four back,
- * but only when opened with `showModal` and only when Escape is routed through
- * the caller rather than closing the element behind its back.
- */
-
 describe('Modal', () => {
-  /**
-   * Beside a form, a stray click would throw away what was typed, so a click
-   * outside does nothing unless the caller holds nothing to lose.
-   */
+  /** Beside a form, a stray click would throw away what was typed. */
   it('closes on a click beside its content only when the caller allows it', async () => {
     const guarded = vi.fn();
     const { unmount } = render(ModalHarness, { label: 'Rename category', onClose: guarded });
@@ -33,9 +23,8 @@ describe('Modal', () => {
   });
 
   /**
-   * A click goes to the common ancestor of its press and its release. Selecting
-   * the typed query by dragging past the field's edge ends in a click on the
-   * dialog itself, and the query goes with a closed palette.
+   * A click lands on the common ancestor of press and release, so selecting the query by
+   * dragging past the field's edge clicks the dialog itself.
    */
   it('stays open when a press inside the content is released beside it', async () => {
     const onClose = vi.fn();
@@ -53,16 +42,10 @@ describe('Modal', () => {
     expect(screen.getByRole('dialog', { name: 'Rename category' })).toBeTruthy();
   });
 
-  /**
-   * `showModal` is what puts the element in the top layer and makes the rest of
-   * the document inert. `open` alone renders the markup and none of that.
-   */
+  /** Only `showModal` puts the dialog in the top layer and makes the page behind it inert. */
   it('opens it as a modal, not merely as a visible element', () => {
-    // jsdom ships the element and neither of its methods, so `showModal` is
-    // installed here rather than spied on. That is also what makes the
-    // fallback below the *default* path in this suite. Taken away when the
-    // test finishes, failed or not: left behind, it would stand in for the
-    // fallback in every test after this one.
+    // jsdom has no `showModal` to spy on. Removed pass or fail: every other test here needs
+    // the fallback.
     const showModal = vi.fn();
     Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
       value: showModal,
@@ -78,11 +61,7 @@ describe('Modal', () => {
     expect(showModal).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * Escape is `cancel`, and letting the browser act on it would close the
-   * element while the caller still believes the modal is showing, after which
-   * nothing reopens it.
-   */
+  /** Left to the browser, Escape closes the element while the caller still thinks it open. */
   it('turns Escape into a close the caller controls', async () => {
     const onClose = vi.fn();
     render(ModalHarness, { label: 'Rename category', onClose });
@@ -103,12 +82,7 @@ describe('Modal', () => {
     expect(screen.queryByText('body')).toBeNull();
   });
 
-  /**
-   * The fallback, which is not hypothetical: jsdom implements `<dialog>` but
-   * not `showModal`, so this is the path every other test in this file takes.
-   * Without it the markup would never render and none of them could assert
-   * anything.
-   */
+  /** jsdom has no `showModal`, so every other test in this file runs this path. */
   it('renders even where the test DOM has no showModal to call', () => {
     expect(
       (HTMLDialogElement.prototype as unknown as Record<string, unknown>).showModal,
@@ -121,9 +95,8 @@ describe('Modal', () => {
   });
 
   /**
-   * Svelte removes the block's DOM before the teardown runs, so `close()` acts
-   * on a detached element and the browser's own restoration never happens, so
-   * a keyboard user who closes a dialog lands on `<body>`.
+   * Svelte removes the DOM before the teardown runs, so `close()` acts on a detached element
+   * and the browser never restores the focus itself.
    */
   it('gives the focus back to the control that opened it', () => {
     const opener = document.createElement('button');
@@ -143,8 +116,8 @@ describe('Modal', () => {
   });
 
   /**
-   * The browser opens a dialog on its first focusable element, the close
-   * button in a form's header, where a reflex Enter throws the form away.
+   * The browser focuses the first focusable element, a form's close button, where a reflex
+   * Enter throws the form away.
    */
   it('opens on the element it is told to', () => {
     render(ModalHarness, {
@@ -156,10 +129,7 @@ describe('Modal', () => {
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'field' }));
   });
 
-  /**
-   * A dialog a screen opens on arrival has no opener but the page. Without a
-   * fallback, closing it leaves the focus on `<body>`.
-   */
+  /** A dialog a screen opens on arrival has no opener to hand the focus back to. */
   it('gives the focus to its fallback when the page itself opened it', () => {
     const fallback = document.createElement('button');
     fallback.id = 'add-instance';

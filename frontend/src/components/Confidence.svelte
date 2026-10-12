@@ -3,20 +3,12 @@
   import { i18n } from '../lib/i18n.svelte';
 
   /**
-   * How far the rules agreed, as a figure beside a meter.
+   * How far the rules agreed, as a figure beside a bar, or beside a dot whose intensity
+   * carries the value in a table column too narrow for a bar.
    *
-   * The figure sits beside the bar, never on it: over the fill on one side of
-   * its digits and the track on the other, its contrast would change with the
-   * value. Beside the bar it is always on the card, whose contrast is measured.
-   *
-   * The meter is the guide's progress bar, for the explanation panel, where it
-   * has room to be read in: its length is the value, and one colour claims no
-   * good or bad. A table column leaves it its minimum width after the figure, a
-   * stub that measures nothing, so there it is a dot whose intensity carries the
-   * value.
-   * No band or threshold: `confidence_for` scales differently per match mode,
-   * an `all` rule with one condition is 60% and an `any` rule with two is 53%,
-   * so no percentage can order them.
+   * The figure never sits on the bar, where its contrast would change with the value.
+   * There is no band or threshold: `confidence_for` scales differently per match mode, so no
+   * percentage orders an `all` rule against an `any` one.
    */
   let { value, meter = false }: { value: number; meter?: boolean } = $props();
 
@@ -26,13 +18,9 @@
   /**
    * Where this value sits on the dot's ramp, as the percentage `color-mix` wants.
    *
-   * Computed here rather than in `calc()` inside the mix: an unregistered
-   * custom property inside a colour function leaves the whole declaration
-   * invalid at computed-value time, and the dot renders transparent.
-   *
-   * 45% is the floor the engine can produce for a matching rule, an `any` rule
-   * with one condition, so the ramp spans the range that actually occurs rather
-   * than a decorative 0 to 100.
+   * Computed here, not in `calc()`: an unregistered custom property inside a colour function
+   * invalidates the declaration at computed-value time and the dot renders transparent.
+   * The ramp starts at 45%, the lowest confidence the engine gives a matching rule.
    */
   const mix = $derived(Math.min(100, Math.max(0, ((pct - 45) / 55) * 100)));
 </script>

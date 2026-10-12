@@ -2,15 +2,10 @@
   import { Search } from '../lib/icons';
 
   /**
-   * One search box, wherever a screen filters by typing, so the same gesture
-   * never looks like a different control, and every box holds its width when a
-   * button appears beside it.
+   * The one search box, wherever a screen filters by typing.
    *
-   * The anchor is the part worth stating once. As `flex: 1 1 auto` the box
-   * absorbs every spare pixel of its row, so revealing "clear filters" takes
-   * that width straight back out of it and shifts everything between them
-   * sideways, on the first keystroke, and by however wide that label happens
-   * to be in the language being read.
+   * `.search-field` never grows: a box that took the row's spare width would give it back to
+   * a "clear filters" button revealed beside it, and the row would shift on the first keystroke.
    */
   let {
     value = $bindable(),
@@ -29,17 +24,13 @@
     /** Fired after the value has changed, where a screen resets its paging. */
     oninput?: () => void;
     /**
-     * Milliseconds of quiet before the bound value follows the field. A screen
-     * whose `deps` read the value fetches on every change, so without a delay
-     * typing "anime" is five `LIKE` queries against a homelab server, and with
-     * one it is a single query. Zero binds on every keystroke, for a screen
-     * that submits instead.
+     * Milliseconds of quiet before the bound value follows the field, for a screen that fetches
+     * on every change. Zero binds on every keystroke, for a screen that submits instead.
      */
     debounce?: number;
   } = $props();
 
-  // The field's own text. `value` follows it, at once or after the quiet, and
-  // a value the parent resets (clear filters) comes back down into it.
+  // The field's own text. `value` follows it, and a value the parent resets comes back into it.
   let draft = $derived(value);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
