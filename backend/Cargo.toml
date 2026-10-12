@@ -108,9 +108,6 @@ strip = true
 [lints.rust]
 unsafe_code = "forbid"
 
-[lints.clippy]
-uninlined_format_args = "allow"
-
 # The cost an archive's key is derived at is made for a release build:
 # unoptimised, Argon2 takes seconds where it takes a fraction of one, and the
 # tests that seal and open archives wait on it.
