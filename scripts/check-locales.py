@@ -153,7 +153,7 @@ def referenced_keys(text: str) -> set[str]:
     ]
     found: set[str] = set()
     for pattern in patterns:
-        flags = re.S if "^" not in pattern else re.M
+        flags = re.DOTALL if "^" not in pattern else re.MULTILINE
         for match in re.findall(pattern, text, flags):
             if isinstance(match, tuple):
                 found |= {group for group in match if group}
@@ -207,7 +207,7 @@ def built_keys() -> dict[str, set[str]]:
         prefix, _, suffix = family.partition("+")
         text = (ROOT / relative).read_text(encoding="utf-8")
         values = set()
-        for found in re.findall(pattern, text, re.M):
+        for found in re.findall(pattern, text, re.MULTILINE):
             values |= set(re.findall(r"[a-z_]+|[A-Z]{2,}", found))
         families[family] = {
             prefix
@@ -225,7 +225,24 @@ def server_counts() -> set[str]:
 
 
 def placeholders(template: str) -> set[str]:
+    """The `{name}` values a sentence carries. `add-locale.py` reads this one."""
     return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", template))
+
+
+def not_text(dictionaries: dict) -> list[str]:
+    """Drop and name every value that is not text. The server reads a
+    dictionary holding one as no dictionary at all, falling back to English
+    for the whole language, and every comparison here expects text."""
+    problems = []
+    for language, dictionary in sorted(dictionaries.items()):
+        if not isinstance(dictionary, dict):
+            problems.append(f"{language}.json is not a JSON object")
+            dictionaries[language] = {}
+            continue
+        for key in [key for key, value in dictionary.items() if not isinstance(value, str)]:
+            problems.append(f"{language}.json: '{key}' is not a string")
+            del dictionary[key]
+    return problems
 
 
 def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str, str]]) -> list[str]:
@@ -257,12 +274,12 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
         carriers = [
             key
             for key in english
-            if re.search(spec["en"], said[key], re.I) and key not in spec["except"]
+            if re.search(spec["en"], said[key], re.IGNORECASE) and key not in spec["except"]
         ]
         if not carriers:
             problems.append(f"glossary: '{concept}' matches no English key")
         for key in spec["except"]:
-            if key not in english or not re.search(spec["en"], said[key], re.I):
+            if key not in english or not re.search(spec["en"], said[key], re.IGNORECASE):
                 problems.append(f"glossary: '{concept}' excepts {key}, whose English does not say it")
         for language, dictionary in sorted(dictionaries.items()):
             if language == "en":
@@ -275,7 +292,7 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
                 value = dictionary.get(key)
                 if value is None or value == english[key]:
                     continue
-                if not re.search(word, value, re.I):
+                if not re.search(word, value, re.IGNORECASE):
                     problems.append(
                         f"{language}.json: '{key}' says '{concept}' in another word than /{word}/"
                     )
@@ -286,7 +303,7 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
                 translated = dictionary.get(key)
                 if key in carriers or translated is None or translated == value:
                     continue
-                if re.search(homonym, value) and re.search(word, translated, re.I):
+                if re.search(homonym, value) and re.search(word, translated, re.IGNORECASE):
                     problems.append(
                         f"{language}.json: '{key}' uses the '{concept}' word /{word}/ "
                         f"for what its English says as /{homonym}/"
@@ -300,7 +317,7 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
                 translated = dictionary.get(key)
                 if key in carriers or translated is None or translated == value:
                     continue
-                if re.search(beside, value) and re.search(adjacent, translated, re.I):
+                if re.search(beside, value) and re.search(adjacent, translated, re.IGNORECASE):
                     problems.append(
                         f"{language}.json: '{key}' names {re.search(beside, translated).group(0)} "
                         f"with the '{concept}' word /{word}/"
@@ -317,10 +334,10 @@ def main() -> int:
         print("locales/en.json is missing", file=sys.stderr)
         return 1
 
+    problems: list[str] = not_text(dictionaries)
     english = dictionaries["en"]
     text = source_text()
     referenced = referenced_keys(text)
-    problems: list[str] = []
     families = built_keys()
     built = set().union(*families.values())
 

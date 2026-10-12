@@ -22,6 +22,7 @@ import pathlib
 import re
 import sys
 from collections import defaultdict
+from itertools import pairwise
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "backend" / "locales"
@@ -30,13 +31,7 @@ GLOSSARY = ROOT / "scripts" / "glossary.json"
 # An example longer than this costs more to read than it teaches.
 LONGEST_EXAMPLE = 90
 
-STOP = set(
-    """a about after all also an and any are as at be been before being by can could did do
-    does each every for from had has have here how if in into is it its just like may more
-    most no not now of off on once one only or other our out over same some still such than
-    that the their them then there these they this those to under up was we were what when
-    where which while who will with would you your""".split()
-)
+STOP = {"a", "about", "after", "all", "also", "an", "and", "any", "are", "as", "at", "be", "been", "before", "being", "by", "can", "could", "did", "do", "does", "each", "every", "for", "from", "had", "has", "have", "here", "how", "if", "in", "into", "is", "it", "its", "just", "like", "may", "more", "most", "no", "not", "now", "of", "off", "on", "once", "one", "only", "or", "other", "our", "out", "over", "same", "some", "still", "such", "than", "that", "the", "their", "them", "then", "there", "these", "they", "this", "those", "to", "under", "up", "was", "we", "were", "what", "when", "where", "which", "while", "who", "will", "with", "would", "you", "your"}
 
 
 def words(text: str) -> list[str]:
@@ -49,7 +44,7 @@ def terms(text: str) -> set[str]:
     """Each meaningful word, and each pair of them side by side: "root folder"
     and "master key" are terms a language may say in a word of its own."""
     found = words(text)
-    return set(found) | {f"{a} {b}" for a, b in zip(found, found[1:])}
+    return set(found) | {f"{a} {b}" for a, b in pairwise(found)}
 
 
 def examples(batch: dict[str, str], english: dict[str, str], translated: dict[str, str]):
@@ -75,7 +70,7 @@ def glossary(batch: dict[str, str], english: dict[str, str], translated: dict[st
     said = {key: re.sub(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}", "", value) for key, value in english.items()}
     lines = []
     for concept, spec in json.loads(GLOSSARY.read_text(encoding="utf-8")).items():
-        if not any(re.search(spec["en"], said[key], re.I) for key in batch):
+        if not any(re.search(spec["en"], said[key], re.IGNORECASE) for key in batch):
             continue
         word = spec["words"].get(code)
         carriers = [
@@ -83,10 +78,10 @@ def glossary(batch: dict[str, str], english: dict[str, str], translated: dict[st
             for key in english
             if key not in batch
             and key not in spec["except"]
-            and re.search(spec["en"], said[key], re.I)
+            and re.search(spec["en"], said[key], re.IGNORECASE)
             and translated.get(key, english[key]) != english[key]
             and word
-            and re.search(word, translated[key], re.I)
+            and re.search(word, translated[key], re.IGNORECASE)
         ]
         shown = min(carriers, key=lambda key: len(english[key]), default=None)
         if shown:

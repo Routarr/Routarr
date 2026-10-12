@@ -1,13 +1,10 @@
 """`scripts/release-runs.py`, the release guard's verdict on a commit's runs."""
 
-import importlib.util
-import pathlib
 import unittest
 
-SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "release-runs.py"
-spec = importlib.util.spec_from_file_location("release_runs", SCRIPT)
-release_runs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(release_runs)
+from _scripts import load
+
+release_runs = load("release-runs")
 
 
 def run(path, conclusion="success", *, event="push", id=1, status="completed"):
