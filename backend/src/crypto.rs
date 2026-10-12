@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn plaintext_passes_through() {
         let sb = boxed();
-        assert_eq!(sb.open("legacy-plaintext").unwrap(), "legacy-plaintext");
+        assert_eq!(sb.open("plaintext-value").unwrap(), "plaintext-value");
     }
 
     #[test]
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn plaintext_always_needs_resealing() {
         let sb = boxed();
-        assert!(sb.needs_reseal("legacy-plaintext"));
+        assert!(sb.needs_reseal("plaintext-value"));
         assert!(!sb.needs_reseal(&sb.seal("x").unwrap()));
     }
 

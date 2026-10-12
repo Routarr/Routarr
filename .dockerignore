@@ -9,8 +9,8 @@
 .git/
 
 # Anything that could hold a secret or a library, wherever it sits: the context
-# is sent to BuildKit whole, and `backend/.env` or a development database at
-# `backend/data/` matched none of the root-only patterns this file once had.
+# is sent to BuildKit whole, and a `backend/.env` or a development database at
+# `backend/data/` would otherwise travel with it.
 **/.env
 **/*.db
 **/*.db-*
