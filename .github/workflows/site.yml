@@ -71,7 +71,7 @@ jobs:
       - run: npx astro check
         working-directory: site
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
         working-directory: frontend
       - run: npx playwright install chromium --with-deps
         working-directory: frontend
@@ -115,7 +115,7 @@ jobs:
           node-version-file: site/.node-version
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
         working-directory: frontend
       - run: npx playwright install chromium --with-deps
         working-directory: frontend

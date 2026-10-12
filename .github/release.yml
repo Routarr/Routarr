@@ -1,0 +1,9 @@
+# What `gh release create --generate-notes` lists under the notes a person
+# writes (CONTRIBUTING.md, "Releasing"). Dependabot's monthly updates are
+# internal, and a person reading what changed has no use for them.
+changelog:
+  exclude:
+    labels:
+      - dependencies
+    authors:
+      - dependabot[bot]

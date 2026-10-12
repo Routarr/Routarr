@@ -21,7 +21,7 @@ building one of those rather than after.
 
 The dev container ([`.devcontainer/`](.devcontainer/)) has what the checks
 below need, but for the last two blocks: the pinned Rust toolchain, Node,
-python3, `cargo-audit`, `cargo-llvm-cov`, `gh`, and the Playwright browser.
+python3, `cargo-llvm-cov`, `gh`, and the Playwright browser.
 Open the repository in it and `postCreateCommand` does the rest.
 
 Without it, you need the Rust toolchain
@@ -65,23 +65,24 @@ skip a check locally.
 ```bash
 # backend/
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
+cargo clippy --locked --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo test --locked
-cargo llvm-cov --summary-only --fail-under-lines 96 --ignore-filename-regex 'src/(tests/|process\.rs)'
-cargo audit
+cargo llvm-cov --locked --summary-only --fail-under-lines 96 --ignore-filename-regex 'src/(tests/|process\.rs)'
 python3 ../scripts/check-locales.py
 python3 ../scripts/check-api-types.py   # the response structs against types.ts
 python3 ../scripts/check-versions.py    # every place a version is written
 python3 ../scripts/check-typography.py  # plain punctuation in what a reader sees
 python3 ../scripts/check-claude-md.py   # CLAUDE.md and the rules stay short
+python3 ../scripts/check-licences.py    # the bundled npm packages and about.toml, against deny.toml
+python3 -m unittest discover -s ../scripts/tests   # the release guard and the licence check
 
 # frontend/
 npm run format:check
 npm run check          # svelte-check, then the types of the e2e specs
 npm run lint           # ESLint, type-aware
 npm run coverage       # vitest, with floors
-npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high   # what the bundle carries
 npm run build && node ../scripts/check-bundle-size.mjs   # the first load's ceiling
 npm run test:e2e       # builds the release binary; a few minutes, in Chromium
 ROUTARR_E2E_BROWSER=firefox npm run test:e2e   # and webkit: CI runs every suite in all three
@@ -96,7 +97,7 @@ npx astro check        # types over the components and the catalogue
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 
 # repository root, with the tools the dev container installs at CI's versions
-(cd backend && cargo deny --locked check)   # licences, advisories and sources, from deny.toml
+(cd backend && cargo deny --locked check)   # advisories, licences and sources, from deny.toml
 bash scripts/check-api-breaks.sh            # the API contract against the last release (oasdiff)
 actionlint                                  # the workflows
 git ls-files -z '*.sh' | xargs -0 shellcheck -S style
@@ -225,39 +226,82 @@ version is published because somebody decided to publish it.
    `.github/assets/simulation.webp` from a throwaway instance.
 2. Commit, merge to `main`, and let CI finish. The release refuses a commit that
    is not on `main`, a tag naming another version than `backend/Cargo.toml`, a
-   commit whose workflows are not green and a version the registry already holds
-   (`scripts/release-guard.sh`, which a dry run can call), so tagging ahead of
-   them only wastes a tag.
-3. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+   commit CI or the image build did not pass on a push, and a version the
+   registry already holds (`scripts/release-guard.sh`, which a dry run can
+   call), so tagging ahead of them only wastes a tag.
+3. `git tag -a vX.Y.Z -m "Routarr X.Y.Z" && git push origin vX.Y.Z`. Annotated:
+   the tag records who made it and when, which a lightweight one does not.
 
 The tag builds the image for both architectures, starts each one through
-`scripts/smoke-image.sh`, pushes it to GHCR with a signed provenance
-attestation, and opens a **draft** release carrying the generated list of
+`scripts/smoke-image.sh`, pushes it to GHCR with the list of its packages
+(an SBOM), attests its provenance in GitHub's signed store (SECURITY.md says
+how to check it), and opens a **draft** release carrying the generated list of
 commits. The image is published under four tags derived from the git tag:
 `X.Y.Z`, `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across minors)
 and `latest`. A tag with a hyphen in it (`v1.2.0-rc.1`) publishes its exact
 version only.
 
-4. Write, at the top of that draft, the few lines saying what changed for
-   someone running Routarr, each API break `scripts/api-breaks/` lists among
-   them. The generated list stays underneath for whoever wants the detail.
-   Then publish it, which also deploys the showcase site from the tag
-   (`.github/workflows/site.yml`), and delete that list: CI refuses one kept
-   past its release.
+4. Write, at the top of that draft, what changed for someone running Routarr,
+   under the same two headings every release:
+
+   ```markdown
+   ## Before you upgrade
+
+   What to do or know first: each API break `scripts/api-breaks/` lists, a
+   setting that moved, a release to pass through. "Nothing." when there is none.
+
+   ## What changed
+
+   A few lines for someone running Routarr, not the list of commits.
+   ```
+
+   The generated list stays underneath for whoever wants the detail, without
+   Dependabot's updates (`.github/release.yml`). Then publish it, which also
+   deploys the showcase site from the tag (`.github/workflows/site.yml`), and
+   delete the `scripts/api-breaks/` list: CI refuses one kept past its release.
 
 The draft is the step that is easy to forget and the only one a person has to
 do: the image is on GHCR from step 3, so nothing is blocked while it waits, but
 until it is published there is no release to point anyone at.
 
-To undo, delete the draft and the tag. The image and its tags stay on GHCR, and
-the release refuses that version again until it is deleted from the package's
-page on GitHub. A version already published is corrected by tagging the next
-patch, never by moving a tag: `latest` follows the newest stable tag, and an
-image somebody has already pulled cannot be recalled.
+To undo before publishing, delete the draft and the tag: the repository's tag
+rules let an administrator alone delete or move a `v*` tag. The image and its
+tags stay on GHCR, and the release refuses that version again until it is
+deleted from the package's page on GitHub. A published release cannot be
+undone: GitHub locks it and its tag (immutable releases). A version already
+published is corrected by tagging the next patch, never by moving a tag:
+`latest` follows the newest stable tag, and an image somebody has already
+pulled cannot be recalled.
 
 The provenance attestation needs the repository to be **public**: GitHub does
 not issue one for a private repository outside Enterprise, and the release job
 fails on that step.
+
+## Versions
+
+Routarr follows [Semantic Versioning](https://semver.org). A version number
+makes its promise about four things a person or another application depends
+on: the image and its tags, the API under `/api/v1` as
+[`backend/openapi/v1.json`](backend/openapi/v1.json) describes it, the
+`ROUTARR_*` environment variables, and the database each release opens.
+
+- **A patch release** (0.2.0 to 0.2.1) breaks none of them. It carries fixes,
+  the base image's among them: a security fix in Alpine ships in a patch
+  release rather than waiting for the next minor one.
+- **Before 1.0, a minor release** (0.2 to 0.3) may break one of them, and its
+  notes say so under "Before you upgrade". From 1.0 on, only a major release
+  does.
+- **An API break is announced one release ahead.** What is to be removed or
+  changed is marked `deprecated` in the contract in one release, and changes
+  in the next at the earliest. Before 1.0 the break lands in `/api/v1` and
+  `scripts/api-breaks/` lists it. From 1.0 on, it goes in `/api/v2`, never in
+  `/api/v1`.
+- **The database moves forward.** A release migrates the database it opens,
+  and an older one refuses a database a newer release migrated further, naming
+  that release. Going back to a release with the same schema needs nothing.
+  Going back further means restoring the backup taken before the upgrade.
+- **Only the newest release is supported**, as [SECURITY.md](SECURITY.md)
+  says: a fix ships in the next release, never in an older line.
 
 ## Licence
 

@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "關於 Routarr",
   "AboutVersion": "版本 {version}",
   "AboutLicence": "依據 GNU General Public License 第 3 版發布的自由軟體，原始碼位於",
+  "AboutNotices": "第三方授權條款",
   "SourceCreditsTitle": "資料來源",
   "CreditTmdb": "Routarr 使用 TMDB 及 TMDB API，但未獲 TMDB 認可、認證或以其他方式核准。",
   "CreditTvdb": "中繼資料由 TheTVDB 提供。請考慮補充缺少的資訊或訂閱。",

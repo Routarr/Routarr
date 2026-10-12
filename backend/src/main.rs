@@ -557,8 +557,10 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
     let service = ServeDir::new(&config.frontend_dir)
         .append_index_html_on_directories(false)
         .fallback(fallback);
-    let service =
-        Router::new().fallback_service(service).layer(middleware::from_fn(keep_hashed_files));
+    let service = Router::new()
+        .fallback_service(service)
+        .layer(middleware::from_fn(keep_hashed_files))
+        .layer(middleware::from_fn(say_utf8));
 
     if config.base_path.is_empty() {
         app.fallback_service(service)
@@ -581,6 +583,23 @@ async fn keep_hashed_files(request: axum::extract::Request, next: middleware::Ne
             .headers_mut()
             .entry(axum::http::header::CACHE_CONTROL)
             .or_insert(axum::http::HeaderValue::from_static("public, max-age=31536000, immutable"));
+    }
+    response
+}
+
+/// Every text file the frontend build writes is UTF-8, and `ServeDir` names
+/// the type without its charset. A browser left to guess may read
+/// `third-party-notices.txt` in a legacy encoding and garble every author's
+/// name outside ASCII.
+async fn say_utf8(request: axum::extract::Request, next: middleware::Next) -> Response {
+    use axum::http::{HeaderValue, header::CONTENT_TYPE};
+
+    let mut response = next.run(request).await;
+    let named = response.headers().get(CONTENT_TYPE).and_then(|value| value.to_str().ok());
+    if let Some(text) = named.filter(|named| named.starts_with("text/") && !named.contains(';'))
+        && let Ok(value) = HeaderValue::from_str(&format!("{text}; charset=utf-8"))
+    {
+        response.headers_mut().insert(CONTENT_TYPE, value);
     }
     response
 }

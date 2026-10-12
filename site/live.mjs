@@ -111,6 +111,19 @@ for (const { code, path } of LANGUAGES) {
   await tab.close();
 }
 
+// A file rather than a page: whether the host lets `_headers` set its type, as
+// RFC 9116 requires, shows nowhere but here.
+{
+  const path = '/.well-known/security.txt';
+  const answer = await context.request.get(`${ORIGIN}${path}`);
+  if (answer.status() !== 200) fail(`${path} answered ${answer.status()}`);
+  const served = answer.headers();
+  for (const [name, value] of Object.entries(headersFor(RULES, path))) {
+    const actual = served[name.toLowerCase()];
+    if (actual !== value) fail(`${path}: ${name} is served as "${actual ?? '(absent)'}", _headers says "${value}"`);
+  }
+}
+
 await browser.close();
 
 if (failures.length) {

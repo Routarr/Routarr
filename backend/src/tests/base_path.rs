@@ -258,6 +258,43 @@ async fn a_hashed_asset_is_kept_and_the_page_is_not() {
     }
 }
 
+/// The build writes every text file in UTF-8, the third-party notices among
+/// them, whose licences name their authors with letters outside ASCII. A
+/// browser handed `text/plain` with no charset may read them in a legacy
+/// encoding and garble each of those names.
+#[tokio::test]
+async fn a_text_file_the_build_wrote_is_read_as_utf8() {
+    let dir = super::TempDir::new("utf8-files");
+    std::fs::write(dir.join("index.html"), "<html><head></head><body>app</body></html>").unwrap();
+    std::fs::write(dir.join("third-party-notices.txt"), "Copyright © 2015 Bartłomiej").unwrap();
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join("assets/app-3f2a.css"), "body{}").unwrap();
+    std::fs::write(dir.join("favicon.svg"), "<svg/>").unwrap();
+
+    for base in ["", "/routarr"] {
+        let mut config = Config::for_tests();
+        config.base_path = normalise_base_path(base);
+        config.frontend_dir = dir.to_path_buf();
+        let app = serving(config).await;
+        let type_of = |path: String| {
+            let app = &app;
+            async move {
+                let response = app.raw(&path).await;
+                assert_eq!(response.status(), StatusCode::OK, "{path}");
+                response.headers()["content-type"].to_str().unwrap().to_string()
+            }
+        };
+
+        assert_eq!(
+            type_of(format!("{base}/third-party-notices.txt")).await,
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(type_of(format!("{base}/assets/app-3f2a.css")).await, "text/css; charset=utf-8");
+        assert_eq!(type_of(format!("{base}/")).await, "text/html; charset=utf-8");
+        assert_eq!(type_of(format!("{base}/favicon.svg")).await, "image/svg+xml");
+    }
+}
+
 /// The contract and the dictionary are asked for again and again, and change
 /// only with a release or the language: a client holding them is answered
 /// 304, with nothing to download again.

@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "Routarr 정보",
   "AboutVersion": "버전 {version}",
   "AboutLicence": "GNU General Public License 버전 3으로 배포되는 자유 소프트웨어입니다. 소스 코드:",
+  "AboutNotices": "서드파티 라이선스",
   "SourceCreditsTitle": "데이터 소스",
   "CreditTmdb": "Routarr는 TMDB와 TMDB API를 사용하지만 TMDB의 보증, 인증 또는 기타 승인을 받지 않았습니다.",
   "CreditTvdb": "메타데이터는 TheTVDB에서 제공합니다. 누락된 정보를 추가하거나 구독하는 것을 고려해 주세요.",

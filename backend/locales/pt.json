@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "Sobre o Routarr",
   "AboutVersion": "Versão {version}",
   "AboutLicence": "Software livre sob a GNU General Public License, versão 3, com o código-fonte disponível em",
+  "AboutNotices": "Licenças de terceiros",
   "SourceCreditsTitle": "Fontes de dados",
   "CreditTmdb": "O Routarr utiliza o TMDB e as APIs do TMDB, mas não é apoiado, certificado nem aprovado de qualquer outra forma pelo TMDB.",
   "CreditTvdb": "Metadados fornecidos pelo TheTVDB. Considere, por favor, acrescentar as informações em falta ou subscrever.",

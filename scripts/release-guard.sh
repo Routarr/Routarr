@@ -85,24 +85,12 @@ crate=$(gh api "repos/$REPOSITORY/contents/backend/Cargo.toml?ref=$SHA" \
 [ "$crate" = "$VERSION" ] ||
   refuse "$TAG names $VERSION, but backend/Cargo.toml at $SHA says $crate. Set the version first, then tag that commit."
 
-runs=$(gh api "repos/$REPOSITORY/actions/runs?head_sha=$SHA&per_page=100" \
-  --jq '.workflow_runs[] | select(.name != "Release") | "\(.name)\t\(.conclusion // .status)"')
-if [ -z "$runs" ]; then
-  refuse "No workflow run for $SHA. Push the commit to main and let CI finish before tagging it."
-fi
-printf '%s\n' "$runs"
-
-# A skipped run is a legitimate answer: the path filters skip whole areas a
-# commit did not touch. A failed or cancelled one is not.
-#
-# awk, not grep: the two fields are separated by a tab, and `\t` in an ERE is a
-# literal `t`, so a grep pattern written that way matches nothing and refuses
-# every commit ever tagged.
-rejected=$(printf '%s\n' "$runs" | awk -F'\t' '$2 != "success" && $2 != "skipped"')
-if [ -n "$rejected" ]; then
-  printf 'Not green:\n%s\n' "$rejected"
-  refuse "At least one workflow on $SHA did not succeed. Nothing published."
-fi
+# Green in the two workflows that test it, each run on a push of the commit.
+# The other runs on the commit test nothing about it, and a run that never
+# started is as much a refusal as a failed one (`scripts/release-runs.py`).
+gh api "repos/$REPOSITORY/actions/runs?head_sha=$SHA&per_page=100" |
+  python3 "$(dirname "${BASH_SOURCE[0]}")/release-runs.py" ||
+  refuse "$SHA is not green in CI and Docker image. Push it to main and let both finish before tagging it."
 
 unpublished
 

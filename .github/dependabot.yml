@@ -1,43 +1,54 @@
 version: 2
 
-# Staleness is not what `cargo audit` and `npm audit` cover: a deprecated
+# Staleness is not what `cargo deny` and `npm audit` cover: a deprecated
 # runtime or an action about to stop working is not an advisory.
 #
-# Monthly, and grouped, with majors in a group of their own for the image, the
-# crates and both npm trees. A pull request per dependency is how a bot gets
-# ignored, and majors need reading where minor and patch do not.
+# Monthly, and grouped, with majors in a group of their own for the crates and
+# both npm trees. A pull request per dependency is how a bot gets ignored, and
+# majors need reading where minor and patch do not.
 # `open-pull-requests-limit` is the backstop for a month when a whole ecosystem
 # moves.
+#
+# Every entry waits seven days after a version is published before proposing
+# it: a hijacked release is usually caught and pulled within that time, and a
+# monthly run without the wait could take one published that morning. Security
+# updates do not wait.
+
+# The base images and the Rust toolchain move in one pull request. A new Rust
+# is written in `backend/rust-toolchain.toml` and in both Dockerfiles, and
+# `scripts/check-versions.py` fails a pull request that moves one of them alone.
+# `rust-version` in `backend/Cargo.toml` is a commit made by hand on that pull
+# request, since no ecosystem reads it.
+multi-ecosystem-groups:
+  toolchain:
+    schedule:
+      interval: monthly
+
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     groups:
       actions:
         patterns: ['*']
 
   # The base images are how a new compiler, runtime or distribution reaches the
-  # repository, and no other ecosystem sees them: cargo reads Cargo.toml, npm
-  # reads package.json, and `rust-toolchain.toml` has no ecosystem at all.
+  # image: cargo reads Cargo.toml and npm reads package.json.
   #
-  # Dependabot moves the `FROM` line and only that line, while the Rust version
-  # and the Node major are each written in three more files.
-  # `scripts/check-versions.py` fails a partial bump rather than letting the
-  # copies drift.
+  # Dependabot moves the `FROM` line and only that line, while the Node major is
+  # written in three more files. `scripts/check-versions.py` fails a partial
+  # bump rather than letting the copies drift.
   - package-ecosystem: docker
     directory: /
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: toolchain
+    patterns: ['*']
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
-    groups:
-      images:
-        patterns: ['*']
-        update-types: ['minor', 'patch']
-      images-breaking:
-        patterns: ['*']
-        update-types: ['major']
     ignore:
       # Node's even majors reach LTS in the October of their release year, and
       # the image is what people run: it tracks LTS, never Current. Raise the
@@ -49,12 +60,20 @@ updates:
 
   - package-ecosystem: docker
     directory: /.devcontainer
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: toolchain
+    patterns: ['*']
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
-    groups:
-      devcontainer-images:
-        patterns: ['*']
+
+  # The channel rustup reads, which CI compiles with.
+  - package-ecosystem: rust-toolchain
+    directory: /backend
+    multi-ecosystem-group: toolchain
+    patterns: ['*']
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
 
   # `/backend`, not `/`: that is where the Cargo.toml is. A directory pointing
   # anywhere else fails silently, in a workflow nobody reads unless they go
@@ -63,6 +82,8 @@ updates:
     directory: /backend
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     groups:
       # Almost always safe, and not worth reading one at a time.
@@ -79,6 +100,8 @@ updates:
     directory: /frontend
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     groups:
       frontend:
@@ -112,6 +135,8 @@ updates:
     directory: /site
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     groups:
       site:

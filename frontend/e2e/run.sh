@@ -74,7 +74,7 @@ echo "==> building"
 # whatever the default toolchain happens to be, which is the one thing that file
 # exists to prevent. The subshell is safe: unlike the server below, it is
 # waited on rather than backgrounded.
-(cd "$ROOT/backend" && cargo build --release >/dev/null)
+(cd "$ROOT/backend" && cargo build --release --locked >/dev/null)
 # Kept aside rather than discarded: svelte-check and Vite report on stdout, so
 # a failed build would end the run with nothing on screen to say why.
 if ! (cd "$ROOT/frontend" && npm run build >"$WORK/frontend-build.log" 2>&1); then

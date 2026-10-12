@@ -38,12 +38,12 @@ install_if_stale() {
 install_if_stale frontend
 install_if_stale site
 
-# The image ships cargo-audit and cargo-llvm-cov, pinned by checksum, in
-# /usr/local/bin. Cargo resolves a `cargo-<name>` subcommand from $CARGO_HOME/bin
-# first, and /cargo is a volume that outlives the image: a copy left there by an
-# old `cargo install` shadows the pinned one silently. The volume keeps its
+# The image ships its cargo subcommands, pinned by checksum, in /usr/local/bin.
+# Cargo resolves a `cargo-<name>` subcommand from $CARGO_HOME/bin first, and
+# /cargo is a volume that outlives the image: a copy left there by an old
+# `cargo install` shadows the pinned one silently. The volume keeps its
 # downloads, but not a tool the image provides.
-for tool in cargo-audit cargo-llvm-cov; do
+for tool in cargo-llvm-cov cargo-deny cargo-about cargo-auditable; do
   if [ -x "/usr/local/bin/$tool" ] && [ -e "${CARGO_HOME:-/cargo}/bin/$tool" ]; then
     rm -f "${CARGO_HOME:-/cargo}/bin/$tool"
     echo "removed a stale $tool from ${CARGO_HOME:-/cargo}/bin: the image's pinned build is the one that runs"

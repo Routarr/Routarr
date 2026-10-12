@@ -61,10 +61,8 @@ def from_lines_parse() -> list[str]:
     where Docker accepts one or three, and the build fails on its first line.
 
     It is checked here because this script already reads both Dockerfiles, and
-    because nothing in the dev container parses them: it has no Docker daemon
-    and no hadolint. Without this check the failure first shows in CI, after
-    the push. CI never builds the dev container's own Dockerfile, so there it
-    can show first as a container that refuses to rebuild.
+    because nothing in the dev container builds them: it has no Docker daemon.
+    Without this check the failure first shows in `docker.yml`, after the push.
     """
     problems: list[str] = []
     for relative in ("Dockerfile", ".devcontainer/Dockerfile"):
@@ -87,6 +85,12 @@ def from_lines_parse() -> list[str]:
                     )
                 )
     return problems
+
+
+def find_all(relative: str, pattern: str) -> list[tuple[str, str] | None]:
+    """Every capture of `pattern` in a file, or one `None` when there is none."""
+    values = re.findall(pattern, read(relative), re.M)
+    return [(relative, value) for value in values] or [None]
 
 
 def agree(what: str, sightings: list[tuple[str, str] | None]) -> list[str]:
@@ -186,8 +190,8 @@ def main() -> int:
     # --- The tools CI runs ------------------------------------------------------
     # CI fetches each from its release, and the dev container installs the
     # same, so a check passing here passes there. The version and the amd64 sum
-    # are written once in each file. cargo-deny comes through an action, which
-    # verifies the download itself and takes the version alone.
+    # are written once in each file. cargo-deny and cargo-llvm-cov come through
+    # an action, which verifies the download itself and takes the version alone.
     for name, release, arg in (
         ("actionlint", r"rhysd/actionlint/releases/download/v([\d.]+)/", "ACTIONLINT"),
         ("hadolint", r"hadolint/hadolint/releases/download/v([\d.]+)/", "HADOLINT"),
@@ -209,13 +213,51 @@ def main() -> int:
                 find(".devcontainer/Dockerfile", rf"^ARG {arg}_SHA256_X64=([0-9a-f]{{64}})$"),
             ],
         )
+    for name, arg in (("cargo-deny", "CARGO_DENY"), ("cargo-llvm-cov", "CARGO_LLVM_COV")):
+        failures += agree(
+            f"The {name} version",
+            [
+                find(".github/workflows/ci.yml", rf"^\s*tool:\s*{name}@([\d.]+)$"),
+                find(".devcontainer/Dockerfile", rf"^ARG {arg}_VERSION=([\d.]+)$"),
+            ],
+        )
+
+    # --- The tools the image build runs ---------------------------------------
+    # The release image's builder and the dev container install the same two
+    # cargo subcommands, so the notices and the embedded crate list come out
+    # alike in both. Both architectures are built, so both sums are compared.
+    for name, arg in (("cargo-about", "CARGO_ABOUT"), ("cargo-auditable", "CARGO_AUDITABLE")):
+        for label, suffix in (("version", r"VERSION=([\d.]+)"),
+                              ("amd64 checksum", r"SHA256_X64=([0-9a-f]{64})"),
+                              ("arm64 checksum", r"SHA256_ARM64=([0-9a-f]{64})")):
+            failures += agree(
+                f"The {name} {label}",
+                [
+                    find("Dockerfile", rf"^ARG {arg}_{suffix}$"),
+                    find(".devcontainer/Dockerfile", rf"^ARG {arg}_{suffix}$"),
+                ],
+            )
+
+    # BuildKit runs every image build. Each `setup-buildx-action` names it by
+    # digest, and Dependabot reads none of them.
     failures += agree(
-        "The cargo-deny version",
-        [
-            find(".github/workflows/ci.yml", r"^\s*tool:\s*cargo-deny@([\d.]+)$"),
-            find(".devcontainer/Dockerfile", r"^ARG CARGO_DENY_VERSION=([\d.]+)$"),
-        ],
+        "The BuildKit image",
+        find_all(".github/workflows/release.yml", r"image=moby/buildkit:(v[\d.]+@sha256:[0-9a-f]{64})$")
+        + find_all(".github/workflows/docker.yml", r"image=moby/buildkit:(v[\d.]+@sha256:[0-9a-f]{64})$"),
     )
+    buildkit_steps = sum(
+        read(workflow).count("uses: docker/setup-buildx-action@")
+        for workflow in (".github/workflows/release.yml", ".github/workflows/docker.yml")
+    )
+    buildkit_pins = sum(
+        read(workflow).count("image=moby/buildkit:")
+        for workflow in (".github/workflows/release.yml", ".github/workflows/docker.yml")
+    )
+    if buildkit_pins != buildkit_steps:
+        failures.append(
+            f"{buildkit_steps} setup-buildx-action steps name {buildkit_pins} pinned BuildKit "
+            "images: each one needs `driver-opts: image=moby/buildkit:vX@sha256:...`"
+        )
 
     # --- Routarr's own version ----------------------------------------------
     # `Cargo.toml` is the one that counts: the tag names it, and the showcase

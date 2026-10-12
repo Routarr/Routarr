@@ -1068,6 +1068,7 @@
   "AboutRoutarr": "Om Routarr",
   "AboutVersion": "Version {version}",
   "AboutLicence": "Fri software under GNU General Public License, version 3, med kildekoden på",
+  "AboutNotices": "Tredjepartslicenser",
   "SourceCreditsTitle": "Datakilder",
   "CreditTmdb": "Routarr bruger TMDB og TMDB's API'er, men er ikke anbefalet, certificeret eller på anden måde godkendt af TMDB.",
   "CreditTvdb": "Metadata leveret af TheTVDB. Overvej venligst at tilføje manglende oplysninger eller at abonnere.",

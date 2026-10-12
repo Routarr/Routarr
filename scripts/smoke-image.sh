@@ -155,6 +155,15 @@ expect_status 200 "serves the interface and its entry script" "$BASE/$entry"
 docker exec "$NAME" test -s /app/LICENSE || fail "no LICENSE in the image"
 ok "carries the licence"
 
+# The notices the crates' and the packages' licences ask to travel with every
+# copy, as the About dialog links them: the crates the build stage lists, then
+# the packages the interface bundles, under Routarr's own copyright line.
+notices=$(curl -fsS --max-time 10 "$BASE/third-party-notices.txt") || fail "no third-party notices served"
+for expected in 'Copyright (C) 2026 the Routarr contributors' '- tokio ' '## svelte '; do
+  grep -qF -- "$expected" <<<"$notices" || fail "the third-party notices do not name '$expected'"
+done
+ok "serves the third-party notices of the crates and of the interface"
+
 # reqwest verifies TLS against the platform's store: without the bundle, every
 # metadata source and every Arr reached over HTTPS fails certificate checks.
 docker exec "$NAME" test -s /etc/ssl/certs/ca-certificates.crt || fail "no CA bundle in the image"

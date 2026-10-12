@@ -108,12 +108,14 @@ def main() -> int:
         "site catalogues": catalogues(ROOT / "site" / "src" / "i18n", problems),
         # `llms.txt` is Markdown the site serves to language models.
         "documents": markdown(
-            ("README.md", "SECURITY.md", "CONTRIBUTING.md", "site/public/llms.txt"), problems
+            ("README.md", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
+             ".github/pull_request_template.md", "site/public/llms.txt"),
+            problems,
         ),
         "memory files": markdown(("CLAUDE.md", ".claude/rules/*.md"), problems),
         "backend files": sources(
             "backend",
-            ("src/**/*.rs", "migrations/*.sql", "*.toml", ".env.example"),
+            ("src/**/*.rs", "migrations/*.sql", "*.toml", "*.hbs", ".env.example"),
             problems,
         ),
         # `index.html` holds the title a tab shows before the shell names the
@@ -133,7 +135,8 @@ def main() -> int:
         ),
         "repository files": sources(
             ".",
-            ("scripts/*.*", ".github/**/*.yml", ".devcontainer/*.*", ".devcontainer/Dockerfile",
+            ("scripts/*.*", "scripts/tests/*.py", ".github/**/*.yml", ".devcontainer/*.*",
+             ".devcontainer/Dockerfile",
              "Dockerfile", "docker-compose.yml", ".hadolint.yaml"),
             problems,
         ),

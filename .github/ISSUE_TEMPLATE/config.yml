@@ -1,5 +1,14 @@
-blank_issues_enabled: true
+# Questions and ideas go to Discussions, where an answer stays findable and an
+# idea gathers its arguments before it becomes work. The forms beside this
+# file are the two kinds of issue: a bug and a translation.
+blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/Routarr/Routarr/security/advisories/new
     about: Report it privately. Routarr holds credentials for the Arrs it manages.
+  - name: A question
+    url: https://github.com/Routarr/Routarr/discussions/categories/q-a
+    about: How to set something up, or why Routarr did what it did.
+  - name: An idea
+    url: https://github.com/Routarr/Routarr/discussions/categories/ideas
+    about: A feature or a change you would like, discussed before it is built.

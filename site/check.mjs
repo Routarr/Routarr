@@ -66,9 +66,21 @@ const llms = existsSync(join(DIST, 'llms.txt')) ? read('llms.txt') : null;
 const origins = new Set();
 const securityTxt = existsSync(join(DIST, '.well-known/security.txt')) ? read('.well-known/security.txt') : '';
 if (!securityTxt) fail('.well-known/security.txt is missing from the build');
-// Past its date, the file says the contact in it is no longer watched.
+// Past its date, the file says the contact in it is no longer watched. The
+// check fails two months ahead, so a release made in that window renews it
+// before a quiet spell lets it lapse, and RFC 9116 asks for less than a year.
+const DAY = 24 * 60 * 60 * 1000;
 const securityExpires = Date.parse(securityTxt.match(/^Expires:\s*(\S+)/m)?.[1] ?? '');
-if (!(securityExpires > Date.now())) fail('.well-known/security.txt has expired or states no Expires: renew it');
+if (!(securityExpires > Date.now() + 60 * DAY)) {
+  fail('.well-known/security.txt expires within 60 days or states no Expires: renew it');
+}
+if (securityExpires > Date.now() + 366 * DAY) {
+  fail('.well-known/security.txt expires more than a year ahead, which RFC 9116 advises against');
+}
+// Served as RFC 9116 section 3 requires, which the host's default does not.
+if (!/^\/\.well-known\/security\.txt\s*\n\s+Content-Type: text\/plain; charset=utf-8$/m.test(headers)) {
+  fail('_headers does not serve /.well-known/security.txt as text/plain; charset=utf-8');
+}
 for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml'), llms ?? '', securityTxt]) {
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }

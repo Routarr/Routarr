@@ -1,0 +1,24 @@
+Routarr
+Copyright (C) 2026 the Routarr contributors
+
+Routarr is free software, licensed under the GNU General Public License,
+version 3 only (GPL-3.0-only). The full text is in /app/LICENSE in the image
+and at https://github.com/Routarr/Routarr/blob/main/LICENSE.
+
+Routarr is built with the components listed below, each under its own
+licence: first the crates the server links, then the packages the interface
+bundles.
+
+# Crates the server links
+
+{{#each licenses}}
+## {{{name}}} ({{{id}}})
+
+Used by:
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}
