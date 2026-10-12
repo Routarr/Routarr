@@ -85,6 +85,32 @@ spent_pct() {
   fi
 }
 
+# The figure `spent_pct` measures against, which `--status` names: on the
+# ramdisk its size up to BUDGET_KB, the whole tmpfs counting, on disk BUDGET_KB.
+budget_kb() {
+  local size
+  if [ "$(fs_of "$1")" = "tmpfs" ]; then
+    size="$(df -k --output=size "$1" 2>/dev/null | tail -1 | tr -dc '0-9')"
+    if [ "${size:-0}" -gt 0 ] && [ "$size" -lt "$BUDGET_KB" ]; then
+      echo "$size"
+      return
+    fi
+  fi
+  echo "$BUDGET_KB"
+}
+
+# Cargo holds an exclusive lock on `.cargo-lock` in the build directory it
+# writes to. A cache removed from under it fails that build on a missing file,
+# so a directory whose lock is taken, or one of its profiles', is left alone.
+building() {
+  local lock
+  for lock in "$1/.cargo-lock" "$1"/*/.cargo-lock; do
+    [ -f "$lock" ] || continue
+    flock -n "$lock" true 2>/dev/null || return 0
+  done
+  return 1
+}
+
 # Guarded rather than trusting the caller: an empty argument would expand to
 # `rm -rf /`, and this runs unattended.
 drop() {
@@ -93,6 +119,17 @@ drop() {
   freed=$((freed + $(size_kb "$path")))
   rm -rf "${path:?}"
   note "removed ${path#"${root:-}"/}: $why"
+}
+
+# `drop`, unless the build directory `owner` is being written.
+drop_idle() {
+  local owner="$1" path="$2" why="$3"
+  [ -n "$path" ] && [ -d "$path" ] || return 0
+  if building "$owner"; then
+    note "skipped ${path#"${root:-}"/}: a build is running"
+    return 0
+  fi
+  drop "$path" "$why"
 }
 
 prune_once() {
@@ -130,15 +167,16 @@ prune_once() {
   target="${CARGO_TARGET_DIR:-${root:+$root/backend/target}}"
   if [ -n "$target" ] && [ -d "$target" ]; then
     if [ "$(spent_pct "$target")" -ge 75 ]; then
-      drop "$target/llvm-cov-target" "build tree over 75% of its budget"
+      drop_idle "$target/llvm-cov-target" "$target/llvm-cov-target" "build tree over 75% of its budget"
     fi
     if [ "$(spent_pct "$target")" -ge 75 ]; then
       for spill in "$target"/*/incremental; do
-        drop "$spill" "build tree still over 75% of its budget without the coverage build"
+        drop_idle "$(dirname "$spill")" "$spill" \
+          "build tree still over 75% of its budget without the coverage build"
       done
     fi
     if [ "$(spent_pct "$target")" -ge 90 ]; then
-      drop "$target/debug" "build tree still over 90% of its budget without its caches"
+      drop_idle "$target/debug" "$target/debug" "build tree still over 90% of its budget without its caches"
     fi
   fi
 
@@ -179,7 +217,12 @@ case "${1:-}" in
     fi
     tree="${CARGO_TARGET_DIR:-${root:+$root/backend/target}}"
     if [ -n "$tree" ] && [ -d "$tree" ]; then
-      echo "build tree: $(fs_of "$tree"), $(spent_pct "$tree")% of its $((BUDGET_KB / 1024 / 1024)) GiB budget used"
+      budget="$(awk -v kb="$(budget_kb "$tree")" 'BEGIN { printf "%.1f", kb / 1048576 }')"
+      if [ "$(fs_of "$tree")" = "tmpfs" ]; then
+        echo "build tree: tmpfs, $(spent_pct "$tree")% of a ${budget} GiB budget used, the whole ramdisk counting"
+      else
+        echo "build tree: $(fs_of "$tree"), $(spent_pct "$tree")% of its ${budget} GiB budget used"
+      fi
     fi
     for keep in /cargo /playwright /vscode "${root:+$root/frontend/node_modules}" "${root:+$root/site/node_modules}"; do
       [ -n "$keep" ] && [ -d "$keep" ] && printf 'kept: %-28s %s\n' "$keep" "$(du -sh "$keep" 2>/dev/null | cut -f1)"

@@ -99,12 +99,13 @@
   // it must not leave a container with no node_modules.
   "postCreateCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/post-create.sh",
   // `ramdisk.sh` on every start, not only on create: a tmpfs is empty again
-  // after each one.
+  // after each one. `tools.sh` names a tool the running container lacks or
+  // holds at another version than the Dockerfile pins.
   //
   // Both hooks arm the prune loop because both are events and neither is a
   // clock. `--daemon` is idempotent, and `|| true` keeps a failed tidy-up from
   // stopping the container coming up.
-  "postStartCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/prune.sh --daemon || true",
+  "postStartCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/tools.sh; bash .devcontainer/prune.sh --daemon || true",
   "postAttachCommand": "bash .devcontainer/prune.sh --daemon || true",
   "remoteUser": "root",
   "forwardPorts": [
