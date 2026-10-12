@@ -6,7 +6,6 @@
 # docker-compose mounts at /data in the container.
 /backend/data
 /data
-backups/
 *.db
 *.db-wal
 *.db-shm
@@ -18,13 +17,14 @@ routarr.password
 .env
 
 # Frontend
-# Anywhere, not only at a package root: Vite writes its dependency cache to
-# `frontend/src/node_modules/.vite`, which a leading-slash pattern misses.
+# Anywhere: each package's own, the frontend's and the site's.
 node_modules/
 # Astro's build output and its generated types. The site is built where it is
-# deployed, so what is committed is the source, never the artefact.
+# deployed, so what is committed is the source, never the artefact. Wrangler
+# keeps its local state beside it.
 /site/dist
 /site/.astro
+/site/.wrangler
 /frontend/dist
 
 # Working documents, deliberately unpublished. Not build artefacts.

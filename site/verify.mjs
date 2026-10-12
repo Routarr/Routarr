@@ -40,7 +40,9 @@ const failures = [];
 const fail = (message) => failures.push(message);
 const check = (condition, message) => { if (!condition) fail(message); };
 
-const server = spawn(process.execPath, [`${ROOT}serve.mjs`, String(PORT)], { stdio: 'ignore' });
+// Its errors reach the terminal: a missing `dist` would otherwise read as a
+// server that never started.
+const server = spawn(process.execPath, [`${ROOT}serve.mjs`, String(PORT)], { stdio: ['ignore', 'ignore', 'inherit'] });
 const stop = () => server.kill();
 process.on('exit', stop);
 
@@ -806,13 +808,18 @@ for (const [path, locale, why] of [
 
 // ------------------------------------------------------------ addresses
 // The preview answers addresses as production does: `.html` and `index.html`
-// dropped with a 307, no charset on a type, and a revalidating cache for a
-// file `_headers` names no rule for.
+// dropped with a 307, no charset on a type `_headers` does not set, and a
+// revalidating cache for a file `_headers` names no rule for.
 for (const [from, to] of [['/404.html', '/404'], ['/how/index.html', '/how/'], ['/fr/404.html', '/fr/404']]) {
   const answer = await fetch(`${BASE}${from}`, { redirect: 'manual' });
   check(answer.status === 307 && answer.headers.get('location') === to, `${from} answered ${answer.status} ${answer.headers.get('location') ?? ''}, production 307 to ${to}`);
 }
-for (const [path, type] of [['/', 'text/html'], ['/robots.txt', 'text/plain'], ['/assets/site.js', 'text/javascript']]) {
+for (const [path, type] of [
+  ['/', 'text/html'],
+  ['/robots.txt', 'text/plain'],
+  ['/assets/site.js', 'text/javascript'],
+  ['/.well-known/security.txt', 'text/plain; charset=utf-8'],
+]) {
   const answer = await fetch(`${BASE}${path}`);
   check(answer.headers.get('content-type') === type, `${path} is typed ${answer.headers.get('content-type')}, production ${type}`);
 }

@@ -48,7 +48,7 @@ def read(relative: str) -> str:
 
 def find(relative: str, pattern: str) -> tuple[str, str] | None:
     """The first capture of `pattern` in a file, with a label for the report."""
-    match = re.search(pattern, read(relative), re.M)
+    match = re.search(pattern, read(relative), re.MULTILINE)
     return (relative, match.group(1)) if match else None
 
 
@@ -89,7 +89,7 @@ def from_lines_parse() -> list[str]:
 
 def find_all(relative: str, pattern: str) -> list[tuple[str, str] | None]:
     """Every capture of `pattern` in a file, or one `None` when there is none."""
-    values = re.findall(pattern, read(relative), re.M)
+    values = re.findall(pattern, read(relative), re.MULTILINE)
     return [(relative, value) for value in values] or [None]
 
 
@@ -149,7 +149,7 @@ def main() -> int:
     ci = read(".github/workflows/ci.yml")
     # Quoted or not, as YAML reads both alike. A line read as nothing would
     # leave CI out of the comparison while the check still passed.
-    declared = re.findall(r"^\s*node-version:\s*(.+?)\s*$", ci, re.M)
+    declared = re.findall(r"^\s*node-version:\s*(.+?)\s*$", ci, re.MULTILINE)
     read_back = [re.match(r"""['"]?(\d+)\b""", value) for value in declared]
     ci_versions = sorted({match.group(1) for match in read_back if match})
     unreadable = [value for value, match in zip(declared, read_back) if not match]
@@ -198,6 +198,7 @@ def main() -> int:
         ("gitleaks", r"gitleaks/gitleaks/releases/download/v([\d.]+)/", "GITLEAKS"),
         ("oasdiff", r"oasdiff/oasdiff/releases/download/v([\d.]+)/", "OASDIFF"),
         ("shellcheck", r"koalaman/shellcheck/releases/download/v([\d.]+)/", "SHELLCHECK"),
+        ("ruff", r"astral-sh/ruff/releases/download/([\d.]+)/", "RUFF"),
     ):
         failures += agree(
             f"The {name} version",
@@ -258,6 +259,45 @@ def main() -> int:
             f"{buildkit_steps} setup-buildx-action steps name {buildkit_pins} pinned BuildKit "
             "images: each one needs `driver-opts: image=moby/buildkit:vX@sha256:...`"
         )
+
+    # --- Coverage floors ------------------------------------------------------
+    # CI enforces the backend floor and Vitest the frontend ones. The commands
+    # and the prose a person reads repeat them, and raising a floor in one
+    # place alone leaves the others asking for less.
+    failures += agree(
+        "The backend coverage floor",
+        [
+            find(".github/workflows/ci.yml", r"--fail-under-lines (\d+)"),
+            find("CONTRIBUTING.md", r"--fail-under-lines (\d+)"),
+            find("CONTRIBUTING.md", r"(\d+) % of backend lines"),
+            find("CLAUDE.md", r"--fail-under-lines (\d+)"),
+        ],
+    )
+    floors = re.search(
+        r"statements: (\d+),\s*branches: (\d+),\s*functions: (\d+),\s*lines: (\d+),",
+        read("frontend/vite.config.ts"),
+    )
+    contributing = re.search(
+        r"(\d+) / (\d+) / (\d+) / (\d+) for frontend\s+statements, branches, functions and lines",
+        read("CONTRIBUTING.md"),
+    )
+    if not floors or not contributing:
+        failures.append("The frontend coverage floors: a pattern matched nothing")
+    else:
+        failures += agree(
+            "The list of frontend coverage floors",
+            [
+                ("frontend/vite.config.ts", " / ".join(floors.groups())),
+                ("CONTRIBUTING.md", " / ".join(contributing.groups())),
+            ],
+        )
+    failures += agree(
+        "The per-file frontend coverage floor",
+        [
+            find("frontend/vite.config.ts", r"perFile: \{ statements: (\d+),"),
+            find("CONTRIBUTING.md", r"with (\d+) % of each of the four in every frontend file"),
+        ],
+    )
 
     # --- Routarr's own version ----------------------------------------------
     # `Cargo.toml` is the one that counts: the tag names it, and the showcase

@@ -1,8 +1,8 @@
 ---
 paths:
   - "backend/**"
+  - "scripts/{check-locales.py,add-locale.py,translation-context.py,glossary.json}"
 ---
-
 # Backend
 
 ## Handlers

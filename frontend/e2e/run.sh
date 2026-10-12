@@ -12,6 +12,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # machine where the build it depends on has just succeeded. Unset everywhere
 # else (CI, a laptop), where the default is the right answer.
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/backend/target}"
+# Cargo reads a relative one from where it builds, `backend/`, not from here.
+[[ "$TARGET_DIR" == /* ]] || TARGET_DIR="$ROOT/backend/$TARGET_DIR"
 PORT="${ROUTARR_E2E_PORT:-9877}"
 ARR_PORT="${ROUTARR_E2E_ARR_PORT:-7979}"
 OIDC_PORT="${ROUTARR_E2E_OIDC_PORT:-7980}"
@@ -43,18 +45,43 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The pids listening on a TCP port, through `fuser` (Linux) or `lsof` (macOS):
+# neither alone is everywhere.
+holders() {
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -n tcp "$1" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' || true
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -t -i "tcp:$1" -sTCP:LISTEN 2>/dev/null || true
+  else
+    echo "freeing a port needs fuser (psmisc) or lsof: install one" >&2
+    exit 1
+  fi
+}
+
 # A run killed before its trap fires leaves a server holding the port. The next
 # run then binds nothing, talks to the stale process instead (whose database
-# has just been deleted), and fails in ways that look like application bugs.
+# has just been deleted), and fails in ways that look like application bugs. A
+# stale server of this harness is stopped, and anything else holding the port
+# stops the run: it may be somebody's own program.
 free_port() {
-  local port=$1 pid
-  for pid in $(fuser -n tcp "$port" 2>/dev/null || true); do
-    echo "    freeing :$port (stale pid $pid)"
-    kill "$pid" 2>/dev/null || true
+  local port=$1 pid command
+  for pid in $(holders "$port"); do
+    command="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+    case "$command" in
+      *"$TARGET_DIR/release/routarr"* | *"$ROOT/frontend/e2e/fake_"*.py*)
+        echo "    freeing :$port (a stale run's pid $pid)"
+        kill "$pid" 2>/dev/null || true
+        ;;
+      *)
+        echo "port $port is held by ${command:-another process} (pid $pid): stop it, or move" \
+          "the harness with ROUTARR_E2E_PORT, ROUTARR_E2E_ARR_PORT or ROUTARR_E2E_OIDC_PORT" >&2
+        exit 1
+        ;;
+    esac
   done
   # Give the kernel a moment to release the socket.
   for _ in $(seq 1 20); do
-    fuser -n tcp "$port" >/dev/null 2>&1 || return 0
+    [[ -z "$(holders "$port")" ]] && return 0
     sleep 0.1
   done
   echo "port $port is still busy" >&2
@@ -129,6 +156,7 @@ case "$AUTH" in
       if curl -sf "$DISCOVERY" >/dev/null; then break; fi
       sleep 0.1
     done
+    curl -sf "$DISCOVERY" >/dev/null || { echo "The stand-in provider did not start" >&2; exit 1; }
     MODE=(
       ROUTARR_AUTH=oidc
       ROUTARR_OIDC_ISSUER="http://127.0.0.1:$OIDC_PORT"

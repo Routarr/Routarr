@@ -16,6 +16,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
+
 def initial_root_folders():
     return [
         {"id": 1, "path": "/movies/standard", "freeSpace": 900_000_000_000, "accessible": True},

@@ -31,7 +31,7 @@ CURLY_QUOTES = "\u201c\u201d\u2018\u2019\u201e\u201a\u201f\u201b"
 SEMICOLONS = ";\u061b\uff1b"
 GREEK_QUESTION_MARK = ";"
 GREEK_SEMICOLON = re.compile(r"\u0387|(?<! )\u00b7|\u00b7(?! )")
-FENCE = re.compile(r"^```.*?^```", re.M | re.S)
+FENCE = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
 # Code inside a sentence, where a semicolon is the code's own.
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 
@@ -61,34 +61,45 @@ def found(text: str, semicolons: str) -> list[str]:
     return names
 
 
+def value_problems(language: str, value: str) -> list[str]:
+    """What a dictionary's value carries, read as its language writes."""
+    semicolons = SEMICOLONS
+    if language == "el":
+        semicolons = SEMICOLONS.replace(GREEK_QUESTION_MARK, "")
+    names = found(value, semicolons)
+    if language == "el" and GREEK_SEMICOLON.search(value):
+        names.append("a Greek semicolon")
+    return names
+
+
 def catalogues(folder: Path, problems: list[str]) -> int:
     files = sorted(folder.glob("*.json"))
     for path in files:
-        semicolons = SEMICOLONS
-        if path.stem == "el":
-            semicolons = SEMICOLONS.replace(GREEK_QUESTION_MARK, "")
         for key, value in json.loads(path.read_text(encoding="utf-8")).items():
             if not isinstance(value, str):
                 continue
-            names = found(value, semicolons)
-            if path.stem == "el" and GREEK_SEMICOLON.search(value):
-                names.append("a Greek semicolon")
-            for name in names:
+            for name in value_problems(path.stem, value):
                 problems.append(f"{path.relative_to(ROOT)}: {key} carries {name}")
     return len(files)
 
 
+def markdown_problems(text: str) -> list[tuple[int, str]]:
+    """Each line of a Markdown text and what it carries. Prose outside a fenced
+    block and an inline code span is read for semicolons too."""
+    prose = FENCE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+    problems = []
+    for number, (line, prose_line) in enumerate(zip(text.split("\n"), prose.split("\n")), 1):
+        prose_line = INLINE_CODE.sub("", prose_line)
+        names = found(line, "") + (["a semicolon"] if ";" in prose_line else [])
+        problems += [(number, name) for name in names]
+    return problems
+
+
 def markdown(patterns: tuple[str, ...], problems: list[str]) -> int:
-    """Prose outside a fenced block and an inline code span is read for semicolons too."""
     files = matching(ROOT, patterns)
     for path in files:
-        text = path.read_text(encoding="utf-8")
-        prose = FENCE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
-        for number, (line, prose_line) in enumerate(zip(text.split("\n"), prose.split("\n")), 1):
-            prose_line = INLINE_CODE.sub("", prose_line)
-            names = found(line, "") + (["a semicolon"] if ";" in prose_line else [])
-            for problem in names:
-                problems.append(f"{path.relative_to(ROOT)}:{number} carries {problem}")
+        for number, name in markdown_problems(path.read_text(encoding="utf-8")):
+            problems.append(f"{path.relative_to(ROOT)}:{number} carries {name}")
     return len(files)
 
 
@@ -112,7 +123,7 @@ def main() -> int:
              ".github/pull_request_template.md", "site/public/llms.txt"),
             problems,
         ),
-        "memory files": markdown(("CLAUDE.md", ".claude/rules/*.md"), problems),
+        "memory files": markdown(("CLAUDE.md", ".claude/rules/**/*.md"), problems),
         "backend files": sources(
             "backend",
             ("src/**/*.rs", "migrations/*.sql", "*.toml", "*.hbs", ".env.example"),

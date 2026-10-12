@@ -44,6 +44,12 @@ const TYPES = {
 /** What production answers for a file `_headers` gives no cache rule. */
 const DEFAULT_CACHE = 'public, max-age=0, must-revalidate';
 
+/** The type production gives a file, unless a rule of `_headers` sets one. */
+function typed(headers, type) {
+  const named = Object.keys(headers).some((name) => name.toLowerCase() === 'content-type');
+  return named ? headers : { ...headers, 'Content-Type': type };
+}
+
 const RULES = parseHeaders(readFileSync(join(ROOT, '_headers'), 'utf-8'));
 
 /**
@@ -125,8 +131,7 @@ createServer(async (request, response) => {
 
   const body = await readFile(file);
   response.writeHead(200, {
-    ...headers,
-    'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream',
+    ...typed(headers, TYPES[extname(file)] ?? 'application/octet-stream'),
     'Content-Length': body.length,
   });
   response.end(body);

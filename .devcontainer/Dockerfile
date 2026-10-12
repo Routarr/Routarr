@@ -196,8 +196,8 @@ RUN arch="$(dpkg --print-architecture)" \
   && gh --version
 
 # The checks CI runs that no package of this image provides: the workflow,
-# script and Dockerfile linters, the secret scanner, the licence and source
-# gate, and the API contract gate. Each version and amd64 sum is the one
+# script, Python and Dockerfile linters, the secret scanner, the licence and
+# source gate, and the API contract gate. Each version and amd64 sum is the one
 # `ci.yml` installs, which `scripts/check-versions.py` holds in step, so a
 # script, a workflow or a contract change is checked here before it is pushed.
 # The arm64 sums are recorded from the release archives themselves.
@@ -280,6 +280,22 @@ RUN arch="$(dpkg --print-architecture)" \
   && tar -xzf /tmp/oasdiff.tgz -C /usr/local/bin oasdiff \
   && rm /tmp/oasdiff.tgz \
   && oasdiff --version
+
+ARG RUFF_VERSION=0.16.10
+ARG RUFF_SHA256_X64=ad1b2138407a0c53b936524df99d87211333f7bc40478d6860f42994597f7ff0
+ARG RUFF_SHA256_ARM64=38ebc0ec3e0de538d1c399729ca04e124749211d66aa134c24ad0c1f09a935b9
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) target=x86_64-unknown-linux-musl; sum="$RUFF_SHA256_X64" ;; \
+       arm64) target=aarch64-unknown-linux-musl; sum="$RUFF_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/ruff.tgz \
+     "https://github.com/astral-sh/ruff/releases/download/${RUFF_VERSION}/ruff-${target}.tar.gz" \
+  && echo "$sum  /tmp/ruff.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/ruff.tgz -C /usr/local/bin --strip-components=1 "ruff-${target}/ruff" \
+  && rm /tmp/ruff.tgz \
+  && ruff --version
 
 ARG CARGO_DENY_VERSION=0.20.2
 ARG CARGO_DENY_SHA256_X64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f

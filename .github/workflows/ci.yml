@@ -92,7 +92,7 @@ jobs:
   # deliverable at once. Unfiltered for the same reason as
   # `changes`, and needed by no other job, so a failure here skips nothing else.
   #
-  # The five binaries are fetched from their releases and checked against the
+  # The six binaries are fetched from their releases and checked against the
   # sums recorded here, so a moved tag or a replaced asset fails the step
   # rather than running. The dev container installs the same versions, which
   # `scripts/check-versions.py` holds in step: shellcheck is pinned rather than
@@ -125,7 +125,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/check-licences.py
 
-      - name: Test the release guard and the licence check
+      - name: Test the scripts CI relies on
         if: ${{ !cancelled() }}
         run: python3 -m unittest discover -s scripts/tests -v
 
@@ -137,6 +137,7 @@ jobs:
           HADOLINT_SHA256: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
           OASDIFF_SHA256: 7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
+          RUFF_SHA256: ad1b2138407a0c53b936524df99d87211333f7bc40478d6860f42994597f7ff0
           SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
           set -euo pipefail
@@ -157,6 +158,10 @@ jobs:
             https://github.com/oasdiff/oasdiff/releases/download/v1.32.1/oasdiff_1.32.1_linux_amd64.tar.gz
           echo "$OASDIFF_SHA256  /tmp/oasdiff.tgz" | sha256sum -c -
           tar -xzf /tmp/oasdiff.tgz -C "$HOME/bin" oasdiff
+          curl -fsSL -o /tmp/ruff.tgz \
+            https://github.com/astral-sh/ruff/releases/download/0.16.10/ruff-x86_64-unknown-linux-musl.tar.gz
+          echo "$RUFF_SHA256  /tmp/ruff.tgz" | sha256sum -c -
+          tar -xzf /tmp/ruff.tgz -C "$HOME/bin" --strip-components=1 ruff-x86_64-unknown-linux-musl/ruff
           curl -fsSL -o /tmp/shellcheck.txz \
             https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
           echo "$SHELLCHECK_SHA256  /tmp/shellcheck.txz" | sha256sum -c -
@@ -176,6 +181,20 @@ jobs:
       - name: Lint the shell scripts
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: git ls-files -z '*.sh' | xargs -0 shellcheck -S style
+      # The Python scripts decide whether CI passes, and the fakes stand in for
+      # the Arrs: a mistake in one passes or fails a build for the wrong reason.
+      - name: Lint the Python scripts
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: ruff check scripts frontend/e2e site/screenshots
+      # The Node scripts outside the two packages run under no compiler.
+      - name: Check the Node scripts parse
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for script in scripts/*.mjs site/*.mjs site/screenshots/*.mjs; do
+            node --check "$script" || status=1
+          done
+          exit "$status"
       - name: Lint the Dockerfiles
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: hadolint Dockerfile .devcontainer/Dockerfile

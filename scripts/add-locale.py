@@ -4,7 +4,7 @@
     python3 scripts/add-locale.py de < translations.json
 
 Refuses to write when a translation drops or invents a `{placeholder}`, carries a
-key English does not have, or is empty: the three ways a locale silently
+key English does not have, or is empty or not text: the ways a locale silently
 degrades the interface.
 
 The Radarr and Sonarr menu paths a string cites ("Settings → General → Security
@@ -14,6 +14,7 @@ their version.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import pathlib
 import re
@@ -22,9 +23,33 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "backend" / "locales"
 
+# One reading of a placeholder, the one the check holds every dictionary to.
+_spec = importlib.util.spec_from_file_location("check_locales", ROOT / "scripts" / "check-locales.py")
+_check = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_check)
+placeholders = _check.placeholders
 
-def placeholders(text: str) -> set[str]:
-    return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", text))
+
+def batch_problems(incoming: object, english: dict[str, str]) -> list[str]:
+    """Why a batch may not be merged, nothing when it may."""
+    if not isinstance(incoming, dict):
+        return ["the batch is not a JSON object of keys and translations"]
+    problems = []
+    for key, value in incoming.items():
+        if key not in english:
+            problems.append(f"unknown key: {key}")
+            continue
+        if not isinstance(value, str):
+            problems.append(f"not text: {key}")
+            continue
+        if not value.strip():
+            problems.append(f"empty translation: {key}")
+        if placeholders(english[key]) != placeholders(value):
+            problems.append(
+                f"placeholders differ for '{key}': "
+                f"{sorted(placeholders(english[key]))} vs {sorted(placeholders(value))}"
+            )
+    return problems
 
 
 def main() -> int:
@@ -41,19 +66,7 @@ def main() -> int:
     english = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
     incoming = json.loads(sys.stdin.read())
 
-    problems = []
-    for key, value in incoming.items():
-        if key not in english:
-            problems.append(f"unknown key: {key}")
-            continue
-        if not str(value).strip():
-            problems.append(f"empty translation: {key}")
-        if placeholders(english[key]) != placeholders(str(value)):
-            problems.append(
-                f"placeholders differ for '{key}': "
-                f"{sorted(placeholders(english[key]))} vs {sorted(placeholders(str(value)))}"
-            )
-
+    problems = batch_problems(incoming, english)
     if problems:
         print(f"{len(problems)} problem(s), nothing written:", file=sys.stderr)
         for p in problems:

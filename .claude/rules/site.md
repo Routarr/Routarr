@@ -1,6 +1,7 @@
 ---
 paths:
   - "site/**"
+  - "README.md"
 ---
 # Showcase site
 

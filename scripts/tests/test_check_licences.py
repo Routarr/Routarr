@@ -1,18 +1,13 @@
 """`scripts/check-licences.py`, the allow-list for what the image ships besides the crates."""
 
 import copy
-import importlib.util
 import json
-import pathlib
 import tomllib
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-spec = importlib.util.spec_from_file_location(
-    "check_licences", ROOT / "scripts" / "check-licences.py"
-)
-check_licences = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(check_licences)
+from _scripts import ROOT, load
+
+check_licences = load("check-licences")
 
 ALLOWED = tomllib.loads((ROOT / "backend/deny.toml").read_text())["licenses"]["allow"]
 LOCK = json.loads((ROOT / "frontend/package-lock.json").read_text())

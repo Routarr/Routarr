@@ -1,0 +1,4 @@
+# What `ruff check` holds the Python scripts to, in CI and locally: the rules
+# of the version `ci.yml` pins. The scripts read TOML with the standard
+# library, which Python 3.11 brought.
+target-version = "py311"
