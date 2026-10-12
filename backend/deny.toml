@@ -1,10 +1,12 @@
-# What `cargo deny check` holds the dependency graph to, in CI and locally.
+# What `cargo deny check` holds the dependency graph to, in CI and locally,
+# the one gate on the crates: a RustSec advisory or an unmaintained crate, a
+# licence GPL-3.0-only code cannot ship beside, a crate pulled from a registry
+# or a git URL nobody named, and a version yanked after the lockfile pinned it.
 #
-# `cargo audit` already refuses a known vulnerability; this adds what it does
-# not look at: a licence GPL-3.0-only code cannot ship, a crate pulled from a
-# registry or a git URL nobody named, and a version yanked after the lockfile
-# pinned it. Every licence below is permissive and GPL-compatible; a new one
-# fails the build and is added here by a person, on purpose.
+# Every licence below is permissive and GPL-compatible. A new one fails the
+# build and is added here by a person, on purpose, and to `about.toml` with it,
+# which `scripts/check-licences.py` holds to this list along with the npm
+# packages the interface bundles.
 
 [graph]
 all-features = false

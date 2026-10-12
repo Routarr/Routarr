@@ -38,6 +38,10 @@ export default defineConfig({
     // the stylesheet use what these have, `:has()` and `AbortSignal.any` among
     // them, with no fallback for an older one.
     target: ['chrome130', 'edge130', 'firefox140', 'safari18'],
+    // The licences of the packages the bundle carries, which the MIT and ISC
+    // licences ask to travel with every copy. The About dialog links it, and
+    // the image build puts the server's crates ahead of it (`Dockerfile`).
+    license: { fileName: 'third-party-notices.txt' },
 
     rollupOptions: {
       output: {

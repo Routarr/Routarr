@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # Every `FROM` is `image:tag@digest`. The digest is what Docker pulls, and the
 # tag beside it is ignored for resolution. That is the pinning `ci.yml` applies
 # to every `uses:`, for the reason stated there: a tag is a mutable pointer its
@@ -32,7 +30,41 @@ RUN npm run build
 
 # ---------------------------------------------------------------- backend
 FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f AS backend-builder
-RUN apk add --no-cache musl-dev pkgconfig
+RUN apk add --no-cache musl-dev
+# The RUN below pipes, and without this the right-hand side's exit code masks
+# a failing check on the left.
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+# Two cargo subcommands, pinned to a release and to the sum of its archive as
+# `ci.yml` pins its linters, so a replaced asset fails the build rather than
+# running in it. `cargo auditable` writes the crate list into the binary, where
+# an image scanner and the SBOM attestation read it. `cargo about` writes the
+# licence notices of the crates. The dev container installs the same versions,
+# which `scripts/check-versions.py` holds in step.
+ARG CARGO_AUDITABLE_VERSION=0.7.7
+ARG CARGO_AUDITABLE_SHA256_X64=7676443367c5e33d9fb22acef63cccb5e9202de12dae1b0579995eb3e2bc7a18
+ARG CARGO_AUDITABLE_SHA256_ARM64=c324af56990601354bbf40080f582ba46f8ec8b807a1388e25bb7e429d285c18
+ARG CARGO_ABOUT_VERSION=0.9.2
+ARG CARGO_ABOUT_SHA256_X64=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
+ARG CARGO_ABOUT_SHA256_ARM64=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8
+RUN arch="$(uname -m)" \
+  && case "$arch" in \
+       x86_64) auditable="$CARGO_AUDITABLE_SHA256_X64"; about="$CARGO_ABOUT_SHA256_X64" ;; \
+       aarch64) auditable="$CARGO_AUDITABLE_SHA256_ARM64"; about="$CARGO_ABOUT_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && wget -qO /tmp/cargo-auditable.txz \
+     "https://github.com/rust-secure-code/cargo-auditable/releases/download/v${CARGO_AUDITABLE_VERSION}/cargo-auditable-${arch}-unknown-linux-musl.tar.xz" \
+  && echo "$auditable  /tmp/cargo-auditable.txz" | sha256sum -c - \
+  && tar -xJf /tmp/cargo-auditable.txz -C /usr/local/bin --strip-components=1 \
+     "cargo-auditable-${arch}-unknown-linux-musl/cargo-auditable" \
+  && wget -qO /tmp/cargo-about.tgz \
+     "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${arch}-unknown-linux-musl.tar.gz" \
+  && echo "$about  /tmp/cargo-about.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/cargo-about.tgz -C /usr/local/bin --strip-components=1 \
+     "cargo-about-${CARGO_ABOUT_VERSION}-${arch}-unknown-linux-musl/cargo-about" \
+  && rm /tmp/cargo-auditable.txz /tmp/cargo-about.tgz \
+  && cargo auditable --version && cargo about --version
 
 WORKDIR /app
 
@@ -40,7 +72,17 @@ WORKDIR /app
 # then reuses this layer instead of rebuilding every dependency.
 COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
-    && cargo build --release --locked \
+    && cargo auditable build --release --locked \
+    && rm -rf src
+
+# The licences of the crates the binary links on either platform (`about.toml`),
+# beside the dependency layer, since only the lockfile changes them.
+# `cargo fetch` brings the other platform's crates, so `--frozen` reads
+# nothing but the sources on disk.
+COPY backend/about.toml backend/about.hbs ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && cargo fetch --locked \
+    && cargo about generate --frozen about.hbs -o crates-notices.txt \
     && rm -rf src
 
 COPY backend/migrations ./migrations
@@ -49,7 +91,14 @@ COPY backend/migrations ./migrations
 COPY backend/locales ./locales
 COPY backend/src ./src
 # Touch so cargo does not mistake the stub's mtime for an up-to-date build.
-RUN touch src/main.rs && cargo build --release --locked
+RUN touch src/main.rs && cargo auditable build --release --locked
+
+# ---------------------------------------------------------------- notices
+# One file for everything the image carries besides Routarr: the crates, then
+# the packages the interface bundles, which Vite lists in the same file name.
+FROM backend-builder AS notices
+COPY --from=frontend-builder /app/frontend/dist/third-party-notices.txt packages-notices.txt
+RUN cat crates-notices.txt packages-notices.txt > third-party-notices.txt
 
 # ---------------------------------------------------------------- runtime
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runner
@@ -88,6 +137,10 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 # how almost everyone will receive Routarr, so this is the copy that counts:
 # the one in the repository reaches whoever already found the repository.
 COPY LICENSE /app/LICENSE
+# The notices the MIT, Apache, BSD, ISC and Unicode licences ask to travel with
+# every copy. In place of the interface's own list, served beside it, which
+# its About dialog links.
+COPY --from=notices /app/third-party-notices.txt /app/frontend/dist/third-party-notices.txt
 
 # Only the volume is the process's own. `/app` stays root's, read-only to
 # uid 1000: nothing under it is written at run time, and a process that can
