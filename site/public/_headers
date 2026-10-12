@@ -99,3 +99,8 @@
 # Revalidated on every load: an edit must reach a returning visitor at once.
 /assets/site.js
   Cache-Control: public, max-age=0, must-revalidate
+
+# RFC 9116 section 3 asks for `text/plain` with the utf-8 charset, which the
+# host's type for a `.txt` leaves out. `check.mjs` holds this rule here.
+/.well-known/security.txt
+  Content-Type: text/plain; charset=utf-8
