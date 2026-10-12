@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen } from '@testing-library/svelte';
 import type { Component } from 'svelte';
 
-import { renderWithI18n } from './render';
+import { ENGLISH, renderWithI18n } from './render';
 import Applications from '../pages/Applications.svelte';
 import History from '../pages/History.svelte';
 import Instances from '../pages/Instances.svelte';
@@ -15,11 +15,8 @@ import RuleTests from '../pages/RuleTests.svelte';
 import Rules from '../pages/Rules.svelte';
 
 /**
- * A list that failed to load is not an empty list. Under its error, "No
- * instance connected yet" sends the reader to add an instance that exists, and
- * "No rules yet" to import with Replace over rules they cannot see.
- *
- * No request is mocked: every one fails, and every key renders as itself.
+ * A list that failed to load is not an empty list: under the error, its empty state would send
+ * the reader to add or import what may already exist.
  */
 const SCREENS: [string, Component, string][] = [
   ['Applications', Applications as Component, 'NoApplications'],
@@ -42,6 +39,9 @@ describe('a list that failed to load', () => {
     renderWithI18n(page);
 
     expect((await screen.findAllByRole('alert')).length).toBeGreaterThan(0);
-    expect(screen.queryByText(empty)).toBeNull();
+    // The sentence a reader would see, which the page renders in English here.
+    const sentence = ENGLISH[empty];
+    expect(sentence).toBeTruthy();
+    expect(document.body.textContent).not.toContain(sentence);
   });
 });
