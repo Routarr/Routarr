@@ -376,26 +376,26 @@ describe('the navigation covers the route table', () => {
  * nothing on an element without that other class, so it counts only where
  * the same attribute carries every class of the compound.
  */
+const CLASS = /\.(-?[_a-zA-Z][\w-]*)/g;
+
+/**
+ * The compound selectors a stylesheet defines, each as its set of classes,
+ * read from selector position alone.
+ *
+ * Not from the whole text: `.source-name` is named in a comment in the
+ * component that uses it, and a scan of everything would count that mention
+ * as a definition, so deleting the rule from `index.css` would leave the check
+ * below green, which is the one thing it exists to refuse.
+ */
+function compounds(stylesheet: string): string[][] {
+  const withoutComments = stylesheet.replace(/\/\*[\s\S]*?\*\//g, '');
+  return [...withoutComments.matchAll(/([^{}]*)\{/g)]
+    .flatMap((rule) => (rule[1] ?? '').split(/[\s,>+~()]+/))
+    .map((part) => [...part.matchAll(CLASS)].map((m) => m[1] ?? ''))
+    .filter((classes) => classes.length > 0);
+}
+
 describe('every class in the markup is a class that exists', () => {
-  const CLASS = /\.(-?[_a-zA-Z][\w-]*)/g;
-
-  /**
-   * The compound selectors a stylesheet defines, each as its set of classes,
-   * read from selector position alone.
-   *
-   * Not from the whole text: `.source-name` is named in a comment in the
-   * component that uses it, and a scan of everything would count that mention
-   * as a definition, so deleting the rule from `index.css` would leave this
-   * check green, which is the one thing it exists to refuse.
-   */
-  function compounds(stylesheet: string): string[][] {
-    const withoutComments = stylesheet.replace(/\/\*[\s\S]*?\*\//g, '');
-    return [...withoutComments.matchAll(/([^{}]*)\{/g)]
-      .flatMap((rule) => (rule[1] ?? '').split(/[\s,>+~()]+/))
-      .map((part) => [...part.matchAll(CLASS)].map((m) => m[1] ?? ''))
-      .filter((classes) => classes.length > 0);
-  }
-
   /** Whether some compound styles `token` on an element carrying `present`. */
   const styles = (defined: string[][], token: string, present: string[]) =>
     defined.some((classes) => classes.includes(token) && classes.every((c) => present.includes(c)));
@@ -431,6 +431,41 @@ describe('every class in the markup is a class that exists', () => {
     }
 
     expect(orphans).toEqual([]);
+  });
+});
+
+/**
+ * A rule nothing names styles nothing, and every visit downloads it. A class
+ * is named when a source file writes it as a word: a component, a module or
+ * the page. Two prefixes are composed from a value at run time
+ * (`kind-{instance.instance_type}`, `is-{tone}`), so the classes under them
+ * count as named.
+ */
+describe('every class the stylesheet defines is named somewhere', () => {
+  const COMPOSED = ['kind-', 'is-'];
+
+  function sources(dir: string, extensions: string[]): string[] {
+    return fs
+      .readdirSync(dir, { recursive: true, encoding: 'utf-8' })
+      .filter((file) => extensions.some((extension) => file.endsWith(extension)))
+      .filter((file) => !file.endsWith('.test.ts') && !file.split(path.sep).includes('test'))
+      .map((file) => fs.readFileSync(path.join(dir, file), 'utf-8'));
+  }
+
+  it('defines no class that nothing names', () => {
+    const defined = new Set(compounds(read('index.css')).flat());
+    expect(defined.size).toBeGreaterThan(100);
+    const text = [
+      ...sources(SRC, ['.svelte', '.ts']),
+      fs.readFileSync(path.join(SRC, '..', 'index.html'), 'utf-8'),
+    ].join('\n');
+    const named = (name: string) =>
+      COMPOSED.some((prefix) => name.startsWith(prefix)) ||
+      new RegExp(`(^|[^\\w-])${name}($|[^\\w-])`).test(text);
+
+    expect(named('btn')).toBe(true);
+    expect(named('a-class-nothing-names')).toBe(false);
+    expect([...defined].filter((name) => !named(name))).toEqual([]);
   });
 });
 

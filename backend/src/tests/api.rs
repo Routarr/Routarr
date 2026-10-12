@@ -58,6 +58,7 @@ async fn instance_api_keys_are_encrypted_at_rest() {
     let body = created.assert_ok();
 
     assert_eq!(body["api_key_encrypted"], true);
+    assert_eq!(body["api_key_set"], true);
     assert_eq!(body["base_url"], "http://radarr:7878", "trailing slash is trimmed");
 
     let stored: String = sqlx::query_scalar("SELECT api_key FROM instances")

@@ -30,7 +30,7 @@ export function describeError(err: unknown): string {
   return String(err);
 }
 
-export interface Async<T> {
+interface Async<T> {
   readonly data: T | null;
   readonly loading: boolean;
   /** The rendered message, for a banner. */

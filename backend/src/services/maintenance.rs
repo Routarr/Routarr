@@ -59,11 +59,10 @@ pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
 
 /// Bring stored `Bounded` settings inside the ranges this build enforces.
 ///
-/// A bound added to a setting is retroactive in one direction and not the
-/// other: `PUT /settings` validates the whole payload, and the Settings screen
-/// always sends every field, so a value stored before the bound existed makes
-/// *every* save fail, naming a key in a tab the operator never opened. The
-/// converged value is the one that runs from then on, and the log says so.
+/// `PUT /settings` validates the whole payload, and the Settings screen always
+/// sends every field, so one stored value outside its range makes *every* save
+/// fail, naming a key in a tab the operator never opened. The converged value
+/// is the one that runs from then on, and the log says so.
 ///
 /// A retention count is raised to its floor like any other and never lowered:
 /// lowering it removes what is beyond it, and nothing but the operator's own
@@ -108,8 +107,8 @@ pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
 
 /// Rewrite every stored secret under the current master key.
 ///
-/// Runs at startup so an upgrade from a plaintext database, or a rotation of
-/// `ROUTARR_SECRET_KEY`, converges without the user re-entering every API key.
+/// Runs at startup, so a plaintext value, or one sealed under
+/// `ROUTARR_PREVIOUS_SECRET_KEY`, is rewritten without anyone entering it again.
 pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT id, api_key FROM instances").fetch_all(&state.pool).await?;
@@ -712,7 +711,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_plaintext_keys_are_encrypted_on_startup() {
+    async fn a_plaintext_key_is_sealed_at_startup() {
         let state = AppState::for_tests().await;
         sqlx::query(
             "INSERT INTO instances (id, name, instance_type, base_url, api_key)

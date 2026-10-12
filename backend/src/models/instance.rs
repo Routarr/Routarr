@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Type of Arr instance.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InstanceType {
     Radarr,
     Sonarr,
@@ -78,7 +77,8 @@ pub struct InstanceResponse {
     pub name: String,
     pub instance_type: String,
     pub base_url: String,
-    /// The Arr's key, masked. Empty for an application key.
+    /// A fixed mask when a key is stored, never any part of it. Empty when
+    /// none is, and for an application key.
     pub api_key_masked: String,
     pub enabled: bool,
     pub sync_interval_minutes: i64,
@@ -108,8 +108,11 @@ pub struct InstanceResponse {
     pub webhook_path: Option<String>,
     /// The token for `X-Routarr-Token`. `null` for an application key.
     pub webhook_token: Option<String>,
-    /// Whether the stored API key is encrypted at rest.
+    /// Always `true`: every stored key is encrypted at rest.
     pub api_key_encrypted: bool,
+    /// Whether the Arr's key is stored. An instance a configuration import
+    /// created waits for its key, which a bundle never carries.
+    pub api_key_set: bool,
 }
 
 impl InstanceResponse {
@@ -123,13 +126,12 @@ impl InstanceResponse {
         i: Instance,
         base_path: &str,
         localizer: &crate::localization::Localizer,
+        key_set: bool,
     ) -> Self {
-        // The stored value may be ciphertext, and a prefix of it is never shown.
-        let encrypted = crate::crypto::SecretBox::is_sealed(&i.api_key);
-        let masked = if encrypted {
+        let masked = if key_set {
             "\u{2022}\u{2022}\u{2022}\u{2022} (encrypted)".to_string()
         } else {
-            mask(&i.api_key)
+            String::new()
         };
         let webhook_path =
             i.webhook_token.as_ref().map(|_| format!("{base_path}/api/v1/webhook/{}", i.id));
@@ -153,7 +155,8 @@ impl InstanceResponse {
             webhook_url,
             webhook_path,
             webhook_token: i.webhook_token,
-            api_key_encrypted: encrypted,
+            api_key_encrypted: true,
+            api_key_set: key_set,
         }
     }
 }
@@ -173,20 +176,6 @@ pub fn sync_status_said(
 /// What the last sync's outcome starts with when it failed, which every
 /// reader of it tells a failure by.
 pub const SYNC_FAILED: &str = "error: ";
-
-/// Show only enough of a legacy plaintext key to recognise it.
-fn mask(key: &str) -> String {
-    let chars: Vec<char> = key.chars().collect();
-    if chars.len() > 8 {
-        format!(
-            "{}\u{2026}{}",
-            chars[..4].iter().collect::<String>(),
-            chars[chars.len() - 4..].iter().collect::<String>()
-        )
-    } else {
-        "\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
-    }
-}
 
 fn default_true() -> bool {
     true

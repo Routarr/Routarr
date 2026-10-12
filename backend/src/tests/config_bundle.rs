@@ -377,13 +377,16 @@ async fn second_copy(app: &TestApp) {
 }
 
 /// Two instances holding one film hold two titles, each with its own
-/// exception, and an exception comes back on the copy it was pinned on.
+/// exception, and an exception comes back on the copy it was pinned on, the
+/// instance named whatever its case and spaces.
 #[tokio::test]
 async fn an_exception_comes_back_on_the_copy_it_was_pinned_on() {
     let source = configured().await;
     second_copy(&source).await;
     source.execute(&["UPDATE overrides SET media_id = 'm-2' WHERE id = 'o-1'"]).await;
-    let bundle = export(&source).await;
+    let mut bundle = export(&source).await;
+    let named = &mut bundle["overrides"][0]["instance_name"];
+    *named = serde_json::json!(format!(" {} ", named.as_str().unwrap().to_uppercase()));
     let target = TestApp::new().await;
     target.seed_library().await;
     second_copy(&target).await;
@@ -698,6 +701,25 @@ async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
         assert_eq!((name.as_str(), minutes), (raw.trim(), stored_interval), "{raw:?}");
     }
 
+    // A bundle carries no key: the instance waits for one, stored sealed as
+    // every key is, and says so.
+    let keys: Vec<String> =
+        sqlx::query_scalar("SELECT api_key FROM instances WHERE name LIKE 'Sonarr%'")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(keys.len(), 3);
+    assert!(keys.iter().all(|key| key.starts_with("enc:v2:")), "{keys:?}");
+    let listed = app.get("/api/v1/instances").await.assert_ok().clone();
+    let imported = listed.as_array().unwrap().iter().filter(|instance| {
+        instance["name"].as_str().is_some_and(|name| name.starts_with("Sonarr"))
+    });
+    for instance in imported {
+        assert_eq!(instance["api_key_set"], false, "{instance}");
+        assert_eq!(instance["api_key_encrypted"], true, "{instance}");
+        assert_eq!(instance["api_key_masked"], "", "{instance}");
+    }
+
     // The existence check sees through the same whitespace the store trims.
     let again = app.post("/api/v1/config/import", bundle("Sonarr ", 60)).await.assert_ok().clone();
     assert_eq!(again["instances"], 0, "{again}");
@@ -708,32 +730,29 @@ async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
     assert_eq!(sonarrs, 1, "a name with a stray space became a second instance");
 }
 
-/// A row written by an earlier build can still carry the space the import
-/// trims, and it must count as the instance it is: matched raw, the bundle's
-/// trimmed name would find nothing and a second `Radarr` would be created
-/// beside it.
+/// Names differing only by case or by spaces are one name, the rule the
+/// unique index holds instance names to. A bundle naming an instance so is
+/// naming the one this installation holds: it creates no second one, and its
+/// folders and exceptions land on it.
 #[tokio::test]
-async fn an_instance_stored_with_a_stray_space_still_counts_as_existing() {
-    let app = TestApp::new().await;
-    sqlx::query(
-        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
-         VALUES ('inst-legacy', 'Radarr ', 'radarr', 'http://radarr:7878', 'secret', 1, 'tok')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+async fn a_bundle_names_an_instance_whatever_the_case_and_spaces() {
+    let app = configured().await;
 
     let report = app
         .post(
             "/api/v1/config/import",
             serde_json::json!({ "bundle": {
-                "version": 1, "settings": [], "categories": [],
+                "version": 1, "settings": [],
+                "categories": [{ "name": "kids", "description": null }],
                 "instances": [
-                    { "name": "Radarr", "instance_type": "radarr",
+                    { "name": " radarr ", "instance_type": "radarr",
                       "base_url": "http://radarr:7878", "enabled": true,
                       "sync_interval_minutes": 60 }
                 ],
-                "root_folders": [], "overrides": []
+                "root_folders": [
+                    { "instance_name": " RADARR", "path": "/movies/standard", "category": "kids" }
+                ],
+                "overrides": []
             }}),
         )
         .await
@@ -741,12 +760,13 @@ async fn an_instance_stored_with_a_stray_space_still_counts_as_existing() {
         .clone();
 
     assert_eq!(report["instances"], 0, "{report}");
-    let radarrs: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM instances WHERE TRIM(name) = 'Radarr'")
-            .fetch_one(&app.state.pool)
+    assert_eq!(report["root_folders"], 1, "{report}");
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT category FROM root_folders WHERE path = '/movies/standard'")
+            .fetch_optional(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(radarrs, 1, "the legacy row was not seen and a second instance was created");
+    assert_eq!(stored.as_deref(), Some("kids"));
 }
 
 /// One category, one folder per instance, as `PUT /root-folders/{id}/category`

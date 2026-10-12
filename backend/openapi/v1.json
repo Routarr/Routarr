@@ -1954,12 +1954,16 @@
         "description": "An Arr Routarr reads.",
         "properties": {
           "api_key_encrypted": {
-            "description": "Whether the stored API key is encrypted at rest.",
+            "description": "Always `true`: every stored key is encrypted at rest.",
             "type": "boolean"
           },
           "api_key_masked": {
-            "description": "The Arr's key, masked. Empty for an application key.",
+            "description": "A fixed mask when a key is stored, never any part of it. Empty when\nnone is, and for an application key.",
             "type": "string"
+          },
+          "api_key_set": {
+            "description": "Whether the Arr's key is stored. An instance a configuration import\ncreated waits for its key, which a bundle never carries.",
+            "type": "boolean"
           },
           "base_url": {
             "type": "string"
@@ -2042,7 +2046,8 @@
           "sync_interval_minutes",
           "created_at",
           "updated_at",
-          "api_key_encrypted"
+          "api_key_encrypted",
+          "api_key_set"
         ],
         "type": "object"
       },

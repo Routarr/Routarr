@@ -71,12 +71,14 @@ pub struct Instance {
     pub base_url: String,
     pub enabled: bool,
     pub sync_interval_minutes: i64,
-    /// Always false, and present so the restorer knows to ask.
+    /// Always false, for a person reading the bundle: the import reads no key
+    /// from it.
     ///
     /// API keys are sealed with a master key held by one installation. Exporting
     /// them would either leak them in plaintext or produce ciphertext the
     /// destination cannot open, so they are simply absent, and the instance
-    /// arrives disabled until someone supplies one.
+    /// arrives disabled, named in the report's `needs_key`, until someone
+    /// supplies one.
     #[serde(default)]
     pub has_api_key: bool,
 }
@@ -432,9 +434,9 @@ pub async fn import(
 
         // Stored as `POST /instances` stores it: the name trimmed, the interval
         // within the day the scheduler clamps it to when it reads it, so the
-        // number on screen is the one running. Matched trimmed on both sides,
-        // or a stray space (in the bundle, or in a row stored untrimmed) is a
-        // second instance the check cannot see.
+        // number on screen is the one running. Found as the unique index holds
+        // names, case and spaces aside, and so is every instance a bundle's
+        // folders and exceptions name below.
         let name = instance.name.trim();
         let existing: Option<String> =
             sqlx::query_scalar("SELECT id FROM instances WHERE lower(trim(name)) = lower(?)")
@@ -447,15 +449,18 @@ pub async fn import(
             continue;
         }
 
+        // Sealed like every key, though empty: the instance waits for the key
+        // a bundle never carries, and reads as waiting for it.
         sqlx::query(
             "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled,
              sync_interval_minutes, webhook_token)
-             VALUES (?, ?, ?, ?, '', 0, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(name)
         .bind(instance.instance_type.to_lowercase())
         .bind(&base_url)
+        .bind(state.secrets.seal("")?)
         .bind(instance.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
         .bind(Uuid::new_v4().to_string())
         .execute(&mut *tx)
@@ -491,7 +496,7 @@ pub async fn import(
         let taken: Option<String> = sqlx::query_scalar(
             "SELECT path FROM root_folders
               WHERE category = ?
-                AND instance_id = (SELECT id FROM instances WHERE TRIM(name) = TRIM(?))
+                AND instance_id = (SELECT id FROM instances WHERE lower(name) = lower(trim(?)))
                 AND path <> ? COLLATE path
               LIMIT 1",
         )
@@ -509,7 +514,7 @@ pub async fn import(
         let affected = sqlx::query(
             "UPDATE root_folders SET category = ?
               WHERE path = ? COLLATE path
-                AND instance_id = (SELECT id FROM instances WHERE TRIM(name) = TRIM(?))",
+                AND instance_id = (SELECT id FROM instances WHERE lower(name) = lower(trim(?)))",
         )
         .bind(&category)
         .bind(&mapping.path)
@@ -537,7 +542,7 @@ pub async fn import(
               WHERE m.media_type = ?
                 AND ((m.tmdb_id IS NOT NULL AND m.tmdb_id = ?)
                      OR (m.tvdb_id IS NOT NULL AND m.tvdb_id = ?))
-                AND (? IS NULL OR TRIM(i.name) = TRIM(?))
+                AND (? IS NULL OR lower(i.name) = lower(trim(?)))
               ORDER BY m.id",
         )
         .bind(&over.media_type)

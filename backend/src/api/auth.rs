@@ -375,7 +375,6 @@ fn unauthorized_because(message: &str) -> Response {
         .into_response()
 }
 
-/// The refusal of a write whose Origin is another site.
 /// The name a request was sent to, when it is neither an address, `localhost`
 /// nor a name the operator listed.
 fn foreign_host(state: &AppState, request: &Request<Body>) -> Option<String> {
@@ -387,6 +386,7 @@ fn foreign_host(state: &AppState, request: &Request<Body>) -> Option<String> {
     (!own).then_some(name)
 }
 
+/// The refusal of a write whose Origin is another site.
 fn foreign_origin() -> Response {
     forbidden(
         "This request did not come from Routarr: its Origin is not the host it was sent to. \

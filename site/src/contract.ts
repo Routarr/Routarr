@@ -52,7 +52,7 @@ export interface Field {
   where?: 'path' | 'query' | 'header';
 }
 
-export interface Operation {
+interface Operation {
   id: string;
   method: string;
   /** The full path a client calls, the contract's server prefix included. */
@@ -64,7 +64,7 @@ export interface Operation {
   answer: { status: string; type: string; fields: Field[] } | null;
 }
 
-export interface Group {
+interface Group {
   tag: string;
   operations: Operation[];
 }
