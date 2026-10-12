@@ -12,6 +12,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # ramdisk, so the binary is not always under `backend/target`. Unset everywhere
 # else, where the default is the right answer.
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/backend/target}"
+# Cargo reads a relative one from where it builds, `backend/`, not from here.
+[[ "$TARGET_DIR" == /* ]] || TARGET_DIR="$ROOT/backend/$TARGET_DIR"
 HERE="$ROOT/site/screenshots"
 OUT="$ROOT/.github/assets/simulation.webp"
 # Named so `prune.sh` sweeps it if this exits without its trap.
