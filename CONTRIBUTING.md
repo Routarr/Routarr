@@ -19,14 +19,43 @@ building one of those rather than after.
 
 ## Getting set up
 
-The dev container ([`.devcontainer/`](.devcontainer/)) has what the checks
-below need, but for the last two blocks: the pinned Rust toolchain, Node,
-python3, `cargo-llvm-cov`, `gh`, and the Playwright browser.
-Open the repository in it and `postCreateCommand` does the rest.
+The dev container ([`.devcontainer/`](.devcontainer/)) ships everything the
+checks below run except Docker: the pinned Rust toolchain, Node, Python,
+cargo-llvm-cov, cargo-deny, cargo-about, cargo-auditable, actionlint,
+shellcheck, hadolint, gitleaks, oasdiff, ruff, `gh`, and Playwright with its
+browsers, each at the version CI pins. Open the repository in it and
+`postCreateCommand` does the rest. At every start it names a tool it lacks or
+holds at another version than its Dockerfile pins, which a rebuild settles.
 
-Without it, you need the Rust toolchain
-[`backend/rust-toolchain.toml`](backend/rust-toolchain.toml) names, which rustup
-reads, and the Node major `.github/workflows/ci.yml` installs.
+Without it, you need:
+
+- rustup, which reads [`backend/rust-toolchain.toml`](backend/rust-toolchain.toml)
+- Node 24, the major [`site/.node-version`](site/.node-version) names
+- Python 3.11 or later
+- curl, and `fuser` (psmisc) or `lsof`, which the end-to-end harness frees its
+  ports with
+- Docker, for the image check
+- the CI tools at the versions of the `ARG` lines of
+  [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile)
+
+Then install the two trees and a browser:
+
+```bash
+(cd frontend && npm ci && npx playwright install --with-deps chromium)
+(cd site && npm ci)
+```
+
+### Running Routarr while you work
+
+```bash
+(cd backend && cargo run)    # the API on :9876, with the interface `npm run build` last built
+(cd frontend && npm run dev) # the interface with live reload on :3000, /api/ sent to :9876
+```
+
+`cargo run` keeps its library in `backend/data/`, and with no key set it writes
+one to `backend/data/routarr.api_key` on its first start. Copy
+`backend/.env.example` to `backend/.env` to change a setting: every variable is
+described there.
 
 Inside it, the Rust build tree lives in a RAM disk at `/ramdisk` rather than
 on your disk. The RAM disk is half your machine's memory, and the build tree is
@@ -40,7 +69,7 @@ knowing:
 ```bash
 bash .devcontainer/prune.sh --status   # how full it is, and what is using it
 bash .devcontainer/prune.sh            # reclaim the regenerable parts now
-cargo clean                            # start the build tree over
+(cd backend && cargo clean)            # start the build tree over
 ```
 
 A build that reports **no space left on device** is that RAM disk filling, not
@@ -75,7 +104,7 @@ python3 ../scripts/check-versions.py    # every place a version is written
 python3 ../scripts/check-typography.py  # plain punctuation in what a reader sees
 python3 ../scripts/check-claude-md.py   # CLAUDE.md and the rules stay short
 python3 ../scripts/check-licences.py    # the bundled npm packages and about.toml, against deny.toml
-python3 -m unittest discover -s ../scripts/tests   # the release guard and the licence check
+python3 -m unittest discover -s ../scripts/tests   # the tests of the scripts CI relies on
 
 # frontend/
 npm run format:check
@@ -101,6 +130,7 @@ docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 bash scripts/check-api-breaks.sh            # the API contract against the last release (oasdiff)
 actionlint                                  # the workflows
 git ls-files -z '*.sh' | xargs -0 shellcheck -S style
+ruff check scripts frontend/e2e site/screenshots   # the Python scripts and fakes
 hadolint Dockerfile .devcontainer/Dockerfile
 gitleaks git --no-banner --redact .         # every commit, not the last one
 ```

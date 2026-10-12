@@ -1,6 +1,7 @@
 ---
 paths:
   - "frontend/**"
+  - "scripts/{check-api-types.py,check-bundle-size.mjs}"
 ---
 
 # Frontend
