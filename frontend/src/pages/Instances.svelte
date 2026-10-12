@@ -487,19 +487,16 @@
                   {/if}
                 </td>
                 <td>
-                  <!-- Encrypted is a property of the stored value, not an
-                       outcome, so it is not green: green means "this went
-                       well". -->
-                  <span
-                    class="badge {instance.api_key_encrypted
-                      ? 'badge-value muted'
-                      : 'badge-warning'}"
-                    title={instance.api_key_encrypted ? t('ApiKeyEncryptedHint') : undefined}
-                  >
-                    {instance.api_key_encrypted ? t('ApiKeyEncrypted') : instance.api_key_masked}
-                  </span>
-                  {#if !instance.api_key_encrypted}
-                    <span class="status-reason">{t('ApiKeyPlaintextHint')}</span>
+                  {#if instance.api_key_set}
+                    <!-- Encrypted is a property of the stored value, not an
+                         outcome, so it is not green: green means "this went
+                         well". -->
+                    <span class="badge badge-value muted" title={t('ApiKeyEncryptedHint')}>
+                      {t('ApiKeyEncrypted')}
+                    </span>
+                  {:else}
+                    <span class="badge badge-warning">{t('ApiKeyMissing')}</span>
+                    <span class="status-reason">{t('ApiKeyMissingHint')}</span>
                   {/if}
                 </td>
                 <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>

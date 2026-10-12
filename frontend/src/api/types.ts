@@ -25,6 +25,8 @@ export interface Instance {
   base_url: string;
   api_key_masked: string;
   api_key_encrypted: boolean;
+  /** Whether the Arr's key is stored: an imported instance waits for it. */
+  api_key_set: boolean;
   enabled: boolean;
   sync_interval_minutes: number;
   /** When a sync last *succeeded*. Null while none ever has. */

@@ -131,6 +131,7 @@ export function instance(over: Partial<Instance> = {}): Instance {
     base_url: 'http://localhost:7878',
     api_key_masked: '••••',
     api_key_encrypted: true,
+    api_key_set: true,
     enabled: true,
     sync_interval_minutes: 15,
     last_sync_at: null,

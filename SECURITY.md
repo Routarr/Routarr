@@ -229,11 +229,11 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   fail behind a start that looked clean. `ROUTARR_ALLOW_NEW_MASTER_KEY=true`
   makes a new key anyway, and the credentials are entered again. The key files
   are written beside, flushed and renamed into place, so a power cut leaves the
-  previous key or the new one, never an empty file. Only a plaintext key left by an older version gets a
-  partial mask, and that is a prompt to re-save. A configuration bundle carries
-  none of them, sealed or not: ciphertext is meaningless under another
+  previous key or the new one, never an empty file. A configuration bundle
+  carries none of them, sealed or not: ciphertext is meaningless under another
   installation's master key, so the destination would store a blob it can never
-  open while reporting the source as configured.
+  open while reporting the source as configured. An instance it creates says it
+  waits for its key.
 - **A backup that does not carry the master key says so before it is applied.**
   An installation whose key lives in `ROUTARR_SECRET_KEY` has no key file, so
   its archives contain none, and restoring one elsewhere leaves every sealed

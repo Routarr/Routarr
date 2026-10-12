@@ -121,12 +121,10 @@ describe('Instances', () => {
 
   /**
    * Never log or return a decrypted key. The row says the value is sealed, and
-   * not what the value is, not even partially. Only a key stored in plain text
-   * gets a partial mask, and that is a prompt to re-save rather than
-   * information.
+   * not what the value is, not even partially.
    */
   it('says the key is sealed without showing any of it', async () => {
-    show([instance({ api_key_encrypted: true, api_key_masked: 'abc•••••xyz' })]);
+    show([instance({ api_key_masked: 'abc•••••xyz' })]);
 
     expect(await screen.findByText('encrypted')).toBeTruthy();
     expect(screen.queryByText('abc•••••xyz')).toBeNull();
@@ -138,7 +136,7 @@ describe('Instances', () => {
    * else.
    */
   it('states encryption as a fact rather than as a success', async () => {
-    show([instance({ api_key_encrypted: true })]);
+    show([instance()]);
 
     const badge = await screen.findByText('encrypted');
     expect(badge.className).not.toContain('badge-success');
@@ -208,12 +206,18 @@ describe('Instances', () => {
     expect(row).toHaveTextContent('connection refused');
   });
 
-  /** The remedy of a key stored in plaintext is in the row, where a keyboard reads it. */
-  it('says how to seal a key stored in plaintext in the row', async () => {
-    show([instance({ api_key_encrypted: false })]);
+  /**
+   * An imported instance holds no key until somebody enters it. The row says
+   * so, and what to do, where a keyboard reads it, rather than calling an
+   * empty value encrypted.
+   */
+  it('says an instance waits for its key, and how to give it one', async () => {
+    show([instance({ api_key_set: false, api_key_masked: '' })]);
 
     const row = await screen.findByRole('row', { name: /Radarr/ });
-    expect(row).toHaveTextContent('Save the instance again to encrypt it.');
+    expect(row).toHaveTextContent('key missing');
+    expect(row).toHaveTextContent('No API key is stored. Edit the instance to enter it.');
+    expect(within(row).queryByText('encrypted')).toBeNull();
   });
 
   /** A typed address and key go with the dialog, whether it closes or the screen changes. */

@@ -48,7 +48,9 @@ fn shown(
     localizer: &Localizer,
     instance: Instance,
 ) -> InstanceResponse {
-    let response = InstanceResponse::from_instance(instance, &state.config.base_path, localizer);
+    let key_set = key_set(state, &instance);
+    let response =
+        InstanceResponse::from_instance(instance, &state.config.base_path, localizer, key_set);
     match identity.application {
         Some(_) => InstanceResponse {
             webhook_url: None,
@@ -59,6 +61,12 @@ fn shown(
         },
         None => response,
     }
+}
+
+/// Whether the Arr's key is stored. A value the master key cannot open is a
+/// key all the same, one the health warnings name.
+fn key_set(state: &AppState, instance: &Instance) -> bool {
+    state.secrets.open(&instance.api_key).map_or(true, |key| !key.is_empty())
 }
 
 /// Another instance holds the name, case and spaces aside: a bundle names an
@@ -102,7 +110,9 @@ pub async fn create(
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
 
     let instance = state.instance(&id).await?;
-    let created = InstanceResponse::from_instance(instance, &state.config.base_path, &localizer);
+    let key_set = key_set(&state, &instance);
+    let created =
+        InstanceResponse::from_instance(instance, &state.config.base_path, &localizer, key_set);
     Ok(super::Created::at(&state, format!("/instances/{id}"), created))
 }
 
@@ -165,7 +175,13 @@ pub async fn update(
     tx.commit().await?;
 
     let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
-    Ok(Json(InstanceResponse::from_instance(instance, &state.config.base_path, &localizer)))
+    let key_set = key_set(&state, &instance);
+    Ok(Json(InstanceResponse::from_instance(
+        instance,
+        &state.config.base_path,
+        &localizer,
+        key_set,
+    )))
 }
 
 pub async fn remove(
@@ -492,7 +508,13 @@ pub async fn rotate_webhook_token(
     .await?;
 
     let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
-    Ok(Json(InstanceResponse::from_instance(instance, &state.config.base_path, &localizer)))
+    let key_set = key_set(&state, &instance);
+    Ok(Json(InstanceResponse::from_instance(
+        instance,
+        &state.config.base_path,
+        &localizer,
+        key_set,
+    )))
 }
 
 /// Whether an instance may be written as given, and its address as stored:
