@@ -140,12 +140,13 @@ async fn run_enrichment(
     // (`metadata::resolved_keys`), so this is a first-pass cost, not a
     // per-run one.
     let limiter = state.paces.of(source);
+    let breaker = Breaker::new();
     let name = metadata::info(source.id()).map_or(source.id(), |info| info.display_name);
 
     let mut searched = 0;
     if source.addressing() == Addressing::Search {
         job.stage(Detail::new("JobDetailIdentifying").with("source", name)).await;
-        searched = resolve_identifiers(state, source, job, &limiter).await?;
+        searched = resolve_identifiers(state, source, job, &limiter, &breaker).await?;
     }
     job.stage(Detail::new("JobDetailFetching").with("source", name)).await;
 
@@ -160,15 +161,6 @@ async fn run_enrichment(
     info!("{} item(s) need enrichment from {}", targets.len(), source.id());
     let total = targets.len();
 
-    // `buffer_unordered` keeps N requests in flight without spawning a task per
-    // item. The providers tolerate a handful of parallel calls, and this is the
-    // main driver of how fast a cold library becomes classifiable.
-    //
-    // Each future carries its own (external_id, media_type) back out: results
-    // arrive in completion order, not input order, so pairing them with the
-    // input list positionally would file a movie's metadata under a series and
-    // lose both.
-    let breaker = Breaker::new();
     // A source with a daily quota has the pass's share reserved at once, and
     // what goes unsent given back after: a count taken inside each request in
     // flight would wait on the database while this loop writes to it.
@@ -182,6 +174,15 @@ async fn run_enrichment(
     let closed = Arc::new(AtomicBool::new(false));
     let sent = Arc::new(AtomicUsize::new(0));
 
+    // `buffer_unordered` keeps N requests in flight without spawning a task per
+    // item. The providers tolerate a handful of parallel calls, and this is the
+    // main driver of how fast a cold library becomes classifiable.
+    //
+    // Each future carries its own (external_id, media_type) back out: results
+    // arrive in completion order, not input order, so pairing them with the
+    // input list positionally would file a movie's metadata under a series and
+    // lose both.
+    //
     // Each answer is stored as it arrives, not once the pass ends: a pass over
     // a large library takes hours, and a restart or one failed write before
     // its end would otherwise throw away everything fetched, a day of a keyed
@@ -318,9 +319,11 @@ async fn run_enrichment(
 
 /// Stops a pass from hammering a source that is plainly down.
 ///
-/// Shared by both stages that issue requests (resolution and fetching), because
-/// a search storm against an unavailable source costs exactly as much as a fetch
-/// storm, and for a searching source it is the one that happens first.
+/// One per source and pass, shared by both stages that issue requests
+/// (resolution and fetching), because a search storm against an unavailable
+/// source costs exactly as much as a fetch storm, and for a searching source it
+/// is the one that happens first. A source that tripped it while searching is
+/// asked for no record after.
 #[derive(Clone)]
 struct Breaker {
     failures: Arc<AtomicUsize>,
@@ -394,6 +397,7 @@ async fn resolve_identifiers(
     source: &FetchingSource,
     job: &JobHandle,
     limiter: &RateLimiter,
+    breaker: &Breaker,
 ) -> AppResult<usize> {
     let known = metadata::resolved_keys(&state.pool, source.id()).await?;
 
@@ -436,8 +440,6 @@ async fn resolve_identifiers(
     let total = pending.len();
     info!("{total} item(s) still to identify on {}", source.id());
     job.progress(0, total).await;
-
-    let breaker = Breaker::new();
 
     // Written down as each search answers, for the reason the fetch stage is.
     let mut results = stream::iter(pending)
