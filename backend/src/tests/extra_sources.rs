@@ -600,6 +600,8 @@ async fn jikan_themes_and_demographics_become_keywords() {
         .unwrap();
 
     assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
+    let paths = sources.recorded().paths.clone();
+    assert!(paths.contains(&"/jikan/anime/523/full".to_string()), "{paths:?}");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
     // The vocabulary an anime library is actually sorted by, and which TMDB
