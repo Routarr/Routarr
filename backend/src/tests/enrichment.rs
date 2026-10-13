@@ -183,9 +183,10 @@ async fn enriches_movies_and_series_from_one_call_each() {
 
 #[tokio::test]
 async fn results_are_filed_against_the_media_they_belong_to() {
-    // The movie answers slowly, so its result comes back *after* the series'.
-    // Paired with the input list by position, the movie's metadata is filed
-    // under `series` and both rows are lost.
+    // The movie, 100, is handed out first, two titles never asked going by
+    // identifier, and answers slowly, so its result comes back *after* the
+    // series'. Paired with the input list by position, the movie's metadata is
+    // filed under `series` and both rows are lost.
     let tmdb = FakeTmdb::with(vec![], vec![100]).await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 

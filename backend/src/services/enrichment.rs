@@ -511,7 +511,8 @@ async fn resolve_identifiers(
 
 /// Distinct identifiers, in this source's own namespace, whose cache entry is
 /// missing or due: the ones never asked first, then the ones someone asked
-/// for again, then the stalest. An answer is due once older than `lifetime`
+/// for again, then the stalest, and a tie by identifier, so every pass hands
+/// out one library in one order. An answer is due once older than `lifetime`
 /// days, read now rather than written beside it, so a lifetime lowered
 /// applies to every answer at once. A pass
 /// that stops short, at a daily quota, would otherwise refresh the same
@@ -547,7 +548,8 @@ async fn pending_targets(
              WHERE m.{column} IS NOT NULL AND CAST(m.{column} AS TEXT) != ''
                AND m.media_type IN ({answered})
                AND (c.external_id IS NULL OR c.stale = 1 OR c.cached_at < datetime('now', ?))
-             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at"
+             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at,
+                      m.{column}, m.media_type"
         )))
         .bind(source.id())
         .bind(&due)
@@ -565,7 +567,8 @@ async fn pending_targets(
                    AND c.media_type = s.media_type
              WHERE s.source = ? AND s.external_id IS NOT NULL
                AND (c.external_id IS NULL OR c.stale = 1 OR c.cached_at < datetime('now', ?))
-             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at",
+             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at,
+                      s.external_id, s.media_type",
         )
         .bind(source.id())
         .bind(&due)
