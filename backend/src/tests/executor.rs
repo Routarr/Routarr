@@ -122,8 +122,11 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     .await
     .unwrap();
     assert_eq!(status, "failed", "the Tasks screen must see the job end");
-    let error = error.unwrap_or_default();
-    assert!(!error.is_empty() && !error.contains("current_path"), "the row reads {error}");
+    assert_eq!(
+        error.as_deref(),
+        Some("An internal error occurred. See the server log for details."),
+        "the row must say where the cause is, and never what it is"
+    );
     assert!(app.state.jobs.try_lock("apply").is_some(), "the apply lock was left held");
 }
 
@@ -1208,12 +1211,15 @@ async fn a_revert_onto_a_folder_that_is_not_answering_asks_first() {
     assert_eq!(answered.assert_ok()["applied"], 1, "answering the question did not let it through");
 }
 
-/// Moved back with its files, a film needs room where it goes.
+/// Moved back with its files, a film needs room where it goes. A folder both
+/// asleep and short of room is asked about in an apply's order, the graver
+/// question first.
 #[tokio::test]
-async fn a_revert_moving_files_onto_a_full_folder_asks_first() {
+async fn a_revert_asks_whether_its_folder_answers_before_whether_it_has_room() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = applied(&arr).await;
-    origin_folder(&app, true, 1024).await;
+    origin_folder(&app, false, 1024).await;
+    arr.put_to_sleep("/movies/standard");
     sqlx::query("UPDATE media SET size_on_disk = 8589934592 WHERE id = 'm-1'")
         .execute(&app.state.pool)
         .await
@@ -1224,8 +1230,11 @@ async fn a_revert_moving_files_onto_a_full_folder_asks_first() {
 
     let first =
         executor::revert_decisions(&app.state, ids, true, &executor::Confirmed::none(), &by).await;
+    let woken = executor::Confirmed::all().only(|kind| kind == executor::confirm::UNREACHABLE);
+    let second = executor::revert_decisions(&app.state, ids, true, &woken, &by).await;
 
-    assert_eq!(asked(&first), Some(executor::confirm::CAPACITY), "{first:?}");
+    assert_eq!(asked(&first), Some(executor::confirm::UNREACHABLE), "{first:?}");
+    assert_eq!(asked(&second), Some(executor::confirm::CAPACITY), "{second:?}");
     assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote before asking");
 }
 
