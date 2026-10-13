@@ -45,7 +45,8 @@ pub struct Recorded {
     pub authorizations: Vec<String>,
     /// Bodies of every mutating request, in order.
     pub writes: Vec<serde_json::Value>,
-    /// Query strings of every mutating request.
+    /// Query strings of every mutating request, their parameters sorted, so a
+    /// string compares the same whatever order the request held them in.
     pub query_strings: Vec<String>,
     /// Paths of every read, so a test can tell one item from the whole library.
     pub reads: Vec<String>,
@@ -487,7 +488,9 @@ async fn root_folders(
     }
     let mut folders = serde_json::json!([
         { "id": 1, "path": shown_folder(&state, "/movies/standard"), "freeSpace": 1024, "accessible": true },
-        { "id": 2, "path": shown_folder(&state, "/movies/anime"), "freeSpace": 2048, "accessible": false },
+        // An Arr reads the free space of a folder it can reach and of no
+        // other, so one not answering reports none.
+        { "id": 2, "path": shown_folder(&state, "/movies/anime"), "freeSpace": null, "accessible": false },
         // A second *usable* destination. Without one, no test can produce a
         // move at all, since the library sits in the only folder it could go
         // to, and an assertion that "nothing was written" passes for the wrong
@@ -862,11 +865,11 @@ async fn movie_update(
 }
 
 fn record_write(state: &FakeState, body: &serde_json::Value, params: &HashMap<String, String>) {
+    let mut pairs: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    pairs.sort();
     let mut recorded = state.recorded.lock().expect("lock");
     recorded.writes.push(body.clone());
-    recorded
-        .query_strings
-        .push(params.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&"));
+    recorded.query_strings.push(pairs.join("&"));
 }
 
 /// What an update leaves in the Arr: the path written at once, as both Arrs

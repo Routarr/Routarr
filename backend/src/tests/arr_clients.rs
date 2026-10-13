@@ -176,7 +176,7 @@ async fn a_radarr_lookup_is_held_to_the_film_asked() {
 // ------------------------------------------------------------------ Sonarr
 
 #[tokio::test]
-async fn sonarr_derives_has_files_from_the_statistics_block() {
+async fn sonarr_maps_a_series_onto_the_shared_shape() {
     let arr = FakeArr::start().await;
     let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &arr.base_url, "k"));
 

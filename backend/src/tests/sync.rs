@@ -953,12 +953,14 @@ async fn a_declared_destination_follows_the_figures_of_the_folder_above_it() {
 
     sync::sync_instance(&app.state, "i-1", &crate::jobs::Attribution::manual(None)).await.unwrap();
 
-    let figures: (i64, bool) =
+    let figures: (Option<i64>, bool) =
         sqlx::query_as("SELECT free_space, accessible FROM root_folders WHERE id = 'rf-declared'")
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(figures, (2048, false), "not the figures of /movies/anime, the folder above it");
+    // `/movies/anime` reports no free space: its silence replaces the figure
+    // typed, and is not filled from `/movies`.
+    assert_eq!(figures, (None, false), "not the figures of /movies/anime, the folder above it");
 }
 
 /// A target need not be a root folder in Radarr or Sonarr, or routing into
@@ -1005,8 +1007,8 @@ async fn a_declared_destination_inherits_from_the_folder_it_sits_under() {
     app.post("/api/v1/instances/i-1/sync", serde_json::json!({})).await.assert_ok();
     app.post(
         "/api/v1/root-folders",
-        // Under `/movies/anime`, which the fake reports inaccessible with
-        // 2048 bytes free: the deepest match, not `/movies`.
+        // Under `/movies/anime`, which the fake reports not answering and
+        // with no free space: the deepest match, not `/movies`.
         serde_json::json!({ "instance_id": "i-1", "path": "/movies/anime/films" }),
     )
     .await
@@ -1020,7 +1022,7 @@ async fn a_declared_destination_inherits_from_the_folder_it_sits_under() {
     .unwrap();
     // Immediately, not at the next pass: a new destination showing no figures
     // for a whole sync interval is a row nobody can judge.
-    assert_eq!(free, Some(2048), "it did not take its parent's free space");
+    assert_eq!(free, None, "it did not take its parent's free space, which is none");
     assert!(!accessible, "nor its parent's reachability");
 }
 

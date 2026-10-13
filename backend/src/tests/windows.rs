@@ -165,7 +165,7 @@ async fn a_destination_declared_on_windows_is_kept_and_inherits_its_folder() {
     .await
     .unwrap();
     assert_eq!(path, "d:\\media\\movies\\anime\\films", "written as Windows writes it");
-    assert_eq!(free, Some(2048), "the free space of D:\\Media\\movies\\anime");
+    assert_eq!(free, None, "the free space of D:\\Media\\movies\\anime, which reports none");
     assert!(!accessible, "and its silence");
 
     let again = app

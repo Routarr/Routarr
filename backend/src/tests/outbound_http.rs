@@ -48,8 +48,11 @@ async fn redirector(target: String) -> super::Served {
     super::serve(app).await
 }
 
+/// Another port of the same machine is another service, and another origin.
+/// Another host stops on the same check, which the unit tests of
+/// `stays_on_origin` hold without a second address to listen on.
 #[tokio::test]
-async fn a_redirect_to_another_host_does_not_carry_the_api_key() {
+async fn a_redirect_to_another_port_does_not_carry_the_api_key() {
     let (elsewhere, seen) = recorder().await;
     let arr = redirector(format!("{elsewhere}/api/v3/movie")).await;
 
@@ -59,7 +62,7 @@ async fn a_redirect_to_another_host_does_not_carry_the_api_key() {
     let leaked = seen.lock().unwrap().clone();
     assert!(
         leaked.iter().all(|k| k != "s3cret"),
-        "the Arr API key was forwarded to another host by a redirect: {leaked:?}"
+        "the Arr API key was forwarded to another port by a redirect: {leaked:?}"
     );
 }
 
