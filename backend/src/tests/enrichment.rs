@@ -520,20 +520,22 @@ async fn titles_tmdb_does_not_have_never_cut_it_off() {
 }
 
 /// TMDB down answers every title alike: the fetching stage stops at the
-/// breaker instead of asking once per title, and leaves the rest to the next
-/// pass.
+/// breaker, five refusals and the requests then in flight, instead of asking
+/// once per title, and leaves the rest to the next pass.
 #[tokio::test]
 async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     let tmdb = FakeTmdb::down(503).await;
     let items: Vec<(i64, &str, i64)> = (1..=20).map(|id| (id, "movie", id)).collect();
     let app = library(&tmdb, &items).await;
+    let in_flight = app.state.config.metadata_concurrency;
 
     let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
     let asked = tmdb.recorded().paths.len();
-    assert!(asked <= 12, "{asked} requests for 20 titles to a source that was down");
+    let ceiling = 5 + in_flight - 1;
+    assert!(asked <= ceiling, "{asked} requests for 20 titles to a source that was down");
     assert!(report.skipped > 0, "{report:?}");
 }
 
