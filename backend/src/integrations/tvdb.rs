@@ -205,8 +205,10 @@ impl TvdbClient {
     /// Radarr carries none.
     pub async fn get_details(&self, tvdb_id: &str) -> AppResult<TvdbDetails> {
         debug!("Fetching TheTVDB series {tvdb_id}");
+        // `short` leaves out the characters, artworks and trailers, the bulk of
+        // the record, which nothing reads.
         let response: Envelope<RawRecord> =
-            self.read(&format!("/series/{tvdb_id}/extended")).await?;
+            self.read(&format!("/series/{tvdb_id}/extended?short=true")).await?;
         let Some(raw) = response.data else {
             return Ok(TvdbDetails::default());
         };
