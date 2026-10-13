@@ -1142,10 +1142,25 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     assert_eq!(listed_at, stamped.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
 
     // The download is the point of the route, beyond its refusals: the bytes
-    // have to be the archive, typed as one.
+    // have to be the archive, typed as one. Asked by a browser, which accepts
+    // gzip: an archive is compressed already, and gzipped again it loses the
+    // length a download's progress reads.
     use http_body_util::BodyExt;
-    let response = app.raw(&format!("/api/v1/backups/{name}")).await;
+    let request = axum::http::Request::get(format!("/api/v1/backups/{name}"))
+        .header("accept-encoding", "gzip, deflate, br")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = app.send_raw(request).await;
     assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(response.headers().get("content-encoding"), None);
+    let size = std::fs::metadata(dir.join("backups").join(&name)).unwrap().len();
+    assert_eq!(response.headers()["content-length"], size.to_string().as_str());
+    let document = axum::http::Request::get("/api/v1/openapi.json")
+        .header("accept-encoding", "gzip")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let document = app.send_raw(document).await;
+    assert_eq!(document.headers()["content-encoding"], "gzip", "nothing is compressed any more");
     let content_type = response
         .headers()
         .get(axum::http::header::CONTENT_TYPE)
