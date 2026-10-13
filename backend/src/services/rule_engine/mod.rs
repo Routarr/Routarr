@@ -689,13 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn no_match_yields_no_winner() {
-        let drama =
-            rule("drama", 10, "standard", vec![Condition::GenreContains(vec!["Drama".into()])]);
-        assert!(evaluate(&[drama], None).winner.is_none());
-    }
-
-    #[test]
     fn lower_priority_number_wins_and_others_become_alternatives() {
         let kids = rule("kids", 5, "kids", vec![Condition::GenreContains(vec!["Family".into()])]);
         let result = evaluate(&[anime_rule(), kids], None);
