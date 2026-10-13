@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} répond, mais sa bibliothèque dépasse la taille que Routarr accepte de lire. Augmentez {variable}, puis relancez la synchronisation.",
   "InstanceSyncUnreadable": "{service} répond, mais Routarr n'a pas pu lire sa bibliothèque. L'état de synchronisation affiché dans la liste des instances en donne le détail.",
   "InstanceUrlHelp": "Avec le port, et le préfixe d'URL si {service} en a un. Dans Docker, utilisez le nom du conteneur de {service} ou l'adresse IP de l'hôte : localhost est le conteneur de Routarr lui-même. L'utilisateur et le mot de passe d'un proxy, écrits user:password@ devant l'hôte, s'affichent sous la forme ***.",
+  "InstanceUrlInClear": "En http://, la clé d'API circule en clair. Si cette adresse est jointe par Internet, utilisez https://.",
   "InstanceUrlPlain": "L'adresse s'arrête à son chemin : retirez ce qui suit un ? ou un #.",
   "InstanceTypeUnknown": "« {type} » n'est pas un type d'instance que Routarr connaît. Il connaît radarr et sonarr.",
   "InstanceUrlScheme": "L'adresse doit commencer par http:// ou https://.",

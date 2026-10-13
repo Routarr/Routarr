@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} 有响应，但其媒体库大小超过了 Routarr 的读取上限。请提高 {variable}，然后重新同步。",
   "InstanceSyncUnreadable": "{service} 有响应，但 Routarr 无法读取其媒体库。详情请查看实例列表中的同步状态。",
   "InstanceUrlHelp": "需包含端口，若 {service} 设置了 URL 基础路径，也请一并填写。在 Docker 中，请使用 {service} 的容器名称或主机的 IP 地址：localhost 指向 Routarr 自己的容器。代理的用户名和密码以 user:password@ 的形式写在主机前，会显示为 ***。",
+  "InstanceUrlInClear": "使用 http:// 时，API 密钥以明文传输。如果通过互联网访问此地址，请使用 https://。",
   "InstanceUrlPlain": "地址应止于路径：请删除 ? 或 # 之后的内容。",
   "InstanceTypeUnknown": "「{type}」不是 Routarr 认识的实例类型。Routarr 只认识 radarr 和 sonarr。",
   "InstanceUrlScheme": "地址必须以 http:// 或 https:// 开头。",

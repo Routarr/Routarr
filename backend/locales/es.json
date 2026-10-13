@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} responde, pero su biblioteca es más grande de lo que Routarr admite. Sube el valor de {variable} y vuelve a sincronizar.",
   "InstanceSyncUnreadable": "{service} responde, pero Routarr no pudo leer su biblioteca. El estado de sincronización en la lista de instancias muestra los detalles.",
   "InstanceUrlHelp": "Con el puerto, y el prefijo de URL si {service} tiene uno. En Docker, usa el nombre del contenedor de {service} o la dirección IP del host: localhost es el propio contenedor de Routarr. El usuario y la contraseña de un proxy, escritos user:password@ antes del host, se muestran como ***.",
+  "InstanceUrlInClear": "Con http://, la clave de API viaja sin cifrar. Si se accede a esta dirección por internet, usa https://.",
   "InstanceUrlPlain": "La dirección termina en su ruta: quita lo que sigue a un ? o a un #.",
   "InstanceTypeUnknown": "«{type}» no es un tipo de instancia que Routarr conozca. Conoce radarr y sonarr.",
   "InstanceUrlScheme": "La dirección debe empezar por http:// o https://.",

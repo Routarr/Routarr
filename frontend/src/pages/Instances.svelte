@@ -14,6 +14,7 @@
     failureDetail,
     formatRelative,
     formatTimestamp,
+    inClearPastHome,
     withoutCredentials,
   } from '../api/format';
   import type { Instance } from '../api/types';
@@ -714,7 +715,9 @@
             id="instances-base-url"
             class="form-input"
             placeholder={EXAMPLE_URL[form.instance_type]}
-            aria-describedby="instances-base-url-help"
+            aria-describedby={inClearPastHome(form.base_url)
+              ? 'instances-base-url-help instances-base-url-in-clear'
+              : 'instances-base-url-help'}
             bind:value={form.base_url}
             onblur={() => completeScheme(form)}
             autocapitalize="off"
@@ -724,6 +727,11 @@
           <p id="instances-base-url-help" class="text-muted text-sm mt-1">
             {t('InstanceUrlHelp', { service: SERVICE[form.instance_type] })}
           </p>
+          {#if inClearPastHome(form.base_url)}
+            <p id="instances-base-url-in-clear" class="text-warning text-sm mt-1">
+              {t('InstanceUrlInClear')}
+            </p>
+          {/if}
         </div>
         <div class="form-group">
           <label class="form-label" for="instances-api-key">{t('ApiKey')}</label>

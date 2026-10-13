@@ -694,6 +694,24 @@ describe('Instances', () => {
     );
   });
 
+  it('warns that http sends the key unencrypted to a host past the home network', async () => {
+    show([]);
+    await openAdd();
+    const url = await screen.findByLabelText('Base URL');
+    const warning =
+      'Over http://, the API key travels unencrypted. If this address is reached across the internet, use https://.';
+
+    await fireEvent.input(url, { target: { value: 'http://radarr.example.com' } });
+    const said = screen.getByText(warning);
+    expect(url.getAttribute('aria-describedby')?.split(' ')).toContain(said.id);
+
+    for (const address of ['https://radarr.example.com', 'http://radarr:7878']) {
+      await fireEvent.input(url, { target: { value: address } });
+      expect(screen.queryByText(warning), address).toBeNull();
+      expect(url.getAttribute('aria-describedby')).toBe('instances-base-url-help');
+    }
+  });
+
   /** An address copied from a browser bar or typed from memory often has no scheme. */
   it('adds the scheme an address typed without one lacks', async () => {
     show([]);

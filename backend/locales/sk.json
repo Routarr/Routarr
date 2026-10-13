@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} odpovedá, ale jeho knižnica je väčšia, ako je Routarr ochotný načítať. Zvýšte {variable} a potom spustite synchronizáciu znova.",
   "InstanceSyncUnreadable": "{service} odpovedá, ale Routarr nedokázal načítať jeho knižnicu. Podrobnosti uvádza stav synchronizácie v zozname inštancií.",
   "InstanceUrlHelp": "S portom a základnou cestou, ak ju {service} používa. V Dockeri použite názov kontajnera, v ktorom beží {service}, alebo IP adresu hostiteľa: localhost je vlastný kontajner Routarru. Používateľské meno a heslo proxy, zapísané ako user:password@ pred hostiteľom, sa zobrazujú ako ***.",
+  "InstanceUrlInClear": "Cez http:// sa kľúč API prenáša nešifrovane. Ak sa k tejto adrese pristupuje cez internet, použite https://.",
   "InstanceUrlPlain": "Adresa končí cestou: odstráňte všetko, čo nasleduje za ? alebo #.",
   "InstanceTypeUnknown": "\"{type}\" nie je typ inštancie, ktorý Routarr pozná. Pozná radarr a sonarr.",
   "InstanceUrlScheme": "Adresa musí začínať na http:// alebo https://.",

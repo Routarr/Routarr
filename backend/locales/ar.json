@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "يستجيب {service}، لكن مكتبته أكبر مما يقرؤه Routarr. ارفع قيمة المتغير {variable}، ثم أعد المزامنة.",
   "InstanceSyncUnreadable": "يستجيب {service}، لكن Routarr لم يتمكن من قراءة مكتبته. ستجد التفاصيل في حالة المزامنة ضمن قائمة الخوادم.",
   "InstanceUrlHelp": "أدخل العنوان مع المنفذ، ومع مسار URL الأساسي إن كان {service} يستخدم واحدًا. في Docker، استخدم اسم حاوية {service} أو عنوان IP للمضيف، لأن localhost هو حاوية Routarr نفسها. يظهر اسم مستخدم الوكيل وكلمة مروره، المكتوبان user:password@ قبل المضيف، على شكل ***.",
+  "InstanceUrlInClear": "عبر http://‎ يُنقل مفتاح API دون تشفير. إذا كان هذا العنوان يُبلغ عبر الإنترنت، فاستخدم https://‎.",
   "InstanceUrlPlain": "ينتهي العنوان عند مساره: احذف ما يلي ? أو #.",
   "InstanceTypeUnknown": "‏«{type}» ليس نوع خادم يعرفه Routarr. فهو يعرف radarr و sonarr.",
   "InstanceUrlScheme": "يجب أن يبدأ العنوان بـ http://‎ أو https://‎.",

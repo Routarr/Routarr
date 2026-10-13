@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} svarar, men biblioteket är större än vad Routarr läser in. Höj {variable} och synkronisera sedan igen.",
   "InstanceSyncUnreadable": "{service} svarar, men Routarr kunde inte läsa biblioteket. Synkroniseringsstatusen i instanslistan visar detaljerna.",
   "InstanceUrlHelp": "Med porten, och URL-basen om {service} har en. I Docker använder du {service}s containernamn eller värddatorns IP-adress: localhost är Routarrs egen container. En proxys användarnamn och lösenord, skrivna user:password@ före värden, visas som ***.",
+  "InstanceUrlInClear": "Över http:// skickas API-nyckeln okrypterad. Om adressen nås via internet ska den börja med https://.",
   "InstanceUrlPlain": "Adressen slutar vid sökvägen: ta bort det som följer efter ett ? eller ett #.",
   "InstanceTypeUnknown": "\"{type}\" är ingen instanstyp som Routarr känner till. Routarr känner till radarr och sonarr.",
   "InstanceUrlScheme": "Adressen måste börja med http:// eller https://.",

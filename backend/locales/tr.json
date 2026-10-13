@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} yanıt veriyor, ancak kitaplığı Routarr'ın okuyabileceğinden büyük. {variable} değerini yükseltin, ardından yeniden eşitleyin.",
   "InstanceSyncUnreadable": "{service} yanıt veriyor, ancak Routarr onun kitaplığını okuyamadı. Ayrıntıları örnek listesindeki eşitleme durumunda bulabilirsiniz.",
   "InstanceUrlHelp": "Portu ve {service} bir temel URL kullanıyorsa onu da ekleyin. Docker'da {service} kapsayıcısının adını veya ana makinenin IP adresini kullanın: localhost, Routarr'ın kendi kapsayıcısıdır. Ana makinenin önüne user:password@ biçiminde yazılan bir vekil sunucu kullanıcı adı ve parolası *** olarak gösterilir.",
+  "InstanceUrlInClear": "http:// üzerinden API anahtarı şifrelenmeden iletilir. Bu adrese internet üzerinden erişiliyorsa https:// kullanın.",
   "InstanceUrlPlain": "Adres, yolunda biter: ? veya # işaretinden sonrasını kaldırın.",
   "InstanceTypeUnknown": "\"{type}\", Routarr'ın bildiği bir örnek türü değil. Routarr yalnızca radarr ve sonarr türlerini bilir.",
   "InstanceUrlScheme": "Adres http:// veya https:// ile başlamalıdır.",

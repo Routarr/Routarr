@@ -730,6 +730,7 @@
   "InstanceSyncTooLarge": "{service} は応答していますが、ライブラリが Routarr の読み込める上限を超えています。{variable} を上げてから、もう一度同期してください。",
   "InstanceSyncUnreadable": "{service} は応答していますが、Routarr はそのライブラリを読み取れませんでした。詳細はインスタンス一覧の同期状態で確認できます。",
   "InstanceUrlHelp": "ポート番号と、{service} に URL ベースがある場合はそれも含めてください。Docker では、{service} のコンテナ名かホストの IP アドレスを使用してください。localhost は Routarr 自身のコンテナを指します。プロキシのユーザー名とパスワードは、ホストの前に user:password@ の形で書くと *** と表示されます。",
+  "InstanceUrlInClear": "http:// では API キーが暗号化されずに送信されます。このアドレスにインターネット経由で接続する場合は、https:// を使用してください。",
   "InstanceUrlPlain": "アドレスはパスで終わる必要があります。? や # 以降を削除してください。",
   "InstanceTypeUnknown": "「{type}」は Routarr が認識するインスタンスの種類ではありません。認識できるのは radarr と sonarr です。",
   "InstanceUrlScheme": "アドレスは http:// または https:// で始まる必要があります。",
