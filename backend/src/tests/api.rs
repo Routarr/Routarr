@@ -438,6 +438,24 @@ async fn a_body_that_cannot_be_parsed_still_gets_the_error_envelope() {
     }
 }
 
+/// A disabled instance is one the operator switched off: the scheduler and the
+/// webhook leave it alone, and so does a sync asked by hand.
+#[tokio::test]
+async fn a_disabled_instance_is_not_synced_by_hand() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.post("/api/v1/instances/inst-1/sync", serde_json::json!({})).await.assert_ok();
+    let reads = arr.recorded().reads.len();
+    assert!(reads > 0, "the enabled instance was never read");
+
+    app.execute(&["UPDATE instances SET enabled = 0 WHERE id = 'inst-1'"]).await;
+    let refused = app.post("/api/v1/instances/inst-1/sync", serde_json::json!({})).await;
+
+    assert_eq!(refused.assert_status(StatusCode::CONFLICT)["reason"], "instance_disabled");
+    assert_eq!(arr.recorded().reads.len(), reads, "the disabled instance was read");
+}
+
 /// A script decides whether to ask again from the code alone: a running apply
 /// clears in a while and says when to come back, a name already taken never
 /// clears by waiting.

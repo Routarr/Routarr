@@ -6,6 +6,7 @@ use axum::{Router, middleware};
 use std::sync::Arc;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::services::ServeDir;
@@ -367,9 +368,13 @@ fn build_router(state: AppState) -> Router {
     // frontend bundle attach_frontend adds: a layer attached earlier only
     // applies to the routes registered before it. The security headers go
     // outermost for the same reason: they have to reach the served HTML, not
-    // just the API.
+    // just the API. A backup archive is compressed or sealed already: gzipped
+    // again it gains nothing and loses the length a download's progress reads.
+    let compressed = DefaultPredicate::new()
+        .and(NotForContentType::const_new("application/zip"))
+        .and(NotForContentType::const_new("application/octet-stream"));
     attach_frontend(app, &config, state)
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(compressed))
         .layer(middleware::from_fn(security_headers))
 }
 

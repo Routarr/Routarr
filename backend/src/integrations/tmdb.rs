@@ -16,12 +16,20 @@ use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "TMDB";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TmdbClient {
     client: Client,
     api_key: String,
     /// API root, so a mirror or caching proxy can be used instead.
     base_url: String,
+}
+
+// The key stays out: a client printed in a log line or a failed assertion
+// would carry it.
+impl std::fmt::Debug for TmdbClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TmdbClient").field("base_url", &self.base_url).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

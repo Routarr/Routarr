@@ -6,6 +6,7 @@ import {
   formatBytes,
   formatPercent,
   formatTimestamp,
+  inClearPastHome,
   localName,
   mediaTypeKey,
   runsOf,
@@ -293,5 +294,37 @@ describe('runsOf', () => {
 
   it('answers an empty list with no run', () => {
     expect(runsOf([], (item) => item)).toEqual([]);
+  });
+});
+
+describe('inClearPastHome', () => {
+  it('stays quiet for an address that stays home or is encrypted', () => {
+    for (const address of [
+      'http://radarr:7878',
+      'http://localhost:7878',
+      'http://192.168.1.20:7878',
+      'http://10.0.0.5:8989',
+      'http://172.20.0.3:7878',
+      'http://100.101.102.103:7878',
+      'http://[fd00::5]:7878',
+      'http://nas.lan:7878',
+      'http://radarr.home.arpa',
+      'https://radarr.example.com',
+      'not an address',
+    ]) {
+      expect(inClearPastHome(address), address).toBe(false);
+    }
+  });
+
+  it('names http to a public address or a public name', () => {
+    for (const address of [
+      'http://203.0.113.9:7878',
+      'http://radarr.example.com',
+      'http://user:pass@radarr.example.com/radarr',
+      'http://[2001:db8::1]:7878',
+      'http://172.32.0.1',
+    ]) {
+      expect(inClearPastHome(address), address).toBe(true);
+    }
   });
 });

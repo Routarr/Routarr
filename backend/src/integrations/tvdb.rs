@@ -27,7 +27,6 @@ pub const DEFAULT_BASE_URL: &str = "https://api4.thetvdb.com/v4";
 
 /// The token of the last login, with the key it was obtained with: a token
 /// answers for that key only, so a new key logs in again.
-#[derive(Debug)]
 pub struct CachedToken {
     key: String,
     token: String,
@@ -36,7 +35,7 @@ pub struct CachedToken {
 /// Shared by every client a state builds, so one login serves every pass.
 pub type TokenCache = Arc<Mutex<Option<CachedToken>>>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TvdbClient {
     client: Client,
     api_key: String,
@@ -46,6 +45,14 @@ pub struct TvdbClient {
     /// Owned by `AppState`, so the token outlives the client and one login
     /// serves every pass until it expires.
     token: TokenCache,
+}
+
+// The key stays out: a client printed in a log line or a failed assertion
+// would carry it.
+impl std::fmt::Debug for TvdbClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TvdbClient").field("base_url", &self.base_url).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -198,8 +205,10 @@ impl TvdbClient {
     /// Radarr carries none.
     pub async fn get_details(&self, tvdb_id: &str) -> AppResult<TvdbDetails> {
         debug!("Fetching TheTVDB series {tvdb_id}");
+        // `short` leaves out the characters, artworks and trailers, the bulk of
+        // the record, which nothing reads.
         let response: Envelope<RawRecord> =
-            self.read(&format!("/series/{tvdb_id}/extended")).await?;
+            self.read(&format!("/series/{tvdb_id}/extended?short=true")).await?;
         let Some(raw) = response.data else {
             return Ok(TvdbDetails::default());
         };

@@ -134,10 +134,12 @@ pub enum ExternalId {
 impl ExternalId {
     /// The one id among these, or `None` when there is none or more than one.
     pub fn one_of(tmdb: Option<i64>, tvdb: Option<i64>, imdb: Option<&str>) -> Option<Self> {
-        match (tmdb, tvdb, imdb.map(str::trim)) {
+        // An empty `imdb=` is no id: a client filling a template sends it beside
+        // the id it has.
+        match (tmdb, tvdb, imdb.map(str::trim).filter(|imdb| !imdb.is_empty())) {
             (Some(tmdb), None, None) => Some(Self::Tmdb(tmdb)),
             (None, Some(tvdb), None) => Some(Self::Tvdb(tvdb)),
-            (None, None, Some(imdb)) if !imdb.is_empty() => Some(Self::Imdb(imdb.to_string())),
+            (None, None, Some(imdb)) => Some(Self::Imdb(imdb.to_string())),
             _ => None,
         }
     }

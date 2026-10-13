@@ -530,8 +530,10 @@ async fn tvdb_record(
     State(state): State<FakeState>,
     headers: HeaderMap,
     Path((kind, id)): Path<(String, String)>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    record(&state, &format!("/tvdb/{id}/extended"));
+    let asked = query.map(|query| format!("?{query}")).unwrap_or_default();
+    record(&state, &format!("/tvdb/{id}/extended{asked}"));
     if let Some(status) = state.fail_with {
         return Err((StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({}))));
     }

@@ -37,6 +37,43 @@ export const bcp47 = (language: string) => language.replace('_', '-');
 export const withoutCredentials = (address: string): string =>
   address.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
 
+/** Names a home network gives a host, which no public DNS answers. */
+const LOCAL_SUFFIXES = ['.local', '.lan', '.home', '.internal', '.localdomain', '.home.arpa'];
+
+/**
+ * Whether an address sends the Arr's key unencrypted to a host that may lie
+ * past the home network: `http` to a public IP address, or to a name a public
+ * DNS could answer. A container name, `localhost`, a private or link-local
+ * address and a home network's name stay home.
+ */
+export function inClearPastHome(address: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(address.trim());
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:') return false;
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host.includes(':')) {
+    return !(host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host));
+  }
+  const octets = host.split('.').map(Number);
+  if (octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet <= 255)) {
+    const [a, b] = octets as [number, number, number, number];
+    const home =
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127);
+    return !home;
+  }
+  if (!host.includes('.') || host === 'localhost') return false;
+  return !LOCAL_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
 /** A backend enum value, lower-case, as the head of a PascalCase dictionary key. */
 export const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 

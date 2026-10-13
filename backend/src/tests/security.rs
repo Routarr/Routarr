@@ -1295,6 +1295,34 @@ async fn signing_out_ends_the_session_a_copied_cookie_carries() {
     assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 0);
 }
 
+/// A page of another site can post to the sign-out route with the browser's
+/// cookie, and would end a session it never held. Refused as any write from
+/// another origin is.
+#[tokio::test]
+async fn a_page_of_another_site_cannot_sign_the_operator_out() {
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use tower::ServiceExt;
+
+    let (app, _dir) = forms_app("forced-sign-out").await;
+    let session = open_session(&app).await;
+
+    let forced = Request::post("/api/v1/auth/logout")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, &session)
+        .header(header::ORIGIN, "https://evil.example")
+        .header(header::HOST, "routarr.local")
+        .body(Body::from("{}"))
+        .unwrap();
+    let response = app.router.clone().oneshot(forced).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(response.headers().get(header::SET_COOKIE).is_none(), "the cookie was cleared");
+
+    let (after, _) =
+        with_session(&app, "GET", "/api/v1/status", &session, serde_json::json!({})).await;
+    assert_eq!(after, StatusCode::OK, "the session was ended");
+}
+
 /// A session lives as long as its cookie says, a week, on the server too: a
 /// row outliving it would keep a copied cookie valid long after the browser
 /// forgot it.
@@ -1949,4 +1977,31 @@ async fn resetting_the_account_gives_a_new_password_and_closes_every_session() {
         .await
         .unwrap();
     assert_eq!(sessions, 0, "a session survived the reset");
+}
+
+/// A source client printed whole, in a log line or a failed assertion, names
+/// its address and never its key.
+#[test]
+fn no_source_client_prints_its_key() {
+    use crate::integrations::{
+        omdb::OmdbClient, radarr::RadarrClient, sonarr::SonarrClient, tmdb::TmdbClient,
+        tvdb::TvdbClient,
+    };
+
+    let http = reqwest::Client::new();
+    let key = "a-key-nobody-may-read";
+    let printed = [
+        format!("{:?}", RadarrClient::new(http.clone(), "http://radarr:7878", key)),
+        format!("{:?}", SonarrClient::new(http.clone(), "http://sonarr:8989", key)),
+        format!("{:?}", TmdbClient::new(http.clone(), key, "http://tmdb.example")),
+        format!("{:?}", OmdbClient::new(http.clone(), key, "http://omdb.example", 1000)),
+        format!(
+            "{:?}",
+            TvdbClient::new(http, key, Some("a-pin"), "http://tvdb.example", Default::default())
+        ),
+    ];
+    for client in printed {
+        assert!(!client.contains(key) && !client.contains("a-pin"), "{client}");
+        assert!(client.contains("http://"), "{client}");
+    }
 }

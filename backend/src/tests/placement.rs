@@ -162,6 +162,8 @@ async fn each_answer_a_caller_acts_on_comes_back_as_such() {
     }
 }
 
+/// An empty parameter is no id: a client filling a template sends `imdb=` with
+/// the `tmdb` it has.
 #[tokio::test]
 async fn a_title_only_the_arr_knows_is_looked_up_and_placed_without_being_stored() {
     let arr = FakeArr::start().await;
@@ -169,7 +171,7 @@ async fn a_title_only_the_arr_knows_is_looked_up_and_placed_without_being_stored
     radarr_library(&app, &arr).await;
     let (media, decisions) = (count(&app, "media").await, count(&app, "decisions").await);
 
-    for query in ["tmdb=129", "imdb=tt0245429"] {
+    for query in ["tmdb=129", "imdb=tt0245429", "tmdb=129&imdb="] {
         let placed = app.get(&format!("/api/v1/route?type=movie&{query}")).await;
         let answer = only(placed.assert_ok());
         assert_eq!(answer["source"], "lookup", "{query}");

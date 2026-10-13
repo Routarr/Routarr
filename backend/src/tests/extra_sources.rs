@@ -82,6 +82,25 @@ async fn omdb_language_names_become_the_code_a_rule_matches() {
     assert_eq!(language.as_deref(), Some("ja"));
 }
 
+/// The record is asked in its short form: the characters, artworks and
+/// trailers of a series weigh more than the rest of it, and nothing reads them.
+#[tokio::test]
+async fn the_tvdb_record_is_asked_without_what_nothing_reads() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "tvdb").await;
+    app.execute(&[SERIES_ALONE]).await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let recorded = sources.recorded();
+    let records: Vec<&String> =
+        recorded.paths.iter().filter(|path| path.contains("/extended")).collect();
+    assert!(!records.is_empty(), "the control: no record was read");
+    assert!(records.iter().all(|path| path.ends_with("/extended?short=true")), "{records:?}");
+}
+
 #[tokio::test]
 async fn the_tvdb_token_survives_between_passes_and_pages() {
     let sources = FakeSources::start().await;

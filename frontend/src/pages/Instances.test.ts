@@ -119,6 +119,17 @@ describe('Instances', () => {
     expect((syncAll as HTMLButtonElement).disabled).toBe(true);
   });
 
+  /** The server refuses to read a disabled instance, so its row offers no sync. */
+  it('offers no sync on the row of a disabled instance, and says why', async () => {
+    show([instance({ enabled: false })]);
+
+    const sync = (await screen.findByRole('button', {
+      name: 'Sync now – Radarr',
+    })) as HTMLButtonElement;
+    expect(sync.disabled).toBe(true);
+    expect(sync.title).toBe("Instance 'Radarr' is disabled. Enable it to sync it.");
+  });
+
   /**
    * Never log or return a decrypted key. The row says the value is sealed, and
    * not what the value is, not even partially.
@@ -681,6 +692,24 @@ describe('Instances', () => {
     expect(screen.getByLabelText('API key')).toHaveAccessibleDescription(
       'In Sonarr: Settings → General → Security → API Key.',
     );
+  });
+
+  it('warns that http sends the key unencrypted to a host past the home network', async () => {
+    show([]);
+    await openAdd();
+    const url = await screen.findByLabelText('Base URL');
+    const warning =
+      'Over http://, the API key travels unencrypted. If this address is reached across the internet, use https://.';
+
+    await fireEvent.input(url, { target: { value: 'http://radarr.example.com' } });
+    const said = screen.getByText(warning);
+    expect(url.getAttribute('aria-describedby')?.split(' ')).toContain(said.id);
+
+    for (const address of ['https://radarr.example.com', 'http://radarr:7878']) {
+      await fireEvent.input(url, { target: { value: address } });
+      expect(screen.queryByText(warning), address).toBeNull();
+      expect(url.getAttribute('aria-describedby')).toBe('instances-base-url-help');
+    }
   });
 
   /** An address copied from a browser bar or typed from memory often has no scheme. */

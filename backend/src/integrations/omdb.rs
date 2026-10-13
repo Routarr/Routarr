@@ -23,12 +23,20 @@ const PROBED: &str = "tt0096283";
 /// What OMDb answers for an id it does not hold.
 const MISSES: [&str; 3] = ["Movie not found!", "Incorrect IMDb ID.", "Series or season not found!"];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OmdbClient {
     client: Client,
     api_key: String,
     base_url: String,
     daily_requests: i64,
+}
+
+// The key stays out: a client printed in a log line or a failed assertion
+// would carry it.
+impl std::fmt::Debug for OmdbClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OmdbClient").field("base_url", &self.base_url).finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
