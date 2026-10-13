@@ -137,8 +137,8 @@ pub async fn discover(state: &AppState) -> AppResult<Provider> {
 
     // Read under a shared lock, so concurrent sign-ins do not queue behind each
     // other for a document they all already have.
-    if let Some((provider, read_at)) = state.oidc_provider.read().await.as_ref()
-        && read_at.elapsed() < DISCOVERY_TTL
+    if let Some((provider, fresh_until)) = state.oidc_provider.read().await.as_ref()
+        && std::time::Instant::now() < *fresh_until
     {
         return Ok(provider.clone());
     }
@@ -168,7 +168,8 @@ pub async fn discover(state: &AppState) -> AppResult<Provider> {
             )));
         }
     }
-    *state.oidc_provider.write().await = Some((provider.clone(), std::time::Instant::now()));
+    let fresh_until = std::time::Instant::now() + DISCOVERY_TTL;
+    *state.oidc_provider.write().await = Some((provider.clone(), fresh_until));
     Ok(provider)
 }
 
