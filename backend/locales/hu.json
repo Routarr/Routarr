@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "A(z) {threshold} megerősítési küszöb feletti elemek: {count}.",
   "ErrorDryRunEnabled": "A globális próbafuttatás be van kapcsolva. Kapcsolja ki a Beállításokban a módosítások alkalmazásához.",
   "ErrorInstanceDisabled": "A(z) \"{name}\" példány ki van kapcsolva, ezért a Routarr semmit sem ír bele.",
+  "ErrorInstanceSyncDisabled": "A(z) \"{name}\" példány ki van kapcsolva. Engedélyezze a szinkronizáláshoz.",
   "ErrorNoSelection": "Nincs kijelölve döntés",
   "ErrorNotEnoughSpace": "{path} {needed} adatot kapna, de csak {free} szabad helyet jelez.",
   "ErrorEnrichmentInProgress": "A források olvasása már folyamatban van. Próbálja újra, ha ez a feladat befejeződött.",

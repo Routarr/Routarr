@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "확인 임계값 {threshold}을(를) 초과하는 항목: {count}.",
   "ErrorDryRunEnabled": "전역 드라이런이 활성화되어 있습니다. 변경을 적용하려면 설정에서 해제하세요.",
   "ErrorInstanceDisabled": "비활성 상태인 인스턴스 '{name}'에는 아무것도 기록되지 않습니다.",
+  "ErrorInstanceSyncDisabled": "인스턴스 '{name}'이(가) 비활성 상태입니다. 동기화하려면 사용으로 설정하세요.",
   "ErrorNoSelection": "선택된 결정이 없습니다",
   "ErrorNotEnoughSpace": "{path}은(는) {needed}을(를) 받게 되지만 여유 공간은 {free}뿐이라고 보고합니다.",
   "ErrorEnrichmentInProgress": "소스를 이미 읽고 있습니다. 해당 작업이 끝나면 다시 요청하세요.",

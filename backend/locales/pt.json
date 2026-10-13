@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Itens acima do limiar de confirmação de {threshold}: {count}.",
   "ErrorDryRunEnabled": "A execução a seco global está ativa. Desative-a nas Definições para aplicar alterações.",
   "ErrorInstanceDisabled": "A instância «{name}» está desativada, por isso nada é escrito nela.",
+  "ErrorInstanceSyncDisabled": "A instância «{name}» está desativada. Ative-a para a sincronizar.",
   "ErrorNoSelection": "Nenhuma decisão selecionada",
   "ErrorNotEnoughSpace": "{path} receberia {needed} mas declara apenas {free} livres.",
   "ErrorEnrichmentInProgress": "As fontes já estão a ser lidas. Tente de novo quando essa tarefa terminar.",

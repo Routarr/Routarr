@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "確認しきい値 {threshold} を超える項目: {count}。",
   "ErrorDryRunEnabled": "全体ドライランが有効です。変更を適用するには設定で無効にしてください。",
   "ErrorInstanceDisabled": "インスタンス「{name}」は無効なので、何も書き込まれません。",
+  "ErrorInstanceSyncDisabled": "インスタンス「{name}」は無効です。同期するには有効にしてください。",
   "ErrorNoSelection": "判定が選択されていません",
   "ErrorNotEnoughSpace": "{path} は {needed} を受け取りますが、空き容量は {free} しか報告されていません。",
   "ErrorEnrichmentInProgress": "ソースはすでに読み取り中です。そのタスクが終わってから、もう一度お試しください。",

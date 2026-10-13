@@ -546,8 +546,10 @@
                          desktop screen. -->
                     <button
                       class="btn btn-secondary btn-sm"
-                      disabled={busyId !== null}
-                      title={t('SyncNow')}
+                      disabled={busyId !== null || !instance.enabled}
+                      title={instance.enabled
+                        ? t('SyncNow')
+                        : t('ErrorInstanceSyncDisabled', { name: instance.name })}
                       aria-label="{t('SyncNow')} – {instance.name}"
                       onclick={() => void syncNow(instance)}
                     >

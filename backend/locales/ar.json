@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "العناصر التي تتجاوز عتبة التأكيد {threshold}: {count}.",
   "ErrorDryRunEnabled": "التشغيل التجريبي العام مفعّل. عطّله في الإعدادات لتطبيق التغييرات.",
   "ErrorInstanceDisabled": "الخادم «{name}» معطّل، لذلك لا يُكتب فيه شيء.",
+  "ErrorInstanceSyncDisabled": "الخادم «{name}» معطّل. فعِّله لمزامنته.",
   "ErrorNoSelection": "لم يُحدَّد أي قرار",
   "ErrorNotEnoughSpace": "سيستقبل {path} حجم {needed} لكنه لا يعلن سوى {free} متاحة.",
   "ErrorEnrichmentInProgress": "المصادر قيد القراءة بالفعل. أعد الطلب بعد انتهاء تلك المهمة.",

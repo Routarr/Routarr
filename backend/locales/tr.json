@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "{threshold} onay eşiğinin üzerindeki öğeler: {count}.",
   "ErrorDryRunEnabled": "Genel deneme modu etkin. Değişiklikleri uygulamak için Ayarlar'dan devre dışı bırakın.",
   "ErrorInstanceDisabled": "\"{name}\" örneği devre dışı, bu yüzden ona hiçbir şey yazılmaz.",
+  "ErrorInstanceSyncDisabled": "\"{name}\" örneği devre dışı. Eşitlemek için etkinleştirin.",
   "ErrorNoSelection": "Hiçbir karar seçilmedi",
   "ErrorNotEnoughSpace": "{path} klasörü {needed} alacak ancak yalnızca {free} boş alan bildiriyor.",
   "ErrorEnrichmentInProgress": "Kaynaklar zaten okunuyor. Bu görev bittiğinde yeniden isteyin.",

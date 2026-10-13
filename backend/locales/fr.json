@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Éléments au-delà du seuil de confirmation de {threshold} : {count}.",
   "ErrorDryRunEnabled": "L'essai à blanc global est activé. Désactivez-le dans les Réglages pour appliquer les changements.",
   "ErrorInstanceDisabled": "L'instance « {name} » est désactivée, donc rien n'y est écrit.",
+  "ErrorInstanceSyncDisabled": "L'instance « {name} » est désactivée. Activez-la pour la synchroniser.",
   "ErrorNoSelection": "Aucune décision sélectionnée",
   "ErrorNotEnoughSpace": "{path} recevrait {needed} mais ne déclare que {free} de libre.",
   "ErrorEnrichmentInProgress": "Les sources sont déjà en cours de lecture. Réessayez une fois cette tâche terminée.",

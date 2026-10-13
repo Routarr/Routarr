@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Элементов сверх порога подтверждения {threshold}: {count}.",
   "ErrorDryRunEnabled": "Глобальный тестовый прогон включён. Отключите его в Настройках, чтобы применить изменения.",
   "ErrorInstanceDisabled": "Экземпляр «{name}» отключён, поэтому в него ничего не записывается.",
+  "ErrorInstanceSyncDisabled": "Экземпляр «{name}» отключён. Включите его, чтобы синхронизировать.",
   "ErrorNoSelection": "Не выбрано ни одного решения",
   "ErrorNotEnoughSpace": "{path} получит {needed}, но сообщает лишь о {free} свободного места.",
   "ErrorEnrichmentInProgress": "Источники уже читаются. Повторите запрос после завершения этой задачи.",

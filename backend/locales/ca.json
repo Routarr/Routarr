@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Elements per damunt del llindar de confirmació de {threshold}: {count}.",
   "ErrorDryRunEnabled": "L'execució en sec global està activa. Desactiva-la a Configuració per aplicar els canvis.",
   "ErrorInstanceDisabled": "La instància «{name}» està desactivada, així que no s'hi escriu res.",
+  "ErrorInstanceSyncDisabled": "La instància «{name}» està desactivada. Activa-la per sincronitzar-la.",
   "ErrorNoSelection": "No s'ha seleccionat cap decisió",
   "ErrorNotEnoughSpace": "{path} rebria {needed} però només declara {free} lliures.",
   "ErrorEnrichmentInProgress": "Ja s'estan llegint les fonts. Torna-ho a provar quan acabi aquesta tasca.",

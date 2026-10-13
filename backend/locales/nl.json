@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Items boven de bevestigingsdrempel van {threshold}: {count}.",
   "ErrorDryRunEnabled": "De globale testmodus staat aan. Schakel hem uit in Instellingen om wijzigingen toe te passen.",
   "ErrorInstanceDisabled": "Instantie '{name}' is uitgeschakeld, dus er wordt niets naartoe geschreven.",
+  "ErrorInstanceSyncDisabled": "Instantie '{name}' is uitgeschakeld. Schakel deze in om te synchroniseren.",
   "ErrorNoSelection": "Geen beslissing geselecteerd",
   "ErrorNotEnoughSpace": "{path} zou {needed} ontvangen maar meldt slechts {free} vrij.",
   "ErrorEnrichmentInProgress": "De bronnen worden al gelezen. Probeer opnieuw zodra die taak klaar is.",

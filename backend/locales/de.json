@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Einträge über der Bestätigungsschwelle von {threshold}: {count}.",
   "ErrorDryRunEnabled": "Der globale Testlauf-Modus ist aktiv. Deaktivieren Sie ihn in den Einstellungen, um Änderungen anzuwenden.",
   "ErrorInstanceDisabled": "Instanz \"{name}\" ist deaktiviert, daher wird nichts dorthin geschrieben.",
+  "ErrorInstanceSyncDisabled": "Instanz \"{name}\" ist deaktiviert. Aktivieren Sie sie, um sie zu synchronisieren.",
   "ErrorNoSelection": "Keine Entscheidung ausgewählt",
   "ErrorNotEnoughSpace": "{path} würde {needed} aufnehmen, meldet aber nur {free} frei.",
   "ErrorEnrichmentInProgress": "Die Quellen werden bereits gelesen. Versuchen Sie es erneut, sobald diese Aufgabe beendet ist.",

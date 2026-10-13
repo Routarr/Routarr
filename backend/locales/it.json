@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Elementi oltre la soglia di conferma di {threshold}: {count}.",
   "ErrorDryRunEnabled": "La prova a secco globale è attiva. Disattivala nelle Impostazioni per applicare le modifiche.",
   "ErrorInstanceDisabled": "L'istanza «{name}» è disattivata, quindi non vi viene scritto nulla.",
+  "ErrorInstanceSyncDisabled": "L'istanza «{name}» è disattivata. Attivala per sincronizzarla.",
   "ErrorNoSelection": "Nessuna decisione selezionata",
   "ErrorNotEnoughSpace": "{path} riceverebbe {needed} ma dichiara solo {free} liberi.",
   "ErrorEnrichmentInProgress": "Le fonti sono già in lettura. Riprova al termine di quell'attività.",

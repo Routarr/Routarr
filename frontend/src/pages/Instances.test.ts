@@ -119,6 +119,17 @@ describe('Instances', () => {
     expect((syncAll as HTMLButtonElement).disabled).toBe(true);
   });
 
+  /** The server refuses to read a disabled instance, so its row offers no sync. */
+  it('offers no sync on the row of a disabled instance, and says why', async () => {
+    show([instance({ enabled: false })]);
+
+    const sync = (await screen.findByRole('button', {
+      name: 'Sync now – Radarr',
+    })) as HTMLButtonElement;
+    expect(sync.disabled).toBe(true);
+    expect(sync.title).toBe("Instance 'Radarr' is disabled. Enable it to sync it.");
+  });
+
   /**
    * Never log or return a decrypted key. The row says the value is sealed, and
    * not what the value is, not even partially.

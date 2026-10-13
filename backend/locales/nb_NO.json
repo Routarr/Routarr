@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Elementer over bekreftelsesgrensen på {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global prøvekjøring er slått på. Slå den av under Innstillinger for å utføre endringer.",
   "ErrorInstanceDisabled": "Instansen «{name}» er deaktivert, så ingenting skrives til den.",
+  "ErrorInstanceSyncDisabled": "Instansen «{name}» er deaktivert. Aktiver den for å synkronisere den.",
   "ErrorNoSelection": "Ingen beslutning valgt",
   "ErrorNotEnoughSpace": "{path} ville motta {needed}, men melder bare {free} ledig.",
   "ErrorEnrichmentInProgress": "Kildene leses allerede. Prøv igjen når den oppgaven er ferdig.",

@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Елементів понад поріг підтвердження {threshold}: {count}.",
   "ErrorDryRunEnabled": "Глобальний тестовий запуск увімкнено. Вимкніть його в Налаштуваннях, щоб застосувати зміни.",
   "ErrorInstanceDisabled": "Екземпляр «{name}» вимкнено, тому до нього нічого не записується.",
+  "ErrorInstanceSyncDisabled": "Екземпляр «{name}» вимкнено. Увімкніть його, щоб синхронізувати.",
   "ErrorNoSelection": "Не вибрано жодного рішення",
   "ErrorNotEnoughSpace": "{path} отримає {needed}, але повідомляє лише про {free} вільного місця.",
   "ErrorEnrichmentInProgress": "Джерела вже читаються. Повторіть запит, коли це завдання завершиться.",

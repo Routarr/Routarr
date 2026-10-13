@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Položky nad prahom potvrdenia {threshold}: {count}.",
   "ErrorDryRunEnabled": "Globálny skúšobný režim je zapnutý. Vypnite ho v Nastaveniach, ak chcete zmeny použiť.",
   "ErrorInstanceDisabled": "Inštancia \"{name}\" je vypnutá, takže sa do nej nič nezapisuje.",
+  "ErrorInstanceSyncDisabled": "Inštancia \"{name}\" je vypnutá. Povoľte ju, aby sa synchronizovala.",
   "ErrorNoSelection": "Nie je vybrané žiadne rozhodnutie",
   "ErrorNotEnoughSpace": "{path} by prijal {needed}, ale hlási len {free} voľných.",
   "ErrorEnrichmentInProgress": "Zdroje sa už načítavajú. Skúste to znova, keď táto úloha skončí.",

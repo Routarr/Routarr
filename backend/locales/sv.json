@@ -665,6 +665,7 @@
   "ErrorConfirmationRequired": "Objekt över bekräftelsegränsen på {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global testkörning är påslagen. Stäng av den under Inställningar för att tillämpa ändringar.",
   "ErrorInstanceDisabled": "Instansen \"{name}\" är inaktiverad, så inget skrivs till den.",
+  "ErrorInstanceSyncDisabled": "Instansen \"{name}\" är inaktiverad. Aktivera den för att synkronisera den.",
   "ErrorNoSelection": "Inget beslut markerat",
   "ErrorNotEnoughSpace": "{path} skulle ta emot {needed} men rapporterar bara {free} ledigt.",
   "ErrorEnrichmentInProgress": "Källorna läses redan. Försök igen när den uppgiften är klar.",
