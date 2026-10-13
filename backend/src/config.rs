@@ -210,18 +210,6 @@ impl Network {
     }
 }
 
-/// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
-///
-/// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
-/// tower-http compares the header against these values verbatim. So anything
-/// that is not exactly that shape can never match. Accepted in silence, it
-/// would be counted in the startup line and leave the operator with CORS that
-/// looks configured and does nothing.
-///
-/// `*` is refused outright rather than translated: this layer sends
-/// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
-/// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
-/// panic, so an installation that set it would never start at all.
 /// A metadata source's root, refused at start when it is no address a request
 /// can go to: a typo would only ever show as the source being unreachable.
 fn validate_source_root(variable: &str, root: &str) -> AppResult<()> {
@@ -236,6 +224,18 @@ fn validate_source_root(variable: &str, root: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
+///
+/// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
+/// tower-http compares the header against these values verbatim. So anything
+/// that is not exactly that shape can never match. Accepted in silence, it
+/// would be counted in the startup line and leave the operator with CORS that
+/// looks configured and does nothing.
+///
+/// `*` is refused outright rather than translated: this layer sends
+/// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
+/// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
+/// panic, so an installation that set it would never start at all.
 fn validate_origin(origin: &str) -> AppResult<()> {
     // Named through a constant rather than inline: the sample-env check scans
     // this file for a quoted `ROUTARR_*` and reads the whole literal as a
@@ -265,6 +265,29 @@ fn validate_origin(origin: &str) -> AppResult<()> {
         return Err(bad("must be an origin (scheme, host and port, with no path)"));
     }
     Ok(())
+}
+
+/// The origins of `ROUTARR_CORS_ORIGINS`, each written as a browser sends it:
+/// scheme and host in lower case, the scheme's default port dropped, since the
+/// comparison is verbatim. A value that is no origin stays as written, for
+/// `validate_origin` to name.
+fn origins_from(raw: Option<String>) -> Vec<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(|origin| origin.trim().trim_end_matches('/'))
+        .filter(|origin| !origin.is_empty())
+        .map(|origin| {
+            reqwest::Url::parse(origin)
+                .ok()
+                .filter(|url| {
+                    matches!(url.scheme(), "http" | "https")
+                        && url.path() == "/"
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                })
+                .map_or_else(|| origin.to_string(), |url| url.origin().ascii_serialization())
+        })
+        .collect()
 }
 
 /// The shortest key `ROUTARR_API_KEY` may pin. A generated key is 64
@@ -604,14 +627,7 @@ impl Config {
             oidc_allowed_groups: list("ROUTARR_OIDC_ALLOWED_GROUPS"),
             oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
             oidc_allow_anyone: env_parse("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
-            cors_origins: non_empty("ROUTARR_CORS_ORIGINS")
-                .map(|v| {
-                    v.split(',')
-                        .map(|s| s.trim().trim_end_matches('/').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default(),
+            cors_origins: origins_from(non_empty("ROUTARR_CORS_ORIGINS")),
             trusted_proxies: non_empty("ROUTARR_TRUSTED_PROXIES")
                 .map(|v| {
                     v.split(',')
@@ -1082,6 +1098,22 @@ mod tests {
         assert_eq!(concurrency_from(100), (16, true));
         assert_eq!(concurrency_from(0), (1, true));
         assert_eq!(concurrency_from(4), (4, false));
+    }
+
+    /// A browser writes an origin in lower case and without its scheme's
+    /// default port, and the comparison is verbatim: listed otherwise, an
+    /// origin would never match.
+    #[test]
+    fn a_listed_origin_is_written_as_a_browser_sends_it() {
+        let listed = origins_from(Some(
+            " HTTPS://Pages.Example:443/, http://Nas.Lan:80, http://nas.lan:8080 ,, *, /path"
+                .into(),
+        ));
+        assert_eq!(
+            listed,
+            ["https://pages.example", "http://nas.lan", "http://nas.lan:8080", "*", "/path"]
+        );
+        assert!(origins_from(None).is_empty());
     }
 
     /// `RUST_LOG` is read here with every other variable, and said at start
