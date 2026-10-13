@@ -180,15 +180,24 @@ async fn every_route_but_the_declared_few_refuses_a_request_with_no_key() {
     }
 }
 
-/// And the open few are open: a list nothing checks would let one of them be
-/// quietly closed, which locks the shell out of the screen that says why. What
-/// the shell reads answers in full, and the provider's pair, which has no
-/// provider in this mode, answers anything but a demand for a key.
+/// And the open few are open, each in a mode that serves it: a list nothing
+/// checks would let one of them be quietly closed, which locks the shell out
+/// of the screen that says why. What the shell reads answers in full. A
+/// sign-in route answers 404 outside its own mode, which proves nothing, so
+/// the password's is asked in `forms` and the provider's pair in `oidc`.
 #[tokio::test]
 async fn the_open_routes_answer_without_a_key() {
-    let app = TestApp::with_api_key("s3cret").await;
+    let keyed = TestApp::with_api_key("s3cret").await;
+    let (forms, _dir) = forms_app("open-routes").await;
+    let idp = super::fake_oidc::FakeOidc::start().await;
+    let oidc = super::oidc::oidc_app(&idp).await;
 
     for (method, path) in OPEN {
+        let app = match *path {
+            "/api/v1/auth/login" => &forms,
+            path if path.contains("/oidc/") => &oidc,
+            _ => &keyed,
+        };
         let request = Request::builder()
             .method(*method)
             .uri(*path)
@@ -196,7 +205,10 @@ async fn the_open_routes_answer_without_a_key() {
             .body(Body::from("{}"))
             .unwrap();
         let status = app.send(request).await.status;
-        assert_ne!(status, StatusCode::UNAUTHORIZED, "{method} {path} needs a key it cannot have");
+        assert!(
+            ![StatusCode::UNAUTHORIZED, StatusCode::NOT_FOUND].contains(&status),
+            "{method} {path} answered {status} without a key"
+        );
         if *method == "GET" && !path.contains("/oidc/") {
             assert!(status.is_success(), "{method} {path} answered {status} without a key");
         }
@@ -1036,7 +1048,7 @@ async fn a_write_from_another_origin_is_refused_even_with_the_cookie() {
 /// this application does. The Origin the browser states is then the one thing
 /// that tells the two apart.
 #[tokio::test]
-async fn a_cross_origin_write_is_refused_in_every_mode() {
+async fn a_cross_origin_write_is_refused_in_the_open_modes() {
     use crate::config::AuthMode;
 
     for mode in [AuthMode::None, AuthMode::External] {
@@ -1556,11 +1568,14 @@ async fn a_panicking_handler_is_logged_under_its_request_id() {
     crate::log_panics();
     let captured = LogCapture::default();
     let subscriber = tracing_subscriber::fmt().json().with_writer(captured.clone()).finish();
-    let _logging = tracing::subscriber::set_default(subscriber);
+    let logging = tracing::subscriber::set_default(subscriber);
 
     let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)));
     let request = Request::get("/boom").header("x-request-id", "req-42").body(Body::empty());
     let response = router.oneshot(request.unwrap()).await.unwrap();
+    // A failed assertion below panics through the same hook, and while the
+    // capture is the default its message would go there instead of the report.
+    drop(logging);
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
     let log = captured.contents();
