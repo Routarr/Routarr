@@ -1589,6 +1589,9 @@ mod archive_shape {
     /// makes it matter is the machine this runs on (the commentary through
     /// this crate designs for a two-core NAS) and the cadence, since
     /// `backup_enabled` defaults to true and the scheduler takes one a day.
+    /// So this is a lint over the source. It reads code lines only, since a
+    /// word in a comment must neither satisfy a check nor trip one, and it
+    /// knows the usual spellings of a whole read, not every way to hold a file.
     ///
     /// `api/backup.rs` streams the *download*, since reading an archive into
     /// memory first doubles the process's footprint. The write path is the
@@ -1596,37 +1599,49 @@ mod archive_shape {
     #[test]
     fn the_database_is_never_read_whole_and_never_deflated_on_the_runtime() {
         const SOURCE: &str = include_str!("mod.rs");
+        let code_of = |function: &str| -> Vec<&str> {
+            SOURCE
+                .split_once(function)
+                .expect(function)
+                .1
+                .split_once("\n}")
+                .expect("its closing brace")
+                .0
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with("//"))
+                .collect()
+        };
 
-        let build = SOURCE
-            .split_once("fn build_zip(")
-            .expect("build_zip")
-            .1
-            .split_once("\n}")
-            .expect("its closing brace")
-            .0;
+        let build = code_of("fn build_zip(");
         // The guard on the parser: stop matching and every assertion below
         // passes having read nothing.
-        assert!(build.len() > 400, "only {} bytes of build_zip parsed", build.len());
-
+        assert!(build.len() > 30, "only {} lines of build_zip parsed", build.len());
         assert!(
-            build.contains("std::io::copy"),
+            build.iter().any(|line| line.contains("std::io::copy(")),
             "the database entry must be copied through, not materialised"
         );
+        // Every whole read, however it is spelled, is the one of the two keys,
+        // a handful of bytes each.
+        let whole: Vec<&str> = build
+            .iter()
+            .copied()
+            .filter(|line| {
+                ["fs::read", "read_to_end(", "read_to_string("].iter().any(|r| line.contains(r))
+            })
+            .collect();
         assert!(
-            !build.contains("std::fs::read(snapshot)"),
-            "the snapshot is read whole into memory again"
+            whole.len() == 1 && whole[0].contains("source.as_ref().map(std::fs::read)"),
+            "a whole read other than the two keys', the snapshot's perhaps: {whole:?}"
         );
 
-        let write = SOURCE
-            .split_once("async fn write_archive(")
-            .expect("write_archive")
-            .1
-            .split_once("\n}")
-            .expect("its closing brace")
-            .0;
-        assert!(write.len() > 400, "only {} bytes of write_archive parsed", write.len());
+        let write = code_of("async fn write_archive(");
+        assert!(write.len() > 30, "only {} lines of write_archive parsed", write.len());
         assert!(
-            write.contains("spawn_blocking"),
+            write
+                .iter()
+                .skip_while(|line| !line.contains("spawn_blocking("))
+                .any(|line| line.contains("build_zip(")),
             "deflating a library-sized database must not hold a runtime worker"
         );
     }
