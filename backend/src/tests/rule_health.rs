@@ -58,6 +58,44 @@ async fn a_rule_that_never_wins_names_the_rule_taking_its_items() {
     assert!(winner["shadowed_by"].is_null(), "the rule that wins is nobody's victim");
 }
 
+/// The culprit is the rule taking the most of a shadowed rule's items, and of
+/// rules taking as many the one tried first, on every report. Named in the
+/// order the counts happen to come in, it changes from one call to the next.
+#[tokio::test]
+async fn a_shadowed_rule_names_the_same_culprit_on_every_report() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title,
+                   current_root_folder, monitored, has_files)
+                   VALUES ('m-2', 'inst-1', 102, 'movie', 'Akira', '/movies/standard', 1, 1),
+                          ('m-3', 'inst-1', 103, 'movie', 'Paprika', '/movies/standard', 1, 1)"])
+        .await;
+    // One title each, and the first tried sorts last by name.
+    add_rule(&app, "r-1", "Totoro", 10, "totoro", "anime").await;
+    add_rule(&app, "r-2", "Akira", 20, "akira", "anime").await;
+    add_rule(&app, "r-3", "Paprika", 30, "paprika", "anime").await;
+    app.execute(&[r#"INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+                     target_category, match_mode)
+                     VALUES ('r-all', 'Everything', 90, 1, 'both',
+                             '[{"type":"has_files","value":true}]', 'standard', 'all')"#])
+        .await;
+
+    for _ in 0..10 {
+        let response = app.get("/api/v1/rules/health").await;
+        let everything = rule(response.assert_ok(), "Everything");
+        assert_eq!(everything["shadowed"], 3, "{everything}");
+        assert_eq!(everything["shadowed_by"], "Totoro", "{everything}");
+    }
+
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title,
+                   current_root_folder, monitored, has_files)
+                   VALUES ('m-4', 'inst-1', 104, 'movie', 'Paprika 2', '/movies/standard', 1, 1)"])
+        .await;
+    let response = app.get("/api/v1/rules/health").await;
+    let everything = rule(response.assert_ok(), "Everything");
+    assert_eq!(everything["shadowed_by"], "Paprika", "the most items outrank the order");
+}
+
 /// A rule that decides some items and loses others is doing its job. Naming a
 /// culprit there would turn a working rule set into a page of warnings.
 #[tokio::test]
