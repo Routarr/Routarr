@@ -9,7 +9,7 @@ use super::TestApp;
 
 /// The whole flow against a provider on an ephemeral port: discovery, the
 /// authorization URL, the exchange, and the session it opens.
-async fn oidc_app(idp: &crate::tests::fake_oidc::FakeOidc) -> TestApp {
+pub(super) async fn oidc_app(idp: &crate::tests::fake_oidc::FakeOidc) -> TestApp {
     oidc_app_with_secret(idp, "shhh").await
 }
 
@@ -107,9 +107,8 @@ async fn an_https_redirect_address_makes_the_session_cookie_secure() {
         };
         let app = TestApp::around(app.state.clone().with_config(config));
         let flow = start_flow(&app).await;
-        idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
 
-        let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+        let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
         let request = Request::get(&path)
             .header(axum::http::header::COOKIE, &flow.cookie)
             .body(Body::empty())
@@ -139,14 +138,28 @@ async fn a_sign_in_attempt_lives_ten_minutes() {
 }
 
 /// Start a sign-in as a browser would, and keep what it would keep: the
-/// cookie that ties it to this browser, and the redirect with the `state` and
-/// the nonce the provider is to echo.
+/// cookie that ties it to this browser, the redirect with the `state` and the
+/// nonce the provider is to echo, and the code the provider issued.
 struct Flow {
     cookie: String,
     set_cookie: String,
     state: String,
     nonce: String,
     location: String,
+    code: String,
+}
+
+/// Answer the provider as the person would, and come back with the code it
+/// issued for this attempt.
+async fn authorize(location: &str) -> String {
+    let browser =
+        reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+    let answer = browser.get(location).send().await.unwrap();
+    assert_eq!(answer.status(), reqwest::StatusCode::FOUND, "the provider refused {location}");
+    let back = answer.headers()[reqwest::header::LOCATION].to_str().unwrap();
+    let back = reqwest::Url::parse(back).unwrap();
+    let code = back.query_pairs().find(|(name, _)| name == "code").expect("a code");
+    code.1.into_owned()
 }
 
 async fn start_flow(app: &TestApp) -> Flow {
@@ -170,7 +183,8 @@ async fn start_flow(app: &TestApp) -> Flow {
         cookie.starts_with(&format!("routarr_oidc_{}=", &state[..8])),
         "the attempt's cookie is not named after its state: {cookie}"
     );
-    Flow { cookie, set_cookie, state, nonce: asked["nonce"].clone(), location }
+    let code = authorize(&location).await;
+    Flow { cookie, set_cookie, state, nonce: asked["nonce"].clone(), location, code }
 }
 
 /// Come back from the provider as the browser that left, or as another one.
@@ -216,7 +230,7 @@ async fn a_sign_in_carries_pkce_and_the_nonce_to_the_provider() {
 /// The document is static by specification, and `SignInThrottle` states the
 /// same rule: a public endpoint that costs something carries a bound.
 #[tokio::test]
-async fn the_provider_is_asked_to_describe_itself_once_however_many_sign_ins_begin() {
+async fn the_provider_is_asked_to_describe_itself_once_until_the_description_ages() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
 
@@ -231,6 +245,13 @@ async fn the_provider_is_asked_to_describe_itself_once_however_many_sign_ins_beg
         "twelve sign-ins made {} requests to the provider",
         idp.discoveries()
     );
+
+    // Kept for a while only, so a provider moving an endpoint is followed.
+    if let Some((_, fresh_until)) = app.state.oidc_provider.write().await.as_mut() {
+        *fresh_until = std::time::Instant::now();
+    }
+    app.get("/api/v1/auth/oidc/start").await.assert_status(StatusCode::SEE_OTHER);
+    assert_eq!(idp.discoveries(), 2, "a description past its time was kept");
 }
 
 /// The route that starts an attempt is public, and anyone who reaches the
@@ -263,8 +284,7 @@ async fn a_sign_in_survives_ten_thousand_starts_from_elsewhere() {
         app.get("/api/v1/auth/oidc/start").await.assert_status(StatusCode::SEE_OTHER);
     }
 
-    idp.will_claim(serde_json::json!({ "nonce": mine.nonce }));
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", mine.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", mine.code, mine.state);
     let response = callback(&app, Some(&mine.cookie), &path).await;
     assert_eq!(response.location().as_deref(), Some("/"), "the attempt was lost");
 }
@@ -279,8 +299,8 @@ async fn finishing_a_sign_in_reuses_the_description_the_start_already_read() {
     let app = oidc_app(&idp).await;
 
     let flow = start_flow(&app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce, "preferred_username": "alice" }));
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    idp.will_claim(serde_json::json!({ "preferred_username": "alice" }));
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     callback(&app, Some(&flow.cookie), &path).await;
 
     assert_eq!(idp.discoveries(), 1, "one sign-in cost {} discoveries", idp.discoveries());
@@ -291,9 +311,9 @@ async fn a_sound_callback_opens_a_session_naming_the_subject() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce, "preferred_username": "alice" }));
+    idp.will_claim(serde_json::json!({ "preferred_username": "alice" }));
 
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     let request = Request::get(&path)
         .header(axum::http::header::COOKIE, &flow.cookie)
         .body(Body::empty())
@@ -324,19 +344,18 @@ async fn a_sound_callback_opens_a_session_naming_the_subject() {
     let attempt = flow.cookie.split_once('=').unwrap().0;
     assert!(cookies.iter().any(|c| c.starts_with(&format!("{attempt}=;"))), "{cookies:?}");
 
-    // The client proved the exchange with the verifier and its secret.
+    // The client proved the exchange with its secret, and with the verifier
+    // the provider paired with the challenge before it answered.
     let exchange = idp.exchanges().pop().expect("one exchange");
     assert_eq!(exchange.basic, Some(("routarr".into(), "shhh".into())), "{exchange:?}");
     assert!(!exchange.form.contains_key("client_secret"), "{exchange:?}");
-    assert!(exchange.form.contains_key("code_verifier"), "{exchange:?}");
 }
 
-/// Signs in once through `idp`, and answers where the callback sent the
-/// browser.
-async fn signed_in_through(idp: &crate::tests::fake_oidc::FakeOidc, app: &TestApp) -> String {
+/// Signs in once through the provider `app` is configured for, and answers
+/// where the callback sent the browser.
+async fn signed_in(app: &TestApp) -> String {
     let flow = start_flow(app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     let request = Request::get(&path)
         .header(axum::http::header::COOKIE, &flow.cookie)
         .body(Body::empty())
@@ -353,7 +372,7 @@ async fn a_provider_taking_the_secret_in_the_body_gets_it_there() {
     idp.accept_only_post();
     let app = oidc_app(&idp).await;
 
-    assert_eq!(signed_in_through(&idp, &app).await, "/");
+    assert_eq!(signed_in(&app).await, "/");
 
     let exchange = idp.exchanges().pop().expect("one exchange");
     assert_eq!(exchange.basic, None, "{exchange:?}");
@@ -369,7 +388,7 @@ async fn a_secret_with_a_colon_reaches_the_provider_whole() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app_with_secret(&idp, "s:h h%2B+").await;
 
-    assert_eq!(signed_in_through(&idp, &app).await, "/");
+    assert_eq!(signed_in(&app).await, "/");
 
     let exchange = idp.exchanges().pop().expect("one exchange");
     assert_eq!(exchange.basic, Some(("routarr".into(), "s:h h%2B+".into())), "{exchange:?}");
@@ -395,13 +414,9 @@ async fn a_token_failing_any_claim_opens_nothing() {
         let app = oidc_app(&idp).await;
         let flow = start_flow(&app).await;
 
-        let mut claims = serde_json::json!({ "nonce": flow.nonce });
-        for (key, value) in bad.as_object().unwrap() {
-            claims[key] = value.clone();
-        }
-        idp.will_claim(claims);
+        idp.will_claim(bad.clone());
 
-        let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+        let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
         let response = callback(&app, Some(&flow.cookie), &path).await;
         assert_eq!(response.location().as_deref(), Some("/?signin=failed"), "{bad} was accepted");
         let sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
@@ -421,10 +436,10 @@ async fn a_token_naming_this_client_among_others_opens_a_session_named_after_its
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
     idp.will_claim(serde_json::json!({
-        "nonce": flow.nonce, "aud": ["routarr", "other-a"], "azp": "routarr"
+        "aud": ["routarr", "other-a"], "azp": "routarr"
     }));
 
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     let response = callback(&app, Some(&flow.cookie), &path).await;
 
     assert_eq!(response.location().as_deref(), Some("/"));
@@ -445,8 +460,8 @@ async fn a_callback_from_a_browser_that_did_not_start_the_attempt_opens_nothing(
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce, "preferred_username": "alice" }));
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    idp.will_claim(serde_json::json!({ "preferred_username": "alice" }));
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
 
     // No cookie at all, another attempt's, and one forged under this
     // attempt's name.
@@ -482,9 +497,8 @@ async fn a_replayed_callback_opens_nothing() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
 
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     let first = callback(&app, Some(&flow.cookie), &path).await;
     assert_eq!(first.location().as_deref(), Some("/"));
     let again = callback(&app, Some(&flow.cookie), &path).await;
@@ -508,12 +522,12 @@ async fn a_subject_outside_the_allowed_list_opens_nothing() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce, "sub": "u2" }));
+    idp.will_claim(serde_json::json!({ "sub": "u2" }));
 
     let capture = super::LogCapture::default();
     let subscriber = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     let response = callback(&app, Some(&flow.cookie), &path)
         .with_subscriber(tracing::Dispatch::new(subscriber))
         .await;
@@ -539,17 +553,14 @@ async fn a_member_of_an_allowed_group_signs_in() {
 
     let member = start_flow(&app).await;
     assert!(member.location.contains("scope=openid+profile+groups"), "{}", member.location);
-    idp.will_claim(
-        serde_json::json!({ "nonce": member.nonce, "sub": "u7", "roles": ["family", "media"] }),
-    );
-    let path = format!("/api/v1/auth/oidc/callback?code=one&state={}", member.state);
+    idp.will_claim(serde_json::json!({ "sub": "u7", "roles": ["family", "media"] }));
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", member.code, member.state);
     assert_eq!(callback(&app, Some(&member.cookie), &path).await.location().as_deref(), Some("/"));
 
     let outsider = start_flow(&app).await;
-    idp.will_claim(
-        serde_json::json!({ "nonce": outsider.nonce, "sub": "u8", "roles": ["family"] }),
-    );
-    let path = format!("/api/v1/auth/oidc/callback?code=two&state={}", outsider.state);
+    idp.will_claim(serde_json::json!({ "sub": "u8", "roles": ["family"] }));
+    let path =
+        format!("/api/v1/auth/oidc/callback?code={}&state={}", outsider.code, outsider.state);
     let refused = callback(&app, Some(&outsider.cookie), &path).await;
     assert_eq!(refused.location().as_deref(), Some("/?signin=failed"));
     assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 1);
@@ -567,7 +578,7 @@ async fn anyone_let_in_is_said_in_the_status() {
         config.api_key = Some(key.into());
     })
     .await;
-    assert_eq!(signed_in_through(&idp, &app).await, "/");
+    assert_eq!(signed_in(&app).await, "/");
 
     let status = app
         .send(Request::get("/api/v1/status").header("x-api-key", key).body(Body::empty()).unwrap())
@@ -617,10 +628,9 @@ async fn a_failed_session_write_still_redirects() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
-    idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
     app.state.pool.close().await;
 
-    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
     let response = callback(&app, Some(&flow.cookie), &path).await;
     assert_eq!(response.status, StatusCode::SEE_OTHER);
     assert_eq!(response.location().as_deref(), Some("/?signin=failed"));
@@ -636,9 +646,8 @@ async fn two_attempts_in_one_browser_both_finish() {
     let second = start_flow(&app).await;
     let jar = format!("{}; {}", first.cookie, second.cookie);
 
-    for (flow, code) in [(&second, "two"), (&first, "one")] {
-        idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
-        let path = format!("/api/v1/auth/oidc/callback?code={code}&state={}", flow.state);
+    for flow in [&second, &first] {
+        let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
         assert_eq!(callback(&app, Some(&jar), &path).await.location().as_deref(), Some("/"));
     }
     assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 2);
@@ -703,7 +712,7 @@ async fn a_sign_in_asked_again_needs_a_fresh_auth_time_and_lands_where_it_was_as
 
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
-    let again = |code: &'static str, claims: serde_json::Value| {
+    let again = |claims: serde_json::Value| {
         let app = &app;
         let idp = &idp;
         async move {
@@ -718,20 +727,19 @@ async fn a_sign_in_asked_again_needs_a_fresh_auth_time_and_lands_where_it_was_as
                 reqwest::Url::parse(&location).unwrap().query_pairs().into_owned().collect();
             assert_eq!(asked.get("max_age").map(String::as_str), Some("0"), "{location}");
             assert_eq!(asked.get("prompt").map(String::as_str), Some("login"), "{location}");
-            let mut claims = claims;
-            claims["nonce"] = serde_json::json!(asked["nonce"]);
             idp.will_claim(claims);
+            let code = authorize(&location).await;
             let path = format!("/api/v1/auth/oidc/callback?code={code}&state={}", asked["state"]);
             callback(app, Some(&cookie), &path).await.location()
         }
     };
 
     let now = chrono::Utc::now().timestamp();
-    assert_eq!(again("one", serde_json::json!({})).await.as_deref(), Some("/?signin=failed"));
+    assert_eq!(again(serde_json::json!({})).await.as_deref(), Some("/?signin=failed"));
     let stale = serde_json::json!({ "auth_time": now - 3600 });
-    assert_eq!(again("two", stale).await.as_deref(), Some("/?signin=failed"));
+    assert_eq!(again(stale).await.as_deref(), Some("/?signin=failed"));
     let fresh = serde_json::json!({ "auth_time": now });
-    assert_eq!(again("three", fresh).await.as_deref(), Some("/settings"));
+    assert_eq!(again(fresh).await.as_deref(), Some("/settings"));
 }
 
 /// A screen to come back to is a path under the mount point, and nothing

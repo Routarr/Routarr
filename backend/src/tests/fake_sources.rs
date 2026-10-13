@@ -12,7 +12,7 @@
 //! would otherwise describe.
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::collections::HashMap;
@@ -394,11 +394,13 @@ async fn jikan_search(
     })))
 }
 
+/// A work's record, `/full` or not, written down as it was asked for.
 async fn jikan_details(
     State(state): State<FakeState>,
+    uri: Uri,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    record(&state, &format!("/jikan/anime/{id}/full"));
+    record(&state, uri.path());
     if let Some(status) = state.fail_with {
         return Err(StatusCode::from_u16(status).unwrap());
     }

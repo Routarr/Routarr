@@ -1,10 +1,12 @@
 //! An OpenID Connect provider on an ephemeral port.
 //!
-//! Enough of one to exercise the whole flow: discovery, then a token endpoint
-//! that hands back an ID token built from what the request asked for. It
-//! records the form and the credentials the client sent, so a test can assert
-//! on the PKCE verifier and the client secret that actually went over the wire
-//! rather than on what the code meant to send.
+//! Enough of one to exercise the whole flow: discovery, an authorization
+//! endpoint that issues a code for what the browser carried, then a token
+//! endpoint that spends the code only for the client, the redirect address and
+//! the PKCE verifier it was issued to, and hands back an ID token carrying the
+//! nonce asked for. It records the form and the credentials the client sent,
+//! so a test can assert on what actually went over the wire rather than on
+//! what the code meant to send.
 //!
 //! Like a provider left at its defaults (Authelia's `client_secret_basic`), it
 //! takes the client's credentials as HTTP Basic and refuses them in the body,
@@ -16,11 +18,13 @@ use std::sync::{Arc, Mutex};
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Form, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Form, Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
+use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
 struct FakeState {
@@ -37,8 +41,8 @@ struct FakeState {
     named_issuer: Arc<Mutex<Option<String>>>,
     /// Whether the provider advertises `client_secret_post` alone.
     post_only: Arc<std::sync::atomic::AtomicBool>,
-    /// The codes already exchanged, which a provider spends at the first.
-    spent: Arc<Mutex<Vec<String>>>,
+    /// The codes issued and not yet spent, each with what it was issued for.
+    issued: Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
 }
 
 /// One token request: its form, and the client id and secret of its HTTP
@@ -90,11 +94,12 @@ impl FakeOidc {
             authorization_at: Arc::clone(&authorization_at),
             named_issuer: Arc::clone(&named_issuer),
             post_only: Arc::clone(&post_only),
-            spent: Arc::default(),
+            issued: Arc::default(),
         };
 
         let app = Router::new()
             .route("/.well-known/openid-configuration", get(discovery))
+            .route("/authorize", get(authorize))
             .route("/token", post(token))
             .with_state(state);
 
@@ -170,6 +175,38 @@ async fn discovery(State(state): State<FakeState>) -> Json<serde_json::Value> {
     Json(document)
 }
 
+/// Issue a code for what the browser carried, and send it back to the
+/// redirect address, as a provider does once the person has signed in. It
+/// refuses what Keycloak and Authelia refuse: another flow than the code
+/// flow, a plain PKCE challenge, or no `openid` scope.
+async fn authorize(
+    State(state): State<FakeState>,
+    Query(asked): Query<HashMap<String, String>>,
+) -> Response {
+    let wanted = |name: &str, value: &str| asked.get(name).map(String::as_str) == Some(value);
+    let scoped = asked.get("scope").is_some_and(|scope| scope.split(' ').any(|s| s == "openid"));
+    let (Some(redirect_uri), Some(sent_state)) = (asked.get("redirect_uri"), asked.get("state"))
+    else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    if !wanted("response_type", "code")
+        || !wanted("code_challenge_method", "S256")
+        || !scoped
+        || !asked.contains_key("client_id")
+        || !asked.contains_key("code_challenge")
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let code = uuid::Uuid::new_v4().simple().to_string();
+    let query = form_urlencoded::Serializer::new(String::new())
+        .append_pair("code", &code)
+        .append_pair("state", sent_state)
+        .finish();
+    let back = format!("{redirect_uri}?{query}");
+    state.issued.lock().expect("issued").insert(code, asked);
+    (StatusCode::FOUND, [(header::LOCATION, back)]).into_response()
+}
+
 /// The client id and secret of a `Basic` header, each form-decoded.
 fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
     use base64::engine::general_purpose::STANDARD;
@@ -215,27 +252,31 @@ async fn token(
         }
     };
 
-    // Single-use, as RFC 6749 §4.1.2 has every provider spend a code.
-    let code = form.get("code").cloned().unwrap_or_default();
-    {
-        let mut spent = state.spent.lock().expect("spent");
-        if spent.contains(&code) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "invalid_grant" })),
-            ));
-        }
-        spent.push(code);
-    }
+    // Single-use, as RFC 6749 §4.1.2 has every provider spend a code, and
+    // only by the client, the redirect address and the PKCE verifier it was
+    // issued to (RFC 7636 §4.6).
+    let code = form.get("code").map(String::as_str).unwrap_or_default();
+    let asked = state.issued.lock().expect("issued").remove(code);
+    let verifier = form.get("code_verifier").map(String::as_str).unwrap_or_default();
+    let paired = asked.as_ref().is_some_and(|asked| {
+        asked.get("client_id") == Some(&client)
+            && asked.get("redirect_uri") == form.get("redirect_uri")
+            && asked.get("code_challenge")
+                == Some(&B64URL.encode(Sha256::digest(verifier.as_bytes())))
+    });
+    let Some(asked) = asked.filter(|_| paired) else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "invalid_grant" })),
+        ));
+    };
 
-    // The nonce travels in the authorization request, which a browser would
-    // have carried and which never reaches this endpoint. A test reads it from
-    // the authorization URL and states it through `will_claim`.
     let mut claims = serde_json::json!({
         "iss": state.issuer,
         "sub": "user-42",
         "aud": client,
         "exp": chrono::Utc::now().timestamp() + 300,
+        "nonce": asked.get("nonce"),
     });
     if let (Some(base), Some(overrides)) =
         (claims.as_object_mut(), state.claims.lock().expect("claims").as_object())

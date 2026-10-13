@@ -49,7 +49,7 @@ pub const MAX_SYNC_INTERVAL_MINUTES: i64 = 24 * 60;
 /// that read it last is kept. Only *full* passes take it: the webhook evaluates
 /// one item and `routing::store_run` touches only what it evaluated, so a
 /// season import must never queue behind a sweep. How many passes *load*
-/// at once is another question, answered by `routing::library_pass`.
+/// at once is another question, answered by `routing::LibraryPasses`.
 pub const FULL_SIMULATION: &str = "simulate";
 
 /// What caused a write, and who asked for it.

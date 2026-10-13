@@ -117,16 +117,23 @@ async fn no_hostile_payload_makes_the_webhook_panic_or_500() {
     }
 }
 
+/// An Arr sends JSON. A delivery under any other content type is refused as
+/// unsupported, never read, even under the right token.
 #[tokio::test]
-async fn the_wrong_content_type_is_rejected_not_crashed() {
+async fn the_wrong_content_type_is_refused_as_unsupported() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
     let body = br#"{"eventType":"Download","movie":{"id":1}}"#.to_vec();
+    let right = "/api/v1/webhook/inst-1/tok";
+    let read = post_raw(&app, right, body.clone(), "application/json").await;
+    assert_ne!(read, StatusCode::UNSUPPORTED_MEDIA_TYPE, "the JSON delivery itself was refused");
     for content_type in
         ["text/plain", "application/x-www-form-urlencoded", "application/octet-stream", ""]
     {
         assert_controlled(&app, body.clone(), content_type, content_type).await;
+        let status = post_raw(&app, right, body.clone(), content_type).await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{content_type:?} was read");
     }
 }
 

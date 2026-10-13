@@ -99,6 +99,7 @@ async fn simulate(
 
     let outcome = routing::run_simulation(
         &state.pool,
+        &state.library_passes,
         SimulationOptions {
             trigger: by.trigger,
             subject: by.subject,

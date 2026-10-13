@@ -683,6 +683,19 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     assert_eq!(owner.assert_ok()["data"][0]["subject"], person);
 }
 
+/// `/auth/me` is how a script learns which key it holds, in every mode that
+/// admits one.
+#[tokio::test]
+async fn an_application_asking_who_it_is_reads_its_own_name() {
+    for (app, owner) in
+        [(TestApp::new().await, None), (TestApp::with_api_key(MASTER).await, Some(MASTER))]
+    {
+        let token = mint(&app, owner, json!({ "name": "dashboard" })).await;
+        let me = send(&app, "GET", "/api/v1/auth/me", Some(&token), None).await;
+        assert_eq!(me.assert_ok()["subject"], "dashboard", "owner key {owner:?}");
+    }
+}
+
 /// `enrich=true` asks every metadata source now, on the owner's quotas, as
 /// the `operate` probes of `/health` do. A read key places from what is
 /// cached, and asking the sources takes `operate`.

@@ -12,12 +12,14 @@
 //! Cheap, because the engine already computes it: `Evaluation.alternatives` is
 //! the list of rules that matched and lost, per item, and this only counts it.
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use serde::Serialize;
 use sqlx::SqlitePool;
 
 use crate::error::AppResult;
+use crate::models::Rule;
 use crate::services::routing;
 
 /// One rule, and what the library says about it.
@@ -34,6 +36,7 @@ pub struct RuleHealth {
     /// Items it matched and had vetoed by one of its own exclusions.
     pub vetoed: usize,
     /// The rule that took the most of what this one matched, when it never won.
+    /// Of two that took as many, the one tried first.
     pub shadowed_by: Option<String>,
     /// It matched nothing at all. That is a different problem from being
     /// shadowed, and usually a condition that is too narrow rather than a
@@ -57,23 +60,27 @@ pub struct RuleHealthReport {
 }
 
 /// Evaluate the whole library and report per rule. Writes nothing.
-pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
+pub async fn report(
+    pool: &SqlitePool,
+    passes: &routing::LibraryPasses,
+) -> AppResult<RuleHealthReport> {
     // One pass over the library, evaluating exactly what the simulation would
     // and persisting nothing.
-    let outcomes = routing::evaluate_library(pool).await?;
+    let outcomes = routing::evaluate_library(pool, passes).await?;
 
     let mut won: HashMap<String, usize> = HashMap::new();
     let mut shadowed: HashMap<String, usize> = HashMap::new();
     let mut vetoed: HashMap<String, usize> = HashMap::new();
-    // (loser, winner) -> how often. The culprit is whoever took the most.
-    let mut beaten_by: HashMap<(String, String), usize> = HashMap::new();
+    // loser -> winner -> how often.
+    let mut beaten_by: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
     for outcome in &outcomes {
         if let Some(winner) = &outcome.winner {
             *won.entry(winner.clone()).or_default() += 1;
             for loser in &outcome.alternatives {
                 *shadowed.entry(loser.clone()).or_default() += 1;
-                *beaten_by.entry((loser.clone(), winner.clone())).or_default() += 1;
+                let by_winner = beaten_by.entry(loser.clone()).or_default();
+                *by_winner.entry(winner.clone()).or_default() += 1;
             }
         }
         for excluded in &outcome.excluded {
@@ -82,8 +89,6 @@ pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
     }
 
     let rules = routing::load_rules(pool).await?;
-    let names: HashMap<&str, &str> =
-        rules.iter().map(|r| (r.id.as_str(), r.name.as_str())).collect();
 
     let mut report: Vec<RuleHealth> = rules
         .iter()
@@ -102,14 +107,7 @@ pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
                 // Named only when the rule never won: a rule that decides some
                 // items and loses others is doing its job, not being smothered.
                 shadowed_by: (won_count == 0 && shadowed_count > 0)
-                    .then(|| {
-                        beaten_by
-                            .iter()
-                            .filter(|((loser, _), _)| loser == &rule.id)
-                            .max_by_key(|(_, count)| **count)
-                            .and_then(|((_, winner), _)| names.get(winner.as_str()).copied())
-                            .map(str::to_string)
-                    })
+                    .then(|| culprit(&rules, beaten_by.get(&rule.id)?))
                     .flatten(),
                 matched_nothing: rule.enabled
                     && won_count == 0
@@ -142,6 +140,18 @@ pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
     report.sort_by_key(|r| (r.won, r.priority));
 
     Ok(RuleHealthReport { total_media: outcomes.len(), rules: report })
+}
+
+/// The name of the rule that took the most items from a loser, out of how
+/// often each of `rules` beat it. A tie goes to the rule tried first, `rules`
+/// being in the engine's order: read off the `HashMap`, the name would change
+/// from one report to the next.
+fn culprit(rules: &[Rule], beaten_by: &HashMap<String, usize>) -> Option<String> {
+    rules
+        .iter()
+        .filter_map(|winner| Some((Reverse(*beaten_by.get(&winner.id)?), winner)))
+        .min_by_key(|(count, _)| *count)
+        .map(|(_, winner)| winner.name.clone())
 }
 
 /// Order-insensitive equality of two condition lists: the same conditions

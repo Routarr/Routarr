@@ -481,15 +481,20 @@ mod tests {
         // assertion below passes having read nothing.
         assert!(names.len() >= 4, "only {} name(s) parsed: {names:?}", names.len());
 
-        let listed = module
+        // Compared whole: a name inside a listed one, as `REACH` inside
+        // `UNREACHABLE`, is not listed.
+        let listed: Vec<&str> = module
             .split_once("pub const ALL: &[&str] = &[")
             .expect("the list")
             .1
             .split_once(']')
             .expect("its bracket")
-            .0;
+            .0
+            .split(',')
+            .map(str::trim)
+            .collect();
         for name in names {
-            assert!(listed.contains(name), "{name} is a guardrail nobody can answer");
+            assert!(listed.contains(&name), "{name} is a guardrail nobody can answer");
         }
     }
 }

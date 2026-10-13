@@ -3904,7 +3904,7 @@
             "type": "integer"
           },
           "shadowed_by": {
-            "description": "The rule that took the most of what this one matched, when it never won.",
+            "description": "The rule that took the most of what this one matched, when it never won.\nOf two that took as many, the one tried first.",
             "type": [
               "string",
               "null"

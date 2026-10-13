@@ -538,6 +538,7 @@ impl TestApp {
     pub async fn decided_category(&self) -> String {
         let result = run_simulation(
             &self.state.pool,
+            &self.state.library_passes,
             SimulationOptions { persist: false, ..Default::default() },
         )
         .await
@@ -547,10 +548,14 @@ impl TestApp {
 
     /// Run a persisting simulation and hand back its id.
     pub async fn simulate(&self) -> String {
-        run_simulation(&self.state.pool, SimulationOptions { persist: true, ..Default::default() })
-            .await
-            .unwrap()
-            .simulation_id
+        run_simulation(
+            &self.state.pool,
+            &self.state.library_passes,
+            SimulationOptions { persist: true, ..Default::default() },
+        )
+        .await
+        .unwrap()
+        .simulation_id
     }
 
     /// Run each statement on the test database, in order.
@@ -649,6 +654,7 @@ pub async fn one_move_ready(arr: &fake_arr::FakeArr) -> (TestApp, String) {
 
     let result = crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions { persist: true, ..Default::default() },
     )
     .await

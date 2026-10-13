@@ -371,6 +371,7 @@ async fn run(
     // full-library simulation per episode.
     let result = routing::run_simulation(
         &state.pool,
+        &state.library_passes,
         routing::SimulationOptions {
             trigger: crate::jobs::TRIGGER_WEBHOOK.to_string(),
             instance_ids: vec![instance.id.clone()],

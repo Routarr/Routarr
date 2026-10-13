@@ -30,6 +30,7 @@ async fn seed_every_reference(app: &TestApp) {
 
     routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions { persist: true, ..Default::default() },
     )
     .await
@@ -374,6 +375,7 @@ async fn a_fallback_category_that_cannot_be_read_fails_the_run() {
 
     let run = routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions { persist: true, ..Default::default() },
     )
     .await;

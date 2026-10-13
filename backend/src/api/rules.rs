@@ -309,7 +309,7 @@ pub async fn preview(
     };
     // One load for both rule sets: everything the two evaluations read is the
     // same library, and the second costs no query.
-    let library = routing::load_library(&state.pool, &scope).await?;
+    let library = routing::load_library(&state.pool, &state.library_passes, &scope).await?;
     let compared = routing::compare(
         &library,
         baseline_rules,
@@ -837,5 +837,5 @@ pub async fn health(
     State(state): State<AppState>,
 ) -> AppResult<Json<crate::services::rule_health::RuleHealthReport>> {
     let _queued = super::simulation::wait_in_line(&state).await?;
-    Ok(Json(crate::services::rule_health::report(&state.pool).await?))
+    Ok(Json(crate::services::rule_health::report(&state.pool, &state.library_passes).await?))
 }

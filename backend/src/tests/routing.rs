@@ -5,7 +5,7 @@ use crate::services::routing::{self, SimulationOptions};
 use super::TestApp;
 
 async fn simulate(app: &TestApp, options: SimulationOptions) -> crate::models::SimulationResult {
-    routing::run_simulation(&app.state.pool, options).await.unwrap()
+    routing::run_simulation(&app.state.pool, &app.state.library_passes, options).await.unwrap()
 }
 
 fn persisting() -> SimulationOptions {
@@ -385,10 +385,19 @@ async fn a_media_id_filter_scopes_the_run() {
     assert_eq!(scoped.decisions[0].media_id, "m-2");
 }
 
+/// The counters count the whole library, whatever the answer keeps: here a
+/// move, a skip and nine titles in place, three of them returned.
 #[tokio::test]
 async fn the_response_can_be_truncated_without_losing_the_counters() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    app.seed_anime_rule().await;
+    // `kids` has no folder on the instance.
+    app.execute(&["INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+                   target_category, match_mode)
+                   VALUES ('rule-kids', 'Kids', 5, 1, 'both',
+                           '[{\"type\":\"title_contains\",\"value\":[\"Movie 2\"]}]', 'kids', 'all')"])
+        .await;
 
     for i in 2..12 {
         sqlx::query(
@@ -409,6 +418,13 @@ async fn the_response_can_be_truncated_without_losing_the_counters() {
     assert_eq!(result.total_media, 11);
     assert_eq!(result.returned, 3);
     assert_eq!(result.decisions.len(), 3);
+    let counters = (
+        result.moves_required,
+        result.skipped_unmapped,
+        result.already_correct,
+        result.no_category_match,
+    );
+    assert_eq!(counters, (1, 1, 9, 9), "move, skip, in place, matched by no rule");
 }
 
 /// Trimmed, the answer keeps what someone has to act on: the moves, then the

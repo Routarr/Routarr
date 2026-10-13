@@ -1076,6 +1076,29 @@ mod tests {
         }
     }
 
+    /// Every method that writes is held to the Origin, and no read is: a read
+    /// forges nothing.
+    #[test]
+    fn every_writing_method_is_held_to_the_origin_and_no_read_is() {
+        let from = |origin: &'static str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(axum::http::header::ORIGIN, HeaderValue::from_static(origin));
+            headers.insert(axum::http::header::HOST, HeaderValue::from_static("routarr.local"));
+            headers
+        };
+        let (foreign, own) = (from("https://evil.example"), from("http://routarr.local"));
+        for method in [Method::POST, Method::PUT, Method::DELETE, Method::PATCH] {
+            assert!(
+                !same_origin(&method, &foreign, &[]),
+                "{method} from another site went through"
+            );
+            assert!(same_origin(&method, &own, &[]), "{method} from this application was refused");
+        }
+        for method in [Method::GET, Method::HEAD, Method::OPTIONS] {
+            assert!(same_origin(&method, &foreign, &[]), "{method} was held to the origin");
+        }
+    }
+
     /// nginx's usual `proxy_set_header X-Forwarded-Host $host` carries no port,
     /// and a site on a port of its own gets every write refused. The port the
     /// proxy states beside it, in `X-Forwarded-Port`, completes the host.

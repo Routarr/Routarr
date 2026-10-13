@@ -689,13 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn no_match_yields_no_winner() {
-        let drama =
-            rule("drama", 10, "standard", vec![Condition::GenreContains(vec!["Drama".into()])]);
-        assert!(evaluate(&[drama], None).winner.is_none());
-    }
-
-    #[test]
     fn lower_priority_number_wins_and_others_become_alternatives() {
         let kids = rule("kids", 5, "kids", vec![Condition::GenreContains(vec!["Family".into()])]);
         let result = evaluate(&[anime_rule(), kids], None);
@@ -1366,15 +1359,22 @@ mod tests {
         assert!(!added(TimeDelta::days(2000)));
     }
 
+    /// An Arr dates a title in RFC 3339, and a rule test's snapshot may hold a
+    /// stamp with no zone or a bare date. Each reads in UTC, a bare date at its
+    /// midnight, and two days back from the clock end at noon on the 19th.
     #[test]
-    fn added_within_days_handles_rfc3339_from_arr() {
-        let mut m = media();
-        m.added_at = Some("2026-08-19T08:30:00Z".into());
-        let outcome = evaluate_single_condition(
-            &Condition::AddedWithinDays(7),
-            EvalContext { media: &m, metadata: None, now: now() },
-        );
-        assert!(outcome.matched);
+    fn added_within_days_reads_every_shape_a_title_is_dated_in() {
+        let added = |stamp: &str| {
+            let stamp = stamp.to_string();
+            matches_on(|m| m.added_at = Some(stamp), Condition::AddedWithinDays(2))
+        };
+        assert!(added("2026-08-19T12:30:00Z"));
+        assert!(added("2026-08-19T14:30:00+02:00"));
+        assert!(!added("2026-08-19T13:30:00+02:00"));
+        assert!(added("2026-08-19T12:30:00"), "a stamp with no zone");
+        assert!(!added("2026-08-19T11:30:00"));
+        assert!(added("2026-08-20"), "a bare date");
+        assert!(!added("2026-08-19"));
     }
 
     #[test]

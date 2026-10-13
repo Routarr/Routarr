@@ -55,6 +55,7 @@ pub struct AppState {
     /// logins, and it is the only source that has any.
     pub tvdb_token: crate::integrations::tvdb::TokenCache,
     pub paces: crate::services::metadata::Paces,
+    pub library_passes: crate::services::routing::LibraryPasses,
     /// The API key as it stands right now.
     ///
     /// Held here rather than on [`Config`] because it can change while the
@@ -68,7 +69,7 @@ pub struct AppState {
     /// [`crate::services::accounts::SignInThrottle`]: a permit rather than a
     /// lockout, so the cost is bounded without the service being deniable.
     pub sign_in: Arc<crate::services::accounts::SignInThrottle>,
-    /// The provider's own description of itself, and when it was read.
+    /// The provider's own description of itself, and until when it is kept.
     ///
     /// Here for the reason `tvdb_token` is: `/auth/oidc/start` is public and
     /// unauthenticated, and fetching the discovery document on every call turns
@@ -515,6 +516,7 @@ impl AppState {
             .unwrap(),
             tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
             paces: Default::default(),
+            library_passes: Default::default(),
             jobs: JobRegistry::new(pool.clone()),
             api_key: Arc::new(std::sync::RwLock::new(resolve_api_key(&config))),
             sign_in: Arc::new(Default::default()),

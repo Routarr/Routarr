@@ -600,6 +600,8 @@ async fn jikan_themes_and_demographics_become_keywords() {
         .unwrap();
 
     assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
+    let paths = sources.recorded().paths.clone();
+    assert!(paths.contains(&"/jikan/anime/523/full".to_string()), "{paths:?}");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
     // The vocabulary an anime library is actually sorted by, and which TMDB
@@ -929,13 +931,29 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
 /// Without a breaker, a five-thousand-title library issues five thousand doomed
 /// requests, logs five thousand warnings, and repeats the whole thing on the
 /// next pass. A source that has refused five times in a row is down, so
-/// Routarr stops asking, a searching source in its resolution stage and an
-/// addressed one in its fetching stage.
+/// Routarr stops asking for the rest of the pass: a searching source tripped
+/// while searching is asked for no record of the titles it identified before.
+/// The requests in flight when the fifth refusal lands still go out, one fewer
+/// than the source's concurrency.
 #[tokio::test]
 async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
     for source in ["jikan", "anilist", "omdb", "tvdb"] {
         let sources = FakeSources::failing(504).await;
         let app = library_of(&sources, source, 20).await;
+        if source == "tvdb" {
+            app.execute(&[SERIES_ALONE]).await;
+        }
+        // Half the films identified on an earlier pass, so a searching source
+        // has records to fetch as well as titles to search.
+        app.execute(&[
+            "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+             SELECT searching.source, 'movie', 'tmdb:' || tmdb_id, tmdb_id
+               FROM media, (SELECT 'anilist' AS source UNION ALL SELECT 'jikan') searching
+              WHERE arr_id BETWEEN 100 AND 109",
+        ])
+        .await;
+        let fetching = app.state.metadata_sources().await;
+        let ceiling = 5 + fetching[0].concurrency(app.state.config.metadata_concurrency) - 1;
 
         let report =
             enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
@@ -945,10 +963,12 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
         // Nothing was enriched, which is expected, but the point is *how* it
         // failed: the requests that went out are a handful, not one per item.
         assert_eq!(report.enriched, 0, "{source}");
+        assert!(report.considered > 0, "{source} had no record to fetch: {report:?}");
         let attempts = sources.recorded().paths.len();
         assert!(
-            attempts <= 12,
-            "{attempts} requests went out to {source}, which was down (21 items in the library)"
+            attempts <= ceiling,
+            "{attempts} requests went out to {source}, which was down (21 items in the library), \
+             {ceiling} at most"
         );
     }
 }

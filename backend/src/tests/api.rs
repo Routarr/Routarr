@@ -3527,8 +3527,8 @@ async fn a_one_title_simulation_waits_for_no_library_pass() {
     let app = TestApp::new().await;
     app.seed_library().await;
     app.seed_anime_rule().await;
-    let _first = crate::services::routing::library_pass().await;
-    let _second = crate::services::routing::library_pass().await;
+    let _first = app.state.library_passes.take().await;
+    let _second = app.state.library_passes.take().await;
     let options = crate::services::routing::SimulationOptions {
         media_ids: Some(vec!["m-1".to_string()]),
         persist: true,
@@ -3537,7 +3537,11 @@ async fn a_one_title_simulation_waits_for_no_library_pass() {
 
     let simulated = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        crate::services::routing::run_simulation(&app.state.pool, options),
+        crate::services::routing::run_simulation(
+            &app.state.pool,
+            &app.state.library_passes,
+            options,
+        ),
     )
     .await
     .expect("the one-title simulation waited for a library pass")
@@ -3557,8 +3561,8 @@ async fn a_third_library_pass_waits_for_one_of_the_two_to_end() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    let first = crate::services::routing::library_pass().await;
-    let second = crate::services::routing::library_pass().await;
+    let first = app.state.library_passes.take().await;
+    let second = app.state.library_passes.take().await;
 
     // Neither can complete while both permits are held, so the elapsed
     // timeouts below cannot be flaky in either direction: completion is
@@ -3589,6 +3593,25 @@ async fn a_third_library_pass_waits_for_one_of_the_two_to_end() {
     );
     one.assert_ok();
     two.assert_ok();
+}
+
+/// The passes are bounded per state, not per process: the permits another
+/// state holds stall no pass of this one, so two tests never wait on each
+/// other's.
+#[tokio::test]
+async fn the_passes_another_state_holds_stall_none_of_this_one() {
+    let busy = TestApp::new().await;
+    let _held = (busy.state.library_passes.take().await, busy.state.library_passes.take().await);
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        app.post("/api/v1/simulate", serde_json::json!({ "persist": false })),
+    )
+    .await
+    .expect("a pass waited for another state's permits")
+    .assert_ok();
 }
 
 /// `persist: false` is documented as a pure read. It supersedes nothing, so

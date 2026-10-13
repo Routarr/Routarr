@@ -183,9 +183,10 @@ async fn enriches_movies_and_series_from_one_call_each() {
 
 #[tokio::test]
 async fn results_are_filed_against_the_media_they_belong_to() {
-    // The movie answers slowly, so its result comes back *after* the series'.
-    // Paired with the input list by position, the movie's metadata is filed
-    // under `series` and both rows are lost.
+    // The movie, 100, is handed out first, two titles never asked going by
+    // identifier, and answers slowly, so its result comes back *after* the
+    // series'. Paired with the input list by position, the movie's metadata is
+    // filed under `series` and both rows are lost.
     let tmdb = FakeTmdb::with(vec![], vec![100]).await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 
@@ -472,6 +473,7 @@ async fn enriched_metadata_reaches_the_rule_engine() {
 
     let before = crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions::default(),
     )
     .await
@@ -484,6 +486,7 @@ async fn enriched_metadata_reaches_the_rule_engine() {
 
     let after = crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions::default(),
     )
     .await
@@ -517,20 +520,22 @@ async fn titles_tmdb_does_not_have_never_cut_it_off() {
 }
 
 /// TMDB down answers every title alike: the fetching stage stops at the
-/// breaker instead of asking once per title, and leaves the rest to the next
-/// pass.
+/// breaker, five refusals and the requests then in flight, instead of asking
+/// once per title, and leaves the rest to the next pass.
 #[tokio::test]
 async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     let tmdb = FakeTmdb::down(503).await;
     let items: Vec<(i64, &str, i64)> = (1..=20).map(|id| (id, "movie", id)).collect();
     let app = library(&tmdb, &items).await;
+    let in_flight = app.state.config.metadata_concurrency;
 
     let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
     let asked = tmdb.recorded().paths.len();
-    assert!(asked <= 12, "{asked} requests for 20 titles to a source that was down");
+    let ceiling = 5 + in_flight - 1;
+    assert!(asked <= ceiling, "{asked} requests for 20 titles to a source that was down");
     assert!(report.skipped > 0, "{report:?}");
 }
 
