@@ -256,8 +256,10 @@ pub async fn authenticate(
         // API key is refused when its Origin says another site asked.
         mode @ (AuthMode::None | AuthMode::External) => {
             let keyless = api_key_identity(&state, request.headers()).is_none();
-            if keyless && !same_origin(&request, &state.config.cors_origins) {
-                refused(&state, client, refused_origin(&request));
+            if keyless
+                && !same_origin(request.method(), request.headers(), &state.config.cors_origins)
+            {
+                refused(&state, client, refused_origin(request.headers()));
                 return foreign_origin();
             }
             // A page of another site can make its own name resolve to this
@@ -288,8 +290,14 @@ pub async fn authenticate(
                 // dangerous shapes and the JSON extractor refuses a form's
                 // content type, so this is the third of three: an Origin that
                 // is present and foreign is not this application asking.
-                Some(_) if !same_origin(&request, &state.config.cors_origins) => {
-                    refused(&state, client, refused_origin(&request));
+                Some(_)
+                    if !same_origin(
+                        request.method(),
+                        request.headers(),
+                        &state.config.cors_origins,
+                    ) =>
+                {
+                    refused(&state, client, refused_origin(request.headers()));
                     return foreign_origin();
                 }
                 Some((identity, renewed)) => {
@@ -306,8 +314,14 @@ pub async fn authenticate(
         AuthMode::ApiKey => match api_key_identity(&state, request.headers()) {
             Some(identity) => Some(identity),
             None => match session_identity(&state, request.headers()).await {
-                Some(_) if !same_origin(&request, &state.config.cors_origins) => {
-                    refused(&state, client, refused_origin(&request));
+                Some(_)
+                    if !same_origin(
+                        request.method(),
+                        request.headers(),
+                        &state.config.cors_origins,
+                    ) =>
+                {
+                    refused(&state, client, refused_origin(request.headers()));
                     return foreign_origin();
                 }
                 Some((identity, renewed)) => {
@@ -349,9 +363,8 @@ pub async fn authenticate(
 }
 
 /// What the security log says of a write another site's page sent.
-fn refused_origin(request: &Request<Body>) -> audit::Event<'static> {
-    let origin = request
-        .headers()
+fn refused_origin(headers: &HeaderMap) -> audit::Event<'static> {
+    let origin = headers
         .get(axum::http::header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("-");
@@ -447,11 +460,10 @@ pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
 /// is `X-Forwarded-Host` rather than `Host`: nginx sends the upstream's own
 /// name as `Host` unless told otherwise, and compared against that, every
 /// write of every session behind it would be refused.
-fn same_origin(request: &Request<Body>, listed: &[String]) -> bool {
-    if !matches!(*request.method(), Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
+fn same_origin(method: &Method, headers: &HeaderMap, listed: &[String]) -> bool {
+    if !matches!(*method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
         return true;
     }
-    let headers = request.headers();
     let Some(origin) = headers.get(axum::http::header::ORIGIN) else {
         return true;
     };
@@ -794,6 +806,12 @@ pub async fn logout(
     Client(client): Client,
     headers: HeaderMap,
 ) -> Response {
+    // The route is public, and a page of another site could end a session the
+    // browser carries for it.
+    if !same_origin(&Method::POST, &headers, &state.config.cors_origins) {
+        refused(&state, client, refused_origin(&headers));
+        return foreign_origin();
+    }
     if let Some(id) = cookie(&headers, SESSION_COOKIE) {
         let mode = state.config.auth_mode.as_str();
         if let Ok(Some(session)) = accounts::live_session(&state.pool, &id, mode).await {
@@ -1073,9 +1091,10 @@ mod tests {
             }
             request.body(Body::empty()).unwrap()
         };
-        assert!(same_origin(&write(Some("8443")), &[]));
-        assert!(!same_origin(&write(Some("443")), &[]));
-        assert!(!same_origin(&write(None), &[]));
+        let same = |request: Request<Body>| same_origin(request.method(), request.headers(), &[]);
+        assert!(same(write(Some("8443"))));
+        assert!(!same(write(Some("443"))));
+        assert!(!same(write(None)));
     }
 
     /// Only a proxy the operator names in `ROUTARR_TRUSTED_PROXIES` names the

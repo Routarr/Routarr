@@ -1295,6 +1295,34 @@ async fn signing_out_ends_the_session_a_copied_cookie_carries() {
     assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 0);
 }
 
+/// A page of another site can post to the sign-out route with the browser's
+/// cookie, and would end a session it never held. Refused as any write from
+/// another origin is.
+#[tokio::test]
+async fn a_page_of_another_site_cannot_sign_the_operator_out() {
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use tower::ServiceExt;
+
+    let (app, _dir) = forms_app("forced-sign-out").await;
+    let session = open_session(&app).await;
+
+    let forced = Request::post("/api/v1/auth/logout")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, &session)
+        .header(header::ORIGIN, "https://evil.example")
+        .header(header::HOST, "routarr.local")
+        .body(Body::from("{}"))
+        .unwrap();
+    let response = app.router.clone().oneshot(forced).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(response.headers().get(header::SET_COOKIE).is_none(), "the cookie was cleared");
+
+    let (after, _) =
+        with_session(&app, "GET", "/api/v1/status", &session, serde_json::json!({})).await;
+    assert_eq!(after, StatusCode::OK, "the session was ended");
+}
+
 /// A session lives as long as its cookie says, a week, on the server too: a
 /// row outliving it would keep a copied cookie valid long after the browser
 /// forgot it.
