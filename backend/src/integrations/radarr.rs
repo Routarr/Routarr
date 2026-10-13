@@ -11,7 +11,7 @@ use crate::models::ExternalId;
 
 const SERVICE: &str = "Radarr";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RadarrClient {
     client: Client,
     base_url: String,
@@ -20,6 +20,14 @@ pub struct RadarrClient {
     library_timeout: std::time::Duration,
     /// The largest library listing read, in bytes.
     library_cap: usize,
+}
+
+// The key stays out: a client printed in a log line or a failed assertion
+// would carry it.
+impl std::fmt::Debug for RadarrClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RadarrClient").field("base_url", &self.base_url).finish_non_exhaustive()
+    }
 }
 
 /// Movie data from Radarr API.

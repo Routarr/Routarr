@@ -1978,3 +1978,30 @@ async fn resetting_the_account_gives_a_new_password_and_closes_every_session() {
         .unwrap();
     assert_eq!(sessions, 0, "a session survived the reset");
 }
+
+/// A source client printed whole, in a log line or a failed assertion, names
+/// its address and never its key.
+#[test]
+fn no_source_client_prints_its_key() {
+    use crate::integrations::{
+        omdb::OmdbClient, radarr::RadarrClient, sonarr::SonarrClient, tmdb::TmdbClient,
+        tvdb::TvdbClient,
+    };
+
+    let http = reqwest::Client::new();
+    let key = "a-key-nobody-may-read";
+    let printed = [
+        format!("{:?}", RadarrClient::new(http.clone(), "http://radarr:7878", key)),
+        format!("{:?}", SonarrClient::new(http.clone(), "http://sonarr:8989", key)),
+        format!("{:?}", TmdbClient::new(http.clone(), key, "http://tmdb.example")),
+        format!("{:?}", OmdbClient::new(http.clone(), key, "http://omdb.example", 1000)),
+        format!(
+            "{:?}",
+            TvdbClient::new(http, key, Some("a-pin"), "http://tvdb.example", Default::default())
+        ),
+    ];
+    for client in printed {
+        assert!(!client.contains(key) && !client.contains("a-pin"), "{client}");
+        assert!(client.contains("http://"), "{client}");
+    }
+}

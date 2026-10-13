@@ -11,7 +11,7 @@ use crate::models::ExternalId;
 
 const SERVICE: &str = "Sonarr";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SonarrClient {
     client: Client,
     base_url: String,
@@ -20,6 +20,14 @@ pub struct SonarrClient {
     library_timeout: std::time::Duration,
     /// The largest library listing read, in bytes.
     library_cap: usize,
+}
+
+// The key stays out: a client printed in a log line or a failed assertion
+// would carry it.
+impl std::fmt::Debug for SonarrClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SonarrClient").field("base_url", &self.base_url).finish_non_exhaustive()
+    }
 }
 
 /// Series data from Sonarr API.
