@@ -244,7 +244,8 @@ struct Claims {
     sub: String,
     #[serde(default)]
     aud: Audience,
-    exp: i64,
+    /// A NumericDate, which may carry a fraction (RFC 7519, section 2).
+    exp: f64,
     #[serde(default)]
     nonce: Option<String>,
     /// The client the token was issued at the request of, when it names one.
@@ -254,7 +255,7 @@ struct Claims {
     preferred_username: Option<String>,
     /// When the person last signed in at the provider, in Unix seconds.
     #[serde(default)]
-    auth_time: Option<i64>,
+    auth_time: Option<f64>,
     /// The groups claim is named by the operator, so every other claim is kept.
     #[serde(flatten)]
     others: serde_json::Map<String, serde_json::Value>,
@@ -333,7 +334,8 @@ pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult
     {
         return Err(AppError::BadRequest("The token was issued for another client.".into()));
     }
-    if claims.exp <= chrono::Utc::now().timestamp() {
+    let now = chrono::Utc::now().timestamp() as f64;
+    if claims.exp <= now {
         return Err(AppError::BadRequest("The token has expired.".into()));
     }
     // The one claim that ties this token to the attempt this browser started.
@@ -342,8 +344,8 @@ pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult
     }
     // Asked to sign the person in again, the provider has to say it did, and
     // just now: a session it kept would otherwise pass for a fresh sign-in.
-    let recent = super::accounts::RECENT_SIGN_IN_SECONDS;
-    if again && !claims.auth_time.is_some_and(|at| chrono::Utc::now().timestamp() - at <= recent) {
+    let recent = super::accounts::RECENT_SIGN_IN_SECONDS as f64;
+    if again && !claims.auth_time.is_some_and(|at| now - at <= recent) {
         return Err(AppError::Forbidden(
             "the provider did not sign the person in again, or did not say when".into(),
         ));
@@ -405,6 +407,16 @@ mod tests {
 
     fn jwt(payload: serde_json::Value) -> String {
         format!("header.{}.signature", B64URL.encode(payload.to_string()))
+    }
+
+    #[test]
+    fn a_date_carrying_a_fraction_is_read() {
+        let claims = decode_claims(&jwt(serde_json::json!({
+            "iss": "https://idp", "sub": "u1", "exp": 1_700_000_300.5, "auth_time": 1_700_000_000.25
+        })))
+        .unwrap();
+        assert!(claims.exp > 1_700_000_300.0);
+        assert!(claims.auth_time.is_some_and(|at| at > 1_700_000_000.0));
     }
 
     #[test]
