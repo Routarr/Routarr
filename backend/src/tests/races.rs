@@ -37,27 +37,56 @@ impl Gate {
     }
 }
 
-/// A check and the category it is about.
-type Checked = (&'static str, String);
+/// A check, what it is about, and the thread of the test that armed it.
+type Checked = (&'static str, String, std::thread::ThreadId);
 
-/// Keyed by the check and the category, so a test holds its own request and
-/// none of those the other tests send meanwhile.
+/// Keyed by the test's thread too, so a test holds its own request and none
+/// of those the other tests send meanwhile, whatever subject they share
+/// (`backup::create` has none). Each test runs on a runtime of its own on its
+/// own thread, and every task that runtime spawns runs there.
 static GATES: LazyLock<Mutex<HashMap<Checked, Arc<Gate>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+fn checked_here(point: &'static str, subject: &str) -> Checked {
+    (point, subject.to_string(), std::thread::current().id())
+}
+
 fn arm(point: &'static str, subject: &str) -> Arc<Gate> {
     let gate = Arc::new(Gate { reached: Notify::new(), released: Notify::new() });
-    GATES.lock().expect("gates").insert((point, subject.to_string()), Arc::clone(&gate));
+    GATES.lock().expect("gates").insert(checked_here(point, subject), Arc::clone(&gate));
     gate
 }
 
 /// What [`crate::race::checked`] runs in a test: wait at an armed gate, once.
 pub(crate) async fn hold(point: &'static str, subject: &str) {
-    let gate = GATES.lock().expect("gates").remove(&(point, subject.to_string()));
+    let gate = GATES.lock().expect("gates").remove(&checked_here(point, subject));
     if let Some(gate) = gate {
         gate.reached.notify_one();
         gate.released.notified().await;
     }
+}
+
+/// A gate holds the requests of the test that armed it, and none another test
+/// sends meanwhile about the same subject: held, that one would wait on a
+/// release nobody sends.
+#[tokio::test]
+async fn a_gate_holds_only_the_test_that_armed_it() {
+    let gate = arm("races::isolation", "");
+
+    let elsewhere = std::thread::spawn(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), hold("races::isolation", "")).await
+        })
+    });
+    assert!(elsewhere.join().unwrap().is_ok(), "another test's request was held");
+
+    let own = tokio::spawn(hold("races::isolation", ""));
+    tokio::time::timeout(Duration::from_secs(5), gate.reached())
+        .await
+        .expect("the test's own request was not held");
+    gate.release();
+    own.await.unwrap();
 }
 
 /// Send `request` up to `point`, then drop it as a caller that leaves does: a
