@@ -77,12 +77,23 @@ async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
 /// threads a pass runs on, when it is told their name.
 ///
 /// Waiting on a lock or on a core another test holds is not in it, so the
-/// reading follows the work rather than how busy the runner is. Where the kernel publishes no per-thread figure, the wall clock
-/// stands in.
+/// reading follows the work rather than how busy the runner is. Where the
+/// kernel publishes no per-thread figure, the wall clock stands in for the
+/// whole measure, and [`WorkClock::measures`] says so beside every figure: a
+/// ratio read on it follows the runner's load.
 struct WorkClock {
+    /// The worker's `schedstat`, `None` when the wall clock stands in.
     worker: Option<std::path::PathBuf>,
     passes: Option<String>,
 }
+
+/// The CPU time a thread's `schedstat` holds, in nanoseconds.
+fn on_cpu(schedstat: &std::path::Path) -> Option<u64> {
+    std::fs::read_to_string(schedstat).ok()?.split_whitespace().next()?.parse().ok()
+}
+
+/// The test's own thread, which runs the library's futures.
+const THIS_THREAD: &str = "/proc/thread-self/schedstat";
 
 impl WorkClock {
     /// A library on its own named worker, and the clock that reads it.
@@ -98,7 +109,10 @@ impl WorkClock {
                 std::fs::read_to_string(task.join("comm")).is_ok_and(|comm| comm.trim() == name)
             })
         });
-        (pool, WorkClock { worker: worker.map(|task| task.join("schedstat")), passes: None })
+        let worker = worker
+            .map(|task| task.join("schedstat"))
+            .filter(|worker| on_cpu(worker).is_some() && on_cpu(THIS_THREAD.as_ref()).is_some());
+        (pool, WorkClock { worker, passes: None })
     }
 
     /// Count the threads named `name` too, where a runtime built with that
@@ -107,10 +121,17 @@ impl WorkClock {
         WorkClock { passes: Some(name), ..self }
     }
 
+    /// What the readings are taken on, for a test to print beside its figures
+    /// and quote when it fails.
+    fn measures(&self) -> &'static str {
+        match self.worker {
+            Some(_) => "CPU time",
+            None => "wall-clock time, with no per-thread figure on this system",
+        }
+    }
+
     fn now(&self) -> Duration {
-        let on_cpu = |path: &std::path::Path| -> Option<u64> {
-            std::fs::read_to_string(path).ok()?.split_whitespace().next()?.parse().ok()
-        };
+        let Some(worker) = &self.worker else { return wall_clock() };
         let passes = |name: &str| -> u64 {
             let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return 0 };
             tasks
@@ -122,17 +143,12 @@ impl WorkClock {
                 .filter_map(|task| on_cpu(&task.join("schedstat")))
                 .sum()
         };
-        let threads = self.worker.as_deref().and_then(|worker| {
-            Some(
-                on_cpu(worker)?
-                    + on_cpu(std::path::Path::new("/proc/thread-self/schedstat"))?
-                    + self.passes.as_deref().map_or(0, passes),
-            )
-        });
-        match threads {
-            Some(nanoseconds) => Duration::from_nanos(nanoseconds),
-            None => wall_clock(),
-        }
+        let threads = on_cpu(worker)
+            .zip(on_cpu(THIS_THREAD.as_ref()))
+            .map(|(worker, this)| worker + this + self.passes.as_deref().map_or(0, passes));
+        // Read once and then missing, the two clocks would be subtracted from
+        // each other.
+        Duration::from_nanos(threads.expect("a per-thread figure read when the clock was made"))
     }
 
     /// The least of three runs of `work`.
@@ -470,11 +486,12 @@ async fn pruning_stale_resolutions_does_not_query_once_per_key() {
 /// a rescan of the library per item about a hundred times.
 const TEN_FOLD_CEILING: u32 = 15;
 
-/// The work a stored simulation of `count` items costs, at its least.
+/// The work a stored simulation of `count` items costs, at its least, and
+/// what it was measured in.
 ///
 /// On a runtime of its own, whose threads carry a name the clock finds: the
 /// evaluation runs on one of them, off the test's thread.
-fn simulation_work(count: usize) -> Duration {
+fn simulation_work(count: usize) -> (Duration, &'static str) {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let passes = format!("pass-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -494,7 +511,7 @@ fn simulation_work(count: usize) -> Duration {
         });
         let work = work.await;
         pool.close().await;
-        work
+        (work, clock.measures())
     })
 }
 
@@ -502,13 +519,14 @@ fn simulation_work(count: usize) -> Duration {
 /// lookup), which the statement count above cannot see.
 #[test]
 fn a_simulation_grows_linearly_with_the_library() {
-    let small = simulation_work(500);
-    let large = simulation_work(5000);
-    println!("500 items simulated in {small:?}, 5000 in {large:?}");
+    let (small, measured) = simulation_work(500);
+    let (large, _) = simulation_work(5000);
+    println!("500 items simulated in {small:?}, 5000 in {large:?}, in {measured}");
 
     assert!(
         large < small * TEN_FOLD_CEILING,
-        "ten times the library cost {large:?} against {small:?}: the work is not linear any more"
+        "ten times the library cost {large:?} against {small:?} in {measured}: \
+         the work is not linear any more"
     );
 }
 
@@ -536,8 +554,9 @@ async fn seed_cache(pool: &SqlitePool, count: usize) {
 }
 
 /// The work the facets and the orphan sweep cost over `count` items and a
-/// cache row per source for each, at their least.
-async fn facets_and_sweep_work(count: usize) -> (Duration, Duration) {
+/// cache row per source for each, at their least, and what they were measured
+/// in.
+async fn facets_and_sweep_work(count: usize) -> (Duration, Duration, &'static str) {
     let (pool, clock) = WorkClock::with_library().await;
     let app = TestApp::around(crate::state::AppState::for_tests_on(pool));
     seed(&app.state.pool, count).await;
@@ -558,7 +577,7 @@ async fn facets_and_sweep_work(count: usize) -> (Duration, Duration) {
             assert_eq!(report.metadata_cache_removed, 0, "every cache row belongs to a media item");
         })
         .await;
-    (facets, sweep)
+    (facets, sweep, clock.measures())
 }
 
 /// The two queries that join `media` to `metadata_cache` across every identifier
@@ -569,17 +588,20 @@ async fn facets_and_sweep_work(count: usize) -> (Duration, Duration) {
 /// as long.
 #[tokio::test]
 async fn facets_and_the_orphan_sweep_stay_indexed_at_scale() {
-    let (small_facets, small_sweep) = facets_and_sweep_work(500).await;
-    let (large_facets, large_sweep) = facets_and_sweep_work(5000).await;
+    let (small_facets, small_sweep, measured) = facets_and_sweep_work(500).await;
+    let (large_facets, large_sweep, _) = facets_and_sweep_work(5000).await;
+    println!("measured in {measured}");
     println!("facets: {small_facets:?} for 500 items, {large_facets:?} for 5000");
     println!("orphan sweep: {small_sweep:?} for 500 items, {large_sweep:?} for 5000");
 
     assert!(
         large_facets < small_facets * TEN_FOLD_CEILING,
-        "facets cost {large_facets:?} against {small_facets:?}: a join stopped using its index"
+        "facets cost {large_facets:?} against {small_facets:?} in {measured}: \
+         a join stopped using its index"
     );
     assert!(
         large_sweep < small_sweep * TEN_FOLD_CEILING,
-        "the sweep cost {large_sweep:?} against {small_sweep:?}: a NOT EXISTS stopped using its index"
+        "the sweep cost {large_sweep:?} against {small_sweep:?} in {measured}: \
+         a NOT EXISTS stopped using its index"
     );
 }
