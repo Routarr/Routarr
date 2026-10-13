@@ -121,7 +121,7 @@ struct RoutingContext {
 /// of them costs one load however many rule sets it asks about.
 pub struct LoadedLibrary {
     /// `None` for named titles, which load their own context and no library.
-    _pass: Option<tokio::sync::SemaphorePermit<'static>>,
+    _pass: Option<tokio::sync::OwnedSemaphorePermit>,
     /// What the load took, counted into every evaluation over it: a run's
     /// figure is load plus evaluation, whichever of the two ran it.
     loaded_in: std::time::Duration,
@@ -146,6 +146,7 @@ fn load_order() -> i64 {
 /// Load the context and the media a pass with these options evaluates.
 pub async fn load_library(
     pool: &SqlitePool,
+    passes: &LibraryPasses,
     options: &SimulationOptions,
 ) -> AppResult<Arc<LoadedLibrary>> {
     let started = std::time::Instant::now();
@@ -187,7 +188,7 @@ pub async fn load_library(
         return Ok(Arc::new(LoadedLibrary { _pass: None, loaded_in, order, ctx, media }));
     }
 
-    let pass = library_pass().await;
+    let pass = passes.take().await;
     let mut snapshot = pool.begin().await?;
     let ctx = load_context(&mut snapshot, Scope::Library).await?;
     let media =
@@ -202,9 +203,10 @@ pub async fn load_library(
 /// Run a full simulation and, when asked, persist the resulting decisions.
 pub async fn run_simulation(
     pool: &SqlitePool,
+    passes: &LibraryPasses,
     options: SimulationOptions,
 ) -> AppResult<SimulationResult> {
-    let library = load_library(pool, &options).await?;
+    let library = load_library(pool, passes, &options).await?;
     simulate_loaded(pool, &library, options).await
 }
 
@@ -875,9 +877,12 @@ pub struct LibraryOutcome {
 /// Evaluate every item against the current rules and report which rule did
 /// what. Persists nothing, renders no prose, and takes no localizer: it exists
 /// to be counted, not read.
-pub async fn evaluate_library(pool: &SqlitePool) -> AppResult<Vec<LibraryOutcome>> {
+pub async fn evaluate_library(
+    pool: &SqlitePool,
+    passes: &LibraryPasses,
+) -> AppResult<Vec<LibraryOutcome>> {
     let now = Utc::now();
-    let library = load_library(pool, &SimulationOptions::default()).await?;
+    let library = load_library(pool, passes, &SimulationOptions::default()).await?;
     off_the_workers(None, 0, move |_| {
         let ctx = &library.ctx;
         library
@@ -1340,7 +1345,7 @@ where
     Ok(query.fetch_all(executor).await?)
 }
 
-/// How many whole-library passes may run at once, across every caller.
+/// How many whole-library passes one state runs at once.
 ///
 /// A pass holds the rules, the overrides, the mappings, the metadata cache and
 /// every media row for as long as it runs, and no lock bounds that: a preview
@@ -1349,14 +1354,27 @@ where
 /// can afford, where a refusal is a 409 on a page that only wanted to render.
 pub const MAX_CONCURRENT_LIBRARY_PASSES: usize = 2;
 
-static LIBRARY_PASSES: std::sync::LazyLock<tokio::sync::Semaphore> =
-    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(MAX_CONCURRENT_LIBRARY_PASSES));
+/// The permits the whole-library passes of one state share. Held by the state
+/// rather than the process, so two states never wait on each other.
+#[derive(Debug, Clone)]
+pub struct LibraryPasses(Arc<tokio::sync::Semaphore>);
 
-/// The permit one whole-library pass holds while it runs.
-///
-/// Public so a test can hold every permit and prove that the next pass waits.
-pub async fn library_pass() -> tokio::sync::SemaphorePermit<'static> {
-    LIBRARY_PASSES.acquire().await.expect("the library-pass semaphore is never closed")
+impl Default for LibraryPasses {
+    fn default() -> Self {
+        Self(Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_LIBRARY_PASSES)))
+    }
+}
+
+impl LibraryPasses {
+    /// The permit one whole-library pass holds while it runs.
+    ///
+    /// Public so a test can hold every permit and prove that the next pass waits.
+    pub async fn take(&self) -> tokio::sync::OwnedSemaphorePermit {
+        Arc::clone(&self.0)
+            .acquire_owned()
+            .await
+            .expect("the library-pass semaphore is never closed")
+    }
 }
 
 /// How many ids one statement binds. SQLite caps bound parameters at 32 766,

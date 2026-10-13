@@ -129,6 +129,7 @@ async fn the_explanation_names_the_signal_and_what_was_observed() {
 
     let result = routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions { persist: false, ..Default::default() },
     )
     .await

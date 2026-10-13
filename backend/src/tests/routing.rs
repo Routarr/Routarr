@@ -5,7 +5,7 @@ use crate::services::routing::{self, SimulationOptions};
 use super::TestApp;
 
 async fn simulate(app: &TestApp, options: SimulationOptions) -> crate::models::SimulationResult {
-    routing::run_simulation(&app.state.pool, options).await.unwrap()
+    routing::run_simulation(&app.state.pool, &app.state.library_passes, options).await.unwrap()
 }
 
 fn persisting() -> SimulationOptions {

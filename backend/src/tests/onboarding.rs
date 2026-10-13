@@ -95,6 +95,7 @@ async fn only_a_simulation_someone_started_ticks_the_step() {
 
     crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions {
             persist: true,
             trigger: crate::jobs::TRIGGER_SCHEDULE.to_string(),
@@ -224,6 +225,7 @@ async fn a_manual_simulation_stays_counted_after_the_next_scheduled_pass() {
 
     crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions {
             persist: true,
             trigger: crate::jobs::TRIGGER_SCHEDULE.to_string(),

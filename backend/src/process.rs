@@ -88,6 +88,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         secrets,
         tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
         paces: Default::default(),
+        library_passes: Default::default(),
         jobs: job_registry,
         api_key: Arc::new(std::sync::RwLock::new(api_key)),
         sign_in: Arc::new(Default::default()),

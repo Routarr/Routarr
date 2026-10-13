@@ -472,6 +472,7 @@ async fn enriched_metadata_reaches_the_rule_engine() {
 
     let before = crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions::default(),
     )
     .await
@@ -484,6 +485,7 @@ async fn enriched_metadata_reaches_the_rule_engine() {
 
     let after = crate::services::routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         crate::services::routing::SimulationOptions::default(),
     )
     .await

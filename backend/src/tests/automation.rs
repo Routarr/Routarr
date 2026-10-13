@@ -394,10 +394,7 @@ async fn each_warning_carries_a_stable_code_beside_its_message() {
 async fn asynchronous_previews_queue_only_so_far() {
     let app = TestApp::new().await;
     app.seed_library().await;
-    let held = (
-        crate::services::routing::library_pass().await,
-        crate::services::routing::library_pass().await,
-    );
+    let held = (app.state.library_passes.take().await, app.state.library_passes.take().await);
 
     let mut statuses = Vec::new();
     for _ in 0..6 {
@@ -422,10 +419,7 @@ async fn asynchronous_previews_queue_only_so_far() {
 async fn rule_reports_and_previews_wait_in_the_previews_queue() {
     let app = std::sync::Arc::new(TestApp::new().await);
     app.seed_library().await;
-    let held = (
-        crate::services::routing::library_pass().await,
-        crate::services::routing::library_pass().await,
-    );
+    let held = (app.state.library_passes.take().await, app.state.library_passes.take().await);
 
     let waiting: Vec<_> = (0..4)
         .map(|_| {

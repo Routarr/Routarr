@@ -57,10 +57,13 @@ pub struct RuleHealthReport {
 }
 
 /// Evaluate the whole library and report per rule. Writes nothing.
-pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
+pub async fn report(
+    pool: &SqlitePool,
+    passes: &routing::LibraryPasses,
+) -> AppResult<RuleHealthReport> {
     // One pass over the library, evaluating exactly what the simulation would
     // and persisting nothing.
-    let outcomes = routing::evaluate_library(pool).await?;
+    let outcomes = routing::evaluate_library(pool, passes).await?;
 
     let mut won: HashMap<String, usize> = HashMap::new();
     let mut shadowed: HashMap<String, usize> = HashMap::new();

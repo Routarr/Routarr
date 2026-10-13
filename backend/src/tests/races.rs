@@ -283,6 +283,7 @@ async fn held_sweep(
         tokio::spawn(async move {
             run_simulation(
                 &app.state.pool,
+                &app.state.library_passes,
                 SimulationOptions { trigger: trigger.into(), persist: true, ..Default::default() },
             )
             .await
@@ -322,6 +323,7 @@ async fn a_run_leaves_alone_a_title_a_later_run_decided() {
     app.execute(&["UPDATE rules SET enabled = 0"]).await;
     run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions {
             media_ids: Some(vec!["m-1".into()]),
             persist: true,
@@ -382,7 +384,9 @@ async fn a_category_renamed_while_a_pass_reads_reaches_it_whole() {
     let pass = {
         let app = Arc::clone(&app);
         tokio::spawn(async move {
-            run_simulation(&app.state.pool, SimulationOptions::default()).await.unwrap()
+            run_simulation(&app.state.pool, &app.state.library_passes, SimulationOptions::default())
+                .await
+                .unwrap()
         })
     };
     gate.reached().await;

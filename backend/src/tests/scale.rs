@@ -76,9 +76,8 @@ async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
 /// of the library's worker thread, where its statements run, and of the
 /// threads a pass runs on, when it is told their name.
 ///
-/// Waiting on a library-pass permit, on a lock or on a core another test holds
-/// is not in it, so the reading follows the work rather than how busy the
-/// runner is. Where the kernel publishes no per-thread figure, the wall clock
+/// Waiting on a lock or on a core another test holds is not in it, so the
+/// reading follows the work rather than how busy the runner is. Where the kernel publishes no per-thread figure, the wall clock
 /// stands in.
 struct WorkClock {
     worker: Option<std::path::PathBuf>,
@@ -251,6 +250,7 @@ async fn statements_for(count: usize, persist: bool) -> (usize, i64) {
 
     let (result, statements) = statements_of(routing::run_simulation(
         &pool,
+        &routing::LibraryPasses::default(),
         SimulationOptions { persist, ..Default::default() },
     ))
     .await;
@@ -328,8 +328,12 @@ async fn an_evaluation_over_a_loaded_library_costs_no_query() {
     let pool = library_pool().await;
     seed(&pool, 200).await;
 
-    let (library, loading) =
-        statements_of(routing::load_library(&pool, &SimulationOptions::default())).await;
+    let (library, loading) = statements_of(routing::load_library(
+        &pool,
+        &routing::LibraryPasses::default(),
+        &SimulationOptions::default(),
+    ))
+    .await;
     let library = library.unwrap();
     assert!(loading > 0, "loading reads the library");
 
@@ -354,8 +358,12 @@ async fn an_evaluation_over_a_loaded_library_costs_no_query() {
     );
     drop(library);
 
-    let (_, running) =
-        statements_of(routing::run_simulation(&pool, SimulationOptions::default())).await;
+    let (_, running) = statements_of(routing::run_simulation(
+        &pool,
+        &routing::LibraryPasses::default(),
+        SimulationOptions::default(),
+    ))
+    .await;
     assert_eq!(running, loading, "a run is one load and nothing more");
 }
 
@@ -371,7 +379,9 @@ async fn a_pass_over_titles_that_are_gone_reads_nothing_else() {
         persist: true,
         ..Default::default()
     };
-    let (result, statements) = statements_of(routing::run_simulation(&pool, options)).await;
+    let (result, statements) =
+        statements_of(routing::run_simulation(&pool, &routing::LibraryPasses::default(), options))
+            .await;
 
     assert_eq!(result.unwrap().total_media, 0);
     // The one query in its read transaction, and the check the pool makes of
@@ -386,7 +396,13 @@ async fn a_pass_over_titles_that_are_gone_reads_nothing_else() {
 async fn a_pass_over_the_library_leaves_the_runtime_free() {
     let pool = library_pool().await;
     seed(&pool, 5000).await;
-    let library = routing::load_library(&pool, &SimulationOptions::default()).await.unwrap();
+    let library = routing::load_library(
+        &pool,
+        &routing::LibraryPasses::default(),
+        &SimulationOptions::default(),
+    )
+    .await
+    .unwrap();
     let longest_wait = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let ticking = {
         let longest_wait = Arc::clone(&longest_wait);
@@ -471,8 +487,11 @@ fn simulation_work(count: usize) -> Duration {
         let clock = clock.counting_passes(passes);
         seed(&pool, count).await;
         let options = || SimulationOptions { persist: true, ..Default::default() };
-        let work =
-            clock.least(|| async { routing::run_simulation(&pool, options()).await.unwrap() });
+        let work = clock.least(|| async {
+            routing::run_simulation(&pool, &routing::LibraryPasses::default(), options())
+                .await
+                .unwrap()
+        });
         let work = work.await;
         pool.close().await;
         work

@@ -242,7 +242,7 @@ async fn simulate_after_sync(
         progress: Some(job.progress_reporter()),
         ..Default::default()
     };
-    match routing::run_simulation(&state.pool, options).await {
+    match routing::run_simulation(&state.pool, &state.library_passes, options).await {
         Ok(result) => {
             crate::services::notify::send_later(
                 state,

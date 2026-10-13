@@ -335,6 +335,7 @@ async fn only_the_stale_proposal_of_a_selection_is_retired() {
     .unwrap();
     let result = routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions { persist: true, ..Default::default() },
     )
     .await
@@ -479,6 +480,7 @@ async fn a_declared_destination_on_radarr_is_reached_film_by_film() {
     .unwrap();
     let mut proposed = routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions { persist: true, ..Default::default() },
     )
     .await
@@ -616,8 +618,13 @@ async fn applying_rewrites_the_local_path_so_the_move_is_not_reproposed() {
     );
 
     // The whole point: a fresh simulation now agrees the media is in place.
-    let again =
-        routing::run_simulation(&app.state.pool, SimulationOptions::default()).await.unwrap();
+    let again = routing::run_simulation(
+        &app.state.pool,
+        &app.state.library_passes,
+        SimulationOptions::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(again.moves_required, 0);
     assert_eq!(again.already_correct, 1);
 }
@@ -911,7 +918,7 @@ async fn a_selection_whose_proposals_all_go_elsewhere_now_is_refused() {
 async fn an_apply_of_one_title_does_not_wait_for_the_library_passes() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = one_move_ready(&arr).await;
-    let _passes = (routing::library_pass().await, routing::library_pass().await);
+    let _passes = (app.state.library_passes.take().await, app.state.library_passes.take().await);
 
     let applied = tokio::time::timeout(
         std::time::Duration::from_secs(2),
@@ -1439,6 +1446,7 @@ async fn errors_are_reported_in_the_order_the_moves_were_given() {
     let app = TestApp::films_to_move(&arr, 4).await;
     let result = routing::run_simulation(
         &app.state.pool,
+        &app.state.library_passes,
         SimulationOptions { persist: true, ..Default::default() },
     )
     .await
