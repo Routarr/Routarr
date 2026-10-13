@@ -1109,6 +1109,15 @@ mod tests {
         assert_eq!(order.iter().map(|p| p.id).collect::<Vec<_>>(), vec!["tmdb", "arr"]);
     }
 
+    /// A list written around the validator without the Arr still reads it,
+    /// after every source the user listed: ahead of them, it would answer
+    /// in their place.
+    #[test]
+    fn a_list_without_the_arr_reads_it_last() {
+        let order = parse_order("tmdb, omdb");
+        assert_eq!(order.iter().map(|p| p.id).collect::<Vec<_>>(), vec!["tmdb", "omdb", "arr"]);
+    }
+
     /// A source may spell a title without its accents, or with them where the
     /// library has none, and the rules already read both as one value. A search
     /// that compared them strictly would leave the work unresolved.
