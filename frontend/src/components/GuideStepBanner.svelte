@@ -13,14 +13,8 @@
   import { t } from '../lib/i18n.svelte';
 
   /**
-   * Where the reader stands in the guide, on the screen that does a step.
-   *
-   * Shown only there: on every screen it would be noise, and on none a reader
-   * sent here by the guide would not know how to get back to it. Once the step
-   * is done it leads straight to the next one, since that is the question the
-   * tick raises, and a detour through the dashboard is one more click for it.
-   * An optional step is offered in its turn with a way past it, never jumped
-   * over in silence.
+   * Where the reader stands in the guide, on the screen that does the step. A done step links
+   * to the next one, and an optional step offers a way past it rather than being skipped.
    */
   let { step }: { step: OnboardingStep['id'] } = $props();
 
@@ -83,13 +77,11 @@
     {:else}
       <ListChecks size={16} aria-hidden="true" />
     {/if}
-    <!-- A live region for as long as the banner shows: the sentence turning to
-         "done, next" is what tells the reader to move on, and a region that
-         arrives with its text announces nothing. -->
+    <!-- Announces the turn to "done, next". A live region that arrives with its text says
+         nothing. -->
     <span class="flex-1" role="status">{shown.text}</span>
     {#if shown.kind === 'done'}
-      <!-- Secondary, as every banner's action is: the screen keeps its one
-           primary button, and the guide's own card is where its step leads. -->
+      <!-- Secondary, as in every banner: the screen keeps its one primary button. -->
       <a href={href(shown.next.to)} class="btn btn-secondary btn-sm">{t(shown.next.actionKey)}</a>
       {#if shown.skip}
         <a href={href(shown.skip)} class="btn btn-secondary btn-sm">{t('GuideSkipStep')}</a>

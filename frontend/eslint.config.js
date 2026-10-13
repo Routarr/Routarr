@@ -3,10 +3,7 @@ import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 import svelteConfig from './svelte.config.js';
 
-// A short, type-aware rule set beside `svelte-check`. The compiler already
-// reports types, unused symbols and accessibility; this catches what a type
-// checker cannot: a promise dropped on the floor, a `console.log` left in a
-// screen, an import that should have been a type import.
+// Only what `svelte-check` misses: it already reports types, unused symbols and accessibility.
 export default tseslint.config(
   { ignores: ['dist/', 'coverage/', 'node_modules/', 'playwright-report/', 'test-results/'] },
 
@@ -17,8 +14,7 @@ export default tseslint.config(
     plugins: { '@typescript-eslint': tseslint.plugin },
     languageOptions: {
       parserOptions: {
-        // The Playwright suite has a tsconfig of its own; the one file outside
-        // both is the runner's configuration.
+        // The Playwright configuration belongs to no tsconfig, neither the root one nor e2e/.
         projectService: { allowDefaultProject: ['playwright.config.ts'] },
         tsconfigRootDir: import.meta.dirname,
         extraFileExtensions: ['.svelte'],
@@ -37,8 +33,7 @@ export default tseslint.config(
     },
   },
 
-  // `.svelte.ts` keeps the Svelte parser the recommended set gave it: its
-  // rune rules read the file through that parser and no other.
+  // `.svelte.ts` keeps the Svelte parser, the only one its rune rules work through.
   {
     files: ['**/*.ts'],
     ignores: ['**/*.svelte.ts'],
@@ -52,8 +47,7 @@ export default tseslint.config(
     },
   },
 
-  // Node, not the browser: the Playwright suite and the build configuration
-  // print on purpose.
+  // These run in Node and print on purpose.
   {
     files: ['e2e/**/*.ts', 'playwright.config.ts', 'vite.config.ts'],
     languageOptions: { globals: globals.node },

@@ -9,10 +9,7 @@
   }: {
     message: string | null;
     onDismiss?: () => void;
-    /**
-     * Offered when the failed request can simply be made again (a load, not
-     * a write), so a network blip does not cost a page reload.
-     */
+    /** For a load, which is safe to make again, never for a write. */
     onRetry?: () => void;
   } = $props();
 </script>

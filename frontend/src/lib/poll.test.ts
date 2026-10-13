@@ -3,13 +3,6 @@ import { render } from '@testing-library/svelte';
 
 import PollHarness from '../test/PollHarness.svelte';
 
-/**
- * The Tasks screen refreshes every few seconds while a job runs. Left in a
- * background tab, it would keep asking all day, against a machine that is
- * usually also running Radarr, Sonarr and everything the household points at
- * it, for a screen nobody is looking at.
- */
-
 /** Put the tab in front or behind, and tell the page it moved. */
 function visibility(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
@@ -46,11 +39,7 @@ describe('poll', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * Coming back reloads at once rather than waiting out an interval: the data on
-   * screen is exactly as stale as the time spent away, and the moment of return
-   * is the one moment the user is certainly reading it.
-   */
+  /** The data on screen is as stale as the time spent away. */
   it('catches up the moment the tab comes back, then resumes', async () => {
     const reload = vi.fn();
     render(PollHarness, { reload, every: 1000, active: true });

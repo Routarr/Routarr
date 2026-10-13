@@ -2,10 +2,7 @@
   import { Info } from '../lib/icons';
   import { t } from '../lib/i18n.svelte';
 
-  /**
-   * No live region of its own: inside `OutcomeBanner` it is said through the
-   * region that holds it, and a region nested in another can be read twice.
-   */
+  /** No live region of its own, since one nested in `OutcomeBanner`'s can be read twice. */
   let {
     message,
     onRetry,

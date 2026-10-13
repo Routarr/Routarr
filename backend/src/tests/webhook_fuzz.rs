@@ -1,35 +1,20 @@
-//! Bounded generative fuzzing of the webhook endpoint.
+//! Bounded fuzzing of the webhook, the one route reachable without the API key, guarded by a
+//! token in its path. No body may panic or answer a 500.
 //!
-//! The webhook is the one route an unauthenticated party reaches: the Arrs
-//! cannot send a custom header, so it is guarded by a token in the path and its
-//! body is whatever the caller posted. The property proved here is that **no
-//! input produces a panic or a 5xx**. Either one means an input reached code
-//! that could not cope with it, where a refusal or an "ignored" belongs.
-//!
-//! Not `cargo-fuzz`, which needs nightly: a seeded xorshift generator, so a
-//! failure reproduces from its seed, feeding hand-picked hostile shapes and
-//! random JSON trees at the real router.
+//! A seeded xorshift generator stands in for `cargo-fuzz`, which needs nightly.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
 use super::TestApp;
 
-/// The statuses the endpoint is allowed to answer with.
-///
-/// A `502` is in the set on purpose: the test instance points at an unreachable
-/// Arr, so a payload that deserialises *and* carries a media id proceeds to a
-/// real outbound sync, which then fails with a mapped `Bad Gateway`. That is an
-/// honest upstream error, not the failure this module hunts. The webhook tests
-/// of `tests::api` hold the counterpart: pointed at an Arr that answers, a
-/// legitimate event runs the whole handler to a 200. What must never appear is
-/// a `500`, from a panic or from a `Database`, `Serialization` or `Internal`
-/// error, all of which mean an input reached code that could not cope with it.
+/// The statuses the webhook may answer. `tests::api` runs a valid event to a 200 against an
+/// Arr that answers.
 fn is_controlled(status: StatusCode) -> bool {
     matches!(
         status.as_u16(),
-        // ok / ignored, bad json, wrong content-type, unprocessable, bad token,
-        // and the unreachable-Arr 502 (see above).
+        // A refusal, a 200 for an event that needs no sync, a 404 for a bad token, or a 502
+        // from the sync a valid event starts against the test's unreachable Arr.
         200 | 400 | 404 | 405 | 411 | 413 | 415 | 422 | 502
     )
 }
@@ -40,11 +25,8 @@ async fn post_raw(app: &TestApp, path: &str, body: Vec<u8>, content_type: &str) 
     app.send(request).await.status
 }
 
-/// A hostile body must never 5xx, whatever the token: a valid token exercises
-/// the deserialiser and the whole handler, a bogus one the auth path. With the
-/// right token a body is never answered as an unknown webhook: a 404 there
-/// would mean the route or the token check stopped it before the handler
-/// read anything, and the fuzz would test nothing.
+/// Posts `body` under the right token, a wrong one and an empty one. A 404 under the right
+/// token means the body never reached the handler, and the case tested nothing.
 async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, note: &str) {
     for token in ["tok", "wrong-token", ""] {
         let path = format!("/api/v1/webhook/inst-1/{token}");
@@ -62,9 +44,6 @@ async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, not
 
 // --------------------------------------------------------------- corpus
 
-/// Shapes that can break a naive handler: a non-object root, right key with the
-/// wrong type, absurd nesting, numbers that overflow the target integer, and so
-/// on.
 fn adversarial_corpus() -> Vec<(&'static str, Vec<u8>)> {
     let deep_array = format!("{}{}", "[".repeat(2000), "]".repeat(2000));
     let deep_object = {
@@ -143,8 +122,6 @@ async fn the_wrong_content_type_is_rejected_not_crashed() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    // A well-formed JSON body sent as text/plain, form data, or octet-stream:
-    // the extractor must refuse it cleanly rather than mis-parse it.
     let body = br#"{"eventType":"Download","movie":{"id":1}}"#.to_vec();
     for content_type in
         ["text/plain", "application/x-www-form-urlencoded", "application/octet-stream", ""]
@@ -155,8 +132,7 @@ async fn the_wrong_content_type_is_rejected_not_crashed() {
 
 // -------------------------------------------------------- generative
 
-/// A tiny reproducible RNG. Self-contained, so the seed is visible in the
-/// failure message with no ceremony and no dependency.
+/// A reproducible RNG that needs no dependency.
 struct XorShift(u64);
 impl XorShift {
     fn next(&mut self) -> u64 {
@@ -172,9 +148,8 @@ impl XorShift {
     }
 }
 
-/// Build a random JSON value up to `depth`, biased towards the field names the
-/// handler actually reads so the deserialiser is genuinely exercised, not just
-/// handed noise it discards at the first key.
+/// A random JSON value up to `depth` deep. Its keys are the fields the handler reads, so the
+/// deserialiser gets past the first one.
 fn random_json(rng: &mut XorShift, depth: u32) -> serde_json::Value {
     use serde_json::Value;
     let leaf = depth == 0 || rng.below(3) == 0;
@@ -214,8 +189,7 @@ async fn thousands_of_random_payloads_stay_controlled() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    // A fixed seed: a failure names the iteration, and re-running reproduces the
-    // exact tree that caused it.
+    // A fixed seed, so a failing iteration reproduces on a rerun.
     let mut rng = XorShift(0x9E3779B97F4A7C15);
 
     for i in 0..3000 {

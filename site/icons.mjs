@@ -1,18 +1,9 @@
-// Regenerate the raster icons from public/assets/favicon.svg.
+// Render the raster icons from public/assets/favicon.svg, the one drawing to edit.
 //
-// An SVG favicon alone is not enough. Every current browser prefers it, but
-// older Safari ignores `type="image/svg+xml"` outright, and a fair number of
-// crawlers and link unfurlers request `/favicon.ico` at the origin root without
-// ever reading the document's <link> tags.
-//
-// The SVG stays the source of truth: this script renders it rather than asking
-// anyone to keep three drawings in step by hand. `node site/check.mjs` fails if
-// an output is missing or if its real size stops matching the `sizes` attribute
-// that announces it.
-//
-// Chromium does the rasterising because it is already installed for the
-// screenshots and the CSP verification, so no image library enters the
-// dependency tree for three files that rarely change.
+// Older Safari ignores an SVG favicon, and many crawlers fetch `/favicon.ico` without reading
+// the page's <link> tags. `node site/check.mjs` fails when an output is missing or its size
+// no longer matches its `sizes` attribute. Chromium, already installed for the screenshots,
+// does the rendering, so no image library is needed.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -24,9 +15,8 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const svg = readFileSync(join(ROOT, 'public/assets/favicon.svg'), 'utf-8');
 const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 
-// The dark surface from site.css. Apple composites its touch icon over an
-// opaque square whatever the image says, so the padding is drawn here rather
-// than left to guesswork.
+// The dark surface from site.css. iOS shows a touch icon on an opaque square whatever its
+// alpha, so the padding is drawn here in a known colour.
 const APPLE_BACKGROUND = '#131519';
 
 const browser = await chromium.launch();
@@ -56,10 +46,8 @@ writeFileSync(
 
 // ---------------------------------------------------------------- favicon.ico
 //
-// Read back as raw pixels rather than by decoding a PNG: the canvas already
-// holds exactly what we drew. The payload is an uncompressed 32-bit BMP, not an
-// embedded PNG: a PNG inside an ICO is only understood from Windows Vista on,
-// and this file exists precisely for the clients that understand the least.
+// An uncompressed 32-bit BMP rather than an embedded PNG: a PNG inside an ICO needs
+// Windows Vista or later, and this file is for the clients that understand the least.
 const pixels = await page.evaluate(async (src) => {
   const image = new Image();
   image.src = src;
@@ -75,7 +63,7 @@ const pixels = await page.evaluate(async (src) => {
 await browser.close();
 
 function ico(rgba, size) {
-  // BGRA, bottom-up, which is how a BMP stores its rows.
+  // A BMP stores its rows bottom-up, in BGRA.
   const xor = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -87,14 +75,13 @@ function ico(rgba, size) {
       xor[to + 3] = rgba[from + 3];
     }
   }
-  // The 1-bit AND mask is mandatory even when the alpha channel already carries
-  // transparency. All zeroes means "take the alpha channel's word for it".
+  // The 1-bit AND mask is required even with an alpha channel. All zeroes defers to the alpha.
   const mask = Buffer.alloc((size / 8) * size);
 
   const header = Buffer.alloc(40);
   header.writeUInt32LE(40, 0);
   header.writeInt32LE(size, 4);
-  header.writeInt32LE(size * 2, 8); // XOR and AND stacked, as BMP demands
+  header.writeInt32LE(size * 2, 8); // an ICO counts the XOR and AND masks stacked
   header.writeUInt16LE(1, 12);
   header.writeUInt16LE(32, 14);
   header.writeUInt32LE(xor.length + mask.length, 20);

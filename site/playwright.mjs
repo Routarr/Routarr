@@ -1,8 +1,6 @@
 /**
- * Playwright and its axe binding, loaded from the frontend, which owns them:
- * the site does not repeat the dependency. ESM resolves an import from the
- * importing file's directory, so a plain import would look under `site/` and
- * fail however the script is launched. `FRONTEND_DIR` points elsewhere.
+ * Playwright and its axe binding, which the frontend owns and the site does not repeat.
+ * A plain import resolves from `site/` and fails. `FRONTEND_DIR` overrides the path.
  */
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';

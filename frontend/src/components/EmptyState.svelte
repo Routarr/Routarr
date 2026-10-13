@@ -2,12 +2,8 @@
   import type { Snippet } from 'svelte';
 
   /**
-   * Nothing here yet.
-   *
-   * Deliberately without the action that fills it, which is the right instinct
-   * in general and wrong on these screens: the header already offers that button
-   * permanently, and repeating it puts two controls with the same name on one
-   * page, ambiguous for a screen reader before it is ambiguous for a test.
+   * Nothing here yet. It offers no action: the header already holds that button, and a second
+   * control of the same name is ambiguous to a screen reader.
    */
   let { children }: { children: Snippet } = $props();
 </script>

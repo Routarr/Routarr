@@ -1,11 +1,8 @@
 import type { Key } from './i18n';
 
 /**
- * The detail page's places, in the page's own order: the index lists them, and
- * the landing's last card offers them. An index that numbers 01, 02, 03 down a
- * page whose sections come in another order sends the reader backwards. `#how`
- * is a block inside the gap's section rather than a section of its own, and is
- * listed because it is still a place.
+ * The detail page's anchors, numbered in the page's own order, for the Index panel and the
+ * landing's last card. `#how` is a block inside `#why` and is listed all the same.
  */
 export const DETAIL_SECTIONS: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '01', href: '#why', label: 'why.span', note: 'header.desc.7' },

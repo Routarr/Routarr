@@ -1,7 +1,7 @@
 <script lang="ts">
   import SearchField from '../components/SearchField.svelte';
 
-  /** Binds `value` where a test can read it: the point of the field is what the parent sees, and when. */
+  /** Binds `value` where a test can read what the parent sees, and when. */
   let { debounce = 0 }: { debounce?: number } = $props();
   let value = $state('');
 </script>

@@ -1,14 +1,6 @@
 import { test, expect, openScreen } from './fixtures';
 import { SCREENS } from './screens';
 
-/**
- * Nothing in normal use should reach the console.
- *
- * A framework warning, a failed request, a thrown promise: each is invisible in
- * a screenshot and each is a real defect. Asserting on silence is the cheapest
- * way to notice one the day it appears, rather than the day a user reports the
- * symptom it eventually causes.
- */
 test('no page writes an error or a warning to the console @console', async ({ page }) => {
   const noise: string[] = [];
 
@@ -27,8 +19,7 @@ test('no page writes an error or a warning to the console @console', async ({ pa
     }
   });
 
-  // Each screen's loads answered before the next opens: the heading draws
-  // first, and a sweep that moved on then would hear none of their failures.
+  // The heading draws before the screen's requests answer, so wait for them too.
   for (const path of SCREENS) {
     await openScreen(page, path);
     await page.waitForLoadState('networkidle');

@@ -1,15 +1,8 @@
 /**
- * Where the application is mounted.
+ * The sub-path the application is mounted under, without a trailing slash.
  *
- * Routarr can be served under a sub-path (`https://host/routarr`), the Servarr
- * "URL base" convention. The mount point is a server-side setting, not a build
- * one: a single Docker image has to work under any of them, so the frontend
- * discovers it at runtime instead of having it compiled in.
- *
- * `document.baseURI` reflects the `<base href>` the backend injects into
- * `index.html`. Without a base tag it is just the document URL, which for a deep
- * link like `/rules` would give the wrong answer. The backend always injects
- * one, and the fallback below keeps the dev server (which does not) working.
+ * It is a server setting, read at run time from the `<base href>` the backend injects. The dev
+ * server injects none, and `document.baseURI` is then the page URL, wrong on a deep link.
  */
 export function basePath(): string {
   if (typeof document === 'undefined') return '';
@@ -18,7 +11,6 @@ export function basePath(): string {
   if (!hasBaseTag) return '';
 
   try {
-    // Trailing slash removed so callers can concatenate `/api/v1` directly.
     return new URL(document.baseURI).pathname.replace(/\/$/, '');
   } catch {
     return '';

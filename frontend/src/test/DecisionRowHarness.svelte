@@ -2,10 +2,7 @@
   import DecisionRow from '../components/DecisionRow.svelte';
   import type { Decision } from '../api/types';
 
-  /**
-   * `DecisionRow` renders a `<tr>`, which the HTML parser drops unless it is
-   * inside a table. This puts it in one.
-   */
+  /** `DecisionRow` renders a `<tr>`, which the HTML parser drops outside a table. */
   let {
     decision,
     selected,

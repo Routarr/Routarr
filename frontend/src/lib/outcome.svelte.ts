@@ -1,24 +1,11 @@
 import { describeError } from './async.svelte';
 
 /**
- * What an action says about how it went: one success, one partial result or
- * one error, never two at once.
+ * What an action says about how it went: one success, one partial result or one error, each
+ * replacing the others. A cancelled question reports nothing and leaves the last one standing.
  *
- * A banner stays until something replaces it, so a page holding its success
- * and its error as separate pieces of state can show both, the previous
- * success above the reason the next action was refused, and the older, louder
- * sentence is the one read. Here each replaces the others, so no two can be on
- * screen together whatever an action forgets. A cancelled question reports
- * nothing and so leaves the last outcome standing.
- *
- * A partial result is its own state: part done and part failed is neither,
- * and red over forty-nine moves made would say nothing was done.
- *
- * The error is the action's own, apart from the error of the page's load. A
- * load can be retried and a reload replaces its error, while a refused write
- * is the operator's to try again: under the load's Retry, a refusal would
- * reload the page instead of replaying the action, and that reload would wipe
- * it. Render it through `OutcomeBanner`, which offers no Retry.
+ * The error stays apart from the page's load error, whose Retry would reload the page instead
+ * of replaying a refused write. Render it through `OutcomeBanner`, which offers no Retry.
  */
 export interface Outcome {
   readonly notice: string | null;
@@ -32,11 +19,7 @@ export interface Outcome {
   warn(message: string, details?: string[]): void;
   /** Shows an error, and takes anything else off screen. A string is shown as it is. */
   fail(cause: unknown, details?: string[]): void;
-  /**
-   * Takes the outcome off screen, for an action that succeeded with nothing to say:
-   * an export that downloaded its file, a key that was regenerated. Without it
-   * the error from the attempt before would still be standing over a success.
-   */
+  /** Takes the outcome off screen, for a success with nothing to say, as a download. */
   clear(): void;
 }
 

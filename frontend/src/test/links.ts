@@ -1,12 +1,9 @@
 /**
- * Click `target` and answer whether a listener took the click, without letting
- * jsdom follow a link nobody took.
+ * Clicks `target` and answers whether a listener took the click, without letting jsdom
+ * follow the link.
  *
- * jsdom implements no navigation to another document. Each one it is asked for
- * prints "not implemented" into the run, after the test that asked, where
- * nothing names the test. A test that leaves a link to the browser reads here
- * that it did, and the browser's part is stopped at the window, past every
- * listener the application installs.
+ * jsdom implements no navigation and prints "not implemented" after the test that asked, where
+ * nothing names it. The default is prevented at the window, past every application listener.
  */
 export function click(target: Element, init: MouseEventInit = {}): boolean {
   let taken = false;

@@ -5,7 +5,6 @@ import { renderWithI18n } from '../test/render';
 import ProgressBar from './ProgressBar.svelte';
 
 describe('ProgressBar', () => {
-  /** Read by a screen reader as how far, and by the eye as a bar and two figures. */
   it('says how far a task has gone, its figures grouped as the language writes them', () => {
     renderWithI18n(ProgressBar, {
       props: { current: 1500, total: 12000, label: 'Simulation' },
@@ -18,7 +17,7 @@ describe('ProgressBar', () => {
     expect(screen.getByText('1.500/12.000')).toBeTruthy();
   });
 
-  /** A count past its total, as a task that found more than it expected, fills the bar and no more. */
+  /** A task can find more than it expected. */
   it('stops at a full bar', () => {
     const { container } = renderWithI18n(ProgressBar, {
       props: { current: 12, total: 10, label: 'Sync' },

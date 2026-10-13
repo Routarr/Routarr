@@ -6,17 +6,8 @@ const SRC = path.resolve(__dirname, '..');
 const SWEEP = path.resolve(SRC, '..', 'e2e', 'accessibility.spec.ts');
 
 /**
- * The accessibility sweep over the modals keeps its list by hand, and a list
- * kept by hand is a list that stops being complete.
- *
- * It is the same shape as selecting e2e specs by filename, where a new spec is
- * silently never run: a dialog nobody adds to `MODALS` is a dialog
- * nothing opens, and nothing would say so.
- *
- * So the source is the authority: every `<Modal>` a file renders needs an entry
- * of its own naming that file in a `covers:` field, and a screen rendering two
- * needs two. Writing a modal and not sweeping it fails here, in a second,
- * rather than never.
+ * Every `<Modal>` a file renders needs its own entry in the sweep's `MODALS` whose `covers:`
+ * names that file, since a dialog nobody adds there is never opened.
  */
 function dialogs(): string[] {
   return ['pages', 'components'].flatMap((dir) =>
@@ -41,12 +32,8 @@ function tally(items: string[]): Map<string, number> {
 }
 
 /**
- * Both checks below compare two lists, and a comparison against an empty list
- * passes. Neither search is safe on its own: `<Modal` stops matching if the
- * import is ever aliased, and `covers:` stops matching if the sweep renames its
- * field, and then the check that guarantees the sweep is complete reports
- * nothing rather than everything. With the `<Modal` match removed, both tests
- * go green over a search that finds no file at all.
+ * The dialog `Layout` always mounts, which both searches must find: compared with an empty
+ * list, each check below passes, as it would if the import were aliased or `covers:` renamed.
  */
 const ANCHOR = 'components/ConfirmDialog.svelte';
 
@@ -56,8 +43,6 @@ describe('the modal accessibility sweep', () => {
     const covered = tally([...sweep.matchAll(/covers: '([^']+)'/g)].map((match) => match[1]!));
 
     const rendered = dialogs();
-    // `ConfirmDialog` is mounted by `Layout` and is the one dialog the
-    // application always has, so a search that misses it found nothing.
     expect(rendered, 'the search for files rendering <Modal> found nothing').toContain(ANCHOR);
 
     const uncovered = [...tally(rendered)]
@@ -67,14 +52,10 @@ describe('the modal accessibility sweep', () => {
   });
 
   it('names only files that exist', () => {
-    // The other direction: a component renamed or deleted leaves a `covers:`
-    // pointing at nothing, and the sweep then proves less than it claims.
     const sweep = fs.readFileSync(SWEEP, 'utf-8');
     const named = [...sweep.matchAll(/covers: '([^']+)'/g)]
       .map((match) => match[1])
       .filter((file) => file !== undefined);
-    // Nothing named is not nothing wrong: it means the field was renamed, and
-    // this check would then read an empty list and report it clean.
     expect(named, 'the sweep declares no `covers:` at all').toContain(ANCHOR);
 
     const missing = named.filter((file) => !fs.existsSync(path.join(SRC, file)));

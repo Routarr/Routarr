@@ -1,19 +1,8 @@
 /**
- * Poll while the tab is in front, and catch up the moment it comes back.
+ * Polls while the tab is in front, and reloads at once when it comes back.
  *
- * `setInterval` on its own keeps asking a server nobody is looking at. The
- * Tasks screen refreshes every few seconds while a job runs, so a tab left open
- * in the background would keep asking all day, against a machine that is
- * usually also running Radarr, Sonarr and everything else the household points
- * at it.
- *
- * Coming back reloads immediately rather than waiting out an interval: the data
- * on screen is exactly as stale as the time spent away, and an interval later is
- * the one moment the user is certain to be reading it.
- *
- * Call it inside a component. `interval` and `active` are read reactively (pass
- * getters, not values), so a caller can change the pace or stop entirely and the
- * timer follows.
+ * Call it inside a component. `interval` and `active` are getters read reactively, so the
+ * timer follows a change of pace or a stop.
  */
 export function poll(
   reload: () => void,

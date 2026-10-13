@@ -5,14 +5,8 @@ interface Props { locale: Locale }
 const t = useTranslations(Astro.props.locale);
 
 /**
- * The rule drawn the way the application draws it, so ALL and ANY are a
- * control you can see is set rather than two words in a sentence, and the
- * exclusion is a block working against the one above it rather than a
- * paragraph about one.
- *
- * Field names are the engine's own identifiers and values are the library's,
- * so neither is translated. Only the operators between them are, and the
- * labels around the card.
+ * A rule drawn as the application draws it. Field names are the engine's identifiers and
+ * values the library's, so only the operators and the labels around them are translated.
  */
 const CONDITIONS: { field: string; operator: Key; values: string[] }[] = [
   { field: 'original_language', operator: 'rules.card.is-one-of', values: ['ja'] },
@@ -42,8 +36,7 @@ const EXCLUSIONS: typeof CONDITIONS = [
       <div class="rule-group">
         <div class="rule-group-head">
           <h4>{t('rules.card.conditions')}</h4>
-          {/* Both modes are named and the one in force is lit, the way the
-               theme switch names both of its states. */}
+          {/* Both modes shown and the one in force lit, as the theme switch does. */}
           <p class="rule-mode"><span class="on">{t('rules.card.all')}<span class="sr-only"> ({t('rules.card.in-force')})</span></span>{' '}<span>{t('rules.card.any')}</span></p>
         </div>
         {

@@ -1,13 +1,9 @@
 import type { OnboardingStatus } from '../api/types';
 
 /**
- * The getting-started guide as the shell last read it.
+ * The getting-started guide as the shell last read it, one copy for every reader.
  *
- * `Layout` owns the request, re-run on every navigation and whenever a screen
- * says the warnings changed, and publishes the answer here. The dashboard, the
- * top bar and each step's screen read this one copy, so the pill, the list and
- * a step's banner never disagree. A module-level rune for the reason the status
- * revision is one: there is one shell, and every reader means the same guide.
+ * `Layout` reads it again on every navigation and after `invalidateStatus()`.
  */
 const state = $state<{ current: OnboardingStatus | null; failure: string | null }>({
   current: null,

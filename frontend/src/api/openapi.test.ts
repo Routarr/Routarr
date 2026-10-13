@@ -12,10 +12,7 @@ import {
   type OpenApiDocument,
 } from './openapi';
 
-/**
- * The reference screen shows what the backend's contract says, so these read
- * a small document shaped like the one `/api/v1/openapi.json` serves.
- */
+/** A small document shaped like the one `/api/v1/openapi.json` serves. */
 const DOC: OpenApiDocument = {
   info: { title: 'Routarr API', version: '1', description: 'One.\n\nTwo `code` here.' },
   servers: [{ url: '/routarr/api/v1' }],

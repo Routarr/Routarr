@@ -10,10 +10,8 @@ import Faq from '../components/sections/Faq.astro';
 import Cta from '../components/sections/Cta.astro';
 
 /**
- * The second page: everything somebody reads because they are already
- * interested. It carries the sections the landing page leaves out, in the order
- * an argument wants them, and it is reached from the landing and from the
- * Index panel rather than being something to scroll past.
+ * The second page: the sections the landing leaves out, reached from its last card and
+ * from the Index panel.
  */
 interface Props {
   locale: Locale;
@@ -24,9 +22,7 @@ const t = useTranslations(locale);
 ---
 
 <Base locale={locale} page="how">
-  {/* The page's own `h1`. The hero holds the landing's and is not on this
-      page, and a page whose first heading is an `h2` has a level missing
-      rather than a heading spare. */}
+  {/* The hero holds the landing's `h1`, so this page needs its own. */}
   <section id="detail-head">
     <div class="wrap section-head">
       <span class="eyebrow">{t('detail.span')}</span>
@@ -35,12 +31,8 @@ const t = useTranslations(locale);
     </div>
   </section>
 
-  {/* The order is the one `detail.p` announces, which is the page's own table
-      of contents: the gap and the four steps that close it, then how a
-      decision explains itself. Explainability is the only thing here no other
-      tool does, yet ahead of the gap it reads as an answer before anything has
-      posed a question. A page whose heading promises the whole argument owes
-      the argument an order. */}
+  {/* The order `detail.p` announces and `DETAIL_SECTIONS` numbers. The gap comes first:
+      Explain answers the question Why poses. */}
   <Why locale={locale} />
   <Explain locale={locale} />
   <Folders locale={locale} />

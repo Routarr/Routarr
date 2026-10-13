@@ -3,9 +3,8 @@
   import { t } from '../lib/i18n.svelte';
 
   /**
-   * What stands in for a screen that failed, whether it threw while rendering
-   * or its code never arrived. A reload fetches the code of the version now
-   * served, which is what a tab left open across an update needs.
+   * Stands in for a screen that threw or whose code never arrived. A reload fetches the current
+   * code, which a tab left open across an update needs.
    */
   let { error }: { error: unknown } = $props();
 </script>
@@ -15,8 +14,7 @@
   <AlertTriangle size={16} />
   <div class="flex-1">
     <strong>{t('UnexpectedError')}</strong>
-    <!-- Shown, not hidden behind "something went wrong": the message is what
-         makes a bug report actionable. -->
+    <!-- The raw message is what makes a bug report actionable. -->
     <div class="mono text-sm mt-2">
       {error instanceof Error ? error.message : String(error)}
     </div>
