@@ -23,6 +23,9 @@ multi-ecosystem-groups:
   toolchain:
     schedule:
       interval: monthly
+    # Set here and not on its members: Dependabot refuses the whole file when a
+    # member of a multi-ecosystem group carries its own limit.
+    open-pull-requests-limit: 3
 
 updates:
   - package-ecosystem: github-actions
@@ -48,7 +51,6 @@ updates:
     patterns: ['*']
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 3
     ignore:
       # Node's even majors reach LTS in the October of their release year, and
       # the image is what people run: it tracks LTS, never Current. Raise the
@@ -64,7 +66,6 @@ updates:
     patterns: ['*']
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 3
 
   # The channel rustup reads, which CI compiles with.
   - package-ecosystem: rust-toolchain
@@ -73,7 +74,6 @@ updates:
     patterns: ['*']
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 3
 
   # `/backend`, not `/`: that is where the Cargo.toml is. A directory pointing
   # anywhere else fails silently, in a workflow nobody reads unless they go
