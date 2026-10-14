@@ -2,7 +2,7 @@
 # and locally, and `scripts/check-versions.py` holds both Dockerfiles to it. CI on `stable`
 # would pass code using a newer feature that the release build then refuses.
 [toolchain]
-channel = "1.98.1"
+channel = "1.99.0"
 # rust-analyzer: the server the VS Code extension bundles refuses a toolchain this old.
 # `llvm-tools` is what `cargo llvm-cov` instruments with.
 components = ["rustfmt", "clippy", "rust-analyzer", "llvm-tools"]
