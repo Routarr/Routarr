@@ -258,7 +258,7 @@
                     ? 'CommandPaletteGoTo'
                     : run.key === 'help'
                       ? 'Help'
-                      : 'MediaExplorer',
+                      : 'Library',
                 )}
               </div>
               {#each run.entries as { item: row, index } (row.id)}

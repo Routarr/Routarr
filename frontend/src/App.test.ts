@@ -12,7 +12,7 @@ import App from './App.svelte';
  * new image no longer serves. Blank, the screen gives no hint that a reload
  * fetches the new version.
  */
-vi.mock('./pages/Logs.svelte', () => {
+vi.mock('./pages/MoveLog.svelte', () => {
   throw new TypeError('Failed to fetch dynamically imported module');
 });
 

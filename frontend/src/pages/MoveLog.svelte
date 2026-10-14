@@ -53,7 +53,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('Logs')}</h1>
+      <h1 class="page-title">{t('MoveLog')}</h1>
       <p class="page-subtitle">{t('LogsSubtitle')}</p>
     </div>
     <div class="flex gap-2">
@@ -110,9 +110,9 @@
   </div>
 
   <div class="card">
-    <TableRegion label={t('Logs')}>
+    <TableRegion label={t('MoveLog')}>
       <table>
-        <caption class="visually-hidden">{t('Logs')}</caption>
+        <caption class="visually-hidden">{t('MoveLog')}</caption>
         <thead>
           <tr>
             <th>{t('When')}</th>

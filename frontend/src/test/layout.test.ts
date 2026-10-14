@@ -493,7 +493,7 @@ describe('a screen shows how an action went through its outcome', () => {
   const DRAWS_A_SUCCESS: Record<string, string> = {
     'components/SuccessBanner.svelte': 'the banner itself',
     'components/OutcomeBanner.svelte': 'the one place an outcome is drawn',
-    'pages/Health.svelte': 'the verdict of a load, the installation having no warning',
+    'pages/Diagnostics.svelte': 'the verdict of a load, the installation having no warning',
   };
 
   /** The screens, and the helpers beside the loader, which alone owns a load's error. */
