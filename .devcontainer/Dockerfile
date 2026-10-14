@@ -5,7 +5,7 @@
 # Aligned with every other environment: the Rust version comes from
 # rust-toolchain.toml, the Node major is the one CI and the production image
 # use, and python3 runs the scripts CI runs (scripts/check-locales.py).
-FROM rust:1.98.1@sha256:a8a5f0a1e5fe7dfe1d352591e4a1c7dd2c08fd70475cae872cf3458ba0df0546
+FROM rust:1.99.0@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90
 # The RUN steps below pipe, and without this the right-hand side's exit code
 # masks a failing download on the left.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
