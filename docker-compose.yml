@@ -26,9 +26,9 @@ services:
       # Protects every /api/v1 route but the few a signed-out browser needs
       # (/ping, the languages, the sign-in) and the webhook, which carries a
       # token of its own. Left unset, Routarr generates one into
-      # /config/routarr.api_key on first start and prints it in the log (`docker
-      # compose logs routarr`), and Settings can replace it later without a
-      # restart. Setting it here pins it instead: this value wins, and
+      # /config/routarr.api_key on first start, where the log names the file
+      # but never the key (`docker exec routarr cat /config/routarr.api_key`),
+      # and Settings can replace it later without a restart. Setting it here pins it instead: this value wins, and
       # changing the key then means changing this line and restarting.
       - ROUTARR_API_KEY=${ROUTARR_API_KEY:-}
       # `external` delegates to a reverse proxy and asks for nothing, so bind
