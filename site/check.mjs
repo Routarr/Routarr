@@ -627,7 +627,7 @@ if (!/<div class="lang-hint" id="lang-hint"[^>]*\bhidden[^>]*>/.test(index)) {
 }
 
 // -------------------------------------------------------------- csp hash
-const inline = [...index.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+const inline = [...index.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
 if (inline.length !== 1) fail(`expected exactly one inline <script> in index.html, found ${inline.length}`);
 for (const script of inline) {
   const digest = `sha256-${createHash('sha256').update(script).digest('base64')}`;
@@ -639,7 +639,7 @@ for (const script of inline) {
 // `<script>` short enough for Astro to inline arrives as `type="module"`, and
 // the CSP blocks it without a word. Structured data is not a script.
 for (const [file, page] of Object.entries(pages)) {
-  for (const [, script] of page.matchAll(/<script(?![^>]*\bsrc=)(?![^>]*application\/ld\+json)[^>]*>([\s\S]*?)<\/script>/g)) {
+  for (const [, script] of page.matchAll(/<script(?![^>]*\bsrc=)(?![^>]*application\/ld\+json)[^>]*>([\s\S]*?)<\/script>/gi)) {
     if (!headers.includes(`sha256-${createHash('sha256').update(script).digest('base64')}`)) {
       fail(`${file} carries an inline script whose hash is not in _headers, so the CSP blocks it`);
     }
@@ -741,14 +741,22 @@ if (linksChecked < 20) fail(`only ${linksChecked} href examined across the pages
 // The site must *fetch* nothing from outside: it is the cheapest privacy
 // guarantee and it is what keeps the CSP at `default-src 'none'`. Outbound
 // <a href> links are navigation, not a request the visitor's browser makes.
+// HTML takes a tag or an attribute in any case and a value in either quote or
+// none, and `srcset` names several URLs: each form is read, or one slips by.
+const attribute = (tag, name) => {
+  const m = tag.match(new RegExp(`\\s${name}=(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
+  return m ? (m[1] ?? m[2] ?? m[3]) : undefined;
+};
 for (const [name, source] of Object.entries(pages)) {
-  for (const [tag] of source.matchAll(/<(?:link|script|img|source|iframe|video|audio)\b[^>]*>/g)) {
+  for (const [tag, element] of source.matchAll(/<(link|script|img|source|iframe|video|audio)\b[^>]*>/gi)) {
     // A <link rel="canonical"> names a URL, it does not fetch one.
-    const rel = tag.match(/\brel="([^"]+)"/)?.[1];
-    if (tag.startsWith('<link') && !/^(stylesheet|preload|prefetch|icon|apple-touch-icon|manifest|preconnect|dns-prefetch)$/.test(rel ?? '')) {
+    const rel = attribute(tag, 'rel') ?? '';
+    if (element.toLowerCase() === 'link' && !/^(stylesheet|preload|prefetch|icon|apple-touch-icon|manifest|preconnect|dns-prefetch)$/i.test(rel)) {
       continue;
     }
-    const url = tag.match(/(?:src|srcset|href)="(https?:\/\/[^"]+)"/)?.[1];
+    const urls = ['src', 'href'].map((a) => attribute(tag, a));
+    for (const candidate of (attribute(tag, 'srcset') ?? '').split(',')) urls.push(candidate.trim().split(/\s+/)[0]);
+    const url = urls.find((u) => /^(?:https?:)?\/\//i.test(u ?? ''));
     if (url) fail(`${name}: loads a third-party subresource: ${url}`);
   }
 }

@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Este archivo no contiene ningún manifiesto, así que no es una copia de seguridad de Routarr.",
   "ErrorBackupManifestUnreadable": "No se puede leer el manifiesto de este archivo. El archivo está dañado.",
   "ErrorBackupNotSealed": "El nombre de este archivo indica que está cifrado, pero no lo está, así que no se restaura.",
+  "ErrorBackupBefore015": "Esta copia de seguridad viene de Routarr {version}, anterior a la 0.1.5. Restáurala primero con Routarr 0.1.5, haz allí una copia nueva y restaura esa.",
   "ErrorBackupNewerSchema": "Esta copia de seguridad viene de un Routarr más reciente (esquema {schema}). Actualiza Routarr y luego restáurala.",
   "ErrorBackupCannotRestore": "La base de datos de este archivo no se puede restaurar: {reason}",
   "ErrorBackupNoDatabase": "Este archivo no contiene ninguna base de datos.",

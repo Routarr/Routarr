@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Ebből az archívumból hiányzik a tartalomjegyzék, így nem Routarr-biztonsági mentés.",
   "ErrorBackupManifestUnreadable": "Az archívum tartalomjegyzéke nem olvasható. Az archívum sérült.",
   "ErrorBackupNotSealed": "Ez az archívum a neve szerint titkosított, de valójában nem az, ezért nem kerül visszaállításra.",
+  "ErrorBackupBefore015": "Ez a biztonsági mentés a Routarr {version} verzióból származik, amely régebbi a 0.1.5-nél. Először állítsa vissza a Routarr 0.1.5-tel, ott készítsen új mentést, és azt állítsa vissza.",
   "ErrorBackupNewerSchema": "Ez a biztonsági mentés egy újabb Routarr-verzióból származik (séma: {schema}). Frissítse a Routarrt, majd állítsa vissza a mentést.",
   "ErrorBackupCannotRestore": "Az archívumban lévő adatbázis nem állítható vissza: {reason}",
   "ErrorBackupNoDatabase": "Ez az archívum nem tartalmaz adatbázist.",

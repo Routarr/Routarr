@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Tento archív neobsahuje manifest, takže nejde o zálohu Routarru.",
   "ErrorBackupManifestUnreadable": "Manifest tohto archívu nemožno prečítať. Archív je poškodený.",
   "ErrorBackupNotSealed": "Tento archív je pomenovaný ako šifrovaný, ale nie je, preto sa neobnoví.",
+  "ErrorBackupBefore015": "Táto záloha pochádza z Routarru {version}, staršieho ako 0.1.5. Najprv ju obnovte v Routarri 0.1.5, tam vytvorte novú zálohu a obnovte tú.",
   "ErrorBackupNewerSchema": "Táto záloha pochádza z novšieho Routarru (schéma {schema}). Aktualizujte Routarr a potom ju obnovte.",
   "ErrorBackupCannotRestore": "Databázu v tomto archíve nemožno obnoviť: {reason}",
   "ErrorBackupNoDatabase": "Tento archív neobsahuje žiadnu databázu.",

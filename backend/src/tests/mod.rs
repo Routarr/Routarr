@@ -679,6 +679,27 @@ pub async fn webhook_settled(app: &TestApp, instance: &str) {
 
 /// A database as the release that shipped migration `last` hands it to an
 /// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
+/// A database in memory as Routarr 0.1.5 left it, for this release to upgrade.
+pub async fn database_of_0_1_5() -> sqlx::SqlitePool {
+    let pool = database_through("001_release_0_1_5").await;
+    left_by_0_1_5(&pool).await;
+    pool
+}
+
+/// Record a database built through `001_release_0_1_5` as 0.1.5 left it: under
+/// the thirteen names it built that schema with, and opened by 0.1.5.
+pub async fn left_by_0_1_5(pool: &sqlx::SqlitePool) {
+    sqlx::query("DELETE FROM _migrations").execute(pool).await.unwrap();
+    for name in crate::db::NAMES_OF_0_1_5 {
+        sqlx::query("INSERT INTO _migrations (name) VALUES (?)")
+            .bind(name)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO _opened_by (version) VALUES ('0.1.5')").execute(pool).await.unwrap();
+}
+
 pub async fn database_through(last: &str) -> sqlx::SqlitePool {
     let memory =
         <sqlx::sqlite::SqliteConnectOptions as std::str::FromStr>::from_str("sqlite::memory:")

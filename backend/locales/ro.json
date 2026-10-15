@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Această arhivă nu conține niciun manifest, deci nu este o copie de rezervă Routarr.",
   "ErrorBackupManifestUnreadable": "Manifestul acestei arhive nu poate fi citit. Arhiva este deteriorată.",
   "ErrorBackupNotSealed": "Numele acestei arhive o indică drept criptată, dar nu este, așa că nu va fi restaurată.",
+  "ErrorBackupBefore015": "Această copie de rezervă provine din Routarr {version}, mai vechi decât 0.1.5. Restaureaz-o mai întâi cu Routarr 0.1.5, fă acolo o copie nouă și restaureaz-o pe aceea.",
   "ErrorBackupNewerSchema": "Această copie de rezervă provine dintr-o versiune mai nouă de Routarr (schema {schema}). Actualizează Routarr, apoi restaureaz-o.",
   "ErrorBackupCannotRestore": "Baza de date din această arhivă nu poate fi restaurată: {reason}",
   "ErrorBackupNoDatabase": "Această arhivă nu conține nicio bază de date.",

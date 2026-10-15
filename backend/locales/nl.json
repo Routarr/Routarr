@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Dit archief bevat geen manifest, dus het is geen back-up van Routarr.",
   "ErrorBackupManifestUnreadable": "Het manifest van dit archief kan niet worden gelezen. Het archief is beschadigd.",
   "ErrorBackupNotSealed": "Dit archief heeft de naam van een versleuteld archief, maar is niet versleuteld, dus het wordt niet hersteld.",
+  "ErrorBackupBefore015": "Deze back-up komt van Routarr {version}, ouder dan 0.1.5. Herstel hem eerst met Routarr 0.1.5, maak daar een nieuwe back-up en herstel die.",
   "ErrorBackupNewerSchema": "Deze back-up komt van een nieuwere Routarr (schema {schema}). Werk Routarr bij en herstel de back-up daarna.",
   "ErrorBackupCannotRestore": "De database in dit archief kan niet worden hersteld: {reason}",
   "ErrorBackupNoDatabase": "Dit archief bevat geen database.",

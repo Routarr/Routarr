@@ -10,55 +10,30 @@ use crate::crypto;
 /// Migrations embedded in the binary, applied in order, exactly once.
 ///
 /// Adding a `.sql` file to `migrations/` is not enough: it must be listed here.
+/// Each release's migrations are folded into one file before its tag, so a
+/// database moves from one release's schema to the next in one step.
 const MIGRATIONS: &[(&str, &str)] = &[
-    ("001_initial_schema", include_str!("../migrations/001_initial_schema.sql")),
-    ("002_onboarding", include_str!("../migrations/002_onboarding.sql")),
-    ("003_metadata_sources", include_str!("../migrations/003_metadata_sources.sql")),
-    ("004_orphaned_proposals", include_str!("../migrations/004_orphaned_proposals.sql")),
-    ("005_jikan_film_misses", include_str!("../migrations/005_jikan_film_misses.sql")),
-    ("006_drop_override_lock", include_str!("../migrations/006_drop_override_lock.sql")),
-    ("007_job_detail_keys", include_str!("../migrations/007_job_detail_keys.sql")),
-    ("008_drop_move_files_default", include_str!("../migrations/008_drop_move_files_default.sql")),
-    ("009_application_keys", include_str!("../migrations/009_application_keys.sql")),
-    ("010_job_result", include_str!("../migrations/010_job_result.sql")),
-    ("011_webhook_secrets", include_str!("../migrations/011_webhook_secrets.sql")),
-    ("012_hashed_sessions", include_str!("../migrations/012_hashed_sessions.sql")),
-    ("013_opened_by", include_str!("../migrations/013_opened_by.sql")),
-    ("014_routing_generation", include_str!("../migrations/014_routing_generation.sql")),
-    ("015_certification_scale", include_str!("../migrations/015_certification_scale.sql")),
-    ("016_requested_moves", include_str!("../migrations/016_requested_moves.sql")),
-    ("017_drop_refresh_after_move", include_str!("../migrations/017_drop_refresh_after_move.sql")),
-    ("018_drop_routing_generation", include_str!("../migrations/018_drop_routing_generation.sql")),
-    ("019_instance_reads", include_str!("../migrations/019_instance_reads.sql")),
-    ("020_media_routing", include_str!("../migrations/020_media_routing.sql")),
-    ("021_added_within_one_day", include_str!("../migrations/021_added_within_one_day.sql")),
-    ("022_indexes_that_serve", include_str!("../migrations/022_indexes_that_serve.sql")),
-    (
-        "023_constraints_the_code_keeps",
-        include_str!("../migrations/023_constraints_the_code_keeps.sql"),
-    ),
-    ("024_opened_by_schema", include_str!("../migrations/024_opened_by_schema.sql")),
-    (
-        "025_added_dates_stored_shape",
-        include_str!("../migrations/025_added_dates_stored_shape.sql"),
-    ),
-    ("026_unique_instance_names", include_str!("../migrations/026_unique_instance_names.sql")),
-    (
-        "027_stateless_sign_in_attempts",
-        include_str!("../migrations/027_stateless_sign_in_attempts.sql"),
-    ),
-    ("028_secret_salt", include_str!("../migrations/028_secret_salt.sql")),
-    ("029_subject_keys", include_str!("../migrations/029_subject_keys.sql")),
-    ("030_security_events", include_str!("../migrations/030_security_events.sql")),
-    ("031_zero_ids", include_str!("../migrations/031_zero_ids.sql")),
-    ("032_every_regions_rating", include_str!("../migrations/032_every_regions_rating.sql")),
-    ("033_daily_quotas", include_str!("../migrations/033_daily_quotas.sql")),
-    ("034_full_vocabularies", include_str!("../migrations/034_full_vocabularies.sql")),
-    ("035_status_words", include_str!("../migrations/035_status_words.sql")),
-    ("036_rating_country_changes", include_str!("../migrations/036_rating_country_changes.sql")),
-    ("037_cache_lifetime_at_read", include_str!("../migrations/037_cache_lifetime_at_read.sql")),
-    ("038_withdrawn_credentials", include_str!("../migrations/038_withdrawn_credentials.sql")),
-    ("039_job_error_code", include_str!("../migrations/039_job_error_code.sql")),
+    ("001_release_0_1_5", include_str!("../migrations/001_release_0_1_5.sql")),
+    ("002_release_0_2_0", include_str!("../migrations/002_release_0_2_0.sql")),
+];
+
+/// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5`
+/// builds, in the order they ran. Archives name their schema by the last of
+/// them, and one that stops short of it was taken by an older release.
+pub(crate) const NAMES_OF_0_1_5: [&str; 13] = [
+    "001_initial_schema",
+    "002_onboarding",
+    "003_metadata_sources",
+    "004_orphaned_proposals",
+    "005_jikan_film_misses",
+    "006_drop_override_lock",
+    "007_job_detail_keys",
+    "008_drop_move_files_default",
+    "009_application_keys",
+    "010_job_result",
+    "011_webhook_secrets",
+    "012_hashed_sessions",
+    "013_opened_by",
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.
@@ -193,7 +168,14 @@ pub fn is_newer_schema(name: &str) -> bool {
     if name.is_empty() || name == "unknown" {
         return false;
     }
-    !MIGRATIONS.iter().any(|(known, _)| *known == name)
+    !MIGRATIONS.iter().any(|(known, _)| *known == name) && !NAMES_OF_0_1_5.contains(&name)
+}
+
+/// Whether a migration name is one a release older than 0.1.5 stopped at. A
+/// database or an archive at it goes through 0.1.5 before this release opens
+/// it.
+pub fn is_before_0_1_5(name: &str) -> bool {
+    NAMES_OF_0_1_5[..NAMES_OF_0_1_5.len() - 1].contains(&name)
 }
 
 /// Whether running the migrations would change a schema some release already
@@ -229,11 +211,77 @@ pub async fn checkpoint_and_close(pool: &SqlitePool) {
 }
 
 /// Apply any migration not yet recorded in `_migrations`, after refusing a
-/// database a newer release migrated.
+/// database a newer release migrated, or one an older release than 0.1.5 left.
 pub async fn run_migrations(pool: &SqlitePool) -> crate::error::AppResult<()> {
     refuse_a_newer_schema(pool).await?;
+    read_the_names_of_0_1_5(pool).await?;
     apply_migrations(pool, MIGRATIONS).await?;
     Ok(record_this_release(pool).await?)
+}
+
+/// Record a database 0.1.5 left at `001_release_0_1_5`, which builds the
+/// schema its thirteen names built, so the migrations after it apply on top.
+/// The earliest of its dates stays, the day Routarr was installed.
+///
+/// A database that stops short of the last name was left by an older release,
+/// whose schema no migration here starts from: refused, naming 0.1.5, which
+/// brings it there.
+async fn read_the_names_of_0_1_5(pool: &SqlitePool) -> crate::error::AppResult<()> {
+    let migrated: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !migrated {
+        return Ok(());
+    }
+    let applied: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM _migrations").fetch_all(pool).await?;
+    if !applied.iter().any(|name| NAMES_OF_0_1_5.contains(&name.as_str())) {
+        return Ok(());
+    }
+    if !applied.iter().any(|name| name == NAMES_OF_0_1_5[NAMES_OF_0_1_5.len() - 1]) {
+        return Err(crate::error::AppError::Config(format!(
+            "the database was left by a Routarr older than v0.1.5. Start v0.1.5 on it once, \
+             which brings it to the schema this v{} starts from",
+            env!("CARGO_PKG_VERSION")
+        )));
+    }
+
+    // Beside them, a name no release shipped was written by a build between
+    // two releases, whose schema is neither 0.1.5's nor this one's: read as
+    // 0.1.5's, it would be built over and fail half way.
+    if let Some(other) = applied.iter().find(|name| {
+        !NAMES_OF_0_1_5.contains(&name.as_str())
+            && !MIGRATIONS.iter().any(|(known, _)| known == name)
+    }) {
+        return Err(crate::error::AppError::Config(format!(
+            "the database holds the migration {other}, which no release shipped beside those of \
+             v0.1.5: restore an archive a release took, or start from a new database"
+        )));
+    }
+
+    let names = placeholders(NAMES_OF_0_1_5.len());
+    let mut tx = pool.begin().await?;
+    let mut installed = sqlx::query_scalar::<_, Option<String>>(AssertSqlSafe(format!(
+        "SELECT MIN(applied_at) FROM _migrations WHERE name IN ({names})"
+    )));
+    let mut forget =
+        sqlx::query(AssertSqlSafe(format!("DELETE FROM _migrations WHERE name IN ({names})")));
+    for name in NAMES_OF_0_1_5 {
+        installed = installed.bind(name);
+        forget = forget.bind(name);
+    }
+    let installed = installed.fetch_one(&mut *tx).await?;
+    forget.execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)")
+        .bind(MIGRATIONS[0].0)
+        .bind(installed)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    info!("The schema v0.1.5 built is recorded as {}", MIGRATIONS[0].0);
+    Ok(())
 }
 
 /// Refuse a database a newer release migrated further than this build knows:
@@ -496,6 +544,92 @@ mod tests {
             assert!(message.contains(&format!("v{version}")), "{message}");
         }
         assert!(release("0.1.10") > release("0.1.9"));
+    }
+
+    /// A database 0.1.5 left upgrades on top of the schema its thirteen names
+    /// built, recorded as the one migration that builds it now, and keeps the
+    /// day Routarr was installed, which the overdue-backup warning reads.
+    #[tokio::test]
+    async fn a_database_0_1_5_left_upgrades_and_keeps_the_day_it_was_installed() {
+        let pool = crate::tests::database_of_0_1_5().await;
+        sqlx::query(
+            "UPDATE _migrations SET applied_at = CASE name
+                WHEN '001_initial_schema' THEN '2026-09-21 10:00:00'
+                ELSE '2026-10-04 10:00:00' END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        run_migrations(&pool).await.expect("a database 0.1.5 left was refused");
+
+        let recorded: Vec<(String, String)> =
+            sqlx::query_as("SELECT name, applied_at FROM _migrations ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let names: Vec<&str> = recorded.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, MIGRATIONS.iter().map(|(name, _)| *name).collect::<Vec<_>>());
+        assert_eq!(recorded[0].1, "2026-09-21 10:00:00", "the day of the install was lost");
+    }
+
+    /// A database an older release than 0.1.5 left holds a schema no migration
+    /// here starts from: refused, naming 0.1.5, and left as it was.
+    #[tokio::test]
+    async fn a_database_older_than_0_1_5_is_refused_naming_the_release_to_go_through() {
+        let pool = crate::tests::database_of_0_1_5().await;
+        sqlx::query(
+            "DELETE FROM _migrations WHERE name IN ('012_hashed_sessions', '013_opened_by')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let refused = run_migrations(&pool).await;
+
+        let Err(crate::error::AppError::Config(message)) = refused else {
+            panic!("a database 0.1.4 left was opened: {refused:?}");
+        };
+        assert!(message.contains("v0.1.5"), "{message}");
+        let names: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM _migrations").fetch_one(&pool).await.unwrap();
+        assert_eq!(names, 11, "the refused database was changed");
+    }
+
+    /// A database a build between two releases migrated holds 0.1.5's names
+    /// and others no release shipped: refused, naming one, and left as it was
+    /// rather than built over half way.
+    #[tokio::test]
+    async fn a_database_a_build_between_releases_migrated_is_refused_untouched() {
+        let pool = crate::tests::database_of_0_1_5().await;
+        sqlx::query("INSERT INTO _migrations (name) VALUES ('039_job_error_code')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let refused = run_migrations(&pool).await;
+
+        let Err(crate::error::AppError::Config(message)) = refused else {
+            panic!("a database a development build migrated was opened: {refused:?}");
+        };
+        assert!(message.contains("039_job_error_code"), "{message}");
+        let names: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM _migrations").fetch_one(&pool).await.unwrap();
+        assert_eq!(names, 14, "the refused database was changed");
+    }
+
+    /// An archive names its schema by the last migration it holds: one 0.1.5
+    /// took is of a schema this build upgrades, one an older release took is
+    /// before it, and neither is ahead.
+    #[test]
+    fn an_archives_schema_reads_as_of_0_1_5_before_it_or_ahead() {
+        for of_0_1_5 in ["013_opened_by", "001_release_0_1_5", "002_release_0_2_0"] {
+            assert!(!is_newer_schema(of_0_1_5) && !is_before_0_1_5(of_0_1_5), "{of_0_1_5}");
+        }
+        for older in ["001_initial_schema", "010_job_result", "012_hashed_sessions"] {
+            assert!(is_before_0_1_5(older) && !is_newer_schema(older), "{older}");
+        }
+        assert!(is_newer_schema("039_job_error_code"), "a name no release shipped is ahead");
     }
 
     /// The SQLite the binary carries, at least the release that fixes
@@ -769,7 +903,7 @@ mod tests {
     /// at them, through an upgrade.
     #[tokio::test]
     async fn an_upgrade_that_tightens_the_schema_keeps_every_row() {
-        let pool = crate::tests::database_through("022_indexes_that_serve").await;
+        let pool = crate::tests::database_of_0_1_5().await;
         for statement in [
             "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
              VALUES ('i-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",

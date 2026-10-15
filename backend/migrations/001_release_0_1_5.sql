@@ -1,3 +1,7 @@
+-- The schema Routarr 0.1.5 shipped, built in one pass on a new database. A
+-- database 0.1.5 left holds it under the thirteen names it was built with,
+-- which `db::LEGACY_0_1_5` reads as this one.
+
 -- The initial schema.
 --
 -- Its statements and its name stay as they are: `_migrations` records names,
@@ -322,3 +326,103 @@ INSERT INTO settings (key, value, updated_at) VALUES ('scheduler_interval_minute
 INSERT INTO settings (key, value, updated_at) VALUES ('metadata_providers', 'arr,tmdb', '2026-09-22 20:36:21');
 
 INSERT INTO settings (key, value, updated_at) VALUES ('ui_language', 'en', '2026-09-22 20:36:21');
+
+-- The getting-started guide is for an installation that is not set up yet. One that
+-- already has an instance is set up, so it starts with the guide done. A fresh
+-- database gets no row, which reads as "pending".
+INSERT INTO settings (key, value)
+SELECT 'onboarding', 'done' WHERE EXISTS (SELECT 1 FROM instances)
+ON CONFLICT(key) DO NOTHING;
+
+-- Listed without a key, TMDb answers nothing and the diagnostics warn about it
+-- before anyone has configured anything. A database that routes nothing yet,
+-- with no instance and no TMDb key, drops the list the initial schema seeds and
+-- reads the shipped default, the Arr alone, which a TMDb key handed in by the
+-- environment extends at startup. Any other list stays: rules may rely on what
+-- only TMDb answers, and a list someone chose is theirs.
+DELETE FROM settings
+WHERE key = 'metadata_providers'
+  AND value = 'arr,tmdb'
+  AND NOT EXISTS (SELECT 1 FROM instances)
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'tmdb_api_key' AND trim(value) <> '');
+
+-- A proposal whose instance is gone would move a title that no longer exists,
+-- and the dashboard would go on counting it. Deleting an instance retires its
+-- proposals in the same transaction, and this retires any still pending for
+-- an instance that is gone. What was applied is history and stays.
+UPDATE decisions
+SET superseded = 1
+WHERE status = 'pending'
+  AND superseded = 0
+  AND instance_id NOT IN (SELECT id FROM instances);
+
+-- A film has no broadcast season, and Jikan leaves its `year` null: the date is
+-- in `aired`. A "found nothing" stored for a Jikan film can rest on that null
+-- `year`, so it goes, and the next pass searches the film again.
+DELETE FROM source_identifiers
+WHERE source = 'jikan' AND media_type = 'movie' AND external_id IS NULL;
+
+-- An override pins a title to a category and wins over every rule on its own.
+-- A lock on it protects nothing, so the column goes with the field.
+ALTER TABLE overrides DROP COLUMN locked;
+
+-- A task's detail as a dictionary key and its values, rendered when the Tasks
+-- screen reads it: the interface language is the one in force then, not the
+-- one in force when the task ran. `detail` holds the English text, for
+-- anything reading the table directly.
+ALTER TABLE jobs ADD COLUMN detail_key TEXT;
+ALTER TABLE jobs ADD COLUMN detail_params TEXT;
+
+-- Whether to move the files on disk is asked at each apply and each revert, on
+-- the screen where it is decided. A stored default nothing read would only
+-- travel through every export.
+DELETE FROM settings WHERE key = 'move_files_default';
+
+-- A key the operator gives another application, held to its own scopes.
+-- Only a hash of the secret is kept: the token is shown once, when it is made.
+-- A revoked row stays, so the name it wrote on jobs, decisions and overrides
+-- still says which application that was.
+CREATE TABLE api_keys (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    secret_hash TEXT NOT NULL,
+    -- A JSON array of the scopes beyond read, which every key holds.
+    scopes TEXT NOT NULL DEFAULT '[]',
+    -- A JSON array of the guardrails this key may answer on its own.
+    may_confirm TEXT NOT NULL DEFAULT '[]',
+    may_move_files INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT,
+    last_used_at TEXT,
+    revoked_at TEXT
+);
+
+-- Two live keys under one name would make every attribution ambiguous.
+CREATE UNIQUE INDEX idx_api_keys_live_name ON api_keys(name) WHERE revoked_at IS NULL;
+
+-- Who started a task and who pinned a title, beside the trigger: an
+-- application's name, or the person a sign-in mode names.
+ALTER TABLE jobs ADD COLUMN subject TEXT;
+ALTER TABLE overrides ADD COLUMN subject TEXT;
+
+-- What a finished task answered, as JSON: the report the same call gives
+-- when the caller waits for it. A caller that asked not to wait reads it
+-- here.
+ALTER TABLE jobs ADD COLUMN result TEXT;
+
+-- The secrets the notification webhook is signed with, sealed like an Arr's
+-- key. The newest signs, and the one it replaced signs beside it for a day,
+-- so a receiver can be given the new one without missing a message.
+CREATE TABLE webhook_secrets (
+    secret TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- A session is stored by the digest of its id, not the id its cookie carries,
+-- so a copy of the database opens none. A row stored by its id is matched by
+-- no cookie, and goes: its holder signs in once more.
+DELETE FROM sessions;
+
+-- Every release that opens the database, so an older one that finds a newer
+-- recorded can stop before it reads a schema it does not know.
+CREATE TABLE _opened_by (version TEXT PRIMARY KEY);
