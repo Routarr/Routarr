@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Een v3-sleutel of een v4-leestoken. Voegt trefwoorden en herkomstlanden toe die geen enkele Arr meldt. Versleuteld opgeslagen. Laat leeg om de huidige te behouden of terug te vallen op TMDB_API_KEY.",
   "SettingTvdbKey": "TheTVDB-API-sleutel",
   "SettingTvdbKeyHelp": "Levert alleen gegevens voor series, omdat Radarr geen TheTVDB-id doorgeeft. De sleutel is gratis voor een project dat minder dan 50.000 dollar per jaar verdient en TheTVDB vermeldt, zoals dit scherm doet. Versleuteld opgeslagen. Laat leeg om de huidige te behouden of terug te vallen op TVDB_API_KEY.",
+  "SettingTvdbPin": "TheTVDB-abonnee-PIN",
+  "SettingTvdbPinHelp": "Alleen een door de gebruikers gefinancierde sleutel heeft deze nodig. Versleuteld opgeslagen. Laat leeg om de huidige te behouden of terug te vallen op TVDB_SUBSCRIBER_PIN.",
   "Settings": "Instellingen",
   "SettingOn": "Ingeschakeld",
   "SettingOff": "Uitgeschakeld",

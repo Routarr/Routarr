@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "v3-avain tai v4-lukutunnus. Tuo avainsanat ja alkuperämaat, joita mikään Arr ei ilmoita. Tallennetaan salattuna. Jätä tyhjäksi säilyttääksesi nykyisen tai palataksesi TMDB_API_KEY-muuttujaan.",
   "SettingTvdbKey": "TheTVDB-API-avain",
   "SettingTvdbKeyHelp": "Antaa tietoja vain sarjoista, koska Radarr ei anna TheTVDB-tunnusta. Avain on maksuton projektille, jonka tulot ovat alle 50 000 dollaria vuodessa ja joka mainitsee TheTVDB:n, kuten tämä näkymä tekee. Tallennetaan salattuna. Jätä tyhjäksi säilyttääksesi nykyisen tai palataksesi TVDB_API_KEY-muuttujaan.",
+  "SettingTvdbPin": "TheTVDB-tilaajan PIN-koodi",
+  "SettingTvdbPinHelp": "Vain käyttäjiensä rahoittama avain tarvitsee sen. Tallennetaan salattuna. Jätä tyhjäksi säilyttääksesi nykyisen tai palataksesi TVDB_SUBSCRIBER_PIN-muuttujaan.",
   "Settings": "Asetukset",
   "SettingOn": "Käytössä",
   "SettingOff": "Ei käytössä",

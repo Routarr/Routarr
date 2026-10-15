@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Une clé v3 ou un jeton de lecture v4. Apporte les mots-clés et les pays d'origine, qu'aucun Arr ne fournit. Stockée chiffrée. Laissez vide pour conserver l'actuelle, ou pour retomber sur TMDB_API_KEY.",
   "SettingTvdbKey": "Clé d'API TheTVDB",
   "SettingTvdbKeyHelp": "Ne répond que pour les séries, car Radarr ne fournit aucun identifiant TheTVDB. Sa clé est gratuite pour un projet qui gagne moins de 50 000 $ par an et cite TheTVDB, comme le fait cet écran. Stockée chiffrée. Laissez vide pour conserver l'actuelle, ou pour retomber sur TVDB_API_KEY.",
+  "SettingTvdbPin": "PIN d'abonné TheTVDB",
+  "SettingTvdbPinHelp": "Seule une clé financée par ses utilisateurs en a besoin. Stocké chiffré. Laissez vide pour conserver l'actuel, ou pour retomber sur TVDB_SUBSCRIBER_PIN.",
   "Settings": "Réglages",
   "SettingOn": "Activé",
   "SettingOff": "Désactivé",

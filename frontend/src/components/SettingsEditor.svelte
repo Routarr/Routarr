@@ -15,6 +15,7 @@
   import {
     FIELDS,
     SECTIONS,
+    SOURCE_EXTRA_SETTINGS,
     SOURCE_KEY_SETTING,
     splitStored,
     type SectionId,
@@ -266,12 +267,16 @@
   /**
    * What the metadata tab renders itself rather than through the field loop.
    *
-   * The three credentials belong in the row of the source they unlock, and the
+   * The credentials belong in the row of the source they unlock, and the
    * source list is a subject of its own rather than a field. Both are still in
    * `SECTIONS`, so the payload and the "covers every field exactly once" check
    * are untouched.
    */
-  const SELF_RENDERED = new Set([...Object.values(SOURCE_KEY_SETTING), 'metadata_providers']);
+  const SELF_RENDERED = new Set([
+    ...Object.values(SOURCE_KEY_SETTING),
+    ...Object.values(SOURCE_EXTRA_SETTINGS).flat(),
+    'metadata_providers',
+  ]);
 
   /**
    * The fields where blank means "leave the stored value alone".
@@ -664,7 +669,7 @@
             </CardTitle>
           </div>
 
-          <!-- The three metadata credentials are rendered by the source list
+          <!-- The metadata credentials are rendered by the source list
                rather than here: a key is not a setting of the application, it
                is a property of the source it unlocks, and stated apart it would
                make "enable TMDB" a round trip past the whole list and back,

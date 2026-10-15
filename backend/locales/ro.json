@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "O cheie v3 sau un token de citire v4. Adaugă cuvinte-cheie și țări de origine, pe care niciun Arr nu le raportează. Se stochează criptată. Lasă gol pentru a o păstra pe cea actuală sau a reveni la TMDB_API_KEY.",
   "SettingTvdbKey": "Cheie API TheTVDB",
   "SettingTvdbKeyHelp": "Oferă date doar pentru seriale, deoarece Radarr nu furnizează ID-uri TheTVDB. Cheia este gratuită pentru un proiect cu venituri sub 50.000 USD pe an care menționează TheTVDB ca sursă, așa cum face acest ecran. Se stochează criptată. Lasă gol pentru a o păstra pe cea actuală sau a reveni la TVDB_API_KEY.",
+  "SettingTvdbPin": "PIN de abonat TheTVDB",
+  "SettingTvdbPinHelp": "Doar o cheie finanțată de utilizatorii ei are nevoie de el. Se stochează criptat. Lasă gol pentru a-l păstra pe cel actual sau a reveni la TVDB_SUBSCRIBER_PIN.",
   "Settings": "Setări",
   "SettingOn": "Activat",
   "SettingOff": "Dezactivat",

@@ -229,20 +229,37 @@ impl AppState {
 
     /// `provider_key`, answered from a snapshot already read.
     pub fn provider_key_from(&self, settings: &Settings, provider: &str) -> Option<String> {
-        let stored = settings.raw(&format!("{provider}_api_key"));
+        let setting = format!("{provider}_api_key");
+        self.credential_from(settings, &setting, self.environment_key(provider))
+    }
+
+    /// TheTVDB's subscriber PIN, resolved as its key is: what the interface
+    /// saved, else `TVDB_SUBSCRIBER_PIN`.
+    pub fn tvdb_pin_from(&self, settings: &Settings) -> Option<String> {
+        self.credential_from(settings, "tvdb_subscriber_pin", self.config.tvdb_pin.as_ref())
+    }
+
+    /// A sealed setting opened, else the environment's value.
+    fn credential_from(
+        &self,
+        settings: &Settings,
+        setting: &str,
+        environment: Option<&String>,
+    ) -> Option<String> {
+        let stored = settings.raw(setting);
         if let Some(raw) = stored.filter(|v| !v.trim().is_empty()) {
             // A value that opens with neither key is left alone and reported,
             // never treated as absent: silently falling back would route on
             // metadata the operator believes they configured.
             return match self.secrets.open(raw) {
-                Ok(key) => Some(key),
+                Ok(value) => Some(value),
                 Err(e) => {
-                    tracing::warn!("The stored {provider} key could not be opened: {e}");
+                    tracing::warn!("The stored {setting} could not be opened: {e}");
                     None
                 }
             };
         }
-        self.environment_key(provider).cloned()
+        environment.cloned()
     }
 
     /// The key a source takes from the environment, as its `key_env` in the
@@ -350,7 +367,7 @@ impl AppState {
                     FetchingSource::Tvdb(TvdbClient::new(
                         self.http.clone(),
                         &key,
-                        self.config.tvdb_pin.as_deref(),
+                        self.tvdb_pin_from(&settings).as_deref(),
                         &self.config.tvdb_base_url,
                         Arc::clone(&self.tvdb_token),
                     ))

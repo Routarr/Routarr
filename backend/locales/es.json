@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Una clave v3 o un token de lectura v4. Aporta palabras clave y países de origen, que ningún Arr proporciona. Se guarda cifrada. Déjalo vacío para conservar la actual o para recurrir a TMDB_API_KEY.",
   "SettingTvdbKey": "Clave de API de TheTVDB",
   "SettingTvdbKeyHelp": "Solo aporta datos de series, ya que Radarr no da identificador de TheTVDB. Su clave es gratuita para un proyecto que ingrese menos de 50.000 dólares al año y mencione a TheTVDB, como hace esta pantalla. Se guarda cifrada. Déjalo vacío para conservar la actual o para recurrir a TVDB_API_KEY.",
+  "SettingTvdbPin": "PIN de suscriptor de TheTVDB",
+  "SettingTvdbPinHelp": "Solo lo necesita una clave financiada por sus usuarios. Se guarda cifrado. Déjalo vacío para conservar el actual o para recurrir a TVDB_SUBSCRIBER_PIN.",
   "Settings": "Ajustes",
   "SettingOn": "Activado",
   "SettingOff": "Desactivado",

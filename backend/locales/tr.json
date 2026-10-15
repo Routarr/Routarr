@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Bir v3 anahtarı veya v4 okuma jetonu. Hiçbir Arr'ın bildirmediği anahtar kelimeleri ve menşe ülkeleri ekler. Şifreli saklanır. Mevcut olanı korumak veya TMDB_API_KEY'e dönmek için boş bırakın.",
   "SettingTvdbKey": "TheTVDB API anahtarı",
   "SettingTvdbKeyHelp": "Radarr TheTVDB kimliği vermediği için yalnızca dizilere veri sağlar. Anahtarı, yıllık geliri 50.000 ABD dolarının altında olan ve bu ekranın yaptığı gibi TheTVDB'yi kaynak olarak gösteren bir proje için ücretsizdir. Şifreli saklanır. Mevcut olanı korumak veya TVDB_API_KEY'e dönmek için boş bırakın.",
+  "SettingTvdbPin": "TheTVDB abone PIN'i",
+  "SettingTvdbPinHelp": "Yalnızca kullanıcılarının desteklediği bir anahtar için gerekir. Şifreli saklanır. Mevcut olanı korumak veya TVDB_SUBSCRIBER_PIN'e dönmek için boş bırakın.",
   "Settings": "Ayarlar",
   "SettingOn": "Etkin",
   "SettingOff": "Devre dışı",

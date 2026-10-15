@@ -766,19 +766,63 @@ async fn a_new_tvdb_key_logs_in_rather_than_reuse_the_old_token() {
     let app = TestApp::one_film_on(&sources, "arr,tvdb").await;
     tvdb_connected(&app).await;
 
-    app.put("/api/v1/settings", serde_json::json!({ "settings": { "tvdb_api_key": "new-key" } }))
-        .await
-        .assert_ok();
+    app.save_setting("tvdb_api_key", "new-key").await.assert_ok();
     tvdb_connected(&app).await;
 
-    let logins: Vec<String> = sources
-        .recorded()
+    assert_eq!(tvdb_logins(&sources), ["tvdb-key/1234", "new-key/1234"]);
+}
+
+/// Each login TheTVDB's stand-in received, as `key/pin`.
+fn tvdb_logins(sources: &FakeSources) -> Vec<String> {
+    let recorded = sources.recorded();
+    recorded
         .credentials
         .iter()
         .filter(|(id, _)| *id == "tvdb")
         .map(|(_, credential)| credential.clone())
-        .collect();
-    assert_eq!(logins, ["tvdb-key/1234", "new-key/1234"]);
+        .collect()
+}
+
+/// A PIN saved on the Sources screen is the one the login carries, over
+/// `TVDB_SUBSCRIBER_PIN`: otherwise saving one looks done and changes nothing.
+#[tokio::test]
+async fn a_saved_tvdb_pin_reaches_the_login_over_the_environment() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,tvdb").await;
+
+    app.save_setting("tvdb_subscriber_pin", "5678").await.assert_ok();
+    assert_eq!(tvdb_connected(&app).await, true);
+
+    assert_eq!(tvdb_logins(&sources), ["tvdb-key/5678"]);
+}
+
+/// With no PIN saved, or the saved one removed, `TVDB_SUBSCRIBER_PIN` answers:
+/// a deployment that sets it keeps working untouched.
+#[tokio::test]
+async fn the_environment_tvdb_pin_answers_while_none_is_saved() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,tvdb").await;
+
+    app.save_setting("tvdb_subscriber_pin", "5678").await.assert_ok();
+    app.save_setting("tvdb_subscriber_pin", "").await.assert_ok();
+    assert_eq!(tvdb_connected(&app).await, true);
+
+    assert_eq!(tvdb_logins(&sources), ["tvdb-key/1234"]);
+}
+
+/// A token belongs to the PIN it was obtained with as much as to the key.
+/// Kept across a new PIN, it would go on answering for the old one until it
+/// expires.
+#[tokio::test]
+async fn a_new_tvdb_pin_logs_in_rather_than_reuse_the_old_token() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,tvdb").await;
+    tvdb_connected(&app).await;
+
+    app.save_setting("tvdb_subscriber_pin", "5678").await.assert_ok();
+    tvdb_connected(&app).await;
+
+    assert_eq!(tvdb_logins(&sources), ["tvdb-key/1234", "tvdb-key/5678"]);
 }
 
 #[tokio::test]

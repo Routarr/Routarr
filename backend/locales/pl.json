@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Klucz v3 lub token odczytu v4. Dodaje słowa kluczowe i kraje pochodzenia, których nie zgłasza żaden Arr. Przechowywany w postaci zaszyfrowanej. Pozostaw puste, aby zachować obecny lub wrócić do TMDB_API_KEY.",
   "SettingTvdbKey": "Klucz API TheTVDB",
   "SettingTvdbKeyHelp": "Zwraca dane tylko dla seriali, ponieważ Radarr nie podaje identyfikatora TheTVDB. Klucz jest darmowy dla projektu, który zarabia mniej niż 50 000 dolarów rocznie i wymienia TheTVDB jako źródło, tak jak ten ekran. Przechowywany w postaci zaszyfrowanej. Pozostaw puste, aby zachować obecny lub wrócić do TVDB_API_KEY.",
+  "SettingTvdbPin": "PIN subskrybenta TheTVDB",
+  "SettingTvdbPinHelp": "Potrzebny tylko kluczowi finansowanemu przez użytkowników. Przechowywany w postaci zaszyfrowanej. Pozostaw puste, aby zachować obecny lub wrócić do TVDB_SUBSCRIBER_PIN.",
   "Settings": "Ustawienia",
   "SettingOn": "Włączone",
   "SettingOff": "Wyłączone",
