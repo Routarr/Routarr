@@ -557,7 +557,7 @@
   },
   "pin": {
     "en": "\\bpin(s|ned|ning)?\\b",
-    "except": [],
+    "except": ["SettingTvdbPin"],
     "homonym": "\\bforc(e|es|ed|ing)\\b|\\bexceptions?\\b",
     "words": {
       "ar": "ت[ً-ْـ]*ث[ً-ْـ]*ب[ً-ْـ]*ي[ً-ْـ]*ت|م[ً-ْـ]*ث[ً-ْـ]*ب[ً-ْـ]*ت|ث[ً-ْـ]*ب[ً-ْـ]*ت",

@@ -4,7 +4,7 @@
   import type { MetadataProvider } from '../api/types';
   import { t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
-  import { SOURCE_KEY_SETTING } from '../lib/settings';
+  import { FIELDS, SOURCE_EXTRA_SETTINGS, SOURCE_KEY_SETTING } from '../lib/settings';
 
   let {
     id,
@@ -101,33 +101,58 @@
        hiding it once the source works leaves a leaked key impossible to
        rotate and a stored one impossible to replace. The placeholder is what
        says which of the two situations the reader is in. -->
+  <label class="visually-hidden" for="setting-{setting}">
+    {provider.display_name}
+  </label>
+  {@render masked(
+    setting,
+    provider.display_name,
+    provider.configured
+      ? t('SecretConfiguredPlaceholder')
+      : provider.key_env
+        ? t('ProviderKeyOrEnv', { variable: provider.key_env })
+        : t('ProviderKeyPlaceholder'),
+  )}
+{/snippet}
+
+{#snippet extras(providerId: string)}
+  <!-- Under the key, captioned and explained: the source's name says what
+       its key is, and nothing about what else it may ask for. -->
+  {#each SOURCE_EXTRA_SETTINGS[providerId] ?? [] as setting (setting)}
+    {@const field = FIELDS.find((entry) => entry.key === setting)}
+    {#if field}
+      <div class="source-extra">
+        <label class="source-extra-label" for="setting-{setting}">{t(field.labelKey)}</label>
+        {@render masked(
+          setting,
+          t(field.labelKey),
+          storedKeys?.has(setting) ? t('SecretStoredPlaceholder') : undefined,
+        )}
+        <p id="setting-{setting}-help" class="source-detail">{t(field.helpKey)}</p>
+      </div>
+    {/if}
+  {/each}
+{/snippet}
+
+{#snippet masked(setting: string, name: string, placeholder: string | undefined)}
   <div class="source-key">
-    <label class="visually-hidden" for="setting-{setting}">
-      {provider.display_name}
-    </label>
     <input
       id="setting-{setting}"
       aria-describedby="setting-{setting}-help"
       class="form-input"
       type="password"
       autocomplete="off"
-      placeholder={removedKeys?.has(setting)
-        ? t('SecretRemovedOnSave')
-        : provider.configured
-          ? t('SecretConfiguredPlaceholder')
-          : provider.key_env
-            ? t('ProviderKeyOrEnv', { variable: provider.key_env })
-            : t('ProviderKeyPlaceholder')}
+      placeholder={removedKeys?.has(setting) ? t('SecretRemovedOnSave') : placeholder}
       value={keys?.[setting] ?? ''}
       oninput={(event) => onKeyChange?.(setting, event.currentTarget.value)}
     />
-    <!-- A blank field keeps the stored key, so without this a key stays
-         sealed behind a disabled source for good. -->
+    <!-- A blank field keeps the stored value, so without this a credential
+         stays sealed behind a disabled source for good. -->
     {#if onKeyRemove && storedKeys?.has(setting) && !removedKeys?.has(setting)}
       <button
         type="button"
         class="btn btn-secondary"
-        aria-label="{t('Remove')} – {provider.display_name}"
+        aria-label="{t('Remove')} – {name}"
         onclick={() => onKeyRemove(setting)}
       >
         {t('Remove')}
@@ -179,6 +204,7 @@
             </div>
             {#if setting && keys && onKeyChange}
               {@render credential(provider, setting)}
+              {@render extras(providerId)}
             {/if}
           </div>
           <div class="source-actions">
@@ -241,6 +267,7 @@
 
           {#if setting && keys && onKeyChange}
             {@render credential(provider, setting)}
+            {@render extras(provider.id)}
           {/if}
         </div>
         <div class="source-actions">

@@ -10,7 +10,7 @@ import type { Category, MappingConflict, RootFolder } from '../api/types';
 import { answerConfirmation } from '../test/confirm';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
-import RootFolders from './RootFolders.svelte';
+import Categories from './Categories.svelte';
 
 /**
  * Categories are free-form strings joined by name, with no foreign key, so this
@@ -66,12 +66,12 @@ function show(
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   vi.spyOn(api, 'getMappingConflicts').mockResolvedValue(conflicts);
   vi.spyOn(api, 'getInstances').mockResolvedValue(instances);
-  return renderWithI18n(RootFolders);
+  return renderWithI18n(Categories);
 }
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('Root folders', () => {
+describe('Categories', () => {
   /**
    * The badge and the delete guard both read the `default_category` setting.
    * An `is_default` column beside it would be kept in step by nothing: the

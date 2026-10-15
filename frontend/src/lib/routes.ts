@@ -56,8 +56,8 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
   {
     key: 'NavGroupDaily',
     items: [
-      { to: '/rules', key: 'RulesEngine', hint: 'HintRules' },
-      { to: '/exceptions', key: 'Overrides', hint: 'HintOverrides' },
+      { to: '/rules', key: 'Rules', hint: 'HintRules' },
+      { to: '/exceptions', key: 'Exceptions', hint: 'HintOverrides' },
       { to: '/rule-tests', key: 'RuleTests', hint: 'HintRuleTests' },
       { to: '/simulation', key: 'Simulation', hint: 'HintSimulation', badge: 'decisions' },
     ],
@@ -65,15 +65,15 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
   {
     key: 'NavGroupReview',
     items: [
-      { to: '/library', key: 'MediaExplorer', hint: 'HintLibrary' },
-      { to: '/history', key: 'AuditHistory', hint: 'HintHistory' },
+      { to: '/library', key: 'Library', hint: 'HintLibrary' },
+      { to: '/history', key: 'History', hint: 'HintHistory' },
     ],
   },
   {
     key: 'NavGroupSupervision',
     items: [
       { to: '/tasks', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
-      { to: '/move-log', key: 'Logs', hint: 'HintLogs', badge: 'failed' },
+      { to: '/move-log', key: 'MoveLog', hint: 'HintLogs', badge: 'failed' },
       { to: '/security-log', key: 'SecurityLog', hint: 'HintSecurityLog' },
       { to: '/diagnostics', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
     ],
@@ -82,7 +82,7 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     key: 'NavGroupConfiguration',
     items: [
       { to: '/instances', key: 'Instances', hint: 'HintInstances' },
-      { to: '/categories', key: 'RootFolders', hint: 'HintRootFolders' },
+      { to: '/categories', key: 'CategoriesAndFolders', hint: 'HintCategories' },
       { to: '/sources', key: 'MetadataSources', hint: 'HintSources' },
       { to: '/settings', key: 'Settings', hint: 'HintSettings' },
     ],

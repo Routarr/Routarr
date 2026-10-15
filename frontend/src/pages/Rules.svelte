@@ -255,7 +255,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('RulesEngine')}</h1>
+      <h1 class="page-title">{t('Rules')}</h1>
       <p class="page-subtitle">{t('RulesSubtitle')}</p>
     </div>
     <div class="flex gap-2">
@@ -297,9 +297,9 @@
   {/if}
 
   <div class="card">
-    <TableRegion label={t('RulesEngine')} id="rules-table">
+    <TableRegion label={t('Rules')} id="rules-table">
       <table>
-        <caption class="visually-hidden">{t('RulesEngine')}</caption>
+        <caption class="visually-hidden">{t('Rules')}</caption>
         <thead>
           <tr>
             <th class="w-90">{t('Priority')}</th>

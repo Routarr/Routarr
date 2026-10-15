@@ -8,7 +8,7 @@ import { paginated } from '../test/fixtures';
 import { captureDownloads } from '../test/downloads';
 import { api, ApiError } from '../api/client';
 import type { LogEntry } from '../api/types';
-import Logs from './Logs.svelte';
+import MoveLog from './MoveLog.svelte';
 
 /**
  * Every write Routarr has made to an Arr. The export is the part with a trap in
@@ -34,14 +34,14 @@ function entry(over: Partial<LogEntry> = {}): LogEntry {
   };
 }
 
-const show = () => renderWithI18n(Logs);
+const show = () => renderWithI18n(MoveLog);
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
-describe('Activity log', () => {
+describe('Move log', () => {
   it('says nothing has been written rather than showing an empty table', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([]));
     show();
@@ -89,7 +89,7 @@ describe('Activity log', () => {
    */
   it('names a revert by its noun, not by the button that does it', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry({ action: 'revert' })]));
-    renderWithI18n(Logs, {
+    renderWithI18n(MoveLog, {
       language: 'fr',
       strings: { ActionRevert: 'Annulation', Revert: 'Annuler le déplacement' },
     });

@@ -177,7 +177,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('RootFolders')}</h1>
+      <h1 class="page-title">{t('CategoriesAndFolders')}</h1>
       <p class="page-subtitle">{t('RootFoldersSubtitle')}</p>
     </div>
     <div class="flex gap-2">

@@ -48,7 +48,7 @@
       await bundle.reload();
       // The last exception of the last page leaves the page before it to show.
       if (overrides.length === 0 && page > 1) page -= 1;
-      void handFocus(deleteId(index), deleteId(index - 1), 'overrides-table');
+      void handFocus(deleteId(index), deleteId(index - 1), 'exceptions-table');
     } catch (err) {
       outcome.fail(err);
     }
@@ -135,7 +135,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('Overrides')}</h1>
+      <h1 class="page-title">{t('Exceptions')}</h1>
       <p class="page-subtitle">{t('OverridesSubtitle')}</p>
     </div>
     <div class="flex gap-2">
@@ -154,9 +154,9 @@
   <OutcomeBanner {outcome} />
 
   <div class="card">
-    <TableRegion label={t('Overrides')} id="overrides-table">
+    <TableRegion label={t('Exceptions')} id="exceptions-table">
       <table>
-        <caption class="visually-hidden">{t('Overrides')}</caption>
+        <caption class="visually-hidden">{t('Exceptions')}</caption>
         <thead>
           <tr>
             <th>{t('Media')}</th>

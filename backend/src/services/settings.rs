@@ -79,13 +79,16 @@ const KNOWN: &[(&str, Kind, &str)] = &[
     // same posture as an Arr's key, which is the *more* dangerous of the two,
     // since it writes to the library while these only read.
     //
-    // Each is named `<id>_api_key` after its source's id in
+    // Each key is named `<id>_api_key` after its source's id in
     // `metadata::PROVIDERS`: `AppState::provider_key_from` and the check that
     // refuses a source without its key build that name, so a key stored under
     // any other is never read.
     ("tmdb_api_key", Kind::Secret, ""),
     ("omdb_api_key", Kind::Secret, ""),
     ("tvdb_api_key", Kind::Secret, ""),
+    // What TheTVDB asks beside a user-supported key, read by
+    // `AppState::tvdb_pin_from` under this name.
+    ("tvdb_subscriber_pin", Kind::Secret, ""),
 ];
 
 /// What a setting's value has to be, and therefore how it is validated.
@@ -271,7 +274,8 @@ fn validate(
 
     match kind {
         // Nothing to check beyond a shape nobody can predict: TMDB accepts a v3
-        // key or a v4 token, OMDb an eight-character string, TheTVDB a UUID.
+        // key or a v4 token, OMDb an eight-character string, TheTVDB a UUID
+        // and a PIN of its own making.
         // A pattern guessed here would reject a credential the provider accepts,
         // which is worse than letting the source report that it cannot connect,
         // and the diagnostics screen already probes each one.
