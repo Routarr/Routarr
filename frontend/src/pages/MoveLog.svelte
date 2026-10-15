@@ -54,7 +54,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{t('MoveLog')}</h1>
-      <p class="page-subtitle">{t('LogsSubtitle')}</p>
+      <p class="page-subtitle">{t('MoveLogSubtitle')}</p>
     </div>
     <div class="flex gap-2">
       <button class="btn btn-secondary" onclick={() => void logs.reload()}>
