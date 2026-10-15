@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Una clau v3 o un testimoni de lectura v4. Aporta paraules clau i països d'origen, que cap Arr no proporciona. Es desa xifrada. Deixa-ho buit per conservar l'actual o per recórrer a TMDB_API_KEY.",
   "SettingTvdbKey": "Clau API de TheTVDB",
   "SettingTvdbKeyHelp": "Només aporta dades de sèries, ja que Radarr no dona cap identificador de TheTVDB. La clau és gratuïta per a un projecte que ingressi menys de 50.000 dòlars l'any i que esmenti TheTVDB, com fa aquesta pantalla. Es desa xifrada. Deixa-ho buit per conservar l'actual o per recórrer a TVDB_API_KEY.",
+  "SettingTvdbPin": "PIN de subscriptor de TheTVDB",
+  "SettingTvdbPinHelp": "Només el necessita una clau finançada pels seus usuaris. Es desa xifrat. Deixa-ho buit per conservar l'actual o per recórrer a TVDB_SUBSCRIBER_PIN.",
   "Settings": "Configuració",
   "SettingOn": "Activat",
   "SettingOff": "Desactivat",

@@ -33,6 +33,7 @@ async fn every_credential_setting_is_sealed_and_never_read_back() {
         "tmdb_api_key",
         "omdb_api_key",
         "tvdb_api_key",
+        "tvdb_subscriber_pin",
         "notification_webhook_url",
         "backup_passphrase",
     ] {

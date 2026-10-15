@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Klíč v3 nebo čtecí token v4. Přidává klíčová slova a země původu, které žádný Arr nehlásí. Ukládá se zašifrovaný. Ponechte prázdné pro zachování stávajícího nebo návrat k TMDB_API_KEY.",
   "SettingTvdbKey": "Klíč API TheTVDB",
   "SettingTvdbKeyHelp": "Poskytuje data jen pro seriály, protože Radarr neuvádí identifikátor TheTVDB. Klíč je zdarma pro projekt s ročními příjmy pod 50 000 dolarů, který uvádí TheTVDB jako zdroj, jak to dělá tato obrazovka. Ukládá se zašifrovaný. Ponechte prázdné pro zachování stávajícího nebo návrat k TVDB_API_KEY.",
+  "SettingTvdbPin": "PIN předplatitele TheTVDB",
+  "SettingTvdbPinHelp": "Potřebuje ho jen klíč placený svými uživateli. Ukládá se zašifrovaný. Ponechte prázdné pro zachování stávajícího nebo návrat k TVDB_SUBSCRIBER_PIN.",
   "Settings": "Nastavení",
   "SettingOn": "Zapnuto",
   "SettingOff": "Vypnuto",

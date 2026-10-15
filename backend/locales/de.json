@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "Ein v3-Schlüssel oder ein v4-Lesetoken. Liefert Schlagwörter und Herkunftsländer, die kein Arr meldet. Verschlüsselt gespeichert. Leer lassen, um den aktuellen zu behalten oder auf TMDB_API_KEY zurückzufallen.",
   "SettingTvdbKey": "TheTVDB-API-Schlüssel",
   "SettingTvdbKeyHelp": "Liefert nur Daten zu Serien, da Radarr keine TheTVDB-ID angibt. Der Schlüssel ist kostenlos für ein Projekt mit Einnahmen unter 50.000 US-Dollar im Jahr, das TheTVDB nennt, wie es dieser Bildschirm tut. Verschlüsselt gespeichert. Leer lassen, um den aktuellen zu behalten oder auf TVDB_API_KEY zurückzufallen.",
+  "SettingTvdbPin": "TheTVDB-Abonnenten-PIN",
+  "SettingTvdbPinHelp": "Nur ein von seinen Nutzern finanzierter Schlüssel braucht sie. Verschlüsselt gespeichert. Leer lassen, um die aktuelle zu behalten oder auf TVDB_SUBSCRIBER_PIN zurückzufallen.",
   "Settings": "Einstellungen",
   "SettingOn": "Aktiviert",
   "SettingOff": "Deaktiviert",
