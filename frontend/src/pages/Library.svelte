@@ -68,7 +68,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{t('Library')}</h1>
-      <p class="page-subtitle">{t('MediaExplorerSubtitle')}</p>
+      <p class="page-subtitle">{t('LibrarySubtitle')}</p>
     </div>
   </div>
 
