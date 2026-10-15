@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "v3 金鑰或 v4 讀取權杖。補充任何 Arr 都不提供的關鍵字與出品國家。加密儲存。留空則保留目前金鑰，或回退到 TMDB_API_KEY。",
   "SettingTvdbKey": "TheTVDB API 金鑰",
   "SettingTvdbKeyHelp": "僅為影集提供資料，因為 Radarr 不提供 TheTVDB ID。年收入低於 50,000 美元且像本頁面這樣註明 TheTVDB 出處的專案可免費使用其金鑰。加密儲存。留空則保留目前金鑰，或回退到 TVDB_API_KEY。",
+  "SettingTvdbPin": "TheTVDB 訂閱者 PIN",
+  "SettingTvdbPinHelp": "僅由使用者資助的金鑰需要它。加密儲存。留空則保留目前 PIN，或回退到 TVDB_SUBSCRIBER_PIN。",
   "Settings": "設定",
   "SettingOn": "已啟用",
   "SettingOff": "已停用",

@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "v3 キーまたは v4 読み取りトークン。どの Arr も返さないキーワードと制作国を補います。暗号化して保存されます。現在のキーを維持する場合、または TMDB_API_KEY を使う場合は、空のままにしてください。",
   "SettingTvdbKey": "TheTVDB API キー",
   "SettingTvdbKeyHelp": "Radarr は TheTVDB ID を提供しないため、シリーズにのみ応答します。キーは、年間収益が 50,000 ドル未満で、この画面のように TheTVDB をクレジット表記しているプロジェクトなら無料です。暗号化して保存されます。現在のキーを維持する場合、または TVDB_API_KEY を使う場合は、空のままにしてください。",
+  "SettingTvdbPin": "TheTVDB 購読者 PIN",
+  "SettingTvdbPinHelp": "ユーザー支援型のキーでのみ必要です。暗号化して保存されます。現在の PIN を維持する場合、または TVDB_SUBSCRIBER_PIN を使う場合は、空のままにしてください。",
   "Settings": "設定",
   "SettingOn": "有効",
   "SettingOff": "無効",

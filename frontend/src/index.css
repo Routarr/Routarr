@@ -1551,6 +1551,17 @@ a {
   padding-block: 7px;
 }
 
+/* A credential a source takes beside its key, under it in the same row. */
+.source-extra {
+  margin-block-start: var(--space-3);
+}
+.source-extra-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .source-detail {
   color: var(--text-muted);
   font-size: 12px;

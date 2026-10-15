@@ -66,6 +66,15 @@ export const SOURCE_KEY_SETTING: Record<string, string> = {
   tvdb: 'tvdb_api_key',
 };
 
+/**
+ * The credentials a source takes beside its key, drawn under the key in the
+ * source's row and skipped by the settings form's own loop, for the reason
+ * `SOURCE_KEY_SETTING` gives. Each is a `secret` field of `FIELDS`.
+ */
+export const SOURCE_EXTRA_SETTINGS: Record<string, readonly string[]> = {
+  tvdb: ['tvdb_subscriber_pin'],
+};
+
 const CONFIGURED = '_configured';
 
 /**
@@ -183,7 +192,7 @@ export const FIELDS: Field[] = [
       { value: 'all', labelKey: 'AnimeSearchAll' },
     ],
   },
-  // The three metadata credentials. Sealed by the backend on the way in and
+  // The metadata credentials. Sealed by the backend on the way in and
   // never returned, so the field always renders empty and a companion
   // `<key>_configured` boolean says whether one is set. Settable here as well as
   // from the environment: the screen that names a missing key is the screen that
@@ -214,6 +223,13 @@ export const FIELDS: Field[] = [
     key: 'tvdb_api_key',
     labelKey: 'SettingTvdbKey',
     helpKey: 'SettingTvdbKeyHelp',
+    kind: 'secret',
+    fallback: '',
+  },
+  {
+    key: 'tvdb_subscriber_pin',
+    labelKey: 'SettingTvdbPin',
+    helpKey: 'SettingTvdbPinHelp',
     kind: 'secret',
     fallback: '',
   },
@@ -408,6 +424,7 @@ export const SECTIONS = [
       'omdb_api_key',
       'omdb_daily_requests',
       'tvdb_api_key',
+      'tvdb_subscriber_pin',
       'metadata_cache_ttl_days',
       'certification_regions',
     ],

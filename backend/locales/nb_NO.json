@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "En v3-nøkkel eller et v4-lesetoken. Gir nøkkelord og opprinnelsesland som ingen Arr melder. Lagres kryptert. La stå tomt for å beholde den nåværende eller falle tilbake til TMDB_API_KEY.",
   "SettingTvdbKey": "TheTVDB-API-nøkkel",
   "SettingTvdbKeyHelp": "Svarer bare for serier, siden Radarr ikke gir noen TheTVDB-id. Nøkkelen er gratis for et prosjekt som tjener under 50 000 dollar i året og krediterer TheTVDB, slik denne skjermen gjør. Lagres kryptert. La stå tomt for å beholde den nåværende eller falle tilbake til TVDB_API_KEY.",
+  "SettingTvdbPin": "Abonnent-PIN for TheTVDB",
+  "SettingTvdbPinHelp": "Bare en nøkkel som brukerne betaler for, trenger den. Lagres kryptert. La stå tomt for å beholde den nåværende eller falle tilbake til TVDB_SUBSCRIBER_PIN.",
   "Settings": "Innstillinger",
   "SettingOn": "Aktivert",
   "SettingOff": "Deaktivert",

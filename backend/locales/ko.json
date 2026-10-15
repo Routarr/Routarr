@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "v3 키 또는 v4 읽기 토큰. 어떤 Arr도 제공하지 않는 키워드와 제작 국가를 더합니다. 암호화되어 저장되며, 비워 두면 현재 키를 유지하거나 TMDB_API_KEY로 돌아갑니다.",
   "SettingTvdbKey": "TheTVDB API 키",
   "SettingTvdbKeyHelp": "Radarr가 TheTVDB ID를 제공하지 않으므로 시리즈에만 응답합니다. 연 수익이 50,000달러 미만이고 이 화면처럼 TheTVDB를 출처로 표시하는 프로젝트라면 키가 무료입니다. 암호화되어 저장되며, 비워 두면 현재 키를 유지하거나 TVDB_API_KEY로 돌아갑니다.",
+  "SettingTvdbPin": "TheTVDB 구독자 PIN",
+  "SettingTvdbPinHelp": "사용자 지원 키에만 필요합니다. 암호화되어 저장되며, 비워 두면 현재 PIN을 유지하거나 TVDB_SUBSCRIBER_PIN으로 돌아갑니다.",
   "Settings": "설정",
   "SettingOn": "사용",
   "SettingOff": "사용 안 함",

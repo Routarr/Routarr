@@ -25,10 +25,11 @@ use crate::error::AppResult;
 const SERVICE: &str = "TheTVDB";
 pub const DEFAULT_BASE_URL: &str = "https://api4.thetvdb.com/v4";
 
-/// The token of the last login, with the key it was obtained with: a token
-/// answers for that key only, so a new key logs in again.
+/// The token of the last login, with the key and the PIN it was obtained with:
+/// a token answers for those only, so a new key or a new PIN logs in again.
 pub struct CachedToken {
     key: String,
+    pin: Option<String>,
     token: String,
 }
 
@@ -125,7 +126,8 @@ impl TvdbClient {
     /// futures would otherwise both log in, and TheTVDB counts that.
     async fn token(&self) -> AppResult<String> {
         let mut guard = self.token.lock().await;
-        if let Some(cached) = guard.as_ref().filter(|cached| cached.key == self.api_key) {
+        let current = |cached: &&CachedToken| cached.key == self.api_key && cached.pin == self.pin;
+        if let Some(cached) = guard.as_ref().filter(current) {
             return Ok(cached.token.clone());
         }
 
@@ -150,7 +152,11 @@ impl TvdbClient {
                 said,
             ));
         };
-        *guard = Some(CachedToken { key: self.api_key.clone(), token: token.clone() });
+        *guard = Some(CachedToken {
+            key: self.api_key.clone(),
+            pin: self.pin.clone(),
+            token: token.clone(),
+        });
         Ok(token)
     }
 

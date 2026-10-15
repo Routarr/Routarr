@@ -1145,6 +1145,8 @@
   "SettingTmdbKeyHelp": "v3 kulcs vagy v4 olvasási token. Kulcsszavakat és származási országokat ad, amelyeket egyetlen Arr sem jelent. Titkosítva tárolódik. Hagyja üresen a jelenlegi megtartásához vagy a TMDB_API_KEY használatához.",
   "SettingTvdbKey": "TheTVDB API-kulcs",
   "SettingTvdbKeyHelp": "Csak sorozatokhoz ad adatot, mert a Radarr nem ad meg TheTVDB-azonosítót. A kulcs ingyenes az olyan projekteknek, amelyek éves bevétele 50 000 dollár alatt van, és feltüntetik a TheTVDB-t, ahogy ez a képernyő is. Titkosítva tárolódik. Hagyja üresen a jelenlegi megtartásához vagy a TVDB_API_KEY használatához.",
+  "SettingTvdbPin": "TheTVDB előfizetői PIN-kód",
+  "SettingTvdbPinHelp": "Csak a felhasználói által támogatott kulcsnak kell. Titkosítva tárolódik. Hagyja üresen a jelenlegi megtartásához vagy a TVDB_SUBSCRIBER_PIN használatához.",
   "Settings": "Beállítások",
   "SettingOn": "Bekapcsolva",
   "SettingOff": "Kikapcsolva",

@@ -135,6 +135,32 @@ describe('a credential is edited in the row of the source it unlocks', () => {
     const field = await screen.findByLabelText('TMDB');
     expect(field.getAttribute('placeholder')).toBe('A key is stored. Type to replace it');
   });
+
+  /**
+   * A user-supported TheTVDB key also needs its subscriber's PIN, a credential
+   * as much as the key: masked, explained, and reported like it.
+   */
+  it("offers TheTVDB's subscriber PIN under its key, masked and explained", async () => {
+    const onKeyChange = vi.fn();
+    renderWithI18n(ProviderOrder, {
+      props: {
+        id: 'sources',
+        catalogue: [provider({ id: 'tvdb', display_name: 'TheTVDB' }), provider()],
+        value: 'tvdb,tmdb',
+        onChange: vi.fn(),
+        keys: { tvdb_api_key: '', tvdb_subscriber_pin: '', tmdb_api_key: '' },
+        onKeyChange,
+      },
+    });
+
+    const pin = await screen.findByLabelText('TheTVDB subscriber PIN');
+    expect(pin.getAttribute('type')).toBe('password');
+    expect(pin).toHaveAccessibleDescription(/Only a user-supported key needs it/);
+    expect(screen.getAllByLabelText(/subscriber PIN/)).toHaveLength(1);
+
+    await userEvent.type(pin, '42');
+    expect(onKeyChange).toHaveBeenLastCalledWith('tvdb_subscriber_pin', '42');
+  });
 });
 
 /** A row's buttons name their source, so a list of buttons tells them apart. */
