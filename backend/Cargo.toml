@@ -2,7 +2,7 @@
 name = "routarr"
 version = "0.1.5"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.99"
 description = "Smart media routing engine for Radarr and Sonarr"
 license = "GPL-3.0-only"
 # Routarr is a server, not a library, and it ships as one OCI image. A crate on
@@ -103,7 +103,9 @@ tokio = { version = "1", features = ["test-util", "io-util"] }
 [profile.release]
 opt-level = 3
 lto = true
-strip = true
+# Symbols stay, so a crash logged with RUST_BACKTRACE=1 names its functions:
+# stripped whole, the backtrace is bare addresses.
+strip = "debuginfo"
 
 [lints.rust]
 unsafe_code = "forbid"

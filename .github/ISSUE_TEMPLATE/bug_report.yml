@@ -48,9 +48,10 @@ body:
     attributes:
       label: Relevant log lines
       description: |
-        `docker compose logs routarr`. **Remove any key or password before
-        pasting.** At first start Routarr prints the API key it generates and,
-        in `forms` mode, the password of the account it creates.
+        `docker compose logs routarr`. **Check for a key, a password or an
+        address you would not publish before pasting.** For a crash (a line
+        reading `Panicked`), set `RUST_BACKTRACE=1` for the container, make it
+        happen again, and paste the backtrace that follows.
       render: text
     validations:
       required: false

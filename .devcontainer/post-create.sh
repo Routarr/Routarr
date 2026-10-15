@@ -55,14 +55,17 @@ done
 cd "$root/frontend"
 npx playwright install chromium firefox webkit
 
-# Register RTK's hook with Claude Code. Idempotent, and cheap enough to rerun:
-# it writes into ~/.claude, and a fresh volume starts without it.
+# RTK's hook goes into the contributor's own Claude Code setup, so it is opt-in:
+# `ROUTARR_RTK=1` in the environment VS Code starts from. Idempotent, and cheap
+# enough to rerun: it writes into ~/.claude, and a fresh volume starts without it.
 #
 # The hook rewrites Bash commands (`git status` becomes `rtk git status`) so the
 # agent reads compressed output. It only covers the Bash tool: Claude Code's own
 # Read, Grep and Glob do not pass through it.
-if command -v rtk > /dev/null; then
-  rtk init -g && echo "RTK hook registered. Restart Claude Code for it to take effect"
-else
-  echo "RTK is not installed; rebuild the container to get it" >&2
+if [[ "${ROUTARR_RTK:-}" == 1 ]]; then
+  if command -v rtk > /dev/null; then
+    rtk init -g && echo "RTK hook registered. Restart Claude Code for it to take effect"
+  else
+    echo "RTK is not installed: rebuild the container to get it" >&2
+  fi
 fi
