@@ -44,7 +44,7 @@ export const TERMS: Readonly<Record<string, Term>> = {
   MissingMetadata: { name: 'MissingMetadata', text: 'TermTextMissingMetadata' },
   Move: { name: 'ActionMove', text: 'TermTextMove' },
   MoveFiles: { name: 'ApplicationMayMoveFiles', text: 'TermTextMoveFiles' },
-  MoveLog: { name: 'Logs', text: 'TermTextMoveLog' },
+  MoveLog: { name: 'MoveLog', text: 'TermTextMoveLog' },
   NoKey: { name: 'TermNoKey', text: 'TermTextNoKey' },
   Operation: { name: 'TermOperation', text: 'TermTextOperation' },
   OtherSite: { name: 'SecurityKindOrigin', text: 'TermTextOtherSite' },

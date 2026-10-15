@@ -1572,7 +1572,7 @@ async fn the_exceptions_are_listed_a_page_at_a_time() {
     assert_eq!(seen, ["o-3", "o-2", "o-1"]);
 }
 
-/// The list the Overrides screen renders, read as the screen reads it: with
+/// The list the Exceptions screen renders, read as the screen reads it: with
 /// the key, under a mode that demands one. Each entry carries the item's title
 /// and the instance it lives on, which the list joins in.
 #[tokio::test]
@@ -2523,7 +2523,7 @@ async fn an_unknown_job_is_a_404() {
     app.get("/api/v1/jobs/nope").await.assert_status(StatusCode::NOT_FOUND);
 }
 
-/// The list is what the Logs screen reads: a filter spelled wrong in
+/// The list is what the Move log screen reads: a filter spelled wrong in
 /// `build_filters` would show every row, or none, on the one screen an operator
 /// opens because something failed.
 #[tokio::test]

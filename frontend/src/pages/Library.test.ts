@@ -6,7 +6,7 @@ import { renderWithI18n } from '../test/render';
 import { media, paginated, explainedMedia } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { Explanation, MediaListItem } from '../api/types';
-import MediaExplorer from './MediaExplorer.svelte';
+import Library from './Library.svelte';
 
 /**
  * The library, and the one place a user can ask *why* an item lands where it
@@ -18,13 +18,13 @@ function show(items: MediaListItem[], pages = 1) {
   const getMedia = vi
     .spyOn(api, 'getMedia')
     .mockResolvedValue(paginated(items, { total_pages: pages, total: items.length * pages }));
-  renderWithI18n(MediaExplorer);
+  renderWithI18n(Library);
   return getMedia;
 }
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('Media explorer', () => {
+describe('Library', () => {
   it('says nothing matches rather than showing an empty table', async () => {
     show([]);
 
@@ -175,7 +175,7 @@ describe('Media explorer', () => {
   });
 
   /**
-   * Filtered as one types, as History and Logs are, once the typing stops:
+   * Filtered as one types, as History and MoveLog are, once the typing stops:
    * each search is a query against the operator's own server, and the page the
    * reader was on may not exist in the narrower list.
    */

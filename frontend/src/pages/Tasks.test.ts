@@ -6,7 +6,7 @@ import { renderWithI18n } from '../test/render';
 import { job, paginated } from '../test/fixtures';
 import { nthCall } from '../test/spy';
 import { api } from '../api/client';
-import Jobs from './Jobs.svelte';
+import Tasks from './Tasks.svelte';
 import { answerConfirmation } from '../test/confirm';
 
 /**
@@ -16,7 +16,7 @@ import { answerConfirmation } from '../test/confirm';
  * identifier the database stores.
  */
 
-const show = () => renderWithI18n(Jobs);
+const show = () => renderWithI18n(Tasks);
 
 afterEach(() => {
   vi.restoreAllMocks();

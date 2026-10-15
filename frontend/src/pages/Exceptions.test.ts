@@ -7,7 +7,7 @@ import { renderWithI18n } from '../test/render';
 import { media, paginated } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { Category, OverrideEntry } from '../api/types';
-import Overrides from './Overrides.svelte';
+import Exceptions from './Exceptions.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 
@@ -58,12 +58,12 @@ function override(over: Partial<OverrideEntry> = {}): OverrideEntry {
 function show(overrides: OverrideEntry[]) {
   vi.spyOn(api, 'getOverrides').mockResolvedValue(paginated(overrides));
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
-  return renderWithI18n(Overrides);
+  return renderWithI18n(Exceptions);
 }
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('Overrides', () => {
+describe('Exceptions', () => {
   it('says there are none rather than showing an empty table', async () => {
     show([]);
 
@@ -340,7 +340,7 @@ describe('more exceptions than a page holds', () => {
       .spyOn(api, 'getOverrides')
       .mockResolvedValue(paginated([override()], { total: 51, total_pages: 2 }));
     vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
-    renderWithI18n(Overrides);
+    renderWithI18n(Exceptions);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
 
@@ -359,7 +359,7 @@ describe('more exceptions than a page holds', () => {
       .mockResolvedValue(paginated([override({ id: 'o3', media_title: 'Paprika' })]));
     vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
     vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
-    renderWithI18n(Overrides);
+    renderWithI18n(Exceptions);
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
