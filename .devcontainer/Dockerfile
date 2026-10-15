@@ -318,7 +318,7 @@ RUN arch="$(dpkg --print-architecture)" \
 # `playwright install --with-deps` in postCreateCommand, which would re-run
 # apt-get on every rebuild. Keep in step with @playwright/test in
 # frontend/package.json. Only the browser download stays a create step.
-ARG PLAYWRIGHT_VERSION=1.63.0
+ARG PLAYWRIGHT_VERSION=1.64.0
 RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium firefox webkit \
   && rm -rf /root/.npm /var/lib/apt/lists/*
 
