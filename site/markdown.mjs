@@ -30,7 +30,7 @@ function parse(html) {
   const root = { tag: '#root', attrs: {}, children: [] };
   const stack = [root];
   for (const [, comment, closing, tag, attributes, text] of html.matchAll(
-    /(<!--[\s\S]*?-->)|<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)/g,
+    /(<!--[\s\S]*?--!?>)|<(\/?)([a-zA-Z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)/g,
   )) {
     const parent = stack[stack.length - 1];
     if (comment) continue;

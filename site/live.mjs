@@ -61,8 +61,14 @@ await context.addInitScript(() => {
     window.__csp.push(`${e.violatedDirective} blocked ${e.blockedURI}`);
   });
 });
-// The beacon's report is answered here, so this visit is not counted as one.
+// The beacon's reports are kept from Web Analytics, so these visits are not
+// counted. The one sent on load is answered here. The one sent as the page is
+// hidden goes through `sendBeacon`, which leaves the browser past any route,
+// and is dropped before it is sent. The site itself never calls it.
 await context.route(`${ORIGIN}/cdn-cgi/rum*`, (route) => route.fulfill({ status: 204 }));
+await context.addInitScript(() => {
+  Navigator.prototype.sendBeacon = () => true;
+});
 
 const PAGES = LANGUAGES.flatMap(({ path }) => [path, `${path}how/`, `${path}api/`]);
 for (const path of PAGES) {
