@@ -57,7 +57,7 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     key: 'NavGroupDaily',
     items: [
       { to: '/rules', key: 'Rules', hint: 'HintRules' },
-      { to: '/exceptions', key: 'Exceptions', hint: 'HintOverrides' },
+      { to: '/exceptions', key: 'Exceptions', hint: 'HintExceptions' },
       { to: '/rule-tests', key: 'RuleTests', hint: 'HintRuleTests' },
       { to: '/simulation', key: 'Simulation', hint: 'HintSimulation', badge: 'decisions' },
     ],
@@ -73,7 +73,7 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     key: 'NavGroupSupervision',
     items: [
       { to: '/tasks', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
-      { to: '/move-log', key: 'MoveLog', hint: 'HintLogs', badge: 'failed' },
+      { to: '/move-log', key: 'MoveLog', hint: 'HintMoveLog', badge: 'failed' },
       { to: '/security-log', key: 'SecurityLog', hint: 'HintSecurityLog' },
       { to: '/diagnostics', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
     ],

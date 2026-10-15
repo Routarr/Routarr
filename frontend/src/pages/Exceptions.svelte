@@ -136,7 +136,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{t('Exceptions')}</h1>
-      <p class="page-subtitle">{t('OverridesSubtitle')}</p>
+      <p class="page-subtitle">{t('ExceptionsSubtitle')}</p>
     </div>
     <div class="flex gap-2">
       <button class="btn btn-primary" onclick={openCreate}>
