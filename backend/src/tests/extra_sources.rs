@@ -468,7 +468,7 @@ async fn a_webhook_enrichment_asks_every_source_the_row_can_address() {
 /// routing them all until their next sync.
 #[tokio::test]
 async fn an_upgrade_forgets_the_ids_written_as_zero_and_what_they_shared() {
-    let pool = super::database_through("030_security_events").await;
+    let pool = super::database_of_0_1_5().await;
     sqlx::query(super::AN_INSTANCE).execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, tvdb_id)
@@ -500,53 +500,6 @@ async fn an_upgrade_forgets_the_ids_written_as_zero_and_what_they_shared() {
         .unwrap();
     assert_eq!(keys, ["tmdb:1396"]);
 }
-
-/// An upgrade forgets the films Jikan "found nothing" for, and nothing else. A
-/// database through migration 004 holds those answers as read from `year`,
-/// which Jikan leaves null for a film, so none of them is Jikan's.
-#[tokio::test]
-async fn an_upgrade_searches_jikan_again_for_the_films_it_misread() {
-    let pool = super::database_through("004_orphaned_proposals").await;
-    for (source, media_type, key, external) in [
-        ("jikan", "movie", "tmdb:8392", None),
-        ("jikan", "movie", "tmdb:149", Some("47")),
-        ("jikan", "series", "tvdb:76885", None),
-        ("anilist", "movie", "tmdb:8392", None),
-    ] {
-        sqlx::query(
-            "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
-             VALUES (?, ?, ?, ?)",
-        )
-        .bind(source)
-        .bind(media_type)
-        .bind(key)
-        .bind(external)
-        .execute(&pool)
-        .await
-        .unwrap();
-    }
-
-    crate::db::run_migrations(&pool).await.unwrap();
-
-    let left: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT source, media_type, local_key FROM source_identifiers
-         ORDER BY source, media_type, local_key",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
-    let left: Vec<(&str, &str, &str)> =
-        left.iter().map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str())).collect();
-    assert_eq!(
-        left,
-        [
-            ("anilist", "movie", "tmdb:8392"),
-            ("jikan", "movie", "tmdb:149"),
-            ("jikan", "series", "tvdb:76885"),
-        ]
-    );
-}
-
 /// A work is often listed after the library holds it: a film indexed before
 /// its release is not on AniList yet. A search that found nothing is asked
 /// again once it is old, not kept for good.
@@ -1209,35 +1162,35 @@ async fn a_finished_pass_counts_the_whole_pass() {
     assert_eq!(progress, (1, 1));
 }
 
-/// An upgrade keeps due the answers an earlier upgrade had asked again: their
-/// expiry goes, and with it the only mark that they were.
+/// An upgrade keeps due an answer whose expiry had passed: the expiry goes,
+/// and with it the only mark that it was.
 #[tokio::test]
-async fn an_upgrade_keeps_due_the_answers_asked_again() {
-    let pool = super::database_through("036_rating_country_changes").await;
+async fn an_upgrade_keeps_due_the_answers_whose_time_had_come() {
+    let pool = super::database_of_0_1_5().await;
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
-         VALUES ('omdb', 'tt1', 'movie', datetime('now')),
+         VALUES ('jikan', '1', 'series', datetime('now', '-1 day')),
                 ('tmdb', '3', 'movie', '2099-01-01 00:00:00')",
     )
     .execute(&pool)
     .await
     .unwrap();
 
-    crate::db::run_migrations_through(&pool, "037_cache_lifetime_at_read").await.unwrap();
+    crate::db::run_migrations(&pool).await.unwrap();
 
     let due: Vec<(String, bool)> =
         sqlx::query_as("SELECT source, stale FROM metadata_cache ORDER BY source")
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(due, [("omdb".to_string(), true), ("tmdb".to_string(), false)]);
+    assert_eq!(due, [("jikan".to_string(), true), ("tmdb".to_string(), false)]);
 }
 
 /// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read
 /// into every ISO language and country, and leaves the other sources' answers.
 #[tokio::test]
 async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
-    let pool = super::database_through("033_daily_quotas").await;
+    let pool = super::database_of_0_1_5().await;
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
          VALUES ('omdb', 'tt1', 'movie', '2099-01-01 00:00:00'),
@@ -1248,14 +1201,13 @@ async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
     .await
     .unwrap();
 
-    crate::db::run_migrations_through(&pool, "034_full_vocabularies").await.unwrap();
+    crate::db::run_migrations(&pool).await.unwrap();
 
-    let due: Vec<String> = sqlx::query_scalar(
-        "SELECT source FROM metadata_cache WHERE expires_at <= datetime('now') ORDER BY source",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let due: Vec<String> =
+        sqlx::query_scalar("SELECT source FROM metadata_cache WHERE stale ORDER BY source")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(due, ["omdb", "tvdb"]);
 }
 
@@ -1263,7 +1215,7 @@ async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
 /// answer is read, and drops the posters nothing reads.
 #[tokio::test]
 async fn an_upgrade_reads_cached_statuses_as_a_new_answer_would() {
-    let pool = super::database_through("034_full_vocabularies").await;
+    let pool = super::database_of_0_1_5().await;
     let statuses = [
         "Released",
         "Ended",
@@ -1286,6 +1238,7 @@ async fn an_upgrade_reads_cached_statuses_as_a_new_answer_would() {
         "CANCELLED",
         "Something else",
     ];
+    // From 1: the same upgrade drops the answers cached under an id of 0.
     for (index, raw) in statuses.iter().enumerate() {
         for kind in ["movie", "series"] {
             sqlx::query(
@@ -1293,7 +1246,7 @@ async fn an_upgrade_reads_cached_statuses_as_a_new_answer_would() {
                                              expires_at)
                  VALUES ('tmdb', ?, ?, ?, '/p.jpg', '2099-01-01 00:00:00')",
             )
-            .bind(index.to_string())
+            .bind((index + 1).to_string())
             .bind(kind)
             .bind(raw)
             .execute(&pool)
@@ -1302,14 +1255,14 @@ async fn an_upgrade_reads_cached_statuses_as_a_new_answer_would() {
         }
     }
 
-    crate::db::run_migrations_through(&pool, "035_status_words").await.unwrap();
+    crate::db::run_migrations(&pool).await.unwrap();
 
     for (index, raw) in statuses.iter().enumerate() {
         for kind in ["movie", "series"] {
             let stored: Option<String> = sqlx::query_scalar(
                 "SELECT status FROM metadata_cache WHERE external_id = ? AND media_type = ?",
             )
-            .bind(index.to_string())
+            .bind((index + 1).to_string())
             .bind(kind)
             .fetch_one(&pool)
             .await

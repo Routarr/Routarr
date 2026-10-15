@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "此封存不含資訊清單，因此不是 Routarr 備份。",
   "ErrorBackupManifestUnreadable": "無法讀取此封存的資訊清單。封存已損毀。",
   "ErrorBackupNotSealed": "此封存的名稱表示已加密，但實際上並未加密，因此不予還原。",
+  "ErrorBackupBefore015": "此備份來自早於 0.1.5 的 Routarr {version}。請先用 Routarr 0.1.5 還原，在那裡建立新的備份，再還原那個備份。",
   "ErrorBackupNewerSchema": "此備份來自較新版本的 Routarr（資料結構 {schema}）。請升級 Routarr，然後再還原。",
   "ErrorBackupCannotRestore": "無法還原此封存中的資料庫：{reason}",
   "ErrorBackupNoDatabase": "此封存不含資料庫。",

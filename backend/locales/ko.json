@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "이 아카이브에는 매니페스트가 없으므로 Routarr 백업이 아닙니다.",
   "ErrorBackupManifestUnreadable": "이 아카이브의 매니페스트를 읽을 수 없습니다. 아카이브가 손상되었습니다.",
   "ErrorBackupNotSealed": "이 아카이브는 이름상 암호화된 것으로 되어 있지만 실제로는 암호화되어 있지 않으므로 복원하지 않습니다.",
+  "ErrorBackupBefore015": "이 백업은 0.1.5보다 오래된 Routarr {version}에서 만들어졌습니다. 먼저 Routarr 0.1.5로 복원하고, 그곳에서 새 백업을 만든 후 그 백업을 복원하세요.",
   "ErrorBackupNewerSchema": "이 백업은 더 새로운 Routarr(스키마 {schema})에서 만들어졌습니다. Routarr를 업그레이드한 후 복원하세요.",
   "ErrorBackupCannotRestore": "이 아카이브의 데이터베이스를 복원할 수 없습니다: {reason}",
   "ErrorBackupNoDatabase": "이 아카이브에는 데이터베이스가 없습니다.",

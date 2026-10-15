@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "此存档不含清单，因此不是 Routarr 备份。",
   "ErrorBackupManifestUnreadable": "无法读取此存档的清单。存档已损坏。",
   "ErrorBackupNotSealed": "此存档的名称表明已加密，但实际未加密，因此不予恢复。",
+  "ErrorBackupBefore015": "此备份来自早于 0.1.5 的 Routarr {version}。请先用 Routarr 0.1.5 恢复它，在那里创建新的备份，再恢复那个备份。",
   "ErrorBackupNewerSchema": "此备份来自更新版本的 Routarr（数据结构 {schema}）。请升级 Routarr，然后再恢复。",
   "ErrorBackupCannotRestore": "无法恢复此存档中的数据库：{reason}",
   "ErrorBackupNoDatabase": "此存档不含数据库。",

@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "Questo archivio non contiene un manifesto, quindi non è un backup di Routarr.",
   "ErrorBackupManifestUnreadable": "Impossibile leggere il manifesto di questo archivio. L'archivio è danneggiato.",
   "ErrorBackupNotSealed": "Questo archivio è indicato come cifrato ma non lo è, quindi non viene ripristinato.",
+  "ErrorBackupBefore015": "Questo backup proviene da Routarr {version}, precedente alla 0.1.5. Ripristinalo prima con Routarr 0.1.5, fai lì un nuovo backup e ripristina quello.",
   "ErrorBackupNewerSchema": "Questo backup proviene da una versione più recente di Routarr (schema {schema}). Aggiorna Routarr, poi ripristinalo.",
   "ErrorBackupCannotRestore": "Il database di questo archivio non può essere ripristinato: {reason}",
   "ErrorBackupNoDatabase": "Questo archivio non contiene alcun database.",

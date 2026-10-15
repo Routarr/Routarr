@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "To archiwum nie zawiera manifestu, więc nie jest kopią zapasową Routarra.",
   "ErrorBackupManifestUnreadable": "Nie można odczytać manifestu tego archiwum. Archiwum jest uszkodzone.",
   "ErrorBackupNotSealed": "Nazwa tego archiwum wskazuje, że jest zaszyfrowane, ale nie jest, więc nie zostanie przywrócone.",
+  "ErrorBackupBefore015": "Ta kopia zapasowa pochodzi z Routarra {version}, starszego niż 0.1.5. Najpierw przywróć ją w Routarrze 0.1.5, utwórz tam nową kopię i przywróć ją.",
   "ErrorBackupNewerSchema": "Ta kopia zapasowa pochodzi z nowszej wersji Routarra (schemat {schema}). Zaktualizuj Routarr, a następnie ją przywróć.",
   "ErrorBackupCannotRestore": "Nie można przywrócić bazy danych z tego archiwum: {reason}",
   "ErrorBackupNoDatabase": "To archiwum nie zawiera bazy danych.",

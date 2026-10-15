@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "Tässä arkistossa ei ole sisällysluetteloa, joten se ei ole Routarrin varmuuskopio.",
   "ErrorBackupManifestUnreadable": "Tämän arkiston sisällysluetteloa ei voi lukea. Arkisto on vioittunut.",
   "ErrorBackupNotSealed": "Tämän arkiston nimi kertoo sen olevan salattu, mutta se ei ole, joten sitä ei palauteta.",
+  "ErrorBackupBefore015": "Tämä varmuuskopio on peräisin Routarrista {version}, joka on vanhempi kuin 0.1.5. Palauta se ensin Routarrilla 0.1.5, ota siellä uusi varmuuskopio ja palauta se.",
   "ErrorBackupNewerSchema": "Tämä varmuuskopio on peräisin uudemmasta Routarrista (skeema {schema}). Päivitä Routarr ja palauta varmuuskopio sitten.",
   "ErrorBackupCannotRestore": "Tämän arkiston tietokantaa ei voi palauttaa: {reason}",
   "ErrorBackupNoDatabase": "Tässä arkistossa ei ole tietokantaa.",

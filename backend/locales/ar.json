@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "لا يحتوي هذا الأرشيف على بيان محتويات، لذا فهو ليس نسخة احتياطية من Routarr.",
   "ErrorBackupManifestUnreadable": "لا يمكن قراءة بيان محتويات هذا الأرشيف. الأرشيف تالف.",
   "ErrorBackupNotSealed": "يدل اسم هذا الأرشيف على أنه مشفَّر، لكنه غير مشفَّر، لذا لن تُجرى استعادته.",
+  "ErrorBackupBefore015": "هذه النسخة الاحتياطية مصدرها Routarr {version}، وهو أقدم من 0.1.5. استعدها أولًا باستخدام Routarr 0.1.5، ثم أنشئ هناك نسخة احتياطية جديدة واستعد تلك النسخة.",
   "ErrorBackupNewerSchema": "هذه النسخة الاحتياطية مصدرها إصدار أحدث من Routarr (المخطط {schema}). حدِّث Routarr، ثم استعدها.",
   "ErrorBackupCannotRestore": "لا يمكن استعادة قاعدة البيانات في هذا الأرشيف: {reason}",
   "ErrorBackupNoDatabase": "لا يحتوي هذا الأرشيف على قاعدة بيانات.",

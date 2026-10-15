@@ -1379,6 +1379,7 @@
   "ErrorBackupNoManifest": "Dieses Archiv enthält kein Manifest und ist daher keine Routarr-Sicherung.",
   "ErrorBackupManifestUnreadable": "Das Manifest dieses Archivs kann nicht gelesen werden. Das Archiv ist beschädigt.",
   "ErrorBackupNotSealed": "Dieses Archiv ist als verschlüsselt benannt, ist es aber nicht, und wird daher nicht wiederhergestellt.",
+  "ErrorBackupBefore015": "Diese Sicherung stammt aus Routarr {version}, älter als 0.1.5. Stellen Sie sie zuerst mit Routarr 0.1.5 wieder her, erstellen Sie dort eine neue Sicherung und stellen Sie diese wieder her.",
   "ErrorBackupNewerSchema": "Diese Sicherung stammt aus einer neueren Routarr-Version (Schema {schema}). Aktualisieren Sie Routarr und stellen Sie die Sicherung dann wieder her.",
   "ErrorBackupCannotRestore": "Die Datenbank in diesem Archiv kann nicht wiederhergestellt werden: {reason}",
   "ErrorBackupNoDatabase": "Dieses Archiv enthält keine Datenbank.",
