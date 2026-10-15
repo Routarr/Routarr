@@ -62,9 +62,9 @@ Each of these questions has one function. Call it, never spell the question agai
 
 ## Data and SQL
 
-- `backend/migrations/001_initial_schema.sql` is part of v0.1.0. Change the schema in a new
-  file listed in `MIGRATIONS` (`backend/src/db.rs`): `_migrations` records names, so an edit to
-  a shipped file never reaches an existing database.
+- Each migration file is what one release added. Change the schema in a new file listed in
+  `MIGRATIONS` (`backend/src/db.rs`), never a shipped one: `_migrations` records names. Before a
+  tag the release's files fold into one, so an upgrade test starts at `tests::database_of_0_1_5`.
 - A migration may rebuild a table to change a CHECK or a type: `apply_migrations` runs it with
   foreign keys off and refuses a commit `foreign_key_check` faults. Recreate its indexes there.
 - Timestamps are TEXT in `%Y-%m-%d %H:%M:%S` UTC, the shape `datetime('now')` writes, so both

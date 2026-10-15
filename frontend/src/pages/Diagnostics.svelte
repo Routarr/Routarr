@@ -74,7 +74,7 @@
         <Stat label={t('ActiveRules')} value={health.stats.enabled_rules} />
         <Stat label={t('PendingDecisions')} value={health.stats.pending_decisions} tone="warning" />
         <Stat label={t('FailedDecisions')} value={health.stats.failed_decisions} tone="danger" />
-        <Stat label={t('Overrides')} value={health.stats.total_overrides} />
+        <Stat label={t('Exceptions')} value={health.stats.total_overrides} />
         <Stat label={t('RunningJobs')} value={health.stats.running_jobs} />
       </div>
 

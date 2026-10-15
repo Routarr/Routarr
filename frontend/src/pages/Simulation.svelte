@@ -359,7 +359,7 @@
       <WarningBanner
         message={t('SkippedUnmappedWarning', {
           count: result.skipped_unmapped,
-          screen: t('RootFolders'),
+          screen: t('CategoriesAndFolders'),
         })}
       />
     {/if}

@@ -491,7 +491,7 @@ async fn every_route_that_moves_refuses_files_to_a_key_not_allowed_them() {
 }
 
 /// A key's moves are logged under its name, its apply and its revert both:
-/// the Logs screen tells them from the owner's.
+/// the Move log screen tells them from the owner's.
 #[tokio::test]
 async fn a_keys_apply_and_revert_are_logged_under_its_name() {
     let arr = FakeArr::start().await;

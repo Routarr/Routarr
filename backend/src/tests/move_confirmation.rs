@@ -249,7 +249,7 @@ async fn a_move_answered_after_the_timeout_is_recorded_from_what_the_arr_holds()
 /// lets a decision be `requested`.
 #[tokio::test]
 async fn an_upgrade_keeps_every_decision_and_its_log() {
-    let pool = super::database_through("015_certification_scale").await;
+    let pool = super::database_of_0_1_5().await;
     for statement in [
         "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
                                 target_category, action, status)

@@ -101,7 +101,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('AuditHistory')}</h1>
+      <h1 class="page-title">{t('History')}</h1>
       <p class="page-subtitle">{t('HistorySubtitle')}</p>
     </div>
   </div>
@@ -163,9 +163,9 @@
   </div>
 
   <div class="card">
-    <TableRegion label={t('AuditHistory')} id="history-table">
+    <TableRegion label={t('History')} id="history-table">
       <table>
-        <caption class="visually-hidden">{t('AuditHistory')}</caption>
+        <caption class="visually-hidden">{t('History')}</caption>
         <thead>
           <tr>
             <th>{t('When')}</th>

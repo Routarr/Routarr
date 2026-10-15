@@ -365,10 +365,10 @@ test('each screen names itself in the tab and takes the focus it was reached wit
   await openScreen(page, '/');
   await page
     .getByRole('navigation', { name: strings.MainNavigation })
-    .getByRole('link', { name: new RegExp(`^${strings.Logs}`) })
+    .getByRole('link', { name: new RegExp(`^${strings.MoveLog}`) })
     .click();
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
-  await expect(page).toHaveTitle(`${strings.Logs} · Routarr`);
+  await expect(page).toHaveTitle(`${strings.MoveLog} · Routarr`);
 });
 
 /**
@@ -643,7 +643,7 @@ const MODALS: {
   },
   {
     path: '/exceptions',
-    covers: 'pages/Overrides.svelte',
+    covers: 'pages/Exceptions.svelte',
     open: (p) => p.getByRole('button', { name: 'New exception' }).click(),
   },
   {
@@ -653,12 +653,12 @@ const MODALS: {
   },
   {
     path: '/categories',
-    covers: 'pages/RootFolders.svelte',
+    covers: 'pages/Categories.svelte',
     open: (p) => p.getByRole('button', { name: 'New category' }).click(),
   },
   {
     path: '/categories',
-    covers: 'pages/RootFolders.svelte',
+    covers: 'pages/Categories.svelte',
     open: (p) =>
       p
         .getByRole('button', { name: /^Rename category – / })

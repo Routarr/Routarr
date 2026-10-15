@@ -425,17 +425,27 @@ async fn a_restore_brings_back_no_key_or_secret_withdrawn_since() {
     }
 }
 
-/// A restore writes the record of withdrawals into an archive taken before
-/// that table existed, and the next start's migration still applies to it.
+/// A restore writes the record of withdrawals into an archive 0.1.5 took,
+/// before that table existed, and the next start's migration still applies.
 #[tokio::test]
 async fn an_archive_given_the_withdrawals_ahead_of_its_migration_still_upgrades() {
-    let pool = super::database_through("037_cache_lifetime_at_read").await;
-    sqlx::raw_sql(include_str!("../../migrations/038_withdrawn_credentials.sql"))
+    let pool = super::database_of_0_1_5().await;
+    sqlx::raw_sql(crate::services::backup::WITHDRAWN_CREDENTIALS_TABLE)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO withdrawn_credentials (name) VALUES ('signing_secret')")
         .execute(&pool)
         .await
         .unwrap();
 
     crate::db::run_migrations(&pool).await.unwrap();
+
+    let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM withdrawn_credentials")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, 1, "the migration replaced the record the restore wrote");
 }
 
 /// The master API key and the account's password are today's too: one
@@ -1469,7 +1479,8 @@ async fn a_start_that_migrates_takes_a_backup_first() {
         sqlx::sqlite::SqliteConnectOptions::new().filename(&config.db_path).create_if_missing(true),
     );
     let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
-    crate::db::run_migrations_through(&pool, "023_constraints_the_code_keeps").await.unwrap();
+    crate::db::run_migrations_through(&pool, "001_release_0_1_5").await.unwrap();
+    super::left_by_0_1_5(&pool).await;
     pool.close().await;
 
     crate::db::init_pool(&config).await.unwrap().close().await;
@@ -1479,25 +1490,15 @@ async fn a_start_that_migrates_takes_a_backup_first() {
     let manifest =
         backup::read_manifest(&upgraded.join("backups").join(&taken[0]), &Localizer::new("en"))
             .unwrap();
-    assert_eq!(manifest.schema, "023_constraints_the_code_keeps");
+    assert_eq!(manifest.schema, "013_opened_by", "the archive is not of the schema 0.1.5 left");
 }
 
-/// An archive from before the signing secrets were stored keeps today's: their
-/// table is made in the staged database, as its migration makes it, or every
-/// notification would go out unsigned after the restore.
+/// An archive a release older than 0.1.5 took is refused, naming 0.1.5: its
+/// database holds a schema no migration of this release starts from, and the
+/// next start would refuse it once restored. Nothing is staged.
 #[tokio::test]
-async fn a_restore_from_before_the_signing_secrets_keeps_todays() {
-    let (app, dir) = app_with_files("secrets-table").await;
-    app.execute(&["INSERT INTO webhook_secrets (secret, created_at)
-                   VALUES ('enc:today', '2026-10-01 00:00:00')"])
-        .await;
-    let old = dir.join("old.db");
-    let options = crate::db::with_paths(
-        sqlx::sqlite::SqliteConnectOptions::new().filename(&old).create_if_missing(true),
-    );
-    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
-    crate::db::run_migrations_through(&pool, "010_job_result").await.unwrap();
-    pool.close().await;
+async fn an_archive_from_before_0_1_5_is_refused_naming_the_release_to_go_through() {
+    let (app, dir) = app_with_files("before-0-1-5").await;
     let name = "routarr-backup-20200101-000000.zip";
     std::fs::create_dir_all(dir.join("backups")).unwrap();
     {
@@ -1511,18 +1512,16 @@ async fn a_restore_from_before_the_signing_secrets_keeps_todays() {
         });
         std::io::Write::write_all(&mut zip, manifest.to_string().as_bytes()).unwrap();
         zip.start_file("routarr.db", options).unwrap();
-        std::io::Write::write_all(&mut zip, &std::fs::read(&old).unwrap()).unwrap();
+        std::io::Write::write_all(&mut zip, b"never read").unwrap();
         zip.finish().unwrap();
     }
 
-    backup::stage_restore(&app.state, name, None).await.unwrap();
-
-    let mut staged = open_file(&dir.join("routarr.db.restore-pending")).await;
-    let secrets: Vec<String> = sqlx::query_scalar("SELECT secret FROM webhook_secrets")
-        .fetch_all(&mut staged)
+    let refused = backup::stage_restore(&app.state, name, None)
         .await
-        .expect("the staged database has no signing secrets table");
-    assert_eq!(secrets, ["enc:today"]);
+        .expect_err("an archive 0.1.2 took was staged");
+
+    assert!(refused.to_string().contains("0.1.5"), "{refused}");
+    assert!(!dir.join("routarr.db.restore-pending").exists(), "something was staged");
 }
 
 /// No archive for twice the interval says so: the schedule stopped, or its

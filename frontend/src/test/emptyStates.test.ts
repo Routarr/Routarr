@@ -4,15 +4,15 @@ import type { Component } from 'svelte';
 
 import { ENGLISH, renderWithI18n } from './render';
 import Applications from '../pages/Applications.svelte';
+import Categories from '../pages/Categories.svelte';
+import Exceptions from '../pages/Exceptions.svelte';
 import History from '../pages/History.svelte';
 import Instances from '../pages/Instances.svelte';
-import Jobs from '../pages/Jobs.svelte';
-import Logs from '../pages/Logs.svelte';
-import MediaExplorer from '../pages/MediaExplorer.svelte';
-import Overrides from '../pages/Overrides.svelte';
-import RootFolders from '../pages/RootFolders.svelte';
+import Library from '../pages/Library.svelte';
+import MoveLog from '../pages/MoveLog.svelte';
 import RuleTests from '../pages/RuleTests.svelte';
 import Rules from '../pages/Rules.svelte';
+import Tasks from '../pages/Tasks.svelte';
 
 /**
  * A list that failed to load is not an empty list: under the error, its empty state would send
@@ -20,15 +20,15 @@ import Rules from '../pages/Rules.svelte';
  */
 const SCREENS: [string, Component, string][] = [
   ['Applications', Applications as Component, 'NoApplications'],
+  ['Categories', Categories as Component, 'NoRootFolderDiscovered'],
+  ['Exceptions', Exceptions as Component, 'NoOverrides'],
   ['History', History as Component, 'NoDecisionRecorded'],
   ['Instances', Instances as Component, 'NoInstanceConfigured'],
-  ['Jobs', Jobs as Component, 'NoTaskYet'],
-  ['Logs', Logs as Component, 'NoWritesYet'],
-  ['MediaExplorer', MediaExplorer as Component, 'NoMediaMatches'],
-  ['Overrides', Overrides as Component, 'NoOverrides'],
-  ['RootFolders', RootFolders as Component, 'NoRootFolderDiscovered'],
+  ['Library', Library as Component, 'NoMediaMatches'],
+  ['MoveLog', MoveLog as Component, 'NoWritesYet'],
   ['RuleTests', RuleTests as Component, 'NoRuleTests'],
   ['Rules', Rules as Component, 'NoRulesYet'],
+  ['Tasks', Tasks as Component, 'NoTaskYet'],
 ];
 
 afterEach(() => vi.unstubAllGlobals());

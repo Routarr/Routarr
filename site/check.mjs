@@ -306,7 +306,7 @@ const TERMS = [
   ['features.h3', 'Instances', 'within'],
   ['safety.b.2', 'SettingBatchLimit'],
   ['safety.b.3', 'SettingConfirmationThreshold'],
-  ['features.k.3', 'Overrides'],
+  ['features.k.3', 'Exceptions'],
   ['api.step.1', 'Applications', 'within'],
   ['api.step.1', 'ScopeOperate', 'within'],
   ['api.step.1', 'ScopeWrite', 'within'],

@@ -10,7 +10,7 @@ use crate::services::maintenance;
 use sqlx::AssertSqlSafe;
 
 use super::fake_arr::FakeArr;
-use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
+use super::{TestApp, warning_messages};
 
 async fn set_order(app: &TestApp, order: &str) {
     app.store_setting("metadata_providers", order).await;
@@ -635,45 +635,4 @@ async fn no_key_in_the_environment_leaves_the_order_unchosen() {
 
     assert!(!maintenance::converge_metadata_sources(&app.state).await.unwrap());
     assert_eq!(stored_order(&app).await, None);
-}
-
-/// The source list a first-release database holds once a start upgraded it,
-/// after `seed` prepared it. The initial schema seeds `arr,tmdb`.
-async fn upgraded(seed: &[&'static str]) -> Option<String> {
-    let pool = database_through("001_initial_schema").await;
-    for statement in seed {
-        sqlx::query(*statement).execute(&pool).await.unwrap();
-    }
-
-    crate::db::run_migrations(&pool).await.unwrap();
-
-    sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
-        .fetch_optional(&pool)
-        .await
-        .unwrap()
-}
-
-#[tokio::test]
-async fn a_database_that_routes_nothing_yet_drops_the_seeded_tmdb() {
-    assert_eq!(upgraded(&[]).await, None);
-}
-
-/// Its rules may rely on what only TMDB answers.
-#[tokio::test]
-async fn an_installation_with_an_instance_keeps_tmdb_across_the_upgrade() {
-    assert_eq!(upgraded(&[AN_INSTANCE]).await.as_deref(), Some("arr,tmdb"));
-}
-
-#[tokio::test]
-async fn a_tmdb_key_stored_in_the_interface_keeps_tmdb_across_the_upgrade() {
-    let key = "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', 'sealed')";
-
-    assert_eq!(upgraded(&[key]).await.as_deref(), Some("arr,tmdb"));
-}
-
-#[tokio::test]
-async fn a_source_list_someone_chose_comes_through_the_upgrade_unchanged() {
-    let chosen = "UPDATE settings SET value = 'arr,anilist' WHERE key = 'metadata_providers'";
-
-    assert_eq!(upgraded(&[chosen]).await.as_deref(), Some("arr,anilist"));
 }

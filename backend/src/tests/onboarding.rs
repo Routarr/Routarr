@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use serde_json::json;
 
-use super::{AN_INSTANCE, TestApp, database_through};
+use super::TestApp;
 use crate::jobs::JobKind;
 use crate::localization::Localizer;
 use crate::state::AppState;
@@ -199,20 +199,6 @@ async fn an_unknown_guide_state_is_refused_on_both_routes() {
 
     assert_eq!(app.get("/api/v1/onboarding").await.assert_ok()["state"], "pending");
 }
-
-/// A test database starts empty, so an upgrade is the one path on which the
-/// guide's migration meets an installation already set up.
-#[tokio::test]
-async fn an_installation_set_up_before_the_guide_starts_with_it_done() {
-    let pool = database_through("001_initial_schema").await;
-    sqlx::query(AN_INSTANCE).execute(&pool).await.unwrap();
-
-    crate::db::run_migrations(&pool).await.unwrap();
-
-    let app = TestApp::around(AppState::for_tests_on(pool));
-    assert_eq!(app.get("/api/v1/onboarding").await.assert_ok()["state"], "done");
-}
-
 /// The scheduler's pass after the next sync supersedes the proposals of a
 /// manual run, and the hourly purge deletes them. The run itself happened.
 #[tokio::test]

@@ -67,7 +67,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('MediaExplorer')}</h1>
+      <h1 class="page-title">{t('Library')}</h1>
       <p class="page-subtitle">{t('MediaExplorerSubtitle')}</p>
     </div>
   </div>
@@ -129,9 +129,9 @@
   </div>
 
   <div class="card">
-    <TableRegion label={t('MediaExplorer')}>
+    <TableRegion label={t('Library')}>
       <table>
-        <caption class="visually-hidden">{t('MediaExplorer')}</caption>
+        <caption class="visually-hidden">{t('Library')}</caption>
         <thead>
           <tr>
             <th>{t('Title')}</th>

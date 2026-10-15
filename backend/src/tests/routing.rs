@@ -774,7 +774,7 @@ async fn two_destinations_on_one_volume_are_forecast_together() {
 /// showed before: its latest standing decision.
 #[tokio::test]
 async fn an_upgrade_shows_each_title_its_latest_standing_decision() {
-    let pool = crate::tests::database_through("019_instance_reads").await;
+    let pool = crate::tests::database_of_0_1_5().await;
     for statement in [
         crate::tests::AN_INSTANCE,
         "INSERT INTO media (id, instance_id, arr_id, media_type, title)
@@ -807,7 +807,7 @@ async fn an_upgrade_shows_each_title_its_latest_standing_decision() {
 /// now: an upgrade turns it into 1, which means the same, wherever it stands.
 #[tokio::test]
 async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
-    let pool = crate::tests::database_through("020_media_routing").await;
+    let pool = crate::tests::database_of_0_1_5().await;
     sqlx::query(
         r#"INSERT INTO rules (id, name, priority, media_type, conditions, exclusions,
                               target_category)
@@ -843,7 +843,7 @@ async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
 /// has, as the Arr wrote it in its own.
 #[tokio::test]
 async fn an_upgrade_gives_each_added_date_the_stored_shape() {
-    let pool = crate::tests::database_through("024_opened_by_schema").await;
+    let pool = crate::tests::database_of_0_1_5().await;
     for statement in [
         crate::tests::AN_INSTANCE,
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, added_at)
@@ -867,7 +867,7 @@ async fn an_upgrade_gives_each_added_date_the_stored_shape() {
 /// it, so a bundle naming one names one.
 #[tokio::test]
 async fn an_upgrade_tells_apart_instances_sharing_a_name() {
-    let pool = crate::tests::database_through("025_added_dates_stored_shape").await;
+    let pool = crate::tests::database_of_0_1_5().await;
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, created_at)
          VALUES ('i-1', 'Radarr', 'radarr', 'http://a', 'k', '2026-01-01 00:00:00'),
@@ -899,7 +899,7 @@ async fn an_upgrade_tells_apart_instances_sharing_a_name() {
 /// twice cannot say which key wrote a row, and the row names no key.
 #[tokio::test]
 async fn an_upgrade_gives_each_key_what_it_alone_could_have_written() {
-    let pool = crate::tests::database_through("028_secret_salt").await;
+    let pool = crate::tests::database_of_0_1_5().await;
     sqlx::query(
         "INSERT INTO api_keys (id, name, secret_hash, scopes, may_confirm, revoked_at)
          VALUES ('k-dash', 'dashboard', 'h1', '[]', '[]', NULL),

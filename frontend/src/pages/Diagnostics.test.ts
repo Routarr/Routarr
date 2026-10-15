@@ -6,14 +6,14 @@ import { health, healthInstance, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
 import { statusRevision } from '../lib/status.svelte';
-import HealthPage from './Health.svelte';
+import Diagnostics from './Diagnostics.svelte';
 
 /**
  * Diagnostics is where a homelab operator finds out why nothing is moving. It
  * has one job: report what is wrong without inventing a verdict of its own.
  */
 
-const show = () => renderWithI18n(HealthPage);
+const show = () => renderWithI18n(Diagnostics);
 
 const withProviders = (list: Health['metadata']['providers']) =>
   health({ metadata: { providers: list, cached_items: 0, media_missing_metadata: 0 } });

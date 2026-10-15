@@ -4,7 +4,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
 use super::fake_arr::FakeArr;
-use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
+use super::{TestApp, warning_messages};
 use tower::ServiceExt;
 
 // ------------------------------------------------------------ authentication
@@ -1572,7 +1572,7 @@ async fn the_exceptions_are_listed_a_page_at_a_time() {
     assert_eq!(seen, ["o-3", "o-2", "o-1"]);
 }
 
-/// The list the Overrides screen renders, read as the screen reads it: with
+/// The list the Exceptions screen renders, read as the screen reads it: with
 /// the key, under a mode that demands one. Each entry carries the item's title
 /// and the instance it lives on, which the list joins in.
 #[tokio::test]
@@ -1679,40 +1679,6 @@ async fn a_failed_move_stops_counting_once_the_title_is_settled() {
     .await;
     assert_eq!(failed().await, 0, "a later run left the failure counting");
 }
-
-/// An upgrade drops the column and keeps every override.
-#[tokio::test]
-async fn an_upgrade_drops_the_override_lock_and_keeps_the_override() {
-    let pool = database_through("005_jikan_film_misses").await;
-    sqlx::query(AN_INSTANCE).execute(&pool).await.unwrap();
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title) VALUES ('m-1', 'inst-1', 1, 'movie', 'Akira')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category, locked) VALUES ('o-1', 'm-1', 'anime', 1)",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    crate::db::run_migrations(&pool).await.unwrap();
-
-    let columns: Vec<String> =
-        sqlx::query_scalar("SELECT name FROM pragma_table_info('overrides')")
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-    assert!(!columns.contains(&"locked".to_string()), "{columns:?}");
-    let kept: String = sqlx::query_scalar("SELECT target_category FROM overrides WHERE id = 'o-1'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(kept, "anime");
-}
-
 #[tokio::test]
 async fn an_override_returns_the_stored_id_on_upsert() {
     let app = TestApp::new().await;
@@ -1971,43 +1937,6 @@ async fn deleting_an_instance_retires_its_proposals_and_keeps_its_history() {
     let applied = app.get("/api/v1/decisions?status=applied").await.assert_ok().clone();
     assert_eq!(applied["pagination"]["total"], 1, "the history is kept: {applied}");
 }
-
-/// An upgrade retires the pending proposals of an instance already deleted,
-/// which a database through migration 003 can hold, and leaves alone the
-/// proposals of an instance that exists and whatever was applied.
-#[tokio::test]
-async fn an_upgrade_retires_the_proposals_of_an_instance_already_deleted() {
-    let pool = database_through("003_metadata_sources").await;
-    sqlx::query(AN_INSTANCE).execute(&pool).await.unwrap();
-    for (id, instance, status) in [
-        ("d-applied", "inst-gone", "applied"),
-        ("d-kept", "inst-1", "pending"),
-        ("d-orphan", "inst-gone", "pending"),
-    ] {
-        sqlx::query(
-            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-             target_category, action, status)
-             VALUES (?, 'm-1', 'My Neighbor Totoro', 'movie', ?, 'anime', 'move', ?)",
-        )
-        .bind(id)
-        .bind(instance)
-        .bind(status)
-        .execute(&pool)
-        .await
-        .unwrap();
-    }
-
-    crate::db::run_migrations(&pool).await.unwrap();
-
-    let retired: Vec<(String, bool)> =
-        sqlx::query_as("SELECT id, superseded FROM decisions ORDER BY id")
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-    let expected = [("d-applied", false), ("d-kept", false), ("d-orphan", true)];
-    assert_eq!(retired, expected.map(|(id, flag)| (id.to_string(), flag)));
-}
-
 // ------------------------------------------------------------ media
 
 #[tokio::test]
@@ -2523,7 +2452,7 @@ async fn an_unknown_job_is_a_404() {
     app.get("/api/v1/jobs/nope").await.assert_status(StatusCode::NOT_FOUND);
 }
 
-/// The list is what the Logs screen reads: a filter spelled wrong in
+/// The list is what the Move log screen reads: a filter spelled wrong in
 /// `build_filters` would show every row, or none, on the one screen an operator
 /// opens because something failed.
 #[tokio::test]
