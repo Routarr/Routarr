@@ -197,6 +197,7 @@ left at its defaults would let every account of its directory in. In `external` 
 the proxy alone: the proxy is what signs people in. In `forms` mode, a lost password is reset with
 `docker exec routarr /app/routarr reset-account`, which prints a new one and signs everyone out.
 Add `--revoke-keys` to revoke every application key and replace the API key as well.
+`docker exec routarr /app/routarr --help` lists every command.
 
 In `none` mode Routarr answers to its addresses and `localhost`. Reached by a name, such as
 `nas.lan`, list it in `ROUTARR_ALLOWED_HOSTS`: a page of another site can make its own name point at

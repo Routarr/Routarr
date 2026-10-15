@@ -36,9 +36,9 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
 /**
  * `api`, for a pass the scheduler may be running already: sent again once that
  * one has ended. The scheduler syncs a new instance at its next pass and
- * simulates after it, and a second sync of one instance, or a second
- * simulation, answers 409 until the first one ends. Waiting is a readiness
- * step here, never a claim about the refusal.
+ * simulates after it, and a second sync of one instance, a second simulation,
+ * or the removal of an instance being synced, answers 409 until the first one
+ * ends. Waiting is a readiness step here, never a claim about the refusal.
  */
 async function apiWhenFree(path: string, init: RequestInit): Promise<unknown> {
   const deadline = Date.now() + 20_000;
@@ -66,7 +66,7 @@ async function resetLibrary(): Promise<string> {
 
   const instances = (await api('/instances')) as { id: string }[];
   for (const instance of instances) {
-    await api(`/instances/${instance.id}`, { method: 'DELETE' });
+    await apiWhenFree(`/instances/${instance.id}`, { method: 'DELETE' });
   }
   const rules = (await api('/rules')) as { id: string }[];
   for (const rule of rules) {

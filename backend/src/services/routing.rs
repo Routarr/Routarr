@@ -138,7 +138,7 @@ fn load_order() -> i64 {
     static LAST: AtomicI64 = AtomicI64::new(0);
     let now = Utc::now().timestamp_micros();
     let next = |last: i64| now.max(last + 1);
-    match LAST.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
+    match LAST.try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
         Ok(last) | Err(last) => next(last),
     }
 }
