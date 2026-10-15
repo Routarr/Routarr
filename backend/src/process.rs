@@ -33,21 +33,37 @@ pub async fn main() -> std::process::ExitCode {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let invocation = commands::invocation(&args)?;
+    // Before the configuration is read: neither needs it, and neither may
+    // fail on it.
+    match invocation {
+        commands::Invocation::Help => {
+            println!("{}", commands::USAGE);
+            return Ok(());
+        }
+        commands::Invocation::Version => {
+            println!("routarr {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        _ => {}
+    }
+
     dotenvy::dotenv().ok();
 
     let config = Config::from_env()?;
-    match std::env::args().nth(1).as_deref() {
-        Some("healthcheck") => return commands::healthcheck(&config).await,
-        Some("reset-account") => {
-            let revoke_keys = std::env::args().skip(2).any(|arg| arg == "--revoke-keys");
+    match invocation {
+        commands::Invocation::Healthcheck => return commands::healthcheck(&config).await,
+        commands::Invocation::ResetAccount { revoke_keys } => {
             return commands::reset_account(&config, revoke_keys).await;
         }
-        Some("restore") => return commands::restore(&config, std::env::args().nth(2)).await,
-        Some("decrypt-backup") => {
-            let mut args = std::env::args().skip(2);
-            return commands::decrypt_backup(&config, args.next(), args.next()).await;
+        commands::Invocation::Restore(archive) => return commands::restore(&config, archive).await,
+        commands::Invocation::DecryptBackup(archive, out) => {
+            return commands::decrypt_backup(&config, archive, out).await;
         }
-        _ => {}
+        commands::Invocation::Serve
+        | commands::Invocation::Help
+        | commands::Invocation::Version => {}
     }
     // Before anything binds a port: a value the server cannot honour should
     // stop it with a sentence naming the variable, not with a panic from a
