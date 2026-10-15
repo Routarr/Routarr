@@ -30,7 +30,10 @@ holds at another version than its Dockerfile pins, which a rebuild settles.
 The container runs as root. Under rootless Podman, root inside it is your own
 user on the host, so what it writes into the checkout is yours. Under a Docker
 daemon running as root, those files belong to root on the host, and
-`sudo chown -R "$USER" .` in the checkout gives them back.
+`sudo chown -R "$USER" .` in the checkout gives them back. Under Podman, set
+`BUILDAH_FORMAT=docker` where VS Code runs it: Podman builds in the OCI format
+by default, which drops the Dockerfile's `SHELL` line, so every `RUN` would go
+through `sh` without `pipefail` and say so in a warning.
 
 It also ships RTK, a proxy that compresses the output of the commands Claude
 Code runs. Its hook goes into your Claude Code setup only when `ROUTARR_RTK=1`
