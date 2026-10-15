@@ -186,14 +186,29 @@ img { max-width: 100%; height: auto; }
 .brand:hover { opacity: 1; }
 .brand svg { width: 22px; height: 22px; flex: none; }
 
+/* The version is the one thing on the bar a reader does not act on, so it
+   gives way when the row runs short, as a pre-release or a two-digit part
+   can make it. It wraps past the empty `::before`, a line high, onto a second
+   line the box's height hides, rather than push a control onto a second row
+   or show half a number. Its basis is 0 because the bar breaks its row on the
+   items' bases before any of them shrinks, and it grows back to the version's
+   width where there is room. */
 .version {
   font-family: var(--mono);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  flex: none;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: max-content;
+  display: flex;
+  flex-wrap: wrap;
+  line-height: 1.5;
+  height: 1.5em;
+  overflow: hidden;
 }
+.version::before { content: ''; height: 100%; }
 
 /* The language offer. Hidden until site.js has something to say, so a reader
    without JavaScript sees no empty strip. Sits above the fold and below the
@@ -421,11 +436,6 @@ img { max-width: 100%; height: auto; }
 @media (max-width: 559px) {
   .index > summary { width: 38px; padding: 0; justify-content: center; }
   .index-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
-/* At 320px, the narrowest width WCAG reflow names, the version is the one
-   thing on the bar a reader does not act on. */
-@media (max-width: 359px) {
-  .version { display: none; }
 }
 /* Below 740px the bar may wrap rather than push the repository link off the
    page: the Index control's label is longer in French and German.
