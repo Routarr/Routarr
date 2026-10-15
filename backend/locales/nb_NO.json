@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Dette arkivet inneholder ikke noe manifest, så det er ikke en sikkerhetskopi fra Routarr.",
   "ErrorBackupManifestUnreadable": "Manifestet i dette arkivet kan ikke leses. Arkivet er skadet.",
   "ErrorBackupNotSealed": "Dette arkivet er navngitt som kryptert, men er det ikke, så det blir ikke gjenopprettet.",
+  "ErrorBackupBefore015": "Denne sikkerhetskopien kommer fra Routarr {version}, som er eldre enn 0.1.5. Gjenopprett den først med Routarr 0.1.5, ta en ny sikkerhetskopi der, og gjenopprett den.",
   "ErrorBackupNewerSchema": "Denne sikkerhetskopien kommer fra en nyere Routarr (skjema {schema}). Oppgrader Routarr, og gjenopprett den deretter.",
   "ErrorBackupCannotRestore": "Databasen i dette arkivet kan ikke gjenopprettes: {reason}",
   "ErrorBackupNoDatabase": "Dette arkivet inneholder ingen database.",

@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Cette archive ne contient aucun manifeste : ce n'est donc pas une sauvegarde Routarr.",
   "ErrorBackupManifestUnreadable": "Le manifeste de cette archive est illisible. L'archive est endommagée.",
   "ErrorBackupNotSealed": "Cette archive porte le nom d'une archive chiffrée mais ne l'est pas : elle n'est donc pas restaurée.",
+  "ErrorBackupBefore015": "Cette sauvegarde provient de Routarr {version}, antérieur à la 0.1.5. Restaurez-la d'abord avec Routarr 0.1.5, prenez-y une nouvelle sauvegarde, puis restaurez celle-ci.",
   "ErrorBackupNewerSchema": "Cette sauvegarde provient d'un Routarr plus récent (schéma {schema}). Mettez Routarr à jour, puis restaurez-la.",
   "ErrorBackupCannotRestore": "La base de données de cette archive ne peut pas être restaurée : {reason}",
   "ErrorBackupNoDatabase": "Cette archive ne contient aucune base de données.",

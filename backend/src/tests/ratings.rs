@@ -279,81 +279,46 @@ async fn an_r_is_named_once_every_system_giving_it_agrees_on_its_age() {
     assert_eq!(facet["group"], "17 and over", "{facet}");
 }
 
-/// An upgrade gives every cached rating the system it was issued under where
-/// the source settles it, and has TMDB and TheTVDB asked again for theirs,
-/// which they rated for a region they did not name.
+/// An upgrade from 0.1.5 keeps a cached rating under the system its source
+/// settles (MyAnimeList's own, OMDb's American), and has TMDB and TheTVDB
+/// asked again for theirs, rated for a region they did not name. OMDb and
+/// TheTVDB answers are asked again once anyway, for their full vocabularies.
 #[tokio::test]
-async fn an_upgrade_gives_each_cached_rating_its_system() {
-    let pool = super::database_through("014_routing_generation").await;
+async fn an_upgrade_keeps_the_ratings_it_can_place_and_asks_again_for_the_rest() {
+    let pool = super::database_of_0_1_5().await;
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, certification, expires_at)
          VALUES ('omdb', 'tt1', 'movie', 'PG-13', '2099-01-01 00:00:00'),
-                ('omdb', 'tt2', 'movie', NULL, '2099-01-01 00:00:00'),
                 ('jikan', '5', 'series', 'R+', '2099-01-01 00:00:00'),
                 ('tmdb', '8', 'movie', 'PG', '2099-01-01 00:00:00'),
-                ('tvdb', '9', 'series', NULL, '2099-01-01 00:00:00')",
+                ('tmdb', '4', 'movie', NULL, '2099-01-01 00:00:00'),
+                ('tvdb', '9', 'series', '-12', '2099-01-01 00:00:00')",
     )
     .execute(&pool)
     .await
     .unwrap();
 
-    crate::db::run_migrations_through(&pool, "015_certification_scale").await.unwrap();
-
-    let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
-        "SELECT source || ':' || external_id, certification_scale, expires_at <= datetime('now')
-           FROM metadata_cache ORDER BY source, external_id",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
-    let expected = [
-        ("jikan:5", Some("MAL"), false),
-        ("omdb:tt1", Some("US"), false),
-        ("omdb:tt2", None, false),
-        ("tmdb:8", None, true),
-        ("tvdb:9", None, false),
-    ];
-    let rows: Vec<(&str, Option<&str>, bool)> =
-        rows.iter().map(|(key, scale, due)| (key.as_str(), scale.as_deref(), *due)).collect();
-    assert_eq!(rows, expected);
-}
-
-/// An upgrade moves the one rating each TMDB and TheTVDB answer kept under
-/// its country, and has them asked again for every country's.
-#[tokio::test]
-async fn an_upgrade_keeps_each_cached_rating_under_its_country() {
-    let pool = super::database_through("031_zero_ids").await;
-    sqlx::query(
-        "INSERT INTO metadata_cache
-            (source, external_id, media_type, certification, certification_scale, expires_at)
-         VALUES ('tmdb', '1', 'movie', 'PG', 'US', '2099-01-01 00:00:00'),
-                ('tvdb', '2', 'series', '-12', 'FR', '2099-01-01 00:00:00'),
-                ('tmdb', '3', 'movie', 'G', NULL, '2099-01-01 00:00:00'),
-                ('tmdb', '4', 'movie', NULL, NULL, '2099-01-01 00:00:00'),
-                ('omdb', 'tt5', 'movie', 'PG-13', 'US', '2099-01-01 00:00:00')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    crate::db::run_migrations_through(&pool, "032_every_regions_rating").await.unwrap();
+    crate::db::run_migrations(&pool).await.unwrap();
 
     type Row = (String, String, Option<String>, Option<String>, bool);
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT source || ':' || external_id, certifications, certification,
-                certification_scale, expires_at <= datetime('now')
+                certification_scale, stale
            FROM metadata_cache ORDER BY source, external_id",
     )
     .fetch_all(&pool)
     .await
     .unwrap();
-    let us = (Some("PG-13".to_string()), Some("US".to_string()));
+    let rated = |certification: &str, scale: &str| {
+        (Some(certification.to_string()), Some(scale.to_string()))
+    };
+    let (mal, us) = (rated("R+", "MAL"), rated("PG-13", "US"));
     let expected: Vec<Row> = vec![
-        ("omdb:tt5".into(), "{}".into(), us.0, us.1, false),
-        ("tmdb:1".into(), r#"{"US":"PG"}"#.into(), None, None, true),
-        ("tmdb:3".into(), "{}".into(), None, None, true),
+        ("jikan:5".into(), "{}".into(), mal.0, mal.1, false),
+        ("omdb:tt1".into(), "{}".into(), us.0, us.1, true),
         ("tmdb:4".into(), "{}".into(), None, None, false),
-        ("tvdb:2".into(), r#"{"FR":"-12"}"#.into(), None, None, true),
+        ("tmdb:8".into(), "{}".into(), None, None, true),
+        ("tvdb:9".into(), "{}".into(), None, None, true),
     ];
     assert_eq!(rows, expected);
 }

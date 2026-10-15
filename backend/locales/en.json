@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "This archive carries no manifest, so it is not a Routarr backup.",
   "ErrorBackupManifestUnreadable": "The manifest of this archive cannot be read. The archive is damaged.",
   "ErrorBackupNotSealed": "This archive is named as encrypted and is not, so it is not restored.",
+  "ErrorBackupBefore015": "This backup comes from Routarr {version}, older than 0.1.5. Restore it with Routarr 0.1.5 first, then take a new backup there and restore that one.",
   "ErrorBackupNewerSchema": "This backup comes from a newer Routarr (schema {schema}). Upgrade Routarr, then restore it.",
   "ErrorBackupCannotRestore": "The database in this archive cannot be restored: {reason}",
   "ErrorBackupNoDatabase": "This archive carries no database.",

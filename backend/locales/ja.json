@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "このアーカイブにはマニフェストが含まれていないため、Routarr のバックアップではありません。",
   "ErrorBackupManifestUnreadable": "このアーカイブのマニフェストを読み取れません。アーカイブが破損しています。",
   "ErrorBackupNotSealed": "このアーカイブは名前では暗号化済みとされていますが、実際には暗号化されていないため、復元しません。",
+  "ErrorBackupBefore015": "このバックアップは 0.1.5 より古い Routarr {version} で作成されています。まず Routarr 0.1.5 で復元し、そこで新しいバックアップを作成してから、そのバックアップを復元してください。",
   "ErrorBackupNewerSchema": "このバックアップは新しいバージョンの Routarr (スキーマ {schema}) で作成されています。Routarr をアップグレードしてから復元してください。",
   "ErrorBackupCannotRestore": "このアーカイブのデータベースは復元できません: {reason}",
   "ErrorBackupNoDatabase": "このアーカイブにはデータベースが含まれていません。",

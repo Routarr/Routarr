@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Aquest arxiu no conté cap manifest, així que no és una còpia de seguretat de Routarr.",
   "ErrorBackupManifestUnreadable": "No es pot llegir el manifest d'aquest arxiu. L'arxiu està malmès.",
   "ErrorBackupNotSealed": "El nom d'aquest arxiu indica que està xifrat, però no ho està, així que no es restaura.",
+  "ErrorBackupBefore015": "Aquesta còpia de seguretat ve de Routarr {version}, anterior a la 0.1.5. Restaura-la primer amb Routarr 0.1.5, després fes-hi una còpia nova i restaura aquesta.",
   "ErrorBackupNewerSchema": "Aquesta còpia de seguretat ve d'un Routarr més recent (esquema {schema}). Actualitza Routarr i després restaura-la.",
   "ErrorBackupCannotRestore": "La base de dades d'aquest arxiu no es pot restaurar: {reason}",
   "ErrorBackupNoDatabase": "Aquest arxiu no conté cap base de dades.",

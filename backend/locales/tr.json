@@ -1381,6 +1381,7 @@
   "ErrorBackupNoManifest": "Bu arşivde manifest dosyası yok, yani bir Routarr yedeği değil.",
   "ErrorBackupManifestUnreadable": "Bu arşivin manifest dosyası okunamıyor. Arşiv hasarlı.",
   "ErrorBackupNotSealed": "Bu arşivin adı şifreli olduğunu söylüyor ama arşiv şifreli değil, bu yüzden geri yüklenmiyor.",
+  "ErrorBackupBefore015": "Bu yedek, 0.1.5'ten eski olan Routarr {version} sürümünden geliyor. Önce Routarr 0.1.5 ile geri yükleyin, orada yeni bir yedek alın ve onu geri yükleyin.",
   "ErrorBackupNewerSchema": "Bu yedek daha yeni bir Routarr sürümünden geliyor (şema {schema}). Routarr'ı güncelleyin, ardından yedeği geri yükleyin.",
   "ErrorBackupCannotRestore": "Bu arşivdeki veritabanı geri yüklenemiyor: {reason}",
   "ErrorBackupNoDatabase": "Bu arşivde veritabanı yok.",

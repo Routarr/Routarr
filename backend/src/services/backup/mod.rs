@@ -786,6 +786,13 @@ async fn stage(
             localizer.translate("ErrorBackupNewerSchema", &[("schema", &manifest.schema)]),
         ));
     }
+    // And one an older release than 0.1.5 took holds a schema no migration of
+    // this release starts from: restored, the next start would refuse it.
+    if crate::db::is_before_0_1_5(&manifest.schema) {
+        return Err(AppError::BadRequest(
+            localizer.translate("ErrorBackupBefore015", &[("version", &manifest.version)]),
+        ));
+    }
 
     // Off the runtime for the same reason the archive is written there: the
     // database entry is copied out whole, and its size follows the library.
@@ -990,7 +997,9 @@ pub fn newest_openable(
                 sealed::manifest(&archive, passphrase, &localizer).ok().flatten()
             }
         };
-        manifest.is_some_and(|m| !crate::db::is_newer_schema(&m.schema))
+        manifest.is_some_and(|m| {
+            !crate::db::is_newer_schema(&m.schema) && !crate::db::is_before_0_1_5(&m.schema)
+        })
     })
 }
 
@@ -1182,24 +1191,12 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
         .await?;
     let result: AppResult<()> = async {
         let mut tx = connection.begin().await?;
-        // An archive from before a table existed has nothing to withdraw in
-        // it: the migration that creates the table starts it empty.
-        let holds = |table: &'static str| {
-            sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
-            )
-            .bind(table)
-        };
-        if holds("api_keys").fetch_one(&mut *tx).await? {
-            for (id, revoked_at) in &revoked {
-                sqlx::query(
-                    "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
-                )
+        for (id, revoked_at) in &revoked {
+            sqlx::query("UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
                 .bind(revoked_at)
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
-            }
         }
         // The password of today, and nobody signed in: a password changed
         // because it leaked closed every session, and restoring the archive's
@@ -1234,15 +1231,7 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
             .execute(&mut *tx)
             .await?;
         }
-        // An archive from before the signing secrets were stored gets their
-        // table, as the migration that creates it would, or today's secrets
-        // would be dropped and every notification go out unsigned.
         if !secrets.is_empty() {
-            if !holds("webhook_secrets").fetch_one(&mut *tx).await? {
-                sqlx::raw_sql(include_str!("../../../migrations/011_webhook_secrets.sql"))
-                    .execute(&mut *tx)
-                    .await?;
-            }
             sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
             for (secret, created_at) in &secrets {
                 sqlx::query("INSERT INTO webhook_secrets (secret, created_at) VALUES (?, ?)")
@@ -1254,13 +1243,11 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
         }
         // Secrets withdrawn since stay withdrawn, and the record goes with the
         // restored database, so a restore of an older archive still finds it.
-        if secrets_withdrawn && holds("webhook_secrets").fetch_one(&mut *tx).await? {
+        if secrets_withdrawn {
             sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
         }
         if !withdrawn.is_empty() {
-            sqlx::raw_sql(include_str!("../../../migrations/038_withdrawn_credentials.sql"))
-                .execute(&mut *tx)
-                .await?;
+            sqlx::raw_sql(WITHDRAWN_CREDENTIALS_TABLE).execute(&mut *tx).await?;
             for (name, withdrawn_at) in &withdrawn {
                 sqlx::query(
                     "INSERT INTO withdrawn_credentials (name, withdrawn_at) VALUES (?, ?)
@@ -1279,6 +1266,15 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
     connection.close().await.ok();
     result
 }
+
+/// The table of withdrawn credentials, as `002_release_0_2_0` creates it: a
+/// restore of an archive 0.1.5 took writes into it before that migration runs
+/// on the restored database, and the migration then finds it in place.
+pub(crate) const WITHDRAWN_CREDENTIALS_TABLE: &str =
+    "CREATE TABLE IF NOT EXISTS withdrawn_credentials (
+    name TEXT PRIMARY KEY CHECK(name IN ('master_api_key', 'signing_secret')),
+    withdrawn_at TEXT NOT NULL DEFAULT (datetime('now'))
+);";
 
 /// Refuse a restore whose credentials the next start could not open.
 ///
@@ -1399,6 +1395,10 @@ async fn check_database(path: &Path) -> Result<(), String> {
             Some(schema) if crate::db::is_newer_schema(&schema) => Err(format!(
                 "it is at schema '{schema}', which this version of Routarr does not know"
             )),
+            Some(schema) if crate::db::is_before_0_1_5(&schema) => Err(format!(
+                "it is at schema '{schema}', which a Routarr older than 0.1.5 left: 0.1.5 has \
+                 to open it first"
+            )),
             Some(_) => Ok(()),
         })
     }
@@ -1483,6 +1483,15 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
 mod tests {
     use super::*;
 
+    /// The restore writes the table of withdrawals into an archive 0.1.5 took,
+    /// and the migration of this release finds it in place: both create it the
+    /// same way.
+    #[test]
+    fn the_restore_creates_the_withdrawals_table_as_the_migration_does() {
+        let migration = include_str!("../../../migrations/002_release_0_2_0.sql");
+        assert!(migration.contains(WITHDRAWN_CREDENTIALS_TABLE), "the two definitions drifted");
+    }
+
     #[test]
     fn only_a_name_routarr_generated_is_accepted() {
         assert!(is_valid_backup_name("routarr-backup-20260823-120000.zip"));
@@ -1503,7 +1512,7 @@ mod tests {
     fn manifest() -> BackupManifest {
         BackupManifest {
             version: "0.0.0".into(),
-            schema: "001_initial_schema".into(),
+            schema: "002_release_0_2_0".into(),
             created_at: String::new(),
             includes_master_key: false,
         }
