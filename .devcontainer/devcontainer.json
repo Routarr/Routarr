@@ -75,7 +75,8 @@
   // Added after the system directories so the checksum-pinned copies in
   // /usr/local/bin still win.
   "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.local/bin"
+    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.local/bin",
+    "ROUTARR_RTK": "${localEnv:ROUTARR_RTK}"
   },
 
   "mounts": [
