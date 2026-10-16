@@ -4,20 +4,11 @@ import { test, expect, api, openScreen } from './fixtures';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /**
- * Every language holds on one line what English holds on one line, and no
- * control spills out of what contains it.
- *
- * A label that fits in English can take twice the room in German, Finnish or
- * Greek. A button never wraps, since `.btn` is `white-space: nowrap`: it
- * widens instead, so for a control the question is whether it stays inside
- * its card, banner or dialog. Measured at the two widths the layout is built
- * for, in a real browser, since jsdom lays nothing out.
+ * Every language holds on one line what English does, and no button spills out
+ * of its card, banner or dialog. A button never wraps, it widens.
  */
 
-/**
- * Every screen and each section of the settings, with the guide's banners, and
- * the two dialogs a first run opens.
- */
+/** Every screen and settings section, and the two dialogs a first run opens. */
 const PATHS = [...SCREENS, '/rules?new=1', '/instances?add=1', ...SETTINGS_SECTIONS];
 const WIDTHS = [1280, 390];
 
@@ -40,12 +31,7 @@ interface Reading {
   wrapped: Record<string, string>;
   /** Controls reaching past their container, and a page that scrolls sideways. */
   spilled: string[];
-  /**
-   * The layout the page had at that moment: the width it was laid out at,
-   * whether the drawer breakpoint of `index.css` applied, where the rail sat
-   * and how wide the content was. A fault a loaded runner shows now and then
-   * says from it whether the page or the reading was out of step.
-   */
+  /** The page's layout at that moment, reported with a fault. */
   layout: string;
 }
 
@@ -60,8 +46,7 @@ async function read(page: Page): Promise<Reading> {
       for (const selector of selectors) {
         document.querySelectorAll<HTMLElement>(selector).forEach((el, index) => {
           if (!shown(el)) return;
-          // Text that wraps inside the element: forbidding the wrap makes it
-          // shorter.
+          // Wrapped text gets shorter once wrapping is forbidden.
           const before = el.getBoundingClientRect().height;
           const saved = el.style.whiteSpace;
           el.style.whiteSpace = 'nowrap';
@@ -86,8 +71,7 @@ async function read(page: Page): Promise<Reading> {
           '.guide-step, .banner, .modal-content, .card, .page-header, .topbar',
         );
         if (!box) return;
-        // Inside a region that scrolls sideways, as a table does on a phone,
-        // reaching past the edge is what the scroll is for.
+        // A region that scrolls sideways, as a table on a phone, may overflow.
         for (let node = el.parentElement; node && node !== box; node = node.parentElement) {
           const overflow = getComputedStyle(node).overflowX;
           if (overflow === 'auto' || overflow === 'scroll') return;
@@ -120,11 +104,8 @@ async function read(page: Page): Promise<Reading> {
 }
 
 /**
- * The guide comes from the shell's own request, apart from the screen's: read
- * before it lands, a guide that wraps passes unseen in one language and is
- * blamed on another in the next. The pill is drawn from it, found by its class
- * since a dialog open on arrival leaves it inert, and on the dashboard the
- * guide itself is waited for.
+ * The guide loads apart from the screen. Read too early, a guide that wraps is
+ * blamed on the next language. Found by class, since an open dialog makes it inert.
  */
 async function guideShown(page: Page, path: string): Promise<void> {
   await expect(page.locator('.guide-pill')).toBeVisible();
@@ -132,23 +113,14 @@ async function guideShown(page: Page, path: string): Promise<void> {
 }
 
 /**
- * A layout that follows the width has run once the style has taken the new
- * width, the next frame is drawn and every transition it started has ended.
- *
- * WebKit on a loaded runner can lay out the new width while its media queries
- * still hold the old one, and the page is then read with the rules of 1280px
- * squeezed into 390. A rule of the sweep's own, matching the new width alone,
- * shows when the style has caught up. It is a constructed sheet, which the
- * page's CSP does not govern.
- *
- * Read halfway through a transition, an inset still on its way holds a label
- * on one line it wraps once settled. With motion reduced a transition ends
- * within the frame, so that wait is bounded: one that never ends, left by an
- * earlier spec, cannot hold the sweep.
+ * Resize, then wait until the style has taken the new width and transitions
+ * have ended. WebKit can lay out a new width with the old media queries still
+ * applied.
  */
 async function resize(page: Page, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 900 });
   await page.evaluate(async (width) => {
+    // A constructed sheet, outside the page's CSP.
     const probe = new CSSStyleSheet();
     probe.replaceSync(`@media (width: ${width}px) { :root { --sweep-width: ${width}; } }`);
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, probe];
@@ -178,11 +150,9 @@ async function speak(code: string): Promise<void> {
 }
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
-  // Every language over every screen at two widths: some four minutes in
-  // Chromium, and WebKit on a CI runner needs about twice that.
+  // About four minutes in Chromium, twice that in WebKit on CI.
   test.setTimeout(600_000);
-  // Motion reduced, as the interface honours it: a transition ends within the
-  // frame, so a thousand resizes do not each wait out an animation.
+  // Reduced motion keeps each transition within a frame.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   // The guide on screen, its first step done by the fixture's synced instance.
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
@@ -214,8 +184,6 @@ test('every language holds on one line what English does, and nothing spills', a
         faults.push(...spilled.map((what) => `${code} ${where}: "${what}" spills out`));
         if (faults.length > before) {
           faults.push(`${code} ${where}: the page was laid out as ${layout}`);
-          // A few, taken just after the reading: enough to see the layout
-          // without filling the report.
           if (shots++ < 3) {
             await test.info().attach(`${code} ${path} ${width}px`, {
               body: await page.screenshot(),
