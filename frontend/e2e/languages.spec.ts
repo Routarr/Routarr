@@ -4,20 +4,11 @@ import { test, expect, api, openScreen } from './fixtures';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /**
- * Every language holds on one line what English holds on one line, and no
- * control spills out of what contains it.
- *
- * A label that fits in English can take twice the room in German, Finnish or
- * Greek. A button never wraps, since `.btn` is `white-space: nowrap`: it
- * widens instead, so for a control the question is whether it stays inside
- * its card, banner or dialog. Measured at the two widths the layout is built
- * for, in a real browser, since jsdom lays nothing out.
+ * Every language holds on one line what English does, and no button spills out
+ * of its card, banner or dialog. A button never wraps, it widens.
  */
 
-/**
- * Every screen and each section of the settings, with the guide's banners, and
- * the two dialogs a first run opens.
- */
+/** Every screen and settings section, and the two dialogs a first run opens. */
 const PATHS = [...SCREENS, '/rules?new=1', '/instances?add=1', ...SETTINGS_SECTIONS];
 const WIDTHS = [1280, 390];
 
@@ -40,6 +31,8 @@ interface Reading {
   wrapped: Record<string, string>;
   /** Controls reaching past their container, and a page that scrolls sideways. */
   spilled: string[];
+  /** The page's layout at that moment, reported with a fault. */
+  layout: string;
 }
 
 async function read(page: Page): Promise<Reading> {
@@ -53,8 +46,7 @@ async function read(page: Page): Promise<Reading> {
       for (const selector of selectors) {
         document.querySelectorAll<HTMLElement>(selector).forEach((el, index) => {
           if (!shown(el)) return;
-          // Text that wraps inside the element: forbidding the wrap makes it
-          // shorter.
+          // Wrapped text gets shorter once wrapping is forbidden.
           const before = el.getBoundingClientRect().height;
           const saved = el.style.whiteSpace;
           el.style.whiteSpace = 'nowrap';
@@ -79,8 +71,7 @@ async function read(page: Page): Promise<Reading> {
           '.guide-step, .banner, .modal-content, .card, .page-header, .topbar',
         );
         if (!box) return;
-        // Inside a region that scrolls sideways, as a table does on a phone,
-        // reaching past the edge is what the scroll is for.
+        // A region that scrolls sideways, as a table on a phone, may overflow.
         for (let node = el.parentElement; node && node !== box; node = node.parentElement) {
           const overflow = getComputedStyle(node).overflowX;
           if (overflow === 'auto' || overflow === 'scroll') return;
@@ -95,18 +86,26 @@ async function read(page: Page): Promise<Reading> {
       });
       const root = document.documentElement;
       if (root.scrollWidth > root.clientWidth + 1) spilled.push('(the page scrolls sideways)');
-      return { wrapped, spilled };
+      const rail = document.querySelector('#sidebar');
+      const main = document.querySelector('#main');
+      const layout = JSON.stringify({
+        viewport: innerWidth,
+        client: root.clientWidth,
+        scroll: root.scrollWidth,
+        scrollX,
+        drawer: matchMedia('(max-width: 900px)').matches,
+        rail: rail ? getComputedStyle(rail).position : null,
+        content: main ? Math.round(main.getBoundingClientRect().width) : null,
+      });
+      return { wrapped, spilled, layout };
     },
     { selectors: ONE_LINE, sameLine: SAME_LINE },
   );
 }
 
 /**
- * The guide comes from the shell's own request, apart from the screen's: read
- * before it lands, a guide that wraps passes unseen in one language and is
- * blamed on another in the next. The pill is drawn from it, found by its class
- * since a dialog open on arrival leaves it inert, and on the dashboard the
- * guide itself is waited for.
+ * The guide loads apart from the screen. Read too early, a guide that wraps is
+ * blamed on the next language. Found by class, since an open dialog makes it inert.
  */
 async function guideShown(page: Page, path: string): Promise<void> {
   await expect(page.locator('.guide-pill')).toBeVisible();
@@ -114,22 +113,33 @@ async function guideShown(page: Page, path: string): Promise<void> {
 }
 
 /**
- * A layout that follows the width has run once the next frame is drawn and
- * every transition it started has ended: read halfway, an inset still on its
- * way holds a label on one line it wraps once settled. With motion reduced a
- * transition ends within the frame, so the wait is bounded: one that never
- * ends, left by an earlier spec, cannot hold the sweep.
+ * Resize, then wait until the style has taken the new width and transitions
+ * have ended. WebKit can lay out a new width with the old media queries still
+ * applied.
  */
 async function resize(page: Page, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 900 });
-  await page.evaluate(async () => {
+  await page.evaluate(async (width) => {
+    // A constructed sheet, outside the page's CSP.
+    const probe = new CSSStyleSheet();
+    probe.replaceSync(`@media (width: ${width}px) { :root { --sweep-width: ${width}; } }`);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, probe];
+    const caughtUp = () =>
+      getComputedStyle(document.documentElement).getPropertyValue('--sweep-width').trim() ===
+      String(width);
+    const deadline = performance.now() + 5000;
+    while (!caughtUp()) {
+      if (performance.now() > deadline) throw new Error(`the style never took ${width}px`);
+      await new Promise(requestAnimationFrame);
+    }
+    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== probe);
     await new Promise(requestAnimationFrame);
     const settling = document
       .getAnimations()
       .filter((animation) => animation instanceof CSSTransition)
       .map((animation) => animation.finished.catch(() => undefined));
     await Promise.race([Promise.all(settling), new Promise((done) => setTimeout(done, 100))]);
-  });
+  }, width);
 }
 
 async function speak(code: string): Promise<void> {
@@ -140,11 +150,9 @@ async function speak(code: string): Promise<void> {
 }
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
-  // Every language over every screen at two widths: some four minutes in
-  // Chromium, and WebKit on a CI runner needs about twice that.
+  // About four minutes in Chromium, twice that in WebKit on CI.
   test.setTimeout(600_000);
-  // Motion reduced, as the interface honours it: a transition ends within the
-  // frame, so a thousand resizes do not each wait out an animation.
+  // Reduced motion keeps each transition within a frame.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   // The guide on screen, its first step done by the fixture's synced instance.
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
@@ -153,6 +161,7 @@ test('every language holds on one line what English does, and nothing spills', a
 
   const english = new Set<string>();
   const faults: string[] = [];
+  let shots = 0;
   for (const code of codes) {
     await speak(code);
     for (const path of PATHS) {
@@ -163,8 +172,9 @@ test('every language holds on one line what English does, and nothing spills', a
 
       for (const width of WIDTHS) {
         await resize(page, width);
-        const { wrapped, spilled } = await read(page);
+        const { wrapped, spilled, layout } = await read(page);
         const where = `${path} at ${width}px`;
+        const before = faults.length;
         for (const [key, text] of Object.entries(wrapped)) {
           if (code === 'en') english.add(`${where} ${key}`);
           else if (!english.has(`${where} ${key}`)) {
@@ -172,6 +182,15 @@ test('every language holds on one line what English does, and nothing spills', a
           }
         }
         faults.push(...spilled.map((what) => `${code} ${where}: "${what}" spills out`));
+        if (faults.length > before) {
+          faults.push(`${code} ${where}: the page was laid out as ${layout}`);
+          if (shots++ < 3) {
+            await test.info().attach(`${code} ${path} ${width}px`, {
+              body: await page.screenshot(),
+              contentType: 'image/png',
+            });
+          }
+        }
       }
     }
   }
