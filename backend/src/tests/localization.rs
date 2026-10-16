@@ -343,7 +343,7 @@ async fn a_probed_instance_failure_is_explained_in_the_interface_language() {
     let instance = health.assert_ok()["instances"][0].clone();
     let tested = app.post("/api/v1/instances/i-1/test", serde_json::json!({})).await;
     assert_eq!(instance["detail"].as_str(), Some(tested.message().as_str()), "{instance}");
-    assert_eq!(instance["status"], format!("error: {}", tested.message()));
+    assert_eq!(instance["status"], "error");
 
     let status = app.get("/api/v1/status").await;
     let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();

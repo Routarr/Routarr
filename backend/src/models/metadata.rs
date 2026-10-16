@@ -1,11 +1,5 @@
-//! Metadata as the engine consumes it, and as each source supplies it.
-//!
-//! Two shapes on purpose. `ProviderMetadata` is one source's answer, complete
-//! or not: Radarr knows the genres but not the keywords, TMDB knows both.
-//! `MediaMetadata` is what the rule engine sees: the answers of every enabled
-//! source collapsed field by field, plus the record of which source won each
-//! field, without which "genre does not contain Animation" becomes impossible
-//! to explain when two sources disagree.
+//! Metadata as one source answers it (`ProviderMetadata`) and as the rule engine reads it
+//! (`MediaMetadata`): every source merged field by field, with the source that won each field.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -23,9 +17,8 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
-    /// Every field a condition can read, iterated by `merge` and by
-    /// `api::media::metadata_predicate`, so a variant added above cannot be
-    /// forgotten by either.
+    /// Every field a condition can read, which `merge` and `api::media::metadata_predicate`
+    /// iterate, so a new variant belongs here too.
     pub const ALL: [MetadataField; 5] = [
         Self::Genres,
         Self::Keywords,
@@ -59,9 +52,8 @@ pub struct ProviderMetadata {
     /// The system `certification` belongs to: a country code, or `MAL`.
     #[serde(default)]
     pub certification_scale: Option<String>,
-    /// Every country's rating, from a source that rates for many, keyed by
-    /// upper-case country code. The certification regions pick one of them
-    /// when the answer is read, so a change of regions needs no new request.
+    /// Every country's rating, keyed by upper-case country code. The certification regions pick
+    /// one when the answer is read, so a change of regions needs no new request.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
@@ -89,11 +81,6 @@ pub struct MediaMetadata {
     pub status: Option<String>,
     /// The synopsis of the first source in the order that gives one.
     pub overview: Option<String>,
-    /// Always null: posters are not fetched. Kept until the next major
-    /// version for the clients that read it.
-    #[schema(deprecated)]
-    #[serde(default)]
-    pub poster_path: Option<String>,
     /// Field name -> the source that supplied it. Only populated fields appear.
     #[serde(default)]
     pub field_sources: BTreeMap<String, String>,
@@ -103,15 +90,9 @@ pub struct MediaMetadata {
 }
 
 impl MediaMetadata {
-    /// Collapse the sources, highest priority first.
-    ///
-    /// Per field, the first source that has a value keeps it and the ones below
-    /// do not overwrite it: a lower-priority source only fills a gap. That is
-    /// the whole point of the ordering: with Radarr above TMDB the genres come
-    /// from the library, and TMDB still contributes the keywords Radarr has no
-    /// notion of. Returns `None` when no source knew anything a condition
-    /// reads, so `has_metadata` keeps meaning "something matchable is known
-    /// about this item".
+    /// Collapse the sources, highest priority first: per field, the first source with a value
+    /// keeps it. `None` when no source knew a field a condition reads, so `has_metadata` means
+    /// something matchable is known.
     pub fn merge<'a, I>(parts: I) -> Option<Self>
     where
         I: IntoIterator<Item = (&'a str, ProviderMetadata)>,
@@ -143,8 +124,7 @@ impl MediaMetadata {
                 "original_language",
                 &mut merged.field_sources,
             );
-            // The scale travels with the certification it qualifies, never
-            // apart from it.
+            // Before `certification` is taken: the scale goes with the certification it qualifies.
             if merged.certification.is_none() && part.certification.is_some() {
                 merged.certification_scale = part.certification_scale;
             }
@@ -176,12 +156,7 @@ impl MediaMetadata {
             }
         }
 
-        // Known means *matchable*. A source that supplied only a synopsis or a
-        // status is still listed, since it did answer and the panel says so,
-        // but no condition reads either. An item
-        // holding nothing else is as blind to the engine as one holding
-        // nothing at all, and counting it would have the library list say
-        // "metadata" about an item no rule can touch.
+        // A synopsis or a status alone is no metadata: no condition reads either.
         let matchable = MetadataField::ALL
             .iter()
             .any(|field| merged.field_sources.contains_key(field.as_str()));
@@ -272,7 +247,6 @@ mod tests {
     fn a_lower_source_fills_the_gaps_instead_of_being_ignored() {
         let merged = MediaMetadata::merge([("arr", arr()), ("tmdb", tmdb())]).unwrap();
 
-        // Radarr has no notion of either, so TMDB still contributes them.
         assert_eq!(merged.keywords, vec!["anime"]);
         assert_eq!(merged.origin_countries, vec!["JP"]);
         assert_eq!(merged.source_of("keywords"), Some("tmdb"));
@@ -285,9 +259,7 @@ mod tests {
 
         assert_eq!(merged.genres, vec!["Fantasy"]);
         assert_eq!(merged.source_of("genres"), Some("tmdb"));
-        // TMDB answers every field the Arr could have answered, so the Arr adds
-        // nothing at all from this position. That is the honest reading of
-        // "lower priority", not a bug.
+        // TMDB answers every field the Arr could, so the Arr adds nothing from below it.
         assert_eq!(merged.sources, vec!["tmdb"]);
     }
 

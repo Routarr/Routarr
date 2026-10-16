@@ -18,8 +18,7 @@ use crate::models::Instance;
 use crate::services::metadata;
 use crate::state::{AppState, Settings};
 
-/// What the liveness probe answers.
-// No version: the probe needs no key, and `/status` gives the version to one.
+/// What the liveness probe answers. No version: `/status` gives it to a caller with a key.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Pong {
     /// Always `ok`: an answer at all is the news.
@@ -31,9 +30,7 @@ pub async fn ping() -> Json<Pong> {
     Json(Pong { status: "ok" })
 }
 
-/// Counts and warnings, read from the database without probing anything.
-// The top bar reads this rather than `/health`, which probes every Arr
-// instance and would block the whole UI on an unreachable server.
+/// Counts and warnings from the database alone, so an unreachable Arr never holds up the top bar.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct StatusResponse {
     pub version: String,
@@ -41,8 +38,8 @@ pub struct StatusResponse {
     pub dry_run: bool,
     pub running_jobs: i64,
     pub pending_decisions: i64,
-    /// Failed moves still asking for attention: each its title's latest
-    /// decision, which no later run has settled.
+    /// Failed moves still asking for attention: titles whose latest decision failed and that no
+    /// later run has settled.
     pub failed_decisions: i64,
     /// Configuration problems detectable without touching the network.
     pub warnings: Vec<Warning>,
@@ -51,28 +48,23 @@ pub struct StatusResponse {
 /// One warning, in the reader's language.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Warning {
-    /// What the warning is about, stable across releases and languages:
-    /// `api_unauthenticated`, `api_external_auth`, `source_needs_key`,
-    /// `source_key_unlisted`, `source_unreachable`, `source_quota_spent`,
-    /// `source_rate_limited`, `source_key_refused`,
-    /// `instance_unreachable`,
-    /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
-    /// `scheduler_panicked`, `backup_failed`, `backup_overdue`,
-    /// `data_disk_low`, `setting_above_maximum`,
+    /// What the warning is about, stable across releases and languages: `api_unauthenticated`,
+    /// `api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,
+    /// `source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,
+    /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,
+    /// `backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
-    /// `certification_country_changed`,
-    /// `auto_apply_held`, `arr_below_version`, `oidc_open_to_anyone` or
-    /// `backup_passphrase_unreadable`. The list may grow.
+    /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
+    /// `oidc_open_to_anyone` or `backup_passphrase_unreadable`. The list may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
-    /// `error` for a fault that stops part of Routarr working, `warning` for
-    /// a configuration that needs looking at, `info` for a state worth
-    /// knowing. An open list. `/health` reads `degraded` while one is `error`.
+    /// `error` for a fault that stops part of Routarr working, `warning` for a configuration to
+    /// look at, `info` for a state worth knowing. An open list. `/health` reads `degraded` while
+    /// one is `error`.
     pub severity: &'static str,
-    /// The getting-started step this warning restates, whose banner says the
-    /// same thing while the step is open: `instance`, `categories` or
-    /// `metadata`. Null for most.
+    /// The getting-started step whose banner says the same while the step is open: `instance`,
+    /// `categories` or `metadata`. Null for most.
     pub guide_step: Option<&'static str>,
 }
 
@@ -86,10 +78,8 @@ impl Warning {
     }
 }
 
-/// How much a warning weighs. A fault stops something Routarr does: an Arr
-/// or a source it cannot reach or that refuses its key, a pass that panics,
-/// backups that fail or cannot be taken. A choice the operator made, or a
-/// fact about the library, is information, and keeps `/health` at `ok`.
+/// `error` for a fault that stops something Routarr does, which turns `/health` `degraded`.
+/// `info` for a choice the operator made or a fact about the library.
 fn severity_of(code: &str) -> &'static str {
     match code {
         "instance_unreachable"
@@ -108,10 +98,8 @@ fn severity_of(code: &str) -> &'static str {
     }
 }
 
-/// A failed move still asking for attention, as a condition over `decisions
-/// d`: the title's latest standing decision, and no stored run has read the
-/// title since. A later proposal, a move that went through, or a run finding
-/// the title where it belongs settles it.
+/// A failed move still asking for attention, as a condition over `decisions d`: the title's
+/// latest standing decision, with no stored run of the title since.
 fn open_failure() -> String {
     format!(
         "d.status = 'failed' AND {}
@@ -135,8 +123,6 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusRespo
     .fetch_one(&state.pool)
     .await?;
 
-    // The same list the diagnostics page shows, minus what needs a probe: the
-    // badge counts warnings the user will actually find when they click it.
     let warnings = offline_warnings(&state, &localizer, &settings).await?;
 
     Ok(Json(StatusResponse {
@@ -162,8 +148,7 @@ pub struct HealthResponse {
     pub instances: Vec<InstanceHealth>,
     pub metadata: MetadataHealth,
     pub stats: AppStats,
-    /// Every warning standing, those `/status` lists, with what this probe
-    /// found.
+    /// Every standing warning: those `/status` lists, with what this probe found.
     pub warnings: Vec<Warning>,
 }
 
@@ -175,10 +160,7 @@ pub struct InstanceHealth {
     pub name: String,
     /// `radarr` or `sonarr`.
     pub instance_type: String,
-    /// `connected`, `disabled`, `unchecked` when nothing was probed, or
-    /// `error: ` and the sentence `detail` holds. The sentence after the
-    /// colon is kept for the clients that read it there, and goes in a
-    /// coming release: read `detail`.
+    /// `connected`, `disabled`, `unchecked` when nothing was probed, or `error`.
     pub status: String,
     /// Why the probe failed, in the interface language: what to change, when
     /// the address or the key explains it. Null unless `status` is an error.
@@ -238,36 +220,28 @@ pub struct AppStats {
     pub running_jobs: i64,
 }
 
-/// Whether to reach out to the Arrs and the metadata sources.
-///
-/// The dashboard asks for `probe=false` and gets what the database can answer
-/// immediately. The probe costs a full connect timeout per unreachable Arr,
-/// which is exactly when somebody is looking at the dashboard to find out why.
+/// Whether to reach out to the Arrs and the metadata sources. The dashboard asks `probe=false`:
+/// a probe waits a full connect timeout per unreachable Arr.
 #[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
 pub struct HealthQuery {
-    /// `false` reads the database alone: every enabled instance reads
-    /// `unchecked` and every source `connected: null`, while `warnings` repeat
-    /// what the last probe found. Defaults to true, except for a request
-    /// another site set off.
+    /// `false` reads the database alone: every enabled instance reads `unchecked`, every source
+    /// `connected: null`, and `warnings` repeat what the last probe found. Defaults to true,
+    /// except for a request another site set off.
     probe: Option<bool>,
-    /// `true` probes again even when a probe of the same configuration ran in
-    /// the last 30 seconds, whose findings are otherwise answered again.
+    /// `true` probes again even when a probe of the same configuration ran in the last 30
+    /// seconds, whose findings are otherwise answered again.
     fresh: Option<bool>,
 }
 
-/// Full diagnostics. Instances are probed concurrently and each probe is bounded
-/// by the shared HTTP timeout, so one unreachable Arr does not cost the sum of
-/// every connection attempt.
+/// Full diagnostics. The probes run concurrently, so unreachable Arrs cost a single timeout.
 pub async fn health_check(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Query(query): Query<HealthQuery>,
 ) -> AppResult<(StatusCode, Json<HealthResponse>)> {
-    // First, and alone: every other figure below is read from the database,
-    // and a database that does not answer would otherwise read as a 500 the
-    // first of them raises, or as an empty library.
+    // First: a database that does not answer reads `failing`, not a 500 or an empty library.
     if let Err(e) = sqlx::query("SELECT 1").execute(&state.pool).await {
         tracing::error!("The database does not answer the health check: {e}");
         let failing = HealthResponse {
@@ -279,9 +253,7 @@ pub async fn health_check(
         return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(failing)));
     }
 
-    // A page of another site can send a browser here with its cookie, and a
-    // probe reaches every Arr and source and writes what it found. Such a
-    // request reads what the last probe recorded instead.
+    // Another site can send a browser here with its cookie, so its request never sets off a probe.
     let cross_site = headers
         .get("sec-fetch-site")
         .and_then(|value| value.to_str().ok())
@@ -312,9 +284,6 @@ pub async fn health_check(
 
     let cached_items: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache").fetch_one(pool).await?;
-    // "Nothing at all is known about this item": no genres from its Arr and no
-    // fetched answer either. An item the `arr` source alone describes is not
-    // missing metadata, which is the whole point of that source.
     let known = crate::api::media::metadata_predicate(&settings);
     let media_missing_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
@@ -326,8 +295,7 @@ pub async fn health_check(
     let connectivity = probed.as_ref().map_or(&none, |probe| &probe.sources);
     let providers = provider_health(&state, connectivity, &settings);
 
-    // What a probe found is in `probe_results` by now, so `offline_warnings`
-    // is the single source for every warning and not merely for most.
+    // After the probe, whose findings reach the warnings through `probe_results`.
     let warnings = offline_warnings(&state, &localizer, &settings).await?;
     let faulty = warnings.iter().any(|warning| warning.severity == "error");
 
@@ -356,11 +324,8 @@ pub(crate) struct Probe {
     sources: HashMap<String, Probed>,
 }
 
-/// The last probe when it is younger than [`PROBE_REUSE`] and looked at the
-/// configuration in place, or a new one, written to `probe_results` before it
-/// is answered. One at a time: a caller arriving while a probe runs waits for
-/// it and reads it, rather than asking every Arr and source again, at a pace
-/// each source keeps for every other request too.
+/// The last probe when younger than [`PROBE_REUSE`] and of the same configuration, or a new one,
+/// recorded before it is answered. One at a time: a caller arriving mid-probe waits and reads it.
 async fn probed(
     state: &AppState,
     instances: &[Instance],
@@ -382,10 +347,8 @@ async fn probed(
     Ok(probe)
 }
 
-/// What a probe depends on: each instance's address, key and type, and every
-/// setting, among them the sources, their order and their keys. A probe of
-/// another configuration is never answered again: an address just corrected
-/// would read as still failing.
+/// What a probe depends on: every instance's address, key and type, and every setting. A probe
+/// of another configuration is never reused, or a corrected address would read as still failing.
 fn configuration_of(instances: &[Instance], settings: &Settings) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -397,12 +360,8 @@ fn configuration_of(instances: &[Instance], settings: &Settings) -> u64 {
     hasher.finish()
 }
 
-/// What the last probe found, for the endpoints that may not probe themselves.
-///
-/// A subject that answered is not reported, and neither is one nothing has
-/// looked at yet: the table holds verdicts, not a roster. An instance deleted
-/// since the probe leaves a row nothing can name, which is dropped rather than
-/// reported as an unnamed failure.
+/// The failures the last probe found, for the endpoints that may not probe themselves. A row
+/// whose instance was deleted since is dropped, never reported as an unnamed failure.
 async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResult<Vec<Warning>> {
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT subject, detail FROM probe_results WHERE reachable = 0 ORDER BY subject",
@@ -413,8 +372,6 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
     let mut warnings = Vec::new();
     for (subject, detail) in rows {
         if let Some(id) = subject.strip_prefix("source:") {
-            // Named from the catalogue rather than stored beside the verdict:
-            // the display name belongs to the build, not to the observation.
             if let Some(info) = metadata::info(id) {
                 let (code, key) =
                     VERDICTS.iter().find(|(said, ..)| detail.as_deref() == Some(*said)).map_or(
@@ -465,18 +422,9 @@ pub(crate) fn below_version(
     Some(localizer.translate(key, &params))
 }
 
-/// Write down what the probe found, for the endpoints that may not probe.
-///
-/// Replaces rather than accumulates: the question is what the last look saw,
-/// and a source that answers again has to stop being reported. A verdict is
-/// only as fresh as the last probe, and the dashboard is the default route, so
-/// in practice it is rewritten on every visit, but nothing here expires it,
-/// which is why the diagnostics page states its own findings from a live probe
-/// rather than from this table.
+/// Replaces the last probe's verdicts with this one's. Nothing expires them, which is why the
+/// diagnostics page probes live.
 async fn record_probe(state: &AppState, probe: &Probe) -> AppResult<()> {
-    // The sources probed, which leaves out the Arr, reached through the
-    // instance probes instead, and a source that could not be built at all:
-    // neither was looked at, so neither has a verdict to record.
     let rows: Vec<(String, bool, Option<String>)> = probe
         .sources
         .iter()
@@ -488,10 +436,7 @@ async fn record_probe(state: &AppState, probe: &Probe) -> AppResult<()> {
         .collect();
 
     let mut tx = state.pool.begin().await?;
-    // A verdict outlives its subject otherwise. A source switched off, or one
-    // whose key was cleared, is not probed (`connected` is `None` and nothing
-    // above writes a row for it), so its last failure would be reported for
-    // ever, with no screen able to clear it.
+    // Unpruned, a source switched off or left without a key reports its last failure for ever.
     let live: Vec<String> = rows.iter().map(|(subject, _, _)| subject.clone()).collect();
     let keep = crate::db::placeholders(live.len().max(1));
     let mut prune = sqlx::query(AssertSqlSafe(
@@ -531,9 +476,8 @@ const RATE_LIMITED: &str = "rate limited";
 /// A source that needs a key refused the one it was given.
 const KEY_REFUSED: &str = "key refused";
 
-/// Each `probe_results` detail of a source that did not answer, with the
-/// warning code and the dictionary key that say it. A source with none of
-/// these did not answer at all (`source_unreachable`).
+/// Each `probe_results` detail of a source that did not answer, with its warning code and
+/// dictionary key. Any other failure is `source_unreachable`.
 const VERDICTS: [(&str, &str, &str); 3] = [
     (QUOTA_SPENT, "source_quota_spent", "WarnProviderQuota"),
     (RATE_LIMITED, "source_rate_limited", "WarnProviderRateLimited"),
@@ -549,8 +493,7 @@ struct Probed {
 }
 
 impl Probed {
-    /// Why it did not answer, as `MetadataProviderHealth.reason` names it:
-    /// its warning's code without the `source_` the warnings share.
+    /// Why it did not answer: its warning code without the `source_` prefix.
     fn reason(&self) -> Option<&'static str> {
         if self.connected {
             return None;
@@ -562,8 +505,7 @@ impl Probed {
         code.strip_prefix("source_")
     }
 
-    /// The verdict on `outcome`. A refusal names the key only where the
-    /// source takes one: a keyless source refusing is one not answering.
+    /// The verdict on `outcome`. A refusal blames the key only for a source that takes one.
     fn of(outcome: &crate::error::AppResult<bool>, needs_key: bool) -> Self {
         use crate::error::AppError;
         let detail = match outcome {
@@ -583,11 +525,8 @@ impl Probed {
     }
 }
 
-/// Reachability of every fetched source that is enabled and configured.
-///
-/// Probed concurrently and bounded by the shared HTTP timeout, like the Arr
-/// instances: probed one after another, the sources would make this page as
-/// slow as the sum of their timeouts.
+/// Reachability of every fetched source that is enabled and configured, probed concurrently so
+/// the page never waits for the sum of their timeouts.
 async fn probe_sources(state: &AppState) -> HashMap<String, Probed> {
     let sources = state.metadata_sources().await;
     let probes = sources
@@ -597,11 +536,9 @@ async fn probe_sources(state: &AppState) -> HashMap<String, Probed> {
     join_all(probes).await.into_iter().collect()
 }
 
-/// One source's probe, at the pace every other request to the source keeps:
-/// unpaced during a pass, it earns the source's 429 and reports it as the
-/// source down. A source with a daily quota is asked once a day, the request
-/// taken from its quota, and the day's verdict stands until the day ends or a
-/// new key or quota is saved, which forgets it (migration 033).
+/// One source's probe, at the source's pace, or its 429 during a pass would read as the source
+/// down. A source with a daily quota is asked once a day, and the verdict stands until the day
+/// ends or a new key or quota is saved (the `*_forgets_probe` triggers).
 async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Probed {
     let needs_key = metadata::info(source.id()).is_some_and(|info| info.needs_key);
     let Some(quota) = source.daily_quota() else {
@@ -631,8 +568,7 @@ async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Pr
     Probed::of(&outcome, needs_key)
 }
 
-/// The source's connection test, waiting on its pace and holding the pace
-/// back as the answer asks.
+/// The source's connection test, paced like every other request to it.
 async fn paced_probe(
     state: &AppState,
     source: &metadata::FetchingSource,
@@ -661,28 +597,19 @@ fn provider_health(
             display_name: provider.display_name.to_string(),
             needs_key: provider.needs_key,
             configured: metadata::is_usable(provider, &keys),
-            // `None` for the Arr, which is reached through the instance probes
-            // above, and for a source that cannot be built at all.
             connected: connectivity.get(provider.id).map(|probed| probed.connected),
             reason: connectivity.get(provider.id).and_then(Probed::reason),
         })
         .collect()
 }
 
-/// "No root folder is mapped to category `c`", for every count of unmapped
-/// categories: the badge, the dashboard and the guide read one answer.
+/// "No root folder is mapped to category `c`", the one predicate every count of unmapped
+/// categories uses.
 pub(crate) const UNMAPPED: &str =
     "NOT EXISTS (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)";
 
-/// Every warning that can be reached without touching the network.
-///
-/// Shared by the top bar and the diagnostics page: two hand-built lists drift in
-/// both directions, and the badge then reads "1 warning" over a page listing
-/// three.
-///
-/// Everything here is a fact about the database or the configuration. The
-/// findings that need a probe are written to `probe_results` by `health_check`,
-/// the only caller allowed to wait on the network, and read back here.
+/// Every warning known without the network, for the top bar and the diagnostics page alike, so
+/// the badge counts what the page lists. Probe findings are read back from `probe_results`.
 async fn offline_warnings(
     state: &AppState,
     localizer: &Localizer,
@@ -690,9 +617,7 @@ async fn offline_warnings(
 ) -> AppResult<Vec<Warning>> {
     let mut warnings = Vec::new();
 
-    // `external` is a decision, not an omission, so it is stated as its own
-    // line: telling an operator who put Authelia in front that their API is
-    // unauthenticated is how a diagnostic gets ignored.
+    // `external` has its own `info` line: a proxy in front is not an unauthenticated API.
     match state.config.auth_mode {
         crate::config::AuthMode::None => {
             warnings.push(Warning::new(
@@ -743,9 +668,6 @@ async fn offline_warnings(
         ));
     }
 
-    // The same predicate the library column and the diagnostics count splice:
-    // three spellings of one question is how a badge ends up contradicting the
-    // number above it.
     let known = crate::api::media::metadata_predicate(&state.settings().await);
     let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
@@ -777,12 +699,7 @@ async fn offline_warnings(
         ));
     }
 
-    // An unattended pass that panicked. The loop catches it and carries on
-    // (stopping would silently end every sync, backup and purge), but carrying
-    // on quietly is its own failure, because nothing gives an operator a reason
-    // to open the log of an application that looks well. Counted over 24 hours
-    // rather than since startup: what matters is whether it is still happening,
-    // and a restart must not be a way of hiding it.
+    // Scheduler panics in the last 24 hours, so a restart cannot hide them.
     let panicked: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM jobs
          WHERE kind = 'scheduler' AND status = 'failed'
@@ -797,8 +714,6 @@ async fn offline_warnings(
         ));
     }
 
-    // A backup that fails does so again at every interval, and nothing else
-    // shows it until the day an archive is needed.
     if state.bool_setting("backup_enabled").await {
         let last: Option<String> = sqlx::query_scalar(
             "SELECT status FROM jobs WHERE kind = 'backup'
@@ -824,10 +739,7 @@ async fn offline_warnings(
         ));
     }
 
-    // A retention count stored above its ceiling is honoured as it is:
-    // lowering it removes what is beyond it, and nothing but the operator's
-    // own save may do that. Named here so the operator is the one who lowers
-    // it: the screen refuses to save it as it stands, and this says why.
+    // Never clamped: lowering a retention count deletes, which only the operator's save may do.
     for (key, label, max) in crate::services::settings::retention_counts() {
         let stored: i64 = settings.get(key);
         if stored > max {
@@ -842,8 +754,7 @@ async fn offline_warnings(
         }
     }
 
-    // A passphrase the master key in place cannot open takes no backup at all,
-    // rather than one in the clear, while the settings still say one is set.
+    // No backup is taken while the passphrase set is one the master key cannot open.
     if let Some(sealed) = settings
         .raw(crate::services::backup::PASSPHRASE_SETTING)
         .filter(|value| !value.trim().is_empty())
@@ -855,9 +766,7 @@ async fn offline_warnings(
         ));
     }
 
-    // An enabled instance with nothing mapped routes nowhere. Reported whether
-    // or not it answers: being unreachable does not make the mapping appear,
-    // and the two are separate things to fix.
+    // Reported whether or not the instance answers: the two are separate things to fix.
     let unmapped: Vec<(String,)> = sqlx::query_as(
         "SELECT name FROM instances i
          WHERE i.enabled = 1
@@ -877,9 +786,6 @@ async fn offline_warnings(
         ));
     }
 
-    // An Arr rating for a country outside the certification regions: the
-    // regions rank every source's rating by the country it belongs to, and
-    // this one's then counts only after every rating inside them.
     let regions = AppState::certification_regions_from(settings);
     let rating: Vec<(String, String)> = sqlx::query_as(
         "SELECT name, certification_country FROM instances
@@ -898,9 +804,7 @@ async fn offline_warnings(
         ));
     }
 
-    // A Radarr whose rating country changed: the films it rated before keep
-    // the previous country's ratings until each is refreshed, which it does on
-    // its own within 180 days.
+    // Radarr refreshes each film's rating within 180 days of a change of country.
     let changed: Vec<(String, String)> = sqlx::query_as(
         "SELECT name, certification_country FROM instances
           WHERE enabled = 1 AND certification_country IS NOT NULL
@@ -922,20 +826,13 @@ async fn offline_warnings(
     Ok(warnings)
 }
 
-/// What is wrong with the metadata configuration, in the user's language.
-///
-/// Deliberately not "no TMDB key": with the Arr enabled, genre, language and
-/// certification rules match perfectly well without one. Only keywords and
-/// origin countries do not.
+/// What is wrong with the metadata configuration, in the user's language. A TMDB key is no
+/// requirement: the Arr answers genre, language and certification rules without one.
 fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Settings) -> Vec<Warning> {
     let mut warnings = Vec::new();
     let order = AppState::metadata_order_from(settings);
-    // A source counts as configured whether its key came from the interface
-    // or the environment.
     let keys = state.provider_keys_from(settings);
 
-    // One line per source that could answer and cannot: which key is missing
-    // is the one thing the user can act on.
     for provider in &order {
         if provider.needs_key && !metadata::is_usable(provider, &keys) {
             warnings.push(Warning::restating(
@@ -946,10 +843,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
         }
     }
 
-    // A key set in the environment for a source the list leaves out. The start
-    // lists TMDB for its key only while no list is stored, and any save of the
-    // Settings screen stores one, so the key would otherwise be read and never
-    // used, with nothing saying so.
+    // A key set in the environment for a source the stored list leaves out is never used.
     for provider in metadata::PROVIDERS {
         let listed = order.iter().any(|entry| entry.id == provider.id);
         if let (false, Some(variable)) = (listed, provider.key_env)
@@ -973,8 +867,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
     warnings
 }
 
-/// What a probe of one Arr found, or `unchecked` and `disabled`, which no
-/// probe asks.
+/// What a probe of one Arr found, or `unchecked` and `disabled`, which no probe asks.
 #[derive(Clone)]
 struct Reached {
     /// `connected`, `disabled`, `unchecked` or `error`.
@@ -989,9 +882,8 @@ impl Reached {
     }
 }
 
-/// Why a probe of an Arr failed, as `probe_results` keeps it: what the Arr
-/// or the network said, which [`Failure::told`] turns into what to change in
-/// the language of whoever reads it, or a sentence already told.
+/// Why a probe of an Arr failed, as `probe_results` keeps it: the answer, which
+/// [`Failure::told`] words in the reader's language, or a sentence already worded.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Failure {
@@ -1057,8 +949,7 @@ async fn probe_instance(state: &AppState, instance: &Instance) -> Reached {
     match reached {
         Ok(version) => Reached { status: "connected", version: Some(version), failure: None },
         Err(e) => {
-            // Any key reads what a probe found, through `/status`: an internal
-            // failure reads as one generic sentence, and goes to the log.
+            // Any key reads this through `/status`, so an internal failure's text goes to the log.
             if e.is_internal() {
                 tracing::warn!(instance = %instance.name, "The probe failed: {e}");
             }
@@ -1067,8 +958,7 @@ async fn probe_instance(state: &AppState, instance: &Instance) -> Reached {
     }
 }
 
-/// One instance as `/health` answers it: what the database counts, and what
-/// the probe found, told in the reader's language.
+/// One instance as `/health` answers it, the probe's failure told in the reader's language.
 async fn counts_for(
     state: &AppState,
     instance: &Instance,
@@ -1087,10 +977,7 @@ async fn counts_for(
         .failure
         .as_ref()
         .map(|failure| failure.told(&instance.instance_type, &instance.base_url, localizer));
-    let status = match &detail {
-        Some(detail) => format!("error: {detail}"),
-        None => reached.status.to_string(),
-    };
+    let status = if detail.is_some() { "error" } else { reached.status }.to_string();
 
     Ok(InstanceHealth {
         id: instance.id.clone(),
@@ -1109,7 +996,6 @@ async fn counts_for(
     })
 }
 
-/// All counters in one round trip instead of a dozen sequential `COUNT(*)`s.
 async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
     let open = open_failure();
     let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) =
@@ -1147,9 +1033,7 @@ async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
     })
 }
 
-/// No archive for twice the interval: the schedule stopped, or every attempt
-/// since vanished from the Tasks screen. An installation younger than that
-/// has not missed one yet.
+/// No archive for twice the interval. An installation younger than that has not missed one yet.
 async fn backup_overdue(state: &AppState, hours: i64) -> AppResult<bool> {
     let limit = chrono::Duration::hours(2 * hours);
     let since = match crate::services::backup::last_taken_at(state) {
@@ -1168,9 +1052,8 @@ async fn backup_overdue(state: &AppState, hours: i64) -> AppResult<bool> {
     Ok(chrono::Utc::now() - since > limit)
 }
 
-/// The bytes left on the disk of the data folder, when fewer than the next
-/// backup and the database's own growth need: twice the database, and room
-/// to spare. Unknown on a filesystem that cannot say, which warns of nothing.
+/// The bytes left on the data folder's disk, when too few for the next backup and the database's
+/// growth. `None` on a filesystem that cannot say.
 fn data_disk_low(config: &crate::config::Config) -> Option<u64> {
     let free = fs4::available_space(&config.data_dir).ok()?;
     let database = std::fs::metadata(&config.db_path).map(|meta| meta.len()).unwrap_or(0);

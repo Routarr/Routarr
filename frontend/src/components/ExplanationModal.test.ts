@@ -296,7 +296,6 @@ describe('ExplanationModal', () => {
           certification_scale: null,
           status: 'released',
           overview: 'Two sisters move to the country.',
-          poster_path: null,
           field_sources: { genres: 'arr', status: 'tmdb', overview: 'anilist' },
           sources: ['arr', 'tmdb', 'anilist'],
         },

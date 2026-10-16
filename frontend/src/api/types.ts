@@ -438,8 +438,6 @@ export interface MediaMetadata {
   /** In the words Radarr and Sonarr use: `released`, `continuing`, `ended`... */
   status: string | null;
   overview: string | null;
-  /** Always null: posters are not fetched. Deprecated until the next major version. */
-  poster_path: string | null;
   /** Field name -> the source that supplied it. */
   field_sources: Record<string, string>;
   /** Sources that supplied at least one field, highest priority first. */
