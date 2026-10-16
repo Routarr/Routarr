@@ -1824,7 +1824,7 @@
             "type": "string"
           },
           "warnings": {
-            "description": "Every warning standing, those `/status` lists, with what this probe\nfound.",
+            "description": "Every standing warning: those `/status` lists, with what this probe found.",
             "items": {
               "$ref": "#/components/schemas/Warning"
             },
@@ -1929,7 +1929,7 @@
             "type": "string"
           },
           "status": {
-            "description": "`connected`, `disabled`, `unchecked` when nothing was probed, or\n`error: ` and the sentence `detail` holds. The sentence after the\ncolon is kept for the clients that read it there, and goes in a\ncoming release: read `detail`.",
+            "description": "`connected`, `disabled`, `unchecked` when nothing was probed, or `error`.",
             "type": "string"
           },
           "version": {
@@ -2730,14 +2730,6 @@
               "null"
             ]
           },
-          "poster_path": {
-            "deprecated": true,
-            "description": "Always null: posters are not fetched. Kept until the next major\nversion for the clients that read it.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "sources": {
             "description": "Sources that supplied at least one field, highest priority first.",
             "items": {
@@ -3310,7 +3302,7 @@
         "type": "object"
       },
       "Pong": {
-        "description": "What the liveness probe answers.",
+        "description": "What the liveness probe answers. No version: `/status` gives it to a caller with a key.",
         "properties": {
           "status": {
             "description": "Always `ok`: an answer at all is the news.",
@@ -4294,14 +4286,14 @@
         "type": "object"
       },
       "StatusResponse": {
-        "description": "Counts and warnings, read from the database without probing anything.",
+        "description": "Counts and warnings from the database alone, so an unreachable Arr never holds up the top bar.",
         "properties": {
           "dry_run": {
             "description": "Whether the global dry run holds, in which case nothing is moved.",
             "type": "boolean"
           },
           "failed_decisions": {
-            "description": "Failed moves still asking for attention: each its title's latest\ndecision, which no later run has settled.",
+            "description": "Failed moves still asking for attention: titles whose latest decision failed and that no\nlater run has settled.",
             "format": "int64",
             "type": "integer"
           },
@@ -4463,11 +4455,11 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `source_quota_spent`,\n`source_rate_limited`, `source_key_refused`,\n`instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `backup_failed`, `backup_overdue`,\n`data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`,\n`auto_apply_held`, `arr_below_version`, `oidc_open_to_anyone` or\n`backup_passphrase_unreadable`. The list may grow.",
+            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone` or `backup_passphrase_unreadable`. The list may grow.",
             "type": "string"
           },
           "guide_step": {
-            "description": "The getting-started step this warning restates, whose banner says the\nsame thing while the step is open: `instance`, `categories` or\n`metadata`. Null for most.",
+            "description": "The getting-started step whose banner says the same while the step is open: `instance`,\n`categories` or `metadata`. Null for most.",
             "type": [
               "string",
               "null"
@@ -4478,7 +4470,7 @@
             "type": "string"
           },
           "severity": {
-            "description": "`error` for a fault that stops part of Routarr working, `warning` for\na configuration that needs looking at, `info` for a state worth\nknowing. An open list. `/health` reads `degraded` while one is `error`.",
+            "description": "`error` for a fault that stops part of Routarr working, `warning` for a configuration to\nlook at, `info` for a state worth knowing. An open list. `/health` reads `degraded` while\none is `error`.",
             "type": "string"
           }
         },
@@ -5265,7 +5257,7 @@
         "operationId": "health",
         "parameters": [
           {
-            "description": "`false` reads the database alone: every enabled instance reads\n`unchecked` and every source `connected: null`, while `warnings` repeat\nwhat the last probe found. Defaults to true, except for a request\nanother site set off.",
+            "description": "`false` reads the database alone: every enabled instance reads `unchecked`, every source\n`connected: null`, and `warnings` repeat what the last probe found. Defaults to true,\nexcept for a request another site set off.",
             "in": "query",
             "name": "probe",
             "required": false,
@@ -5274,7 +5266,7 @@
             }
           },
           {
-            "description": "`true` probes again even when a probe of the same configuration ran in\nthe last 30 seconds, whose findings are otherwise answered again.",
+            "description": "`true` probes again even when a probe of the same configuration ran in the last 30\nseconds, whose findings are otherwise answered again.",
             "in": "query",
             "name": "fresh",
             "required": false,

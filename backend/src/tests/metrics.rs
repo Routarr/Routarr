@@ -100,7 +100,7 @@ async fn the_library_is_reported_per_instance_and_type() {
 
     assert!(
         body.contains(
-            r#"routarr_media_total{arr_instance="Radarr",arr_instance_id="inst-1",media_type="movie"} 1"#
+            r#"routarr_media_items{arr_instance="Radarr",arr_instance_id="inst-1",media_type="movie"} 1"#
         ),
         "got:\n{body}"
     );
@@ -165,9 +165,9 @@ async fn the_enabled_switch_and_each_job_outcome_are_series() {
     for line in [
         r#"routarr_instance_enabled{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#,
         r#"routarr_instance_enabled{arr_instance="Sonarr",arr_instance_id="inst-2"} 0"#,
-        r#"routarr_jobs_total{kind="sync",status="success"} 2"#,
-        r#"routarr_jobs_total{kind="apply",status="failed"} 1"#,
-        r#"routarr_jobs_total{kind="apply",status="success"} 1"#,
+        r#"routarr_jobs{kind="sync",status="success"} 2"#,
+        r#"routarr_jobs{kind="apply",status="failed"} 1"#,
+        r#"routarr_jobs{kind="apply",status="success"} 1"#,
     ] {
         assert!(body.lines().any(|l| l == line), "{line} missing from:\n{body}");
     }

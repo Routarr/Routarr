@@ -1,0 +1,4 @@
+# The breaks of v1 the release after v0.2.0 accepts, one per line as oasdiff
+# reports it. Each is named in that release's notes.
+GET /media/{id} removed the optional property `metadata/oneOf[#/components/schemas/MediaMetadata]/poster_path` from the response with the `200` status
+GET /media/{id}/explain removed the optional property `metadata/oneOf[#/components/schemas/MediaMetadata]/poster_path` from the response with the `200` status

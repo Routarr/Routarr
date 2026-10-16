@@ -1,13 +1,5 @@
-//! Prometheus exposition.
-//!
-//! Written by hand rather than through a metrics crate. Everything worth
-//! exposing is already a row count, so a registry would add a dependency, a
-//! parallel source of truth and a drift risk, to serialise a few queries.
-//!
-//! Everything here is a **gauge**: the current state of the library, read at
-//! scrape time. Counters would require in-process accumulators that reset on
-//! restart and disagree with the database. The database is the truth, and it
-//! survives restarts.
+//! Prometheus exposition. Every family is a gauge read from the database at scrape time, so a
+//! restart loses nothing.
 
 use axum::extract::State;
 use axum::http::header;
@@ -39,18 +31,13 @@ impl Family<'_> {
     }
 }
 
-/// Escape a label value: backslash, quote and newline, per the exposition format.
-///
-/// Category names are user-supplied. An unescaped quote would produce a line
-/// Prometheus rejects, and the whole scrape with it.
+/// Escape a label value: one unescaped quote in a user's name fails the whole scrape.
 fn label(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
 }
 
-/// The labels naming an Arr instance. Not `instance`: Prometheus sets that on
-/// every series to the target it scraped, and renames a label of that name
-/// `exported_instance`. Keyed by id as well, which a rename leaves alone, so a
-/// renamed instance keeps its series.
+/// The labels naming an Arr instance. `instance` belongs to Prometheus, and the id keeps a
+/// renamed instance on its series.
 fn arr_instance(id: &str, name: &str) -> String {
     format!("arr_instance=\"{}\",arr_instance_id=\"{}\"", label(name), label(id))
 }
@@ -59,9 +46,8 @@ fn source_label(source: &str) -> String {
     format!("source=\"{}\"", label(source))
 }
 
-/// Each title's latest standing decision, over `decisions d`: what the
-/// engine wants for it now. An older one an apply left standing is history,
-/// and counted, it reads as a library still moving.
+/// Each title's latest standing decision, over `decisions d`. Counting an older one an apply left
+/// standing would show a library still moving.
 pub(crate) const LATEST: &str = "d.superseded = 0
     AND NOT EXISTS (SELECT 1 FROM decisions later
                      WHERE later.media_id = d.media_id AND later.superseded = 0
@@ -75,8 +61,6 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
     let mut families: Vec<Family> = Vec::new();
 
-    // Media per (instance, type). Grouped rather than totalled: "which library
-    // grew" is the question someone actually asks of a graph.
     let media: Vec<(String, String, String, i64)> = sqlx::query_as(
         "SELECT i.id, i.name, m.media_type, COUNT(*)
            FROM media m JOIN instances i ON i.id = m.instance_id
@@ -91,19 +75,11 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         })
         .collect();
     families.push(Family {
-        name: "routarr_media_total",
-        help: "Deprecated, use routarr_media_items.",
-        samples: media.clone(),
-    });
-    families.push(Family {
         name: "routarr_media_items",
         help: "Media items Routarr tracks.",
         samples: media,
     });
 
-    // Where the engine currently wants each item, a title already there
-    // included. Answers "is the library drifting" without opening the
-    // interface.
     let by_category: Vec<(String, i64)> =
         sqlx::query_as("SELECT category, COUNT(*) FROM media_routing GROUP BY category")
             .fetch_all(pool)
@@ -131,9 +107,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // Instance health as 1/0, from the last sync. The obvious thing to alert on,
-    // beside when that sync was, without which a sync that stopped running
-    // reads as up for ever.
+    // Without the sync timestamps, a sync that stopped running would read as up for ever.
     let instances: Vec<Synced> = sqlx::query_as(
         "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at
            FROM instances",
@@ -185,8 +159,6 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // The titles nothing describes, by the predicate the diagnostics count and
-    // the library column share: a third spelling would disagree with both.
     let known = crate::api::media::metadata_predicate(&state.settings().await);
     let undescribed: Vec<(String, String, String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT i.id, i.name, m.media_type, COUNT(*)
@@ -210,8 +182,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // Source health as 1/0, from the last probe `/health` ran. A source never
-    // probed has no sample: not asked is not down.
+    // A source never probed has no sample: not asked is not down.
     let probed: Vec<(String, bool)> = sqlx::query_as(
         "SELECT subject, reachable FROM probe_results WHERE subject GLOB 'source:*'",
     )
@@ -240,8 +211,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // A spent quota stops a source until the next UTC day, while its probe
-    // stood earlier in the day, so the count is what says it.
+    // A probe's verdict stands all day, so only this count shows a quota spent since.
     let mut spent = Vec::new();
     let mut limits = Vec::new();
     for source in state.metadata_sources().await {
@@ -266,9 +236,6 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: limits,
     });
 
-    // The date of the newest archive the schedule or the owner took, which a
-    // rule alerts on once it is older than the interval: a failed backup says
-    // so in the jobs alone, and the log retention trims those.
     families.push(Family {
         name: "routarr_backup_last_success_timestamp_seconds",
         help: "When the newest archive was written, in seconds since the Unix epoch.",
@@ -290,7 +257,6 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         sqlx::query_as("SELECT kind, status, COUNT(*) FROM jobs GROUP BY kind, status")
             .fetch_all(pool)
             .await?;
-    // Kept rows, which the purge removes: a gauge, not a count of every job run.
     let jobs: Vec<(String, f64)> = jobs
         .into_iter()
         .map(|(kind, status, count)| {
@@ -298,18 +264,11 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         })
         .collect();
     families.push(Family {
-        name: "routarr_jobs_total",
-        help: "Deprecated, use routarr_jobs.",
-        samples: jobs.clone(),
-    });
-    families.push(Family {
         name: "routarr_jobs",
         help: "Background jobs the retention keeps, by kind and outcome.",
         samples: jobs,
     });
 
-    // The two switches that decide whether a click writes anything. Worth a
-    // graph annotation when someone asks why nothing moved for a week.
     families.push(Family {
         name: "routarr_dry_run",
         help: "1 when global dry-run is blocking every write.",
