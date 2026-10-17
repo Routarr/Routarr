@@ -63,7 +63,7 @@ describe('GuideStepBanner', () => {
       '/sources',
     );
     expect(screen.getByRole('link', { name: 'Skip this step' }).getAttribute('href')).toBe(
-      '/rules?new=1',
+      '/rules#templates',
     );
   });
 
@@ -75,7 +75,7 @@ describe('GuideStepBanner', () => {
       screen.getByText('Getting started, optional step: Choose metadata sources'),
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Skip this step' }).getAttribute('href')).toBe(
-      '/rules?new=1',
+      '/rules#templates',
     );
   });
 
@@ -83,8 +83,8 @@ describe('GuideStepBanner', () => {
     publishOnboarding(onboardingStatus(['instance', 'categories', 'metadata']));
     renderWithI18n(GuideStepBanner, { props: { step: 'metadata' } });
 
-    expect(screen.getByText('Optional step done. Next: Write a first rule')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Create a rule' })).toBeTruthy();
+    expect(screen.getByText('Optional step done. Next: Add your first rule')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open the templates' })).toBeTruthy();
   });
 
   /** Past the last optional step there is only the guide, where Finish is. */
@@ -106,9 +106,8 @@ describe('GuideStepBanner', () => {
   });
 
   /**
-   * The sentence saying a step is done is the one that tells the reader to
-   * move on, so it is said in a region that exists before it changes: one
-   * that arrives with its text announces nothing.
+   * A live region announces nothing when it arrives with its text, so the sentence goes into
+   * the region the banner already held.
    */
   it('says a step turning done in the region its banner already held', () => {
     publishOnboarding(onboardingStatus());

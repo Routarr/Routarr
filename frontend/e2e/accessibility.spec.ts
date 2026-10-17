@@ -7,9 +7,8 @@ import { SCREENS, SETTINGS_SECTIONS } from './screens';
 import { screenKey } from '../src/lib/routes';
 
 /**
- * A move History offers to revert. The reset before each test makes the
- * instance again, so the move the seed applied in an earlier test names a
- * title the library no longer holds, and offers none.
+ * A move History offers to revert. Each test's reset makes the instance again, so a move
+ * applied in an earlier test names a title missing from the new library.
  */
 async function offerRevert(): Promise<void> {
   const { data: applied } = (await api('/decisions?status=applied&per_page=200')) as {
@@ -27,10 +26,7 @@ async function openWithRows(page: Page, path: string): Promise<void> {
   await unfold(page);
 }
 
-/**
- * The guard on the seed: a sweep that walks a table with no rows passes on its
- * header alone. A loading row and an empty state are not rows.
- */
+/** A sweep over a table without rows passes on its header alone, and a loading row is none. */
 test('the sweeps meet a row in every table they walk', async ({ page }) => {
   const bare: string[] = [];
 
@@ -55,21 +51,14 @@ test('the sweeps meet a row in every table they walk', async ({ page }) => {
 });
 
 /**
- * A `.form-label` sitting *next* to a field with no `htmlFor` is decorative: the
- * control has no accessible name and clicking the caption does not focus it.
- * Clicking is what only a browser does: the names themselves are resolved by
- * the component tests and by the sweeps below.
+ * A `.form-label` beside a field without `htmlFor` names nothing, and a click on it focuses
+ * nothing. Only a browser can click, so that is what this checks.
  */
 test.describe('form fields carry a programmatic label', () => {
   test('the settings page names every control and links its help text', async ({ page }) => {
     await page.goto('/settings');
 
-    // Every section, not just the one that opens: with the settings grouped
-    // into tabs, a field can be correct on screen and unlabelled two tabs away.
-    //
-    // The wait matters: the page renders a spinner until its settings,
-    // categories and languages have all arrived, and `count()` does not
-    // retry, so asked too early it returns zero and fails the run at random.
+    // `count()` does not retry, so the tabs are awaited first, or the run fails at random.
     await expect(page.getByRole('tab').first()).toBeVisible();
     const tabs = await page.getByRole('tab').count();
     expect(tabs).toBeGreaterThan(1);
@@ -81,8 +70,7 @@ test.describe('form fields carry a programmatic label', () => {
       await tab.click();
       await expect(page.locator('[role=tabpanel] .form-group').first()).toBeVisible();
 
-      // One snapshot of the panel, taken at a single instant, so nothing can
-      // shift underneath the assertions.
+      // One snapshot at a single instant, so nothing shifts under the assertions.
       const controls = await page.evaluate(() =>
         [...document.querySelectorAll('[role=tabpanel] .form-group :is(input, select)')].map(
           (control) => ({
@@ -97,9 +85,7 @@ test.describe('form fields carry a programmatic label', () => {
       for (const control of controls) {
         expect(control.id, `${name}: a control has no id to be labelled by`).toBeTruthy();
         expect(control.labels, `${name}: ${control.id} is not labelled`).toBe(1);
-        // A setting's explanatory paragraph is announced with its field rather
-        // than lost. The forms beside the settings (the account, the backup
-        // passphrase) explain themselves in their card's note.
+        // Only a setting carries its paragraph: the account and backup forms explain in a note.
         if (control.id.startsWith('setting-')) {
           expect(control.describedBy, `${name}: ${control.id}`).toBe(`${control.id}-help`);
           checked += 1;
@@ -107,57 +93,45 @@ test.describe('form fields carry a programmatic label', () => {
       }
     }
 
-    // Guards the guard: a grouping bug that emptied every panel would otherwise
-    // pass silently.
+    // Guards the guard: a bug that emptied every panel would otherwise pass.
     expect(checked).toBeGreaterThanOrEqual(15);
   });
 });
 
 test.describe('modal dialogs', () => {
   /**
-   * With a plain <div> as the overlay, assistive technology keeps announcing
-   * the page behind it, Tab walks straight out, and Escape does nothing. Only a
-   * real browser can tell whether the native <dialog> is genuinely modal:
-   * jsdom implements neither the top layer nor the focus trap.
+   * Only a browser tells whether the native <dialog> is modal: jsdom has neither the top layer
+   * nor the focus trap.
    */
   test('a modal is announced as a dialog and closes on Escape', async ({ page }) => {
     await page.goto('/instances');
     await page.getByRole('button', { name: /add instance/i }).click();
 
-    // Announced as a dialog, and named: without the name a screen reader says
-    // only "dialog".
+    // Named, or a screen reader says only "dialog".
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute('aria-label', /instance/i);
 
-    // The background is inert: the sidebar link behind the modal refuses the
-    // focus even when asked, which is what `showModal()` buys over a styled div.
+    // The background is inert: the sidebar link behind refuses the focus even when asked.
     const behind = page.locator('.sidebar-nav a').first();
     await behind.focus();
     await expect(behind).not.toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    // Back where it came from, not on `<body>`: from the top of the page a
-    // keyboard user tabs through the whole shell to reach the next control.
+    // Back where it came from, or a keyboard user tabs through the whole shell again.
     await expect(page.getByRole('button', { name: /add instance/i })).toBeFocused();
   });
 });
 
-/**
- * Swept rather than sampled: the controls nobody thinks of as a form are named
- * too, and the sweep catches one added later on a screen this file has never
- * heard of.
- */
+/** Swept rather than sampled, so a control added later on any screen is checked too. */
 test('every control on every screen has an accessible name', async ({ page }) => {
   const nameless: string[] = [];
 
   for (const path of SCREENS) {
     await openWithRows(page, path);
 
-    // The same four sources the browser computes a name from. `labels` covers
-    // both a `for=` caption and a control wrapped inside its own `<label>`,
-    // which is why a wrapped checkbox is not reported here.
+    // `labels` covers both a `for=` caption and a control wrapped in its own `<label>`.
     const found = await page.evaluate(() =>
       [...document.querySelectorAll('input, select, textarea')]
         .filter((e) => (e as HTMLInputElement).type !== 'hidden')
@@ -177,10 +151,8 @@ test('every control on every screen has an accessible name', async ({ page }) =>
 });
 
 /**
- * An `id` names one element. Two controls answering to the same one leave
- * `aria-controls`, `aria-labelledby` and `<label for>` pointing at whichever
- * rendered first. A component with a hard-coded id fails that way the moment
- * it is used twice on a page.
+ * Two elements with one `id` leave `aria-controls`, `aria-labelledby` and `<label for>` on
+ * whichever rendered first, as a component with a hard-coded id does when used twice.
  */
 test('no screen renders the same id twice', async ({ page }) => {
   const duplicates: string[] = [];
@@ -200,10 +172,7 @@ test('no screen renders the same id twice', async ({ page }) => {
   expect(duplicates).toEqual([]);
 });
 
-/**
- * A table is announced by its caption. Without one a screen reader lands on
- * "table, 7 columns, 12 rows" and nothing says what the rows are.
- */
+/** Without a caption a screen reader says "table, 7 columns" and nothing of what the rows are. */
 test('every table on every screen carries a caption', async ({ page }) => {
   const bare: string[] = [];
 
@@ -223,31 +192,15 @@ test('every table on every screen carries a caption', async ({ page }) => {
   expect(bare).toEqual([]);
 });
 
-/**
- * The checks above are written for this interface. axe-core is the reference
- * nobody here wrote: WCAG 2.2 A and AA, every screen, so a failure names a rule
- * and not an opinion.
- */
-
-/**
- * The bound of a test that opens every screen and every Settings section and
- * runs axe or a Tab walk on each. The default bound fits one screen's journey,
- * and a slow runner crosses it on a whole sweep with nothing wrong.
- */
+/** A sweep of every screen and section outlasts the default bound on a slow runner. */
 const SWEEP_TIMEOUT = 120_000;
 
-/**
- * The bound of the Tab walk, which presses once per control on every screen
- * and waits two frames each time: the longest sweep by far, and one that grows
- * with every control a screen gains.
- */
+/** The Tab walk presses once per control on every screen and waits two frames each time. */
 const WALK_TIMEOUT = 2 * SWEEP_TIMEOUT;
 
 /**
- * Every screen and every Settings section, in both themes: the light palette
- * is a second set of colours, and contrast measured in one says nothing of the
- * other. Once more at the width of the rail, between a phone and a desktop,
- * where the navigation is drawn otherwise.
+ * Both themes, as contrast measured in one says nothing of the other, and once more at the
+ * rail's width, where the navigation is drawn otherwise.
  */
 for (const [theme, width] of [
   ['dark', 1280],
@@ -278,9 +231,8 @@ for (const [theme, width] of [
 }
 
 /**
- * A field says it has the focus by its border colour, and forced colours paint
- * every border in one system colour. An outline is drawn in a colour of its
- * own there, so it is what still shows where typing will land.
+ * Forced colours paint every border in one system colour, so only an outline still shows
+ * where the focus is.
  */
 test('a focused field is outlined when the system forces its colours', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
@@ -300,8 +252,8 @@ test('a focused field is outlined when the system forces its colours', async ({ 
 });
 
 /**
- * A row's action menu is walked with the arrows, and the action Enter would
- * run, Delete among them, has to show which it is, in forced colours too.
+ * A row's menu is walked with the arrows, and the item Enter would run shows which it is,
+ * in forced colours too.
  */
 for (const forced of ['none', 'active'] as const) {
   test(`the focused item of a row's menu is outlined, forced colours ${forced}`, async ({
@@ -324,11 +276,7 @@ for (const forced of ['none', 'active'] as const) {
   });
 }
 
-/**
- * A dozen navigation links stand between the top of the page and its content.
- * The first Tab has to offer a way past them, and taking it has to land focus
- * where the content starts.
- */
+/** The first Tab skips the dozen navigation links and lands the focus on the content. */
 test('the first tab stop skips to the content', async ({ page }) => {
   await openScreen(page, '/rules');
 
@@ -342,9 +290,8 @@ test('the first tab stop skips to the content', async ({ page }) => {
 });
 
 /**
- * A screen changes without a page load, so the tab says which one it is, in
- * the interface language, and a link followed leaves the focus on the heading
- * of the screen it led to, where a screen reader starts reading.
+ * A screen changes without a page load, so the tab names it, and a followed link leaves the
+ * focus on its heading, where a screen reader starts reading.
  */
 test('each screen names itself in the tab and takes the focus it was reached with', async ({
   page,
@@ -371,13 +318,9 @@ test('each screen names itself in the tab and takes the focus it was reached wit
   await expect(page).toHaveTitle(`${strings.MoveLog} · Routarr`);
 });
 
-/**
- * The screen a browser without a session opens on in the default mode, which
- * the sweep never reaches: its page holds a session from the start.
- */
+/** The key screen, which the sweep never reaches: its page holds a session from the start. */
 test('the key screen passes axe', async ({ browser }) => {
-  // A new context starts cold, and in Firefox on a CI runner its first page
-  // alone can take most of the default bound.
+  // A cold context's first page can take most of the default bound in Firefox on CI.
   test.setTimeout(60_000);
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -390,9 +333,8 @@ test('the key screen passes axe', async ({ browser }) => {
 });
 
 /**
- * Between a phone and a desktop the navigation is a rail of icons. An entry
- * that counts what waits behind it is still named by its destination first,
- * which is what a voice command says and what a screen reader reads.
+ * On the rail of icons, an entry with a count is named by its destination first, which is
+ * what a voice command says and a screen reader reads.
  */
 test('a rail entry with a count is named by its destination first', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 800 });
@@ -403,13 +345,8 @@ test('a rail entry with a count is named by its destination first', async ({ pag
 });
 
 /**
- * Every control a pointer can reach, the keyboard reaches, and nothing out of
- * sight takes the focus.
- *
- * Walked with Tab from the top of each screen, at a desktop width and at a
- * phone's, where the navigation is a drawer. A label dressed as a button over
- * a hidden file input, or a closed drawer whose links still take the focus,
- * passes every other check here: both are only seen by walking.
+ * Walked with Tab at a desktop width and a phone's: a label dressed as a button over a hidden
+ * input, or a closed drawer whose links take the focus, shows only when walked.
  */
 test.describe('the keyboard reaches every control', () => {
   for (const width of [1280, 375]) {
@@ -421,10 +358,7 @@ test.describe('the keyboard reaches every control', () => {
       for (const path of [...SCREENS, ...SETTINGS_SECTIONS]) {
         await openWithRows(page, path);
 
-        // The controls a pointer can reach: drawn, enabled, not inert, and not
-        // translated out of the viewport (a control past the edge of a table
-        // that scrolls sideways is reachable, one past the edge of the page is
-        // not). Each is tagged, so the walk can say which it met.
+        // What a pointer reaches: drawn, enabled, not inert, in view or in a sideways scroller.
         const expected = await page.evaluate(() => {
           const scrollsSideways = (el: Element) => {
             for (let up = el.parentElement; up; up = up.parentElement) {
@@ -453,8 +387,7 @@ test.describe('the keyboard reaches every control', () => {
           });
         });
 
-        // From the first control, as a reader starts. A blur leaves each browser
-        // a starting point of its own, Firefox the place the focus was.
+        // Focused on the first control, since after a blur each browser starts somewhere else.
         const reached = new Set<number>([0]);
         await page.locator('[data-keyboard-sweep="0"]').focus();
         for (let press = 0; press < expected.length * 2 + 20; press += 1) {
@@ -498,9 +431,8 @@ test.describe('the keyboard reaches every control', () => {
 });
 
 /**
- * A button that turns disabled while its action runs drops the focus to
- * `<body>`, where a screen reader loses its place and the next Tab starts
- * over. Pressed from the keyboard, each has the focus back once it ends.
+ * A button disabled while its action runs drops the focus to `<body>`, so each one pressed
+ * from the keyboard has the focus back once it ends.
  */
 test.describe('a button keeps the focus through the action it runs', () => {
   const BUTTONS: { path: string; name: RegExp }[] = [
@@ -523,9 +455,7 @@ test.describe('a button keeps the focus through the action it runs', () => {
 });
 
 test('every screen nests its headings without skipping a level', async ({ page }) => {
-  // A screen reader offers the headings as the outline of the page. An h1
-  // followed by an h3 says a level is missing and leaves the reader looking for
-  // the section that was skipped.
+  // A skipped heading level sends a screen reader looking for a missing section.
   const jumps: string[] = [];
 
   for (const path of SCREENS) {
@@ -558,16 +488,8 @@ test('every screen nests its headings without skipping a level', async ({ page }
 });
 
 /**
- * Two buttons that do different things must not answer to the same name.
- *
- * A delete button announced as "Delete" on every row, and nothing else, is a
- * destructive action repeated with no way to tell one from another except by
- * looking. Every other check here passes it, because each button does have *a*
- * name.
- *
- * Scoped to table bodies: "Previous" and "Next" appearing once per paginated
- * card is not the same defect, and a rule broad enough to catch that would be
- * turned off within a week.
+ * Two row actions with one name, as "Delete" on every row, can only be told apart by looking.
+ * Table bodies only: a paginated card's "Previous" and "Next" repeating is another matter.
  */
 test('no two row actions in a table answer to the same name', async ({ page }) => {
   const clashes: string[] = [];
@@ -595,11 +517,8 @@ test('no two row actions in a table answer to the same name', async ({ page }) =
 });
 
 /**
- * The same sweep, for what a page only shows once you ask for it.
- *
- * The screen sweep above walks every path and opens nothing, so every modal is
- * outside it. A dialog is where a screen reader user is most captive: the background is
- * inert, so an unnamed control there is not something they can navigate around.
+ * The same sweep for every dialog, which the screen sweep opens none of. Its background is
+ * inert, so an unnamed control there cannot be navigated around.
  */
 
 const MODALS: {
@@ -618,8 +537,12 @@ const MODALS: {
     open: (p) => p.getByRole('button', { name: 'New Rule' }).click(),
   },
   {
-    // Reachable from every screen, so the screen it is opened from does not
-    // matter. The rules page is simply the one already loaded above.
+    path: '/rules',
+    covers: 'components/TemplateDialog.svelte',
+    open: (p) => p.getByRole('button', { name: 'Add – Documentaries' }).click(),
+  },
+  {
+    // Reachable from every screen. The rules page is the one already loaded.
     path: '/rules',
     covers: 'components/CommandPalette.svelte',
     open: (p) => p.getByRole('button', { name: 'Quick search' }).click(),
@@ -666,8 +589,7 @@ const MODALS: {
         .click(),
   },
   {
-    // The explanation panel, which is the longest of them and the only one
-    // built entirely out of what the rule engine returns.
+    // The longest panel, built entirely from what the rule engine returns.
     path: '/library',
     covers: 'components/ExplanationModal.svelte',
     open: (p) =>
@@ -690,8 +612,7 @@ const MODALS: {
     },
   },
   {
-    // The proof a session gives before a key is made, above the dialog that
-    // asked for the key.
+    // The proof a session gives before a key is made, above the dialog that asked for it.
     path: '/applications',
     covers: 'components/ProofDialog.svelte',
     named: 'Confirm with the API key',

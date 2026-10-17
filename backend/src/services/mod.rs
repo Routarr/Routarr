@@ -19,6 +19,7 @@ pub mod rule_health;
 pub mod rule_tests;
 pub mod settings;
 pub mod sync;
+pub mod templates;
 
 #[cfg(test)]
 mod tests {
@@ -66,10 +67,9 @@ mod tests {
         files
     }
 
-    /// The lines of `source`, counted from zero, whose code names a path into
-    /// `module`, written out or in a `crate::{...}` group, which is read
-    /// across the lines it spans and counted on the one opening it. Comments
-    /// are skipped: a doc link names a module without depending on it.
+    /// The lines of `source`, from zero, whose code names a path into `module`,
+    /// a `crate::{...}` group counting on the line it opens. Comments are
+    /// skipped, since a doc link names a module without depending on it.
     fn lines_naming(source: &str, module: &str) -> Vec<usize> {
         let code: Vec<&str> = source.lines().map(without_comment).collect();
         let mut found: Vec<usize> = code
@@ -107,11 +107,9 @@ mod tests {
         })
     }
 
-    /// The paths the group at the start of `group` names, each written out
-    /// after `prefix` and a group within it left whole: `{api::media,
-    /// error::{AppError, AppResult}}` after `crate::` names `crate::api::media`
-    /// and `crate::error::{AppError, AppResult}`. What follows the group is
-    /// not read.
+    /// The paths the group opening `group` names, each after `prefix`, a nested
+    /// group left whole: `{api::media, error::{A, B}}` after `crate::` names
+    /// `crate::api::media` and `crate::error::{A, B}`.
     fn ungrouped(prefix: &str, group: &str) -> Vec<String> {
         let mut paths = Vec::new();
         let (mut depth, mut start) = (0, 1);
@@ -135,25 +133,23 @@ mod tests {
         paths
     }
 
-    /// The layers run `api/`, then `services/`, then `integrations/`, with the
-    /// models under all three. A service or a model reaching up into a handler
-    /// makes a change to the HTTP layer ripple into the logic it calls.
+    /// No service or model names a handler, or a change to the HTTP layer
+    /// ripples into the logic it calls.
     #[test]
     fn neither_a_service_nor_a_model_reaches_up_into_the_handlers() {
         let found = naming(&["services", "models"], HANDLERS);
         assert!(found.is_empty(), "these reach up into the handlers:\n{}", found.join("\n"));
     }
 
-    /// A model is a shape every layer reads, so it names no service: one that
-    /// did would make a change to the logic ripple into every reader.
+    /// A model, which every layer reads, names no service.
     #[test]
     fn a_model_reaches_up_into_no_service() {
         let found = naming(&["models"], SERVICES);
         assert!(found.is_empty(), "these reach up into the services:\n{}", found.join("\n"));
     }
 
-    /// The scan finds what it looks for, or its silence proves nothing, and
-    /// it reads the modules held in a directory of their own.
+    /// The scan finds the paths it looks for, nested directories included, so
+    /// its silence elsewhere proves something.
     #[test]
     fn the_layer_scan_finds_the_paths_the_handlers_hold() {
         assert!(!naming(&["api"], HANDLERS).is_empty(), "the scan saw no path into the handlers");
@@ -165,10 +161,9 @@ mod tests {
         );
     }
 
-    /// A path into the handlers is found however it is written: in a group,
-    /// on one line or across several, renamed, or after an address on its
-    /// line. A module of that name inside another, a longer name and a
-    /// comment are not.
+    /// A path into the handlers is found however it is written, grouped,
+    /// split, renamed or after an address. A nested module of that name, a
+    /// longer name and a comment are not.
     #[test]
     fn the_layer_scan_finds_a_path_however_it_is_written() {
         for source in [

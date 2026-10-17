@@ -1,13 +1,6 @@
 /**
- * One place for the icons, and for the ones Lucide renames between versions.
- *
- * `@lucide/svelte` exports no aliases, so importing a retired name fails
- * loudly, which is fine. The dangerous one is `History`: the obvious guess is
- * `Clock`, and it is the wrong drawing. The right one is `RotateCcwClock`,
- * whose path data draws the retired `History`.
- *
- * Re-exported under the names the screens use, so a rename is stated here once
- * instead of in every screen.
+ * The icons, under the names the screens use. `History` maps to `RotateCcwClock`, the same
+ * drawing: `Clock`, the obvious guess, is a different one.
  */
 export {
   Activity,
@@ -15,6 +8,7 @@ export {
   ArrowDown,
   ArrowRight,
   ArrowUp,
+  Baby,
   Ban,
   BookOpen,
   Check,
@@ -29,17 +23,21 @@ export {
   ExternalLink,
   Film,
   FlaskConical,
+  FolderInput,
   FolderTree,
   GitFork,
   Info,
   KeyRound,
+  Languages,
   Layers,
   LayoutDashboard,
+  LayoutTemplate,
   Link2,
   ListChecks,
   Lock,
   LogOut,
   Menu,
+  MicVocal,
   MoveDown,
   MoveUp,
   Pencil,
@@ -55,10 +53,13 @@ export {
   Settings,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
+  Telescope,
   Trash2,
   Tv,
   Undo2,
   Upload,
+  UsersRound,
   Wifi,
   X,
 } from '@lucide/svelte';

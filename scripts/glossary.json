@@ -32,7 +32,10 @@
   },
   "live": {
     "en": "\\blive\\b",
-    "except": ["SettingAnimeSearchHelp", "HelpPurposeDiagnostics"],
+    "except": [
+      "SettingAnimeSearchHelp",
+      "HelpPurposeDiagnostics"
+    ],
     "words": {
       "ar": "ف[ً-ْـ]*ع[ً-ْـ]*ل[ً-ْـ]*ي",
       "ca": "\\breals?\\b",
@@ -495,7 +498,10 @@
   },
   "decision": {
     "en": "\\bdecisions?\\b",
-    "except": ["HelpFixApiReference4", "TermTextOperation"],
+    "except": [
+      "HelpFixApiReference4",
+      "TermTextOperation"
+    ],
     "words": {
       "ar": "ق[ً-ْـ]*ر[ً-ْـ]*ا[ً-ْـ]*ر",
       "ca": "decisi",
@@ -557,7 +563,9 @@
   },
   "pin": {
     "en": "\\bpin(s|ned|ning)?\\b",
-    "except": ["SettingTvdbPin"],
+    "except": [
+      "SettingTvdbPin"
+    ],
     "homonym": "\\bforc(e|es|ed|ing)\\b|\\bexceptions?\\b",
     "words": {
       "ar": "ت[ً-ْـ]*ث[ً-ْـ]*ب[ً-ْـ]*ي[ً-ْـ]*ت|م[ً-ْـ]*ث[ً-ْـ]*ب[ً-ْـ]*ت|ث[ً-ْـ]*ب[ً-ْـ]*ت",
@@ -616,6 +624,37 @@
       "uk": "запобіжн",
       "zh_CN": "安全防护",
       "zh_TW": "安全防護"
+    }
+  },
+  "template": {
+    "en": "\\btemplates?\\b",
+    "except": [],
+    "words": {
+      "ar": "ق[ً-ْـ]*و?[ً-ْـ]*ا[ً-ْـ]*ل[ً-ْـ]*ب",
+      "ca": "\\bplantill(a|es)\\b",
+      "cs": "šablon",
+      "da": "skabelon",
+      "de": "vorlage",
+      "el": "πρ[οό]τ[υύ]π",
+      "es": "\\bplantillas?\\b",
+      "fi": "\\bmall[ie]",
+      "fr": "\\bmodèles?\\b",
+      "hu": "sablon",
+      "it": "\\bmodell[oi]\\b",
+      "ja": "テンプレート",
+      "ko": "템플릿",
+      "nb_NO": "\\bmal(er|en|ene)?\\b",
+      "nl": "sjablo",
+      "pl": "szablon",
+      "pt": "\\bmodelos?\\b",
+      "ro": "[șş]ablo",
+      "ru": "шаблон",
+      "sk": "šablón",
+      "sv": "\\bmall(ar|en|arna)?\\b",
+      "tr": "şablon",
+      "uk": "шаблон",
+      "zh_CN": "模板",
+      "zh_TW": "範本"
     }
   }
 }

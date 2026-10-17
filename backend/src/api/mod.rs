@@ -25,6 +25,7 @@ pub mod rules;
 pub mod security_log;
 pub mod settings;
 pub mod simulation;
+pub mod templates;
 pub mod webhook;
 
 use axum::extract::{FromRequest, FromRequestParts, Request};
@@ -33,11 +34,8 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
-/// `axum::Json` with the application's error envelope on rejection.
-///
-/// The stock extractor answers a body it cannot parse with a `text/plain`
-/// 400, 415 or 422 of its own, outside the `{ error, message }` envelope
-/// every other failure uses. Every handler takes and returns this one instead.
+/// `axum::Json` with the application's error envelope on rejection, since the stock
+/// extractor answers a body it cannot parse in `text/plain`. Every handler uses this one.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Json<T>(pub T);
 
@@ -56,11 +54,8 @@ where
     }
 }
 
-/// `axum::extract::Query` with the application's error envelope on rejection.
-///
-/// The stock extractor answers a query string it cannot parse (`?page=abc`)
-/// with a `text/plain` 400, which the interface cannot unwrap into a message.
-/// Every handler reads its query through this one instead.
+/// `axum::extract::Query` with the application's error envelope on rejection, since the
+/// stock one answers `?page=abc` in `text/plain`. Every handler reads its query through it.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Query<T>(pub T);
 
@@ -79,11 +74,8 @@ where
     }
 }
 
-/// `axum::extract::Path` with the application's error envelope on rejection.
-///
-/// The stock extractor answers a segment it cannot decode (`%FF`, which is
-/// not UTF-8) with a `text/plain` 400 of its own. Every handler reads its path
-/// through this one instead.
+/// `axum::extract::Path` with the application's error envelope on rejection, since the
+/// stock one answers an undecodable segment in `text/plain`. Every handler uses this one.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Path<T>(pub T);
 
@@ -214,16 +206,10 @@ pub struct PageQuery {
     pub per_page: Option<u32>,
 }
 
-/// Clamp user-supplied paging parameters to a sane window.
-///
-/// Returns `(page, per_page, offset)`. Without the cap, `per_page=1000000`
-/// turns any list endpoint into a memory amplifier.
+/// Clamp user-supplied paging to `(page, per_page, offset)`. Without the cap,
+/// `per_page=1000000` turns any list endpoint into a memory amplifier.
 pub fn paginate(page: Option<u32>, per_page: Option<u32>) -> (u32, u32, u32) {
-    // Both ends bounded, `page` for the same reason as `per_page`.
-    // `(page - 1) * per_page` overflows a u32 long before `page` reaches its
-    // own maximum, and the two profiles fail differently: debug panics, while
-    // release wraps and answers 200 with an offset that is not the one asked
-    // for. A page nobody can reach is not worth either.
+    // `page` is bounded too, or the offset overflows: a panic in debug, a wrong page in release.
     const MAX_PAGE: u32 = 100_000;
     let page = page.unwrap_or(1).clamp(1, MAX_PAGE);
     let per_page = per_page.unwrap_or(50).clamp(1, 200);

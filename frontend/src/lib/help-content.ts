@@ -76,6 +76,7 @@ export const TERMS: Readonly<Record<string, Term>> = {
   Superseded: { name: 'TermSuperseded', text: 'TermTextSuperseded' },
   Sync: { name: 'JobSync', text: 'TermTextSync' },
   Task: { name: 'Task', text: 'TermTextTask' },
+  Template: { name: 'TermTemplate', text: 'TermTextTemplate' },
   Trigger: { name: 'Trigger', text: 'TermTextTrigger' },
   Webhook: { name: 'TriggerWebhook', text: 'TermTextWebhook' },
   WebhookToken: { name: 'TermWebhookToken', text: 'TermTextWebhookToken' },
@@ -98,6 +99,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
     purpose: 'HelpPurposeRules',
     terms: [
       'Rule',
+      'Template',
       'Priority',
       'Condition',
       'Exclusion',
@@ -111,7 +113,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
       { problem: 'HelpProblemRules3', fix: 'HelpFixRules3', to: '/categories' },
       { problem: 'HelpProblemRules4', fix: 'HelpFixRules4', to: '/sources' },
     ],
-    cards: ['LibraryFacets', 'PreviewTitle'],
+    cards: ['LibraryFacets', 'Templates', 'TemplateEffect', 'PreviewTitle'],
   },
   '/exceptions': {
     purpose: 'HelpPurposeExceptions',
@@ -433,6 +435,8 @@ export const CARD_HELP: Readonly<Record<string, CardHelp>> = {
   MetadataTitle: { title: 'MetadataTitle', text: 'HelpCardMetadataTitle' },
   NotificationTest: { title: 'NotificationTest', text: 'HelpCardNotificationTest' },
   PreviewTitle: { title: 'PreviewTitle', text: 'HelpCardPreviewTitle' },
+  Templates: { title: 'Templates', text: 'HelpCardTemplates' },
+  TemplateEffect: { title: 'TemplateEffect', text: 'HelpCardTemplateEffect' },
   RoutarrApiKey: { title: 'RoutarrApiKey', text: 'HelpCardRoutarrApiKey' },
   RuleEvaluation: { title: 'RuleEvaluation', text: 'HelpCardRuleEvaluation' },
   Sessions: { title: 'Sessions', text: 'HelpCardSessions' },

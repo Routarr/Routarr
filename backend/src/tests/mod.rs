@@ -52,6 +52,7 @@ mod shutdown;
 mod startup;
 mod stopped_runs;
 mod sync;
+mod templates;
 mod webhook_fuzz;
 mod windows;
 
@@ -104,10 +105,8 @@ pub async fn listen() -> (tokio::net::TcpListener, String) {
     (listener, address)
 }
 
-/// Wait until `reached` holds, for five seconds at most: a release that waits
-/// for the state a test proves, not for a time a fast machine happens to
-/// need. Past the bound the test goes on, and its assertions say what never
-/// happened.
+/// Wait until `reached` holds, for five seconds at most, so a test waits for the
+/// state it proves and never for a fixed time. Its assertions then say what failed.
 pub async fn until<Reached: std::future::Future<Output = bool>>(reached: impl Fn() -> Reached) {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     while !reached().await && tokio::time::Instant::now() < deadline {
@@ -140,8 +139,7 @@ pub fn http_client() -> reqwest::Client {
     crate::http::build_client(&crate::config::Config::for_tests()).expect("test http client")
 }
 
-/// Removed when dropped, so a test that fails halfway leaves nothing behind in
-/// a temporary directory that, in the dev container, is a tmpfs.
+/// Removed when dropped, so a test that fails halfway leaves nothing behind.
 pub(crate) struct TempDir(pub std::path::PathBuf);
 
 impl TempDir {
@@ -189,12 +187,8 @@ impl TestApp {
         Self::around(state)
     }
 
-    /// Rebuild the harness around a modified state.
-    ///
-    /// The router captures the state it was built with, so replacing `state`
-    /// on an existing harness leaves every HTTP route talking to the old
-    /// configuration, and a test would then drive one set of credentials and
-    /// assert on another.
+    /// Rebuild the harness around a modified state: the router keeps the state it
+    /// was built with, so changing `state` alone leaves the routes on the old one.
     pub fn around(state: AppState) -> Self {
         Self { router: crate::build_router(state.clone()), state }
     }
@@ -203,8 +197,7 @@ impl TestApp {
     pub async fn with_api_key(key: &str) -> Self {
         let mut config = crate::config::Config::for_tests();
         config.api_key = Some(key.to_string());
-        // `for_tests` leaves the mode at `None` so the unauthenticated cases
-        // stay testable, and a test that sets a key means to have it demanded.
+        // `for_tests` leaves auth off, and a test setting a key wants it demanded.
         config.auth_mode = crate::config::AuthMode::ApiKey;
 
         Self::around(AppState::for_tests().await.with_config(config))
@@ -226,10 +219,7 @@ impl TestApp {
         self.send(Request::delete(path).body(Body::empty()).unwrap()).await
     }
 
-    /// The raw response, for anything that is not JSON.
-    ///
-    /// `send` parses the body and discards it. A metrics scrape or a CSV export
-    /// needs the bytes and the headers.
+    /// The raw response, for a body that is not JSON, which `send` discards.
     pub async fn raw(&self, path: &str) -> axum::response::Response {
         self.send_raw(Request::get(path).body(Body::empty()).unwrap()).await
     }
@@ -304,10 +294,8 @@ impl TestApp {
         self.list_tmdb().await;
     }
 
-    /// List TMDB after the Arr, for a library TMDB describes.
-    ///
-    /// Under the shipped order, the Arr alone, a TMDB answer in the cache counts
-    /// for nothing. An order a test set first is its own.
+    /// List TMDB after the Arr, since under the shipped order a cached TMDB answer
+    /// counts for nothing. An order a test set first stays.
     pub async fn list_tmdb(&self) {
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'arr,tmdb')
@@ -359,10 +347,8 @@ impl TestApp {
         .unwrap();
     }
 
-    /// Everything that routes TMDB's film 8392 to `/movies/anime` on `inst-1`
-    /// but the film itself: the anime rule, the `anime` category mapped onto
-    /// `rf-2`, and TMDB's answer for 8392, listed. Each test seeds the item
-    /// with the path, the files and the id its case needs.
+    /// Everything that routes TMDB's film 8392 to `/movies/anime` on `inst-1` but
+    /// the film itself, which each test seeds as its case needs.
     pub async fn seed_route_to_anime(&self) {
         self.seed_anime_rule().await;
         sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
@@ -409,9 +395,8 @@ impl TestApp {
     }
 
     /// The film `arr` holds as id 10, `m-1`, which the anime rule wants to move.
-    /// `has_files` is what the last sync recorded, and the fake is what Radarr
-    /// answers now: auto-apply writes only when both say there is no file, so
-    /// `false` goes with [`fake_arr::FakeArr::with_unimported_movie`].
+    /// Auto-apply writes only when the sync and the fake both say there is no
+    /// file, so `false` goes with [`fake_arr::FakeArr::with_unimported_movie`].
     pub async fn one_film_to_move(arr: &fake_arr::FakeArr, has_files: bool) -> Self {
         let app = Self::new().await;
         app.seed_one_film_to_move(arr, has_files).await;
@@ -460,10 +445,8 @@ impl TestApp {
         app
     }
 
-    /// A one-film library pointed at every fake source.
-    ///
-    /// `title`/`year` are what the resolution has to work with, and `imdb`/`tvdb`
-    /// are what the directly-addressed sources read.
+    /// A one-film library pointed at every fake source, with the title, the year
+    /// and the ids each source reads.
     pub async fn one_film_on(sources: &fake_sources::FakeSources, order: &str) -> Self {
         let app = TestApp::new().await;
 
@@ -677,8 +660,6 @@ pub async fn webhook_settled(app: &TestApp, instance: &str) {
     settled.await.expect("a webhook delivery never ended");
 }
 
-/// A database as the release that shipped migration `last` hands it to an
-/// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
 /// A database in memory as Routarr 0.1.5 left it, for this release to upgrade.
 pub async fn database_of_0_1_5() -> sqlx::SqlitePool {
     let pool = database_through("001_release_0_1_5").await;
@@ -700,6 +681,8 @@ pub async fn left_by_0_1_5(pool: &sqlx::SqlitePool) {
     sqlx::query("INSERT INTO _opened_by (version) VALUES ('0.1.5')").execute(pool).await.unwrap();
 }
 
+/// A database in memory through migration `last`, as the release that shipped it
+/// hands it to an upgrade.
 pub async fn database_through(last: &str) -> sqlx::SqlitePool {
     let memory =
         <sqlx::sqlite::SqliteConnectOptions as std::str::FromStr>::from_str("sqlite::memory:")
@@ -732,12 +715,9 @@ pub async fn waiting_on_a_silent_webhook() -> TestApp {
     app
 }
 
-/// One enabled instance, written in the initial schema's terms, which every
-/// later schema reads.
-///
-/// At port 1 on the loopback, where nothing listens: a request is refused at
-/// once and never leaves the machine. A host name such as `radarr` goes through
-/// the host's resolver, and on a homelab it may well answer.
+/// One enabled instance, in the initial schema's terms, at port 1 on the loopback
+/// where nothing listens, so no request leaves the machine. A host name would go
+/// through the host's resolver, which may answer.
 pub const AN_INSTANCE: &str = "INSERT INTO instances
     (id, name, instance_type, base_url, api_key, enabled, webhook_token)
     VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'secret', 1, 'tok')";
@@ -799,13 +779,9 @@ impl Default for LogCapture {
     }
 }
 
-/// A dispatcher that hears nothing, registered for as long as the tests run.
-///
-/// With one dispatcher registered, `tracing` decides whether a call site is
-/// heard by asking the dispatcher of the thread that reaches it first. Reached
-/// first by a test with no capture, the call site is marked unheard for every
-/// thread, and a capture on another thread misses its lines. With two, every
-/// registered dispatcher is asked, and a capture hears what it should.
+/// A second dispatcher, hearing nothing, so `tracing` asks every dispatcher: with
+/// one alone, a call site a test without capture reaches first goes unheard on
+/// every thread.
 static BESIDE_EVERY_CAPTURE: std::sync::LazyLock<tracing::Dispatch> =
     std::sync::LazyLock::new(|| tracing::Dispatch::new(Unheard));
 

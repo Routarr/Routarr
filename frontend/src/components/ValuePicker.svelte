@@ -7,14 +7,11 @@
   import { handFocus } from '../lib/focus';
 
   /**
-   * Several values for one condition, picked from what the library holds.
-   *
-   * The values are the strings the engine compares, so typing one by hand means
-   * knowing its exact spelling, and the list is what removes that. Free entry stays
-   * available for a value no source has answered with yet, which is why this is
-   * a combo box over a text input rather than a `<select multiple>`.
+   * Several values for one condition, picked from what the library holds. A combo box over a
+   * text input, so a value no source has answered with yet can still be typed.
    */
   let {
+    id,
     label,
     values,
     options,
@@ -24,12 +21,11 @@
     keyOf = canonicalKey,
     onChange,
   }: {
+    /** The field's id, for a visible label pointing at it. */
+    id?: string;
     label: string;
     values: string[];
-    /**
-     * What the library carries on this axis, commonest first. Empty is a
-     * legitimate state: nothing synced yet, or an axis no source answers.
-     */
+    /** What the library carries on this axis, commonest first. Empty until a source answers. */
     options: Facet[];
     loading?: boolean;
     error?: string | null;
@@ -40,9 +36,7 @@
     onChange: (values: string[]) => void;
   } = $props();
 
-  // Two pickers sit on one form (conditions and exclusions), so the list's id
-  // has to be this instance's own: a shared one leaves `aria-controls`
-  // pointing at whichever rendered first.
+  // Per instance: two pickers share a form, and a shared id points aria-controls at the first.
   const listId = $props.id();
 
   let query = $state('');
@@ -52,11 +46,9 @@
   /** The suggestion the arrows reached, or none until an arrow is pressed. */
   let cursor = $state(-1);
 
-  // Compared on the condition's key, so an option already chosen under another
-  // spelling is not offered a second time.
+  // Keyed as the engine compares, so a chosen value is not offered again in another spelling.
   const chosen = $derived(new Set(values.map(keyOf)));
-  // Matched on the label as well as the value: a language is stored as `ja` and
-  // searched for as "japanese".
+  // The label matches too: a language is stored as `ja` and searched for as "japanese".
   const matches = $derived(
     options
       .filter((option) => !chosen.has(keyOf(option.value)))
@@ -69,9 +61,8 @@
   );
 
   /**
-   * The matches in runs of one meaning, in the order the server sends them: a
-   * run with a group is drawn under its meaning, a run without is drawn bare.
-   * Each keeps its place in the list, which is what the arrows count.
+   * The matches in runs of one meaning, in the server's order, a run with a group drawn under
+   * it. Each keeps its index in the list, which the arrows count.
    */
   const blocks = $derived(runsOf(matches, (option) => option.group));
   const optionId = (index: number) => `${listId}-${index}`;
@@ -82,9 +73,7 @@
   const shown = (value: string) =>
     options.find((option) => keyOf(option.value) === keyOf(value))?.label ?? value;
 
-  // The typed text is offerable in its own right only when no option already
-  // carries it: otherwise picking it would store a spelling the library does
-  // not use, which reads as a duplicate in the chip row.
+  // Offered only when no option carries it, or the chip row would show a duplicate spelling.
   const custom = $derived(
     query.trim() &&
       !chosen.has(keyOf(query)) &&
@@ -104,22 +93,18 @@
   const removeId = (index: number) => `${listId}-remove-${index}`;
 
   /**
-   * A chip's button goes with its chip. The focus moves to the chip that takes
-   * its place, else to the one before, else to the field, so removing several
-   * values is one key pressed several times.
+   * The focus moves to the chip that takes the removed one's place, else the one before, else
+   * the field, so removing several values is one key pressed several times.
    */
   function remove(value: string, index: number) {
     onChange(removeValue(values, value, keyOf));
     void handFocus(removeId(index), removeId(index - 1), field);
   }
 
-  // The combobox pattern the command palette follows: the focus stays in the
-  // field, the arrows move through the list and `aria-activedescendant` says
-  // where they are, so the list is one tab stop however long it is.
+  // Combobox pattern: the focus stays in the field and aria-activedescendant follows the arrows.
   function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      // Claimed only while the list is open. Inside the rule editor's dialog,
-      // an Escape nobody claims closes the dialog, which is the next one's.
+      // Claimed only while open: an unclaimed Escape closes the rule editor's dialog.
       if (open) {
         event.preventDefault();
         open = false;
@@ -140,8 +125,7 @@
       document.getElementById(optionId(cursor))?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
-    // A comma is a separator everywhere else in this form, so it commits here
-    // too rather than landing in a value nothing will ever match.
+    // A comma separates values everywhere else in this form, so it commits here too.
     if (event.key === 'Enter' || event.key === ',') {
       const reached = cursor >= 0 ? choices[cursor] : undefined;
       // Nothing typed and nothing reached: Enter is the form's, which saves.
@@ -150,9 +134,7 @@
         return;
       }
       event.preventDefault();
-      // The list wins over the text: typing part of a value and pressing Enter
-      // has to store the value, not the fragment. The typed text is only taken
-      // when the library offers nothing like it.
+      // The list wins over the typed fragment, which is kept only when nothing matches.
       const value = reached ?? matches[0]?.value ?? custom;
       if (value) add(value);
     }
@@ -160,9 +142,8 @@
 </script>
 
 {#snippet row(option: Facet, index: number, grouped: boolean)}
-  <!-- An option carries the click itself rather than wrapping a button, which
-       would be a tab stop: the keyboard path is the field's own, as in the
-       command palette, so Svelte's rule cannot see the handler it asks for. -->
+  <!-- A button inside an option would be a tab stop. The keys belong to the field,
+       as in the command palette, so Svelte's rule cannot see the handler. -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     id={optionId(index)}
@@ -173,12 +154,9 @@
     aria-label={option.label ?? option.value}
     onclick={() => add(option.value)}
   >
-    <!-- Under its meaning a code needs no repeat of it. The name stays on the
-         chip once chosen, where no heading stands above it. -->
+    <!-- Under a heading that names it, the code alone. The chip keeps the name. -->
     <span>{grouped ? option.value : (option.label ?? option.value)}</span>
-    <!-- A vocabulary entry is not an observation, so it carries no figure: a
-         0 beside it would read as "absent from the library" where the point
-         is that it can be chosen anyway. -->
+    <!-- A vocabulary entry shows no figure: a 0 would read as absent, yet it can be chosen. -->
     {#if option.count > 0}<span class="picker-count"
         >{formatCount(option.count, i18n.language)}</span
       >{/if}
@@ -213,6 +191,7 @@
 
   <input
     bind:this={field}
+    {id}
     aria-label={label}
     class="form-input"
     role="combobox"
@@ -234,9 +213,8 @@
   />
 
   {#if open}
-    <!-- Unnamed on purpose: `aria-controls` already ties it to the combobox,
-         and repeating that name gives two elements one label. A press on it
-         keeps the focus in the field, where the keyboard path is. -->
+    <!-- Unnamed: aria-controls ties it to the combobox, which carries the name. A press
+         on it keeps the focus in the field. -->
     <div
       class="picker-list"
       id={listId}

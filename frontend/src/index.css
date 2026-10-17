@@ -1,16 +1,7 @@
-/* Servarr-inspired Modern Dark Theme Design System */
-
-/* Colours are tokens, never literals: `theme.contrast.test.ts` measures the
-   pairs in its `PAIRS` list against WCAG AA, and `layout.test.ts` refuses a
-   literal colour outside a token declaration. A light value is written twice,
-   under `[data-theme='light']` and again in the `prefers-color-scheme: light`
-   block that serves `auto`, and the contrast test fails when the two blocks
-   declare different tokens. */
+/* Colours are tokens, held to WCAG AA by `theme.contrast.test.ts`. A light value is written
+   twice, under `[data-theme='light']` and in the `prefers-color-scheme: light` block. */
 :root {
-  /* What the browser paints for itself: the `<select>` popup list, the caret,
-     the spin buttons, the focus rings. Without it the option list a select
-     opens is white whatever the interface does, which is the one piece of the
-     form nobody can style. Declared alongside the palette in all three theme
+  /* What the browser paints itself, as a select's option list. Declared in all three theme
      blocks so it follows the setting, not the operating system. */
   color-scheme: dark;
   --bg-base: #131519;
@@ -21,59 +12,42 @@
   --bg-overlay: rgba(15, 17, 21, 0.85);
 
   --border-subtle: #2d323e;
-  /* The border of anything that takes a click or a keystroke. WCAG 1.4.11
-     asks 3:1 of the boundary that identifies a control, and `--border-subtle`
-     falls far short of it against `--bg-input`, a field whose frame is a
-     suggestion. This one clears it, as theme.contrast.test.ts measures. Passive
-     separations (card edges, table rules) keep the subtle one, which
-     identifies nothing. */
+  /* The border of a control, which WCAG 1.4.11 holds to 3:1 against `--bg-input`. Passive
+     separations keep `--border-subtle`. */
   --border-strong: #6d7686;
   --scrollbar-thumb: #3a4150;
   --scrollbar-thumb-hover: #4d5566;
 
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
-  /* A navigation entry at rest. Brighter than `--text-secondary`, so the gap
-     with the group heading, which stays at `--text-muted`, is a step. A few
-     percent of luminance apart, a heading reads as an entry missing its
-     icon. */
+  /* A navigation entry, a step brighter than its group heading at `--text-muted`, which
+     would otherwise read as an entry missing its icon. */
   --text-nav: #b9bec8;
-  /* This token carries timestamps and hints at 12–13px, where legibility
-     matters most, so it has to clear WCAG AA on a card. The values here are
-     the smallest step that clears 4.5:1, as theme.contrast.test.ts measures. */
+  /* Timestamps and hints at 12 and 13px: the smallest value that clears 4.5:1 on a card. */
   --text-muted: #888e99;
 
   --accent-primary: #ffa500;
-  /* The fill behind a distribution row. Neutral on purpose: the accent is this
-     interface's *action* colour, and spending it on passive reference data
-     claims an emphasis the panel does not have. Tinted over the dark ground it
-     also comes out a muddy brown that reads as a stain rather than a measure.
-     Defined per theme because a light tint on a dark ground has to invert. */
+  /* Neutral: the accent is the action colour, and passive reference data claims no emphasis.
+     Defined per theme, since a tint on a dark ground has to invert on a light one. */
   --facet-bar: rgba(255, 255, 255, 0.08);
   --accent-primary-hover: #ffb733;
-  /* The accent as text or border. Identical to the fill on a dark background.
-     The light theme darkens it, because #ffa500 on white is unreadable. */
+  /* The accent as text or border, darkened in the light theme, where #ffa500 is unreadable. */
   --accent-strong: #ffa500;
 
   --status-success: #10b981;
   --status-success-bg: rgba(16, 185, 129, 0.15);
   --status-warning: #f59e0b;
   --status-warning-bg: rgba(245, 158, 11, 0.15);
-  /* Both have to be readable *on their own badge*: the tint darkens the
-     background the text sits on, which the eye forgives and the arithmetic
-     does not. */
+  /* Each readable on its own badge, whose tint darkens the ground the text sits on. */
   --status-danger: #f37070;
   --status-danger-bg: rgba(239, 68, 68, 0.15);
   --status-info: #649cf8;
   --status-info-bg: rgba(59, 130, 246, 0.15);
 
-  /* The sidebar header and the top bar draw one continuous rule across the
-     window, so their heights are the same number stated once. Two numbers
-     would put a step in the middle of the chrome. */
+  /* Shared by the sidebar header and the top bar, so their rules draw one line across. */
   --chrome-height: 64px;
 
-  /* A 4px scale, stated once, as colours, radii and fonts are, rather than as
-     bare numbers in each rule. */
+  /* A 4px scale, used in place of bare numbers in each rule. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -82,32 +56,22 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* The shell's own measurements. The sidebar width is read in two places, the
-     sidebar and `.main-content`'s margin, and two literals would drift
-     apart. */
+  /* Read by the sidebar and by `.main-content`'s margin, so it is stated once. */
   --sidebar-width: 250px;
   --sidebar-rail: 68px;
 
-  /* One duration for the whole interface. Long enough to be seen, short enough
-     never to be waited for. */
+  /* One duration for the whole interface. */
   --transition: 140ms ease;
 
-  /* The angle is what separates, colour signals and weight ranks. Corners
-     are square, controls, badges and surfaces alike: a radius of a few
-     pixels reads as a corner drawn badly rather than as a choice. The tokens
-     stay declared where each shape is drawn, since the browser rounds a
-     button or a field it is left to draw.
-
-     `--radius-full` is a closed list: the kind, mode and confidence dots, the
-     guide's step numbers, the navigation count and the scrollbar thumb. A pill
-     anywhere else is a badge pretending to be a state. */
+  /* Corners are square, and still declared where each shape is drawn, since the browser rounds
+     a button or field left to it. `--radius-full` is only for the dots, the step numbers, the
+     navigation count and the scrollbar thumb. */
   --radius-xs: 0;
   --radius-sm: 0;
   --radius-md: 0;
   --radius-full: 9999px;
 
-  /* One scale for what sits above what. A literal picked per component is how
-     a new menu ends up under the bar it opened from. */
+  /* One stacking scale: a literal per component puts a new menu under the bar it opened from. */
   --z-sticky: 1;
   --z-bar: 5;
   --z-scrim: 9;
@@ -129,10 +93,8 @@
   --kind-radarr: #7aa8f7;
   --kind-sonarr: #a78bfa;
 
-  /* System stacks, never web fonts: fetching a face from a third party tells
-     it the address of every installation that opens the interface, and leaves
-     the typography broken on an air-gapped host. Inter and JetBrains Mono lead
-     the stacks so anyone who has them installed gets them. */
+  /* System stacks, never web fonts: a third-party face reveals every installation's address
+     and breaks on an air-gapped host. Inter and JetBrains Mono lead for those who have them. */
   --font-sans:
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     sans-serif;
@@ -140,13 +102,8 @@
     'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
-/* Light theme.
- *
- * Only the colours are redefined. Every radius, shadow and font token is
- * shared, so the two themes cannot drift into different layouts. `auto` follows
- * the operating system, and an explicit choice wins over it, the same
- * three-state arrangement the showcase site uses.
- */
+/* Light theme: only colours are redefined, so the two themes cannot drift into different
+   layouts. An explicit choice wins over `auto`, which follows the operating system. */
 :root[data-theme='light'] {
   color-scheme: light;
   --bg-base: #f4f5f7;
@@ -166,8 +123,7 @@
   --text-muted: #686f7d;
   --text-nav: #3f4653;
 
-  /* The fill keeps its orange: `.btn-primary` writes #111 on it either way.
-     The text form darkens to stay legible on white. */
+  /* The fill keeps its orange under #111 text. The text form darkens to stay legible on white. */
   --accent-strong: #a14a07;
   --facet-bar: rgba(17, 20, 26, 0.07);
 
@@ -190,14 +146,8 @@
   --kind-sonarr: #6d3fd6;
 }
 
-/* The light palette again, for the setting that stamps nothing.
-
-   `auto` resolves through the system rather than through an attribute, so no
-   selector can be shared with the block above and every token has to be
-   restated. A token added there and forgotten here keeps its *dark* value on a
-   white ground, unreadable for the navigation, and only for the readers who
-   never opened the setting, which is most of them. `theme.contrast.test.ts` measures
-   this block and compares the two token sets for that reason. */
+/* The light palette again, for `auto`, which no attribute selects. A token added above and
+   missing here keeps its dark value on white, so `theme.contrast.test.ts` compares the two. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
     color-scheme: light;
@@ -262,17 +212,13 @@ a {
   text-decoration: none;
 }
 
-/* Layout */
 .app-container {
   display: flex;
   min-height: 100vh;
 }
 
-/* The stylesheet uses logical properties rather than physical ones because
-   Arabic ships, and it reads right to left. `inline-start` is the left edge in
-   English and the right edge in Arabic, so the sidebar changes sides with the
-   language and nothing has to be restated per direction. A value with no
-   logical form takes a `[dir='rtl']` override. */
+/* Logical properties, as Arabic reads right to left: the sidebar changes sides with the
+   language. A value with no logical form takes a `[dir='rtl']` override. */
 .sidebar {
   width: var(--sidebar-width);
   background-color: var(--bg-surface);
@@ -287,8 +233,7 @@ a {
 }
 
 .sidebar-header {
-  /* Fixed rather than derived from the logo, so the rule below it lands exactly
-     where the top bar's does. */
+  /* Fixed, so the rule below it lands where the top bar's does. */
   height: var(--chrome-height);
   padding: 0 24px;
   display: flex;
@@ -328,17 +273,8 @@ a {
   gap: 4px;
 }
 
-/* The group's name, and the space above it. Not a heading element: the
-   accessibility sweep refuses a skipped level and a navigation is not an
-   outline, so the grouping is carried by aria-labelledby instead. */
-/* A heading, and it has to be unmistakably not an entry, or a group title
- * reads as an entry that has lost its icon.
- *
- * Four things separate them: the entry is brighter (`--text-nav`), the heading
- * is smaller and tracked wider, the space above is five times the space below
- * so the title binds to what it titles, and a hairline runs from the words to
- * the edge, a rule no entry ever carries. In the rail that hairline is all
- * that survives, which is the same device reduced rather than a second one. */
+/* A group title, not a heading element: aria-labelledby carries the grouping. Smaller, wider
+   tracked, dimmer and ruled to the edge, so it never reads as an entry missing its icon. */
 .nav-group {
   display: flex;
   align-items: center;
@@ -360,11 +296,8 @@ a {
   background-color: var(--border-subtle);
 }
 
-/* What the top bar already counts, on the entry that answers it. */
-/* A count pastille keeps its pill: it is a small round thing holding a
-   number, which is the one shape that reads as a count. Neutral unless it is
-   asking for something: four amber badges in a column would say everything
-   is urgent, which is how nothing is. */
+/* A count on the entry that answers it, kept round, the one shape that reads as a count.
+   Neutral unless it asks for something: a column of amber badges makes everything urgent. */
 .nav-badge {
   margin-inline-start: auto;
   min-width: 18px;
@@ -394,14 +327,11 @@ a {
   gap: 12px;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  /* Reserved on every entry and coloured on the active one, so nothing shifts
-     by two pixels when the page changes, and logical, so it moves to the
-     right-hand edge in Arabic without a second rule. */
+  /* Reserved on every entry, so nothing shifts when the page changes, and logical for Arabic. */
   border-inline-start: 2px solid transparent;
   color: var(--text-nav);
   font-weight: 500;
-  /* The colours alone: on `all`, the insets a breakpoint changes would
-     animate too, and a label would wrap until they settle. */
+  /* The colours alone: on `all`, a breakpoint's insets animate and a label wraps meanwhile. */
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease,
@@ -419,8 +349,7 @@ a {
   color: var(--text-primary);
 }
 
-/* A mark in the margin rather than a rounded pill: it says "you are here" in
-   a tree, where a pill would say "this is a tag". */
+/* A mark in the margin says "you are here" in a tree, where a pill would read as a tag. */
 .nav-item.active {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
@@ -428,9 +357,7 @@ a {
   font-weight: 600;
 }
 
-/* The version, at the foot of the navigation. Quiet, one line, and it keeps
-   its place in the rail: where the label column is gone, the number alone
-   still fits 68px. */
+/* The version at the foot of the navigation, one line that still fits the 68px rail. */
 .sidebar-foot {
   width: 100%;
   margin: 0;
@@ -452,8 +379,7 @@ a {
   color: var(--text-primary);
 }
 
-/* What each metadata source's terms ask for: a sentence, a link to the
-   source, and TMDB's logo, kept smaller than Routarr's own. */
+/* What each source's terms ask for: a sentence, a link, TMDB's logo smaller than Routarr's. */
 .credits {
   display: flex;
   flex-direction: column;
@@ -500,7 +426,6 @@ a {
   flex: 1;
 }
 
-/* Headings */
 .page-header {
   margin-bottom: 28px;
   display: flex;
@@ -510,9 +435,7 @@ a {
   flex-wrap: wrap;
 }
 
-/* The header wraps, and its action group has to as well: the pages put their
-   buttons in a bare `.flex`, and on a narrow screen the last one would be cut
-   off at the edge. Stated here rather than in every page's markup. */
+/* The header's action group wraps too, or on a narrow screen the last button is cut off. */
 .page-header > * {
   min-width: 0;
 }
@@ -533,8 +456,6 @@ a {
   margin-top: 4px;
 }
 
-/* Cards Grid & Cards */
-
 .card {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -543,8 +464,7 @@ a {
   margin-bottom: 20px;
 }
 
-/* A sentence that governs the card, under its title. Not a field's help text,
-   which belongs under the field: this one introduces everything below it. */
+/* A sentence that governs the whole card, under its title, unlike a field's help text. */
 .card-note {
   margin: var(--space-1) 0 0;
   font-size: 13px;
@@ -561,8 +481,7 @@ a {
   margin-bottom: 20px;
 }
 
-/* A header that is the whole card, as a title, a note and a button are, keeps
-   no space under it for a body that is not there. */
+/* A header that is the whole card keeps no space for a body that is not there. */
 .card-header:last-child {
   margin-bottom: 0;
 }
@@ -572,10 +491,8 @@ a {
   font-weight: 600;
 }
 
-/* A card's title and the "?" that explains the card, one item of its header:
-   the actions on the other side keep their place. The title runs inline and
-   the "?" follows its last word, so where a line has no room left it is the
-   "?" that goes under, never a word of the title. */
+/* A card's title and its "?", one item of the header. The "?" follows the title's last word,
+   so it is the "?" that wraps, never a word of the title. */
 .card-title-group {
   min-width: 0;
 }
@@ -616,8 +533,7 @@ a {
   border-color: var(--border-subtle);
 }
 
-/* Placed by `CardTitle` under its "?" once it has a size, and hidden until
-   then, so it never shows for a frame where the browser centres a popover. */
+/* Hidden until `CardTitle` places it, so it never shows where the browser centres a popover. */
 .help-bubble {
   position: fixed;
   inset: auto;
@@ -639,50 +555,31 @@ a {
   visibility: visible;
 }
 
-/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
-  /* A flex row defaults to `stretch`, so a button grouped next to a taller
-     sibling (a file-input label, a text field) would grow to match it, and the
-     same `.btn btn-primary` would measure differently from page to page. A
-     button is sized by what it is, never by what it stands beside. */
+  /* Never stretched to a taller sibling in a flex row, so one button measures one size. */
   align-self: center;
-  /* And never by what it contains either. A minimum is not enough: a text
-     label makes a taller line box than a 16px icon, so buttons with words
-     would stand a pixel above buttons with only a glyph. A fixed height with
-     the content centred inside it is the only version that cannot drift, and
-     `white-space: nowrap` below guarantees a single line to centre. */
+  /* Fixed: a minimum lets a text label stand a pixel taller than an icon alone. */
   height: 36px;
-  /* Stated, not inherited. A <button> gets a normalised line-height from the
-     user agent and a <label class="btn"> does not, so the import label would
-     stand taller than the buttons beside it. A 13px text line is also a pixel
-     taller than a 16px icon, which would split the small buttons into two
-     sizes. */
+  /* Stated: a <label class="btn"> inherits a line-height a <button> resets. */
   line-height: 1.2;
   gap: 8px;
-  /* A translated label is often much longer than the English one. Keep it on
-     one line and let the surrounding row wrap instead of shredding the button. */
+  /* A translated label runs long: it stays on one line and the row wraps around it. */
   white-space: nowrap;
   flex-shrink: 0;
   padding: 9px 16px;
   border-radius: var(--radius-sm);
   font-size: 14px;
-  /* 500, not 600. With titles, buttons, badges and table headings all
-     semibold, the weight axis has no range to rank anything with. Only
-     the primary action keeps 600, and it is then the heaviest thing in its row
-     rather than one heavy thing among several. */
+  /* 500, so the primary action's 600 is the heaviest thing in its row. */
   font-weight: 500;
-  /* Declared rather than absent, so a bordered variant and a filled one are
-     the same height and sit on the same baseline. */
+  /* Declared, so a bordered variant and a filled one are the same height. */
   border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-/* A disabled button has to look it. At full opacity with a pointer cursor and
-   its fill, it reads as clickable while doing nothing: "run the tests" with
-   nothing to run, "apply" under a dry run, "sync" while a sync is going. */
+/* A disabled button looks it, or it reads as clickable while doing nothing. */
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -696,8 +593,7 @@ a {
   font-weight: 600;
 }
 
-/* A shift of fill, not a halo. A glow says nothing the colour change does
-   not, and it is the kind of effect that dates a screenshot to a year. */
+/* A shift of fill, not a halo: a glow says nothing the colour does not. */
 .btn-primary:hover:not(:disabled) {
   background-color: var(--accent-primary-hover);
 }
@@ -705,8 +601,7 @@ a {
 .btn-secondary {
   background-color: transparent;
   color: var(--text-primary);
-  /* The border at rest is what says "this is a control" without a pointer
-     hovering it, which is the only way a finger can tell. */
+  /* The resting border says "control" to a finger, which never hovers. */
   border-color: var(--border-strong);
 }
 
@@ -714,9 +609,7 @@ a {
   background-color: var(--bg-card-hover);
 }
 
-/* Outlined where it *asks*, filled where it *acts*. A row of solid red
-   buttons that only open a confirmation spends the strongest colour in the
-   palette on a question. The dialog is where the answer is given. */
+/* Outlined where it asks, filled where it acts: the dialog is where the answer is given. */
 .btn-danger {
   background-color: transparent;
   color: var(--status-danger);
@@ -743,11 +636,9 @@ a {
   height: 28px;
 }
 
-/* A fingertip is not a pointer: the compact controls that fit a table row on a
-   desktop grow to a target a thumb can hit without the row around it. */
+/* A fingertip is not a pointer: compact row controls grow to a target a thumb can hit. */
 @media (pointer: coarse) {
-  /* 16px is under the 24px WCAG 2.2 asks of a target, and a checkbox is the
-     control that selects what gets moved. The tick grows with the box. */
+  /* 16px is under the 24px WCAG 2.2 asks of a target. The tick grows with the box. */
   input[type='checkbox'] {
     width: 24px;
     height: 24px;
@@ -759,9 +650,7 @@ a {
 
   .btn-sm,
   .chip-remove,
-  /* A badge that is a link is a control, and at its resting size it is under
-     a thumb's target on a tablet. The padding grows, not the font, so a row
-     keeps its rhythm. */
+  /* A badge that is a link is a control, so its padding grows to a thumb's target. */
   a.badge,
   .attention,
   .nav-item,
@@ -775,16 +664,8 @@ a {
   }
 }
 
-/* ─────────────────────────────────────────────── the top bar's two controls
- *
- * Two objects, both of locale-independent width. A badge per state, each a
- * translated sentence, would make the bar's width a function of the language,
- * and on a phone they would wrap and burst out of the bar.
- *
- * A mode is not an alert: it says what a click will do, and the state the
- * application is meant to run in is never painted in the danger colour. The
- * counts live in the navigation, on the entry that answers each of them.
- */
+/* The top bar's mode chip and attention count, each the same width in every language. Live
+   mode, the state the application is meant to run in, is never painted in danger. */
 .mode-chip {
   display: inline-flex;
   align-items: center;
@@ -799,15 +680,11 @@ a {
   font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
-  /* Measured, not assumed. Centring a fixed-height box on its line box leaves
-     the ink half a pixel high, because ascenders reach further above the
-     x-height than the baseline sits below it. A pixel of padding on one side
-     moves the content half of one, which is what the eye catches. */
+  /* A centred line's ink sits half a pixel high: a pixel of padding above moves it half one. */
   padding-block: 1px 0;
 }
 
-/* The dot carries the state, the word names it, and neither is the only
-   carrier: the full sentence is the accessible name. */
+/* The dot carries the state, the word names it, and the full sentence is the accessible name. */
 .mode-dot {
   width: 6px;
   height: 6px;
@@ -821,8 +698,7 @@ a {
   background-color: var(--status-warning);
 }
 
-/* One control for everything that wants attention, and none at all when
-   nothing does. The figure is a total, and the accessible name enumerates. */
+/* One control for whatever wants attention, and none when nothing does. */
 .attention {
   display: inline-flex;
   align-items: center;
@@ -843,14 +719,8 @@ a {
   padding-block: 1px 0;
 }
 
-/* Two alignments, and they are not the same one.
- *
- * A triangle hangs lower than a digit (its base sits well under the baseline
- * while its apex barely clears the cap), so centring the pair inside the box
- * still leaves the glyph reading low against the number it labels, which is
- * the alignment the eye actually judges. The glyph is lifted onto the digit,
- * and the pair is then pushed back to the middle of the box. Both offsets are
- * read off a magnified capture, not derived. */
+/* A triangle hangs lower than a digit, so the glyph is lifted onto the digit and the pair
+   pushed back to the box's middle. Both offsets come from a magnified capture. */
 .attention > svg {
   transform: translateY(-0.3px);
 }
@@ -862,9 +732,7 @@ a {
   background-color: var(--bg-card-hover);
 }
 
-/* The getting-started guide's place in the bar: a glyph and a figure, the same
-   width in every language, drawn in the accent because it is the next thing to
-   do rather than something wrong. */
+/* The guide in the bar: one width in every language, in the accent as the next thing to do. */
 .guide-pill {
   display: inline-flex;
   align-items: center;
@@ -885,8 +753,7 @@ a {
   background-color: var(--bg-card-hover);
 }
 
-/* The getting-started list. One row per step: its mark, what it is, and the
-   link that does it, which drops under the text on a phone. */
+/* The guide's list: per step its mark, its text and its link, which drops under it on a phone. */
 .guide-progress {
   display: flex;
   flex-direction: column;
@@ -898,13 +765,8 @@ a {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-/* One bar in three places: the guide's progress, a decision's confidence and a
-   task's progress, so the three read as the same instrument. A thin accent edge
-   marks where the bar ends, since the unfilled part is the input colour on a
-   card, too close to it to see. The edge is the accent as a border,
-   `--accent-strong`, readable on both grounds. Six pixels edge included, and
-   square ends: at that size a rounded corner reads as a smudge, worst on a
-   short bar. */
+/* One bar for the guide, a confidence and a task, read as one instrument. An accent edge
+   marks its end, the unfilled part being too close to the card to see. Square at 6px. */
 .guide-bar,
 .confidence-track,
 .progress-track {
@@ -958,8 +820,7 @@ a {
 .guide-step.is-done .guide-step-mark {
   color: var(--status-success);
 }
-/* The ring of the icons beside it, drawn to their size: a 20px box with the
-   circle inset by its stroke, so a number and a tick sit on one line. */
+/* A 20px ring with the circle inset by its stroke, so a number and a tick sit on one line. */
 .guide-step-number {
   display: inline-flex;
   align-items: center;
@@ -1027,13 +888,6 @@ a {
   }
 }
 
-/* ─────────────────────────────────────────────────── the command palette
- *
- * "Why did Routarr put this film there?" is the question this product exists
- * to answer. Through the library it takes four steps from any screen: open the
- * library, type, search, then find the row and press its button. The palette
- * answers it in one, which is what earns it a place in the bar.
- */
 .palette-trigger {
   display: inline-flex;
   align-items: center;
@@ -1063,8 +917,7 @@ a {
   border-radius: var(--radius-xs);
 }
 
-/* No keyboard to teach a shortcut to, and the labels would cost the width the
-   mode chip needs. The icon alone keeps its touch target, and its name. */
+/* Icon only below 900px: no keyboard for a shortcut, and the mode chip needs the width. */
 @media (max-width: 900px) {
   .palette-trigger-label,
   .palette-trigger-key,
@@ -1087,15 +940,13 @@ a {
   color: var(--text-muted);
 }
 
-/* Anchored high rather than centred: the list changes height with every
-   keystroke, and a centred dialog would slide up and down under the fingers. */
+/* Anchored high: a centred list would slide under the fingers as it changes height. */
 .modal-overlay:has(.palette) {
   align-items: flex-start;
   padding-block-start: 12svh;
 }
 
-/* The help is a sheet along the trailing edge, as tall as the window, so the
-   screen it explains stays in view beside it. */
+/* A sheet along the trailing edge, so the screen it explains stays in view beside it. */
 .modal-overlay:has(.help-panel) {
   justify-content: flex-end;
   align-items: stretch;
@@ -1199,8 +1050,7 @@ a {
   color: var(--text-muted);
 }
 
-/* A screen named in the glossary, which shows that screen's help: a link in
-   the sentence, though it moves nowhere. */
+/* A screen named in the glossary opens that screen's help: a link, though it moves nowhere. */
 .help-link {
   padding: 0;
   margin-inline-start: var(--space-1);
@@ -1259,10 +1109,7 @@ a {
   color: var(--text-muted);
 }
 
-/* The one place a focus ring is not wanted: the dialog is modal, this field
-   has the focus from the moment it opens and never gives it up, so the ring
-   draws a box inside the box rather than telling anyone anything. Every other
-   control in the application keeps its own. */
+/* No ring: this field holds the focus from the moment the modal opens, so it says nothing. */
 .palette-input:focus-visible {
   outline: none;
 }
@@ -1306,8 +1153,7 @@ a {
   cursor: pointer;
 }
 
-/* The mark the navigation uses for "you are here", reused for "this is what
-   Enter opens": one shape, one meaning. */
+/* The navigation's "you are here" mark, reused for what Enter opens. */
 .palette-row.is-current {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
@@ -1332,10 +1178,8 @@ a {
   white-space: nowrap;
 }
 
-/* A destination reads as its name, then what it is for. The names hold one
-   column, so every description starts at the same edge, in the quieter colour
-   of the search results' own details. Cut rather than wrapped: a row is one
-   line in every language. */
+/* The names hold one column, so every description starts at the same edge. Cut rather than
+   wrapped: a row is one line in every language. */
 .palette-row.is-destination .palette-name {
   flex: 0 0 36%;
 }
@@ -1349,8 +1193,7 @@ a {
   color: var(--text-muted);
 }
 
-/* Above the results rather than in their place: only the library needs the
-   network, so a failure there must not remove the destinations too. */
+/* Above the results, since a library failure must leave the destinations in place. */
 .palette-error {
   margin: 0;
   padding: var(--space-2) var(--space-4);
@@ -1380,9 +1223,7 @@ a {
   }
 }
 
-/* Badges */
-/* One line in every language: Chinese, Japanese and Korean break between any
-   two characters, so a narrow cell would stack a badge letter by letter. */
+/* One line: Chinese, Japanese and Korean break between any two characters. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -1394,19 +1235,9 @@ a {
   font-weight: 500;
 }
 
-/* Three roles, three shapes, so colour only ever means one thing.
- *
- * Coding two axes in one hue leaves a reader nothing to learn: the same green
- * would mean "Sonarr", "connected" and "category" at once, and one category
- * could come out green on one screen and blue on another.
- *
- *   .badge-success/warning/danger/info  a STATE             filled, saturated
- *   .badge-kind                         WHAT a thing is     outlined + dot
- *   .badge-value / .num                 a value you typed   neutral
- *
- * The label and the dot take the kind's own hue (`.kind-radarr`,
- * `.kind-sonarr`), so Radarr and Sonarr stay recognisable without the fill of
- * an outcome. */
+/* Three roles, three shapes, so a hue means one thing: a filled badge is a state, an outlined
+   one with a dot is a kind, `.badge-value` and `.num` are neutral values. The kind takes its
+   own hue, `.kind-radarr` or `.kind-sonarr`. */
 
 .badge-kind {
   border: 1px solid var(--border-subtle);
@@ -1424,16 +1255,12 @@ a {
 .kind-radarr {
   color: var(--kind-radarr);
 }
-/* Violet rather than Sonarr's green: a green identity dot would sit two
-   shades from the `connected` badge beside it, which is the confusion this
-   whole vocabulary exists to end. None of the four status hues is free, so the kind takes one
-   that is. */
+/* Violet, since a green kind dot would sit two shades from the `connected` badge beside it. */
 .kind-sonarr {
   color: var(--kind-sonarr);
 }
 
-/* A value the user chose (a category, a scope, a match mode). Vocabulary, not
-   judgement, so it carries no semantic hue. */
+/* A value the user chose, as a category or a scope: vocabulary, so no semantic hue. */
 .badge-value {
   background-color: var(--bg-card-hover);
   color: var(--text-primary);
@@ -1442,8 +1269,7 @@ a {
   color: var(--text-secondary);
 }
 
-/* A count or an ordinal, in its own shape: as a `.badge-success` it says two
-   mapped folders are a success rather than a number. */
+/* A count in its own shape: as a `.badge-success` two mapped folders would read as a success. */
 .num {
   display: inline-flex;
   padding: 3px 8px;
@@ -1471,9 +1297,7 @@ a {
   color: var(--status-info);
 }
 
-/* A list of sources with their state: a list, because the state is a phrase
-   and not a figure. Laid out as counts, the phrase takes the place a number
-   would and the source name reads as its caption. */
+/* A list, since a source's state is a phrase: laid out as counts, the name reads as a caption. */
 .source-list {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -1490,8 +1314,7 @@ a {
 .source-row + .source-row {
   border-top: 1px solid var(--border-subtle);
 }
-/* Not `opacity`: a source waiting for a key is not disabled, and dimming it
-   makes its own explanation harder to read than the rest. */
+/* No `opacity`: a source waiting for a key is not disabled, and its note must stay legible. */
 .source-row.waiting {
   background-color: transparent;
 }
@@ -1506,8 +1329,7 @@ a {
 .source-name {
   font-weight: 600;
 }
-/* Three columns rather than a flex row: the rank keeps its own lane, so a row
-   without one does not shift its neighbour's name sideways. */
+/* Three columns, so a row without a rank keeps its name in the same lane. */
 .source-list .source-row:has(.source-rank) {
   grid-template-columns: 24px 1fr auto;
 }
@@ -1517,8 +1339,7 @@ a {
   color: var(--accent-strong);
   text-align: end;
 }
-/* One width for the whole group, so a row with one button and a row with three
-   share the same right edge. */
+/* One width for the group, so rows with one button or three share a right edge. */
 .source-actions {
   display: flex;
   gap: 6px;
@@ -1534,10 +1355,7 @@ a {
 .source-group:first-child {
   margin-top: 0;
 }
-/* The credential, inside the row of the source it unlocks. Full width under
-   the name rather than beside it: the placeholder carries an environment
-   variable, which is long in every language, and a field squeezed next to a
-   button is a field nobody can read what they typed into. */
+/* Under the name at full width: the placeholder names a long environment variable. */
 .source-key {
   display: flex;
   gap: var(--space-2);
@@ -1580,12 +1398,7 @@ a {
   color: var(--text-primary);
 }
 
-/* Tables */
-/* A timestamp column. The value and whatever qualifies it (a sync outcome, a
-   status badge) belong on one line: stacked, they make every row in the table
-   twice as tall for no added meaning. `nowrap` keeps a long locale format from
-   folding, and the column scrolls in .table-container if it ever has to. */
-/* One look for a date on every screen: muted, proportional, one line. */
+/* One look for a date on every screen: muted, proportional, one line with what qualifies it. */
 .cell-timestamp {
   white-space: nowrap;
   font-size: 12px;
@@ -1596,8 +1409,7 @@ a {
   margin-inline-start: 8px;
 }
 
-/* Why a badge reads as it does, on a line of its own under it: a title shows
-   to a mouse alone. It wraps where the timestamp cell beside it does not. */
+/* Why a badge reads as it does, on a line of its own, since a title shows to a mouse alone. */
 .status-reason {
   display: block;
   max-width: 280px;
@@ -1611,27 +1423,19 @@ a {
   margin-inline-start: 0;
 }
 
-/* Focusable, so a keyboard can scroll a table wider than its window: an
-   overflow region nothing can reach is unreachable content. */
+/* Focusable, so a keyboard can scroll a table wider than its window. */
 .table-container {
   overflow-x: auto;
-  /* The containing block for anything positioned inside a table, the
-     visually-hidden name of an icon-only column for one. Unpositioned, an
-     absolutely placed descendant escapes this box's scroll and lands at its
-     static position in the page, past the edge of a phone, and the page
-     scrolls sideways for a word nobody sees. */
+  /* Positioned, or an absolute descendant escapes the scroll and widens a phone's page. */
   position: relative;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
-  /* The width an empty table's message is held to: the visible part of this
-     box, not the table scrolling inside it. */
+  /* Holds an empty table's message to the visible width, not the scrolling table's. */
   container-type: inline-size;
 }
 
-/* An empty table spans its six or seven columns past a phone's edge, and its
-   message, centred across them, starts out of view. Held to the visible width
-   and to the start of the scroll, it reads whole where the reader is looking.
-   28px is the cell's inline padding. */
+/* Held to the visible width and to the scroll's start, or an empty table's centred message
+   starts out of view on a phone. 28px is the cell's inline padding. */
 td > .empty-state {
   position: sticky;
   inset-inline-start: 0;
@@ -1647,10 +1451,7 @@ table {
 
 th {
   background-color: var(--bg-surface);
-  /* The browser's own sheet sets `th { text-align: center }`, and a declaration
-     beats the `start` inherited from `table`, so every heading would sit
-     centred over values aligned to the start. Invisible on a narrow column,
-     glaring on a wide one. */
+  /* The browser's `th { text-align: center }` beats the inherited `start`. */
   text-align: start;
   padding: 9px 14px;
   font-size: 11px;
@@ -1676,7 +1477,6 @@ tr:hover td {
   background-color: var(--row-hover);
 }
 
-/* Form inputs */
 .form-group {
   margin-bottom: 20px;
 }
@@ -1691,8 +1491,7 @@ tr:hover td {
   margin-bottom: 8px;
 }
 
-/* A group of choices under one name. The fieldset names the group for a
-   screen reader and draws nothing of its own: its legend reads as a label. */
+/* Choices under one name: the fieldset names them for a screen reader and draws nothing. */
 fieldset.form-group {
   border: 0;
   margin-inline: 0;
@@ -1733,10 +1532,7 @@ p.form-hint {
   margin-block: 0 8px;
 }
 
-/* A row of fields sitting side by side. Labels translate to wildly different
-   lengths («Type» is one line, «Synchroniser toutes les (min)» is two), so the
-   controls are bottom-aligned rather than top-aligned: whatever the label does,
-   the inputs stay on the same line. */
+/* Bottom-aligned, since labels translate to one line or two and the inputs must share a line. */
 .form-row {
   display: flex;
   align-items: flex-end;
@@ -1748,11 +1544,8 @@ p.form-hint {
   min-width: 0;
 }
 
-/* The frame every field shares. Removing this body merges its selectors into
-   the focus rule below, so every input and select falls back to the user agent
-   (a white box with the operating system's own chrome) while wearing the
-   accent border permanently, as though always focused. `layout.test.ts`
-   asserts that a text field has a background for that reason. */
+/* The frame every field shares. Merged into the focus rule, every field falls back to the
+   user agent's box with the accent border on for good, which `layout.test.ts` guards. */
 .form-input,
 .form-select {
   width: 100%;
@@ -1778,23 +1571,15 @@ p.form-hint {
   border-color: var(--status-danger);
 }
 
-/* What a field refuses, in words under it: the border alone is a colour, and a
-   screen reader reads this through the field's `aria-describedby`. */
+/* What a field refuses, in words, which its `aria-describedby` reads: a border is only colour. */
 .field-error {
   margin-top: var(--space-1);
   font-size: 12px;
   color: var(--status-danger);
 }
 
-/* Left to the browser, the checkbox is a 13px pale box that no palette
-   reaches, beside 14px text. `accent-color` alone only reaches the *checked*
-   fill, so the box itself is drawn here.
-   
-   Unlike the dialog, this is worth taking over. A checkbox has three states and
-   all three are visual (checked, focused, disabled), with no focus trap, no
-   top layer and no restoration behind them. There is no indeterminate state
-   anywhere in this interface, and no radio button at all, so neither is styled:
-   a rule for a control nobody renders is dead CSS. */
+/* Drawn here: left to the browser the box is 13px and pale, and `accent-color` only reaches
+   the checked fill. No indeterminate state or radio is used, so none is styled. */
 input[type='checkbox'] {
   appearance: none;
   flex-shrink: 0;
@@ -1806,12 +1591,8 @@ input[type='checkbox'] {
   background-color: var(--bg-input);
   display: inline-grid;
   place-content: center;
-  /* Out of baseline alignment, which is not cosmetic here: an inline-grid with
-     no in-flow child synthesises its baseline from the bottom of its margin
-     box, and the tick only exists when the box is checked. The two states
-     would therefore make line boxes of different heights, and ticking "select
-     all" would lift every row below it by a few pixels. Only a head is
-     sensitive to it: a body row is as tall as its text. */
+  /* Middle, not baseline: an inline-grid has a tick only when checked, so the two states
+     make line boxes of different heights and "select all" would lift the rows below. */
   vertical-align: middle;
   cursor: pointer;
   transition:
@@ -1824,10 +1605,8 @@ input[type='checkbox']:checked {
   border-color: var(--accent-strong);
 }
 
-/* Drawn rather than a glyph: a character would inherit the font, and the tick
-   would then change shape with the language. Physical sides, not logical: the
-   rotation is physical, and right to left the logical sides keep the other two
-   borders and draw a chevron. */
+/* Drawn, since a glyph would change shape with the font. Physical sides, as the rotation is
+   physical and logical ones draw a chevron right to left. */
 input[type='checkbox']:checked::after {
   content: '';
   width: 9px;
@@ -1838,9 +1617,7 @@ input[type='checkbox']:checked::after {
   transform: translateY(-1px) rotate(-45deg);
 }
 
-/* `:focus-visible` rather than `:focus`, since the ring belongs to keyboard
-   navigation, and on a mouse click it reads as a control stuck in an error
-   state. */
+/* `:focus-visible`: on a mouse click the ring reads as a control stuck in an error state. */
 input[type='checkbox']:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
@@ -1851,10 +1628,7 @@ input[type='checkbox']:disabled {
   cursor: not-allowed;
 }
 
-/* Modals */
-/* The <dialog> element itself, so the user-agent's border, padding, centring
-   margins and size caps all have to be undone. The dim is painted here rather
-   than on ::backdrop. */
+/* The <dialog> itself, its user agent box undone. The dim is painted here, not on ::backdrop. */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1869,8 +1643,7 @@ input[type='checkbox']:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* A margin at every width: the dialog is `width: 100%` inside a full-bleed
-     overlay, and without this it would touch both edges of a phone. */
+  /* A margin at every width, or the dialog touches both edges of a phone. */
   padding: var(--space-6);
   z-index: var(--z-modal);
 }
@@ -1889,10 +1662,7 @@ input[type='checkbox']:disabled {
   border-radius: var(--radius-md);
   width: 100%;
   max-width: 560px;
-  /* The rule editor is the longest form in the application, and without a
-     bound it runs off the bottom of the viewport with no way down. `svh`
-     rather than `vh`, so a phone's collapsing address bar cannot put the
-     footer out of reach. */
+  /* Bounded so the longest form keeps its footer in reach, in `svh` for a phone's address bar. */
   max-height: calc(100svh - 2 * var(--space-6));
   overflow-y: auto;
   padding: var(--space-6);
@@ -1911,7 +1681,6 @@ input[type='checkbox']:disabled {
   font-weight: 700;
 }
 
-/* Helper utilities */
 .flex {
   display: flex;
 }
@@ -1931,30 +1700,15 @@ input[type='checkbox']:disabled {
 .mono {
   font-family: var(--font-mono);
   font-size: 13px;
-  /* Paths, ids, condition summaries and raw timestamps read left to right in
-     every language. Without this they are laid out in the page's paragraph
-     direction, which in Arabic turns `2026-08-26 14:02:30` into
-     `14:02:30 2026-08-26`: the digits are direction-neutral, so the two runs
-     swap around the space between them. `isolate` keeps the reordering from
-     leaking into the text around it. */
+  /* Machine formats read left to right in every language, or Arabic swaps the runs of
+     `2026-08-26 14:02:30`. `isolate` keeps the reordering from leaking around them. */
   direction: ltr;
   unicode-bidi: isolate;
 }
 
-/* ---------------------------------------------- bidirectional table content
-   A table column mixes our translated headings with values we did not write:
-   a rule name, a media title, a category. Laid out in the page's direction,
-   an English sentence in an Arabic interface loses its full stop to the left
-   edge: the characters are right, the order is not, and no translation fixes
-   it.
-
-   `plaintext` resolves each cell by its own first strong character, so an
-   English title stays English and an Arabic one stays Arabic in the same
-   column. It is a no-op in a left-to-right interface, where content and page
-   already agree. `.mono` is more specific and keeps its stricter rule. */
-/* The descendants are named as well because `unicode-bidi` does not inherit:
-   the rule name in its <strong> and the description in its <div> each form
-   their own paragraph, and a rule set on the cell alone leaves both behind. */
+/* A cell resolves its direction by its own first strong character, so an English title in an
+   Arabic interface keeps its full stop at the end. The descendants are named since
+   `unicode-bidi` does not inherit. */
 th,
 td,
 th *,
@@ -1962,10 +1716,7 @@ td * {
   unicode-bidi: plaintext;
 }
 
-/* ------------------------------------------------------------ feedback */
-/* A rule's conditions in the rules table: a plus to match, a minus to veto, in
-   the text's own face rather than the code's. The marks carry the colour, the
-   words stay in the text colour. */
+/* The conditions in the rules table: the plus and minus carry the colour, the words do not. */
 .rule-conditions {
   display: flex;
   flex-direction: column;
@@ -1992,8 +1743,7 @@ td * {
   color: var(--text-muted);
 }
 
-/* What a try of the typed values answered, inside the dialog that typed them.
-   A line, not a banner: the screen's outcome is the banner, behind the dialog. */
+/* A probe's answer, a line in its dialog: the screen's banner is behind it. */
 .probe-ok {
   display: flex;
   align-items: center;
@@ -2003,16 +1753,14 @@ td * {
   color: var(--status-success);
 }
 
-/* A link inside a sentence: underlined, since its colour alone does not tell
-   it from the words around it. */
+/* Underlined, since its colour alone does not set a link apart from the words around it. */
 .text-link {
   color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-/* An address that opens the Arr's own interface. Underlined in the border
-   colour so a column of addresses stays quiet until one is pointed at. */
+/* An address to the Arr's interface, underlined in the border colour so a column stays quiet. */
 .instance-link {
   display: inline-flex;
   align-items: center;
@@ -2027,9 +1775,7 @@ td * {
   text-decoration-color: currentColor;
 }
 
-/* A dialog's buttons: the way out at the start, the actions at the end, and
-   both free to wrap, so a phone-wide dialog in a long language keeps every
-   button inside it. */
+/* The way out at the start, the actions at the end, both free to wrap inside a phone's dialog. */
 .dialog-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2037,8 +1783,7 @@ td * {
   gap: var(--space-2);
   margin-top: var(--space-4);
 }
-/* At the end of whichever line it lands on: wrapped under Cancel on a phone,
-   the actions otherwise sit at the start, where Cancel is. */
+/* At the end of whichever line it lands on, even wrapped under Cancel on a phone. */
 .dialog-actions > div {
   flex-wrap: wrap;
   margin-inline-start: auto;
@@ -2051,12 +1796,7 @@ td * {
   margin: 0;
 }
 
-/* A stripe and an icon, not a wash.
- *
- * Stacked full-width tinted blocks with a saturated border on every side
- * would read as a wall, and a wall is what makes the last one invisible. The
- * surface stays quiet, the colour is spent on a 3px edge and the glyph, and
- * the severity is still carried by two channels rather than by hue alone. */
+/* A stripe and an icon, not a wash: a stack of tinted blocks reads as a wall. */
 .banner {
   display: flex;
   align-items: center;
@@ -2091,10 +1831,8 @@ td * {
 .banner-success > svg {
   color: var(--status-success);
 }
-/* The sentence first, the buttons after it: where both do not fit, on a
-   phone or in a long language, the buttons move under the sentence rather
-   than past the edge of the banner. After `.banner`, whose stripe it
-   recolours with the same specificity. */
+/* The sentence first, the buttons under it where both do not fit. After `.banner`, whose
+   stripe it recolours with the same specificity. */
 .banner-guide {
   flex-wrap: wrap;
   border-inline-start-color: var(--accent-strong);
@@ -2106,8 +1844,7 @@ td * {
   color: var(--accent-strong);
 }
 
-/* The warnings a block enumerates. Plain text rather than one banner each: the
-   severity is stated once, by the stripe above them. */
+/* Plain text under one stripe, which states the severity once. */
 .banner-list {
   margin: var(--space-2) 0 0;
   padding-inline-start: var(--space-5);
@@ -2143,33 +1880,21 @@ td * {
   }
 }
 
-/* ------------------------------------------------------------ confidence */
-/* The figure, then the meter, never the figure *on* the meter.
- *
- * Centred over the bar, the value would sit on the fill on one side and the
- * track on the other, with the boundary running under the digits at mid-range
- * values, and digits over the amber fill are unreadable. Outside, it is always
- * on the card.
- */
+/* The figure beside the meter, never on it: digits over the amber fill are unreadable. */
 .confidence {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  /* Bounded, because this is read in two places: a 90px table column, where it
-     fills, and the explanation panel, where an unbounded track would draw a
-     four-pixel line across the whole dialog. */
+  /* Bounded: unbounded in the explanation panel, the track would cross the whole dialog. */
   max-width: 180px;
 }
 
-/* Tabular, so a column of values lines up its units and can be compared by
-   scanning rather than by reading. The reserve fits "100 %". */
+/* Tabular, so a column of values lines up and can be scanned. */
 .confidence-value {
   font-family: var(--font-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  /* Five, not four: an override is 1.0 and French writes `100 %` with a
-     narrow space, so a four-character reserve would let the meter beside it
-     shift on exactly the rows somebody pinned by hand. */
+  /* Five: French writes `100 %` with a narrow space, and four would shift a pinned row's meter. */
   min-width: 5ch;
   text-align: end;
   color: var(--text-primary);
@@ -2180,17 +1905,9 @@ td * {
   color: var(--status-danger);
 }
 
-/* The mark a table column has room for.
- *
- * The meter below is for the explanation panel, where it has 150px. A column
- * gives it 28px after the figure, which measures nothing and reads as a smudge.
- * The dot says the same thing in intensity, muted to the accent of the meter,
- * at a size the column cannot take away. A ramp claims no category:
- * `confidence_for` scales differently per match mode, an `all` rule with one
- * condition is 60% and an `any` rule with two is 53%, so no threshold can
- * order them. `--mix` is set per element by the component: an unregistered
- * custom property inside a colour function is invalid at computed-value time,
- * so the arithmetic cannot live in a `calc()` here. */
+/* A dot whose intensity is the value, as a 28px meter reads as a smudge, with no thresholds
+   since match modes scale apart. `--mix` comes from the component: an unregistered property
+   in a colour function is invalid at computed-value time. */
 .confidence-dot {
   width: 7px;
   height: 7px;
@@ -2204,23 +1921,20 @@ td * {
   background-color: var(--status-danger);
 }
 
-/* The same bar as the guide's progress: its length is the value, and one
-   colour for every value claims no good or bad of its own. */
+/* The guide's bar again: one colour for every value claims no good or bad. */
 .confidence-track {
   flex: 1;
   min-width: 28px;
 }
 
 .confidence-fill {
-  /* Stated: the element is a `<span>`, and an inline box ignores both width
-     and height, so the fill would draw nothing. */
+  /* A `<span>` ignores width and height inline, so the fill would draw nothing. */
   display: block;
   height: 100%;
   background-color: var(--accent-primary);
   transition: width 0.2s ease;
 }
 
-/* ------------------------------------------------------------ rule editor */
 .condition-row {
   display: flex;
   align-items: flex-start;
@@ -2239,8 +1953,7 @@ td * {
   padding-inline-start: 10px;
   font-size: 13px;
 }
-/* On a phone the caption's 190px and the picker beside it run past the
-   dialog's edge, Delete with them, so the caption takes a line of its own. */
+/* On a phone the caption takes its own line, or the picker and Delete run past the dialog. */
 @media (max-width: 560px) {
   .condition-row {
     flex-wrap: wrap;
@@ -2253,9 +1966,7 @@ td * {
     min-width: 0;
   }
 }
-/* The end side is set apart: a select keeps the room `select.form-select`
-   reserves for its arrow, and a padding shorthand here would draw the arrow
-   over the text, "all of" included. */
+/* The end side apart, so a select keeps the room its arrow is drawn in. */
 .condition-row .form-input {
   padding-inline-end: 10px;
 }
@@ -2283,7 +1994,6 @@ td * {
   font-size: 12px;
 }
 
-/* ------------------------------------------------------------ misc */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2297,19 +2007,8 @@ td * {
   min-width: 160px;
 }
 
-/* The search box holds its width, and the spare space collects at the end of
-   the row instead.
- *
- * As `flex: 1 1 240px` it would absorb every spare pixel of the toolbar, so
- * revealing "clear filters" would take that width straight back out of it and
- * shift everything between them to the left, on the first keystroke, and by
- * however wide that label happens to be in the language being read. Anchored,
- * the row does not move when a control appears at its end.
- *
- * Not scoped to `.toolbar`: the same box sits inside a form on the overrides
- * screen, and scoped, the screens that search would not share one width. It
- * sits after the toolbar's own sizing on purpose: the two selectors weigh the
- * same, so order is what decides. */
+/* A fixed width, so a control appearing at the toolbar's end moves nothing. Unscoped, so every
+   screen that searches shares it, and after the toolbar's sizing, which weighs the same. */
 .search-field {
   display: flex;
   align-items: center;
@@ -2344,8 +2043,7 @@ td * {
   margin-top: 16px;
 }
 
-/* The sign-in and API-key gates: the whole viewport, because nothing else can
-   be shown until the caller is known. */
+/* The sign-in and API-key gates take the viewport: nothing shows until the caller is known. */
 .gate {
   min-height: 100vh;
   display: flex;
@@ -2360,8 +2058,7 @@ td * {
   max-width: 460px;
 }
 
-/* A command meant for a terminal, so one click selects all of it: a drag that
-   stops a character short pastes a path that does not exist. */
+/* One click selects all of it: a drag stopping short pastes a path that does not exist. */
 .gate-command,
 .secret-once {
   display: block;
@@ -2377,21 +2074,13 @@ td * {
   margin: 6px 0 20px;
 }
 
-/* A key or secret shown once: a token has no break point, and unwrapped it
-   pushes a phone's page sideways and cuts the only readable copy. */
+/* A token has no break point: unwrapped, it pushes a phone's page sideways. */
 .secret-once {
   margin-top: 8px;
 }
 
-/* Settings sections. A strip of tabs rather than one long column: every
-   setting in a row would mean scrolling past automation to reach a retention
-   count. */
-
-/* The measure for the whole screen, strip included.
-   Every other page is a table and wants the window. This one is a form, and a
-   caption stretched across 1400px stops reading as the label of the field
-   under it. The strip is capped with the cards: a full-width rule over a narrow
-   block is a mismatch, and the mismatch is what reads as broken, not the width. */
+/* The settings form's measure, its tab strip included: a caption stretched across 1400px
+   stops reading as the label of the field under it. */
 .settings-column {
   max-width: 880px;
 }
@@ -2426,24 +2115,20 @@ td * {
   border-bottom-color: var(--accent-strong);
 }
 
-/* A tab holding a value Save waits on: from another tab, the field is out of
-   sight. The tab's name says it in words. */
+/* A tab holding a value Save waits on, out of sight from another tab. */
 .tab-flag {
   margin-inline-start: 6px;
   vertical-align: -2px;
   color: var(--status-danger);
 }
 
-/* The strip carries a roving tab order, so the focus ring is the only thing
-   telling a keyboard user where they are. */
+/* A roving tab order leaves the ring as the only sign of where the focus is. */
 .tab:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: -2px;
 }
 
-/* An arrow means "towards", so it has to turn around when the writing does.
-   Mirrored rather than swapped for a different glyph: one rule covers the text
-   arrows and the icon components alike. */
+/* An arrow means "towards", so it mirrors with the writing: one rule for text and icons. */
 [dir='rtl'] .dir-aware {
   transform: scaleX(-1);
 }
@@ -2452,13 +2137,8 @@ td * {
   display: inline-block;
 }
 
-/* ===================================================== interaction and motion
- *
- * Every control acknowledges a pointer and a keyboard. A focus ring is an
- * accessibility requirement before it is a style: without one, tabbing through
- * the application is navigating blind. Zero specificity, so a component that
- * declares its own transition (`.btn`, `.nav-item`) keeps it.
- */
+/* Every control shows a focus ring. Zero specificity, so a component that declares its own
+   transition, as `.btn` does, keeps it. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
@@ -2473,8 +2153,7 @@ td * {
     opacity var(--transition);
 }
 
-/* Movement is decoration, and the information never depends on it. Anyone who
-   has asked their system for less gets none. */
+/* No information depends on motion, so a reader who asked for less gets none. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -2486,8 +2165,7 @@ td * {
   }
 }
 
-/* A third button weight: an action repeated once per row, where a bordered
-   button twenty times over reads as a wall rather than as twenty choices. */
+/* A third weight for an action repeated per row, where bordered buttons would read as a wall. */
 .btn-ghost {
   background-color: transparent;
   border: 1px solid transparent;
@@ -2498,12 +2176,7 @@ td * {
   color: var(--text-primary);
 }
 
-/* ============================================================ loading state
- *
- * Going from empty to full in one step reads as a stall followed by a jump. A
- * skeleton says "a table is coming, this wide" and keeps the layout from moving
- * underneath the reader.
- */
+/* A skeleton keeps the layout still while a table loads. */
 .skeleton {
   background-image: linear-gradient(
     90deg,
@@ -2528,27 +2201,16 @@ td * {
   margin: var(--space-2) 0;
 }
 
-/* ============================================================ sticky headings
- *
- * A long table scrolled without this leaves a grid of values with nothing to
- * say what they are. The top bar sticks to the page, and a table's heading to
- * the top of its own container.
- */
+/* The top bar sticks to the page, and a table's heading to its own container. */
 .topbar {
   position: sticky;
   top: 0;
   z-index: var(--z-bar);
 }
 
-/* Sticky headings need a scrolling ancestor, and `.table-container` already is
-   one: `overflow-x: auto` makes it the reference for `position: sticky`, so an
-   offset of the chrome height would push the heading down *inside* the card
-   and leave a band of nothing above it.
- *
- * So the container scrolls vertically too, capped, and the heading sticks to
- * its own top. Only above the drawer breakpoint: a scroll region inside a
- * scrolling page is unpleasant on a phone, and there the page scroll is enough.
- */
+/* `.table-container` already scrolls sideways, so it is the sticky reference: it scrolls
+   vertically too, capped, and the heading sticks to its top. Not on a phone, where the page
+   scroll is enough. */
 @media (min-width: 901px) {
   .table-container {
     overflow: auto;
@@ -2561,20 +2223,8 @@ td * {
   }
 }
 
-/* ================================================================ responsive
- *
- * Without a breakpoint this interface is a fixed 250px rail, seven-column
- * tables, and horizontal scrolling for anyone under a wide desktop.
- *
- * Two steps. The rail loses its labels first, which buys 180px without moving
- * anything else. Then it leaves the flow entirely and returns as a drawer,
- * because below that width the choice is not "narrower navigation", it is
- * "navigation or content".
- */
-/* The rail's words are out of sight, not out of the page: a label still names
-   its link, which a voice command calls by that name, and a link with a count
-   would otherwise be named by its count alone. The drawer below 900px shows
-   them again. */
+/* The rail hides its words but keeps them, so a link is still named by its label, which a
+   voice command calls it by, and not by its count. */
 @media (min-width: 901px) and (max-width: 1200px) {
   .sidebar .sidebar-title,
   .sidebar .nav-label,
@@ -2595,11 +2245,9 @@ td * {
   .sidebar {
     width: var(--sidebar-rail);
   }
-  /* 68px fits no word, so the group is drawn rather than named. The rule is
-     what keeps the grouping legible where the label cannot be. */
+  /* 68px fits no word, so the group is drawn as a rule rather than named. */
   .sidebar .nav-group {
-    /* Back to a block, so `text-indent` still reaches the words: a flex
-       container hands them to an anonymous item the indent does not move. */
+    /* A block: in a flex container the words sit in an anonymous item `text-indent` misses. */
     display: block;
     margin: 12px 10px 8px;
     padding: 0;
@@ -2641,8 +2289,7 @@ td * {
     transform: translateX(-100%);
     transition: transform var(--transition);
   }
-  /* `translate` in the writing direction, so the drawer enters from the side
-     the navigation lives on in Arabic too. */
+  /* `translate` in the writing direction, so the drawer enters from its own side in Arabic. */
   [dir='rtl'] .sidebar {
     transform: translateX(100%);
   }
@@ -2650,11 +2297,7 @@ td * {
   [dir='rtl'] .sidebar.is-open {
     transform: none;
   }
-  /* The drawer is the full 250px, so the group gets its name back. The rail's
-     rule above applies at every width below 1200px, and undone nowhere else,
-     it would leave the navigation on a phone with unlabelled hairlines where
-     its section titles should be: a screen reader would have the text through
-     `aria-labelledby`, and nobody looking at the screen would. */
+  /* The full-width drawer names its groups again, undoing the rail's rule below 1200px. */
   .sidebar .nav-group {
     display: flex;
     height: auto;
@@ -2664,9 +2307,7 @@ td * {
     text-indent: 0;
     background: none;
   }
-  /* Back to the insets the rail took away, each its own: the header's 24px
-     and an entry's 12px. Given the header's, an entry leaves a long label
-     too little room and wraps it. */
+  /* Back to the header's 24px and an entry's 12px: the header's would wrap a long label. */
   .sidebar-header {
     justify-content: flex-start;
     padding-inline: var(--space-6);
@@ -2690,11 +2331,7 @@ td * {
   }
 }
 
-/* Below this the screen is narrower than a comfortable measure, so the layout
- * stops shrinking and starts restructuring: the actions of a page take a line
- * of their own, a dialog keeps a margin it can breathe in, and the tab strip
- * scrolls rather than stacking six rows deep.
- */
+/* Narrower than a comfortable measure: page actions take a line, and the tab strip scrolls. */
 @media (max-width: 560px) {
   .topbar,
   .page-container {
@@ -2706,8 +2343,7 @@ td * {
   .card {
     padding: var(--space-4);
   }
-  /* Full width and sharing it: a row of three buttons at their natural widths
-     leaves the last one alone on a line. */
+  /* Full width, shared, so the last of three buttons is not left alone on a line. */
   .page-header > .flex {
     width: 100%;
   }
@@ -2715,9 +2351,7 @@ td * {
     flex: 1 1 auto;
     justify-content: center;
   }
-  /* A card used as one flex row (a label on one side, its actions on the
-     other, as the simulation's apply bar is) puts each half on a line of its
-     own rather than pushing the second off the screen. */
+  /* A card used as one flex row puts each half on its own line, not the second off screen. */
   .card.flex {
     flex-wrap: wrap;
   }
@@ -2728,26 +2362,19 @@ td * {
     max-height: calc(100svh - 2 * var(--space-3));
     padding: var(--space-4);
   }
-  /* The source row is three lanes on a laptop and a stack on a phone. Holding
-     its shape, the actions would keep the 190px that aligns their right edges,
-     the credential field beside them would shrink narrower than the word it
-     holds, and "Disable" would be clipped outside its own row. The document
-     does not scroll, so nothing but a measurement shows it. */
-  /* Rows with a rank only: a row without one, as Diagnostics draws them, would
-     put its name in the 24px lane and wrap it over three lines. */
+  /* A stack on a phone: in three lanes the actions keep 190px and squeeze the credential
+     field. Rows with a rank only, or Diagnostics' names land in the 24px lane. */
   .source-list .source-row:has(.source-rank) {
     grid-template-columns: 24px 1fr;
   }
-  /* Second lane, not the first: aligned under the name rather than under the
-     rank, the actions read as belonging to the source above them. */
+  /* Second lane, under the name, so the actions read as the source's own. */
   .source-actions {
     grid-column: 2 / -1;
     justify-content: flex-start;
     min-width: 0;
   }
 
-  /* One line that scrolls, rather than six rows of tabs above the panel they
-     label. */
+  /* One line that scrolls, not six rows of tabs. */
   .tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -2759,8 +2386,7 @@ td * {
   .tab {
     flex: none;
   }
-  /* The save bar stacks: its scope line and its buttons each take a line
-     rather than fighting for one. */
+  /* The scope line and the buttons each take a line. */
   .save-bar {
     align-items: stretch;
     flex-direction: column;
@@ -2774,8 +2400,7 @@ td * {
   }
 }
 
-/* The drawer's toggle in the top bar, and its close button in the drawer's
-   header, at its far end: both exist only where the navigation is a drawer. */
+/* The drawer's toggle and close button, which exist only where the navigation is a drawer. */
 .sidebar-toggle,
 .sidebar-close {
   display: none;
@@ -2790,8 +2415,7 @@ td * {
   }
 }
 
-/* What the explanation panel can do about its title, each action above what
-   it does: side by side where they fit, one under the other on a phone. */
+/* The explanation panel's actions, side by side where they fit, stacked on a phone. */
 .explain-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2802,9 +2426,7 @@ td * {
   flex: 1 1 240px;
 }
 
-/* Two lines, then an ellipsis and the rest behind the row's button. Otherwise
-   rows keep a rhythm of their own: a three-line justification makes its row
-   twice the height of the one above. */
+/* Two lines, then the rest behind the row's button: a longer one would double its row. */
 .reason-line {
   font-size: 12px;
   display: -webkit-box;
@@ -2836,21 +2458,13 @@ td * {
   top: 12px;
 }
 
-/* Out of the tab order, so only a script focuses it: the page after the skip
-   link, a settings panel after a save, a heading, a menu or a list before its
-   first item. The ring belongs on controls, not on a whole region, and a
-   menu's items are controls: keyed on `tabindex` alone, the rule would hide
-   the item the arrows land on. */
+/* A target only a script focuses takes no ring: the ring belongs on controls. A menu's items
+   are controls, so the rule is keyed on the elements and not on `tabindex` alone. */
 :is(h1, h2, main, [role='tabpanel'], [role='menu'], [role='listbox'])[tabindex='-1']:focus {
   outline: none;
 }
 
-/* ---------------------------------------------------------------- utilities
- *
- * The handful of adjustments a screen would otherwise write as `style="…"`.
- * Named once here, they are the reason `style-src` can one day lose
- * 'unsafe-inline'.
- */
+/* Named here so no screen writes them as an inline `style`, which the CSP keeps for data. */
 .text-xs {
   font-size: 11px;
 }
@@ -2870,9 +2484,7 @@ td * {
   flex: 1;
 }
 
-/* A backup's name has no break a browser may take between a hyphen and a
-   digit, and beside its three buttons it outgrows a phone: it breaks anywhere,
-   and its column may shrink below it. */
+/* A backup's name offers no break between a hyphen and a digit, so it breaks anywhere. */
 .backup-file {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -2934,8 +2546,7 @@ td * {
 .flex-fixed-120 {
   flex: 0 0 120px;
 }
-/* As wide as its caption, never narrower than 160px: a fixed width would fold
-   the caption in every language longer than English. */
+/* As wide as its caption, at least 160px: a fixed width folds every longer caption. */
 .flex-fit {
   flex: 0 0 auto;
   min-width: 160px;
@@ -2943,8 +2554,7 @@ td * {
 .flex-fit > .form-label {
   white-space: nowrap;
 }
-/* Status and source colours on an icon or a word, where the badge shape would
-   be too much. */
+/* Status and source colours on an icon or a word, where a badge would be too much. */
 .text-success {
   color: var(--status-success);
 }
@@ -2972,10 +2582,7 @@ td * {
   margin: 0;
   white-space: pre-line;
 }
-/* A row that is still listed but no longer counts: a disabled rule, a disabled
-   instance, a superseded proposal. A badge says so in words, so only its text
-   is muted: an opacity would take the badges and the controls it still offers
-   under AA. */
+/* A row that counts for nothing mutes only its text: an opacity drops its badges under AA. */
 .row-muted td {
   color: var(--text-muted);
 }
@@ -2983,8 +2590,7 @@ td * {
 .row-selected {
   background-color: var(--bg-card-hover);
 }
-/* The control that picks a candidate row. The whole cell is the target, and it
-   is a button so the keyboard and a screen reader reach it at all. */
+/* The whole cell picks the row, a button so a keyboard and a screen reader reach it. */
 .row-pick {
   all: unset;
   display: block;
@@ -3018,20 +2624,15 @@ td * {
   border: 0;
 }
 
-/* A title is read whole, by a keyboard and a finger as much as by a mouse.
-   It takes the room the table gives its column and wraps only past it. The
-   floor keeps room for a few words: sized by its longest word alone, the
-   column would stack a long title a word per line, and capped instead, a
-   title would wrap with half its column empty beside it. */
+/* A title takes its column's room and wraps past it. The floor keeps a few words, or the
+   column shrinks to its longest word and stacks a long title. */
 .cell-title {
   display: inline-block;
   min-width: 16rem;
   overflow-wrap: anywhere;
 }
 
-/* The overflow menu of a table row. Anchored to its trigger and drawn above the
-   rows below it, on the trailing edge because that is where the actions column
-   sits, and `inset-inline-end` so it stays on that edge in Arabic. */
+/* A row's overflow menu, above the rows below, on the trailing edge where the actions are. */
 .action-menu {
   position: relative;
   display: inline-flex;
@@ -3078,15 +2679,13 @@ td * {
   color: var(--status-danger);
 }
 
-/* A row's menu has to escape the cell it lives in. `.table-container` scrolls,
-   which clips it, so the row that owns an open menu lifts out of the clip. */
+/* The scrolling container clips a row's menu, so the row with an open menu lifts out. */
 .table-container:has(.action-menu-list) {
   overflow: visible;
   max-height: none;
 }
 
-/* The actions of a row, kept on one line and never wrapping: a wrapped action
-   group is what makes one row twice the height of the next. */
+/* A row's actions never wrap, or that row would be twice the height of the next. */
 .row-actions {
   display: flex;
   align-items: center;
@@ -3094,31 +2693,17 @@ td * {
   flex-wrap: nowrap;
 }
 
-/* A filesystem path is the widest thing in these tables, and read whole too:
-   it takes its column's room and wraps past it, above a floor, for the
-   reasons a title does. The `<bdi>` inside keeps it left to right in an
-   Arabic page, or its leading slash moves to the end. */
+/* A path wraps above a floor, as a title does. Its `<bdi>` keeps its leading slash in Arabic. */
 .cell-path {
   display: inline-block;
   min-width: 12rem;
   overflow-wrap: anywhere;
 }
 
-/* A table that scrolls says so.
- *
- * Below a certain width a dense table has to scroll, and scrolling in silence
- * leaves a row that simply ends mid-word. These are two shadows painted on
- * the scroll container itself: `background-attachment: local` pins one pair to
- * the content and `scroll` pins the other to the frame, so each shadow is only
- * visible while there is something in that direction. No JavaScript, and no
- * listener to keep in step with a resize.
- */
+/* A table that scrolls says so: covers pinned to the content (`local`) hide shadows pinned to
+   the frame (`scroll`) until there is something in that direction. */
 .table-container {
-  /* The cover has to be *opaque* for at least the width of the shadow it
-     hides, then fade. Faded from the first pixel, it lets the shadow show
-     through at around half strength for its whole width, a permanent dark
-     band down both edges of every table that has nothing to scroll, which is
-     most of them. */
+  /* Opaque across the shadow's width, or a table with nothing to scroll shows a dark band. */
   background-image:
     linear-gradient(to right, var(--bg-card) 16px, transparent 32px),
     linear-gradient(to left, var(--bg-card) 16px, transparent 32px),
@@ -3138,19 +2723,8 @@ td * {
   background-attachment: local, local, scroll, scroll;
 }
 
-/* ============================================================ scrollbars
- *
- * The platform's own bar is a grey slab sized for a document, and a table that
- * scrolls a little would get a control that looks like a browser chrome fitting
- * borrowed into the card. Styled to the theme instead: a thin pill, inset from
- * the edge, that darkens on hover.
- *
- * `scrollbar-width`/`scrollbar-color` is the standard property and is what
- * Firefox honours. The `::-webkit-` block is what Chromium and Safari read.
- * Both are declared because neither covers the browsers a self-hosted app is
- * opened in. The colours are tokens, so the light theme gets its own rather
- * than a dark pill on a white card.
- */
+/* The scrollbar themed as a thin inset pill. `scrollbar-color` serves Firefox and the
+   `::-webkit-` block Chromium and Safari, so both are declared. */
 .table-container,
 .sidebar-nav,
 .modal-content,
@@ -3181,9 +2755,7 @@ td * {
 .action-menu-list::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb);
   border-radius: var(--radius-full);
-  /* Transparent border rather than a margin: it is the only way to inset a
-     webkit thumb, and `background-clip: content-box` is what keeps the border
-     from being painted in the thumb's own colour. */
+  /* A transparent border clipped off the background is the only way to inset a webkit thumb. */
   border: 3px solid transparent;
   background-clip: content-box;
 }
@@ -3195,11 +2767,7 @@ td * {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-/* ============================================================ the headline
- *
- * The one thing a dashboard is for. Everything under it is context, and reads
- * as one line of facts rather than cards of equal weight.
- */
+/* The one thing a dashboard is for. What sits under it reads as one line of facts. */
 .headline {
   display: flex;
   align-items: center;
@@ -3247,8 +2815,7 @@ td * {
   color: var(--text-muted);
   font-size: 13px;
 }
-/* Colour is spent on a figure that asks for something, and on no other. The
-   three status names are what `Stat` passes through. */
+/* Colour only on a figure that asks for something. `Stat` passes these three names through. */
 .metric.is-danger .metric-value {
   color: var(--status-danger);
 }
@@ -3267,9 +2834,7 @@ td * {
   color: var(--text-secondary);
 }
 
-/* The save bar. Sticky at the foot of the viewport rather than at the end of
-   the form: the form is five sections long, and a control that only appears
-   after the last field is a control most people never meet. */
+/* Sticky at the foot of the viewport: at the end of a long form most people never meet it. */
 .save-bar {
   position: sticky;
   bottom: var(--space-4);
@@ -3292,10 +2857,7 @@ td * {
   margin-top: 2px;
 }
 
-/* Native selects carry the operating system's own chrome, which sits oddly
-   against fields drawn entirely here. The element stays native, so it keeps its
-   keyboard behaviour and its platform picker on a phone, and only the frame is
-   ours. */
+/* Native, for its keyboard and a phone's picker, with only the frame drawn here. */
 select.form-input,
 select.form-select {
   appearance: none;
@@ -3311,9 +2873,7 @@ select.form-select {
     5px 5px;
   background-repeat: no-repeat;
 }
-/* Moved to the other end, the two halves keep their order: the first draws the
-   wedge's left side and must stay on the left. Swapped, they draw two outward
-   corners with a gap. */
+/* The wedge's halves keep their order on the other end, or they draw two outward corners. */
 [dir='rtl'] select.form-input,
 [dir='rtl'] select.form-select {
   background-position:
@@ -3321,25 +2881,8 @@ select.form-select {
     18px 50%;
 }
 
-/* Distribution panels: what the library carries, per axis a condition reads.
- *
- * Small multiples rather than a wall of pills. Rows of identical chips would
- * give "Adventure 27" and "Thriller 1" the same visual weight across a 27×
- * difference, and put the only number that matters in the smallest element on
- * screen. A chip also promises a filter you can click, and this is data.
- *
- * The bar carries the proportion, the figure carries the value, and the figure
- * is what a screen reader gets: the bar is decorative and says so.
- */
-/* The disclosure that holds the library's facets.
- *
- * The marker is drawn rather than inherited: the browsers' own triangles differ
- * in size, colour and position, and one of them sits outside the padding box.
- * `list-style: none` plus the WebKit pseudo-element is what removes both. */
-/* The facets' "?", laid over the summary's line just before its chevron: past
-   the card's padding, the chevron's width and a gap. The chevron ends the
-   summary's content, so the summary keeps no padding of its own there, or the
-   chevron moves under the "?". */
+/* The library's facets, a decorative bar per value beside the figure a screen reader gets.
+   The "?" sits just before the chevron that ends the summary, which keeps no end padding. */
 .facet-wrap {
   position: relative;
 }
@@ -3354,8 +2897,7 @@ select.form-select {
   padding-inline-end: 0;
   cursor: pointer;
   list-style: none;
-  /* Closed, the header is the whole card, so it should not reserve the gap it
-     leaves above content that is not there. */
+  /* Closed, the header is the whole card and keeps no gap below it. */
   margin-bottom: 0;
 }
 .facet-panel[open] > summary {
@@ -3369,8 +2911,7 @@ select.form-select {
   width: 7px;
   height: 7px;
   margin-inline-start: auto;
-  /* Physical sides, as the checkbox tick: the rotation is physical, and right
-     to left the logical sides make it point sideways. */
+  /* Physical sides, as the checkbox tick: right to left, logical ones point it sideways. */
   border-right: 2px solid var(--text-muted);
   border-bottom: 2px solid var(--text-muted);
   transform: rotate(45deg) translate(-2px, -2px);
@@ -3383,11 +2924,213 @@ select.form-select {
   border-color: var(--text-secondary);
 }
 
-/* Flowed columns rather than a grid. These cards differ widely in height, one
-   axis holding eleven values and another one, and a grid row waits for its
-   tallest member, which leaves a hole the size of a card under every short one.
-   Multi-column packs them and balances the columns on its own. The DOM order is
-   untouched, so what a screen reader hears does not change. */
+/* The rule templates, three columns at most: the six fill two rows. */
+.template-grid {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(260px, calc((100% - 24px) / 3)), 1fr));
+  gap: var(--space-3, 12px);
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.template-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.template-card-head h3 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.template-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--accent-strong);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.template-card-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* A line under a template or its preview, with the icon that says its kind. */
+.template-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.template-note > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.template-note.is-warning > svg {
+  color: var(--status-warning);
+}
+
+/* Pinned to the foot, so the buttons of a row of tiles line up. */
+.template-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.template-card-foot > .btn {
+  margin-inline-start: auto;
+}
+
+.template-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.template-target > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.template-effect {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.template-effect > *,
+.template-effect p {
+  margin: 0;
+}
+
+.template-reach {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.template-reach-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.template-reach-label {
+  color: var(--text-secondary);
+}
+
+/* Where the titles it recognises end up, in the colours of the figures under
+   it. Each segment's share is its count, set inline. */
+.template-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  background-color: var(--bg-surface);
+}
+
+.template-bar > span {
+  min-width: 6px;
+}
+
+.template-bar > .is-move {
+  background-color: var(--status-warning);
+}
+
+.template-bar > .is-none {
+  background-color: var(--status-success);
+}
+
+.template-bar > .is-skip {
+  background-color: var(--status-danger);
+}
+
+.template-bar > .is-kept {
+  background-color: var(--border-strong);
+}
+
+.template-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+}
+
+.template-kept {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.template-kept-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.template-kept ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.template-kept li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.template-kept-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flowed columns: a grid row waits for its tallest card, leaving a hole under each short one.
+   The DOM order, and so what a screen reader hears, is unchanged. */
 .facet-grid {
   columns: 260px;
   column-gap: var(--space-4, 16px);
@@ -3430,8 +3173,7 @@ select.form-select {
 /* Logical inset, so the fill grows from the reading edge in Arabic too. */
 .facet-bar {
   position: absolute;
-  /* Inset, so it does not touch the row's edges: filling the full height would
-     make it read as a selected row rather than as a quantity. */
+  /* Inset, or a full-height fill reads as a selected row rather than a quantity. */
   inset-block: 3px;
   inset-inline-start: 0;
   background-color: var(--facet-bar);
@@ -3448,8 +3190,7 @@ select.form-select {
 
 .facet-count {
   position: relative;
-  /* Tabular figures, or a column of counts stops lining up the moment a 1 sits
-     above a 27. */
+  /* Tabular figures, so a column of counts lines up. */
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--text-secondary);
@@ -3462,13 +3203,7 @@ select.form-select {
   color: var(--text-muted);
 }
 
-/* ---------------------------------------------------------------- value picker
- *
- * A combo box for a condition's values: chips for what is chosen, a filtered
- * list of what the library holds below the field. The list is positioned out of
- * flow so opening it does not push the rest of the form down, which inside a
- * dialog reads as the form jumping under the pointer.
- */
+/* Out of flow, so opening the list does not push the dialog's form down under the pointer. */
 .value-picker {
   position: relative;
 }
@@ -3545,15 +3280,13 @@ select.form-select {
   background-color: var(--bg-card-hover);
 }
 
-/* What Enter adds, marked as the palette marks what Enter opens: the focus
-   stays in the field, so no focus ring can say it. */
+/* What Enter adds, marked as in the palette, since the focus stays in the field. */
 .picker-option[aria-selected='true'] {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
 }
 
-/* The figure is reference data, so it recedes rather than competing with the
-   value it describes. */
+/* Reference data, so it recedes behind the value it describes. */
 .picker-count {
   color: var(--text-muted);
   font-size: 12px;
@@ -3576,8 +3309,7 @@ select.form-select {
   text-align: end;
 }
 
-/* A meaning over the codes that share it, set like the navigation's group
-   headings so it reads as a heading and not as a choice. */
+/* A meaning over the codes that share it, set as the navigation's group headings. */
 .picker-group-title {
   margin: 0;
   padding: 8px 12px 2px;
@@ -3588,16 +3320,13 @@ select.form-select {
   text-transform: uppercase;
 }
 
-/* ------------------------------------------------------------ API reference */
 /* One operation of the contract, folded to its line until opened. */
 .api-operation {
   border-top: 1px solid var(--border-subtle);
   padding: 8px 0;
 }
 .api-operation > summary {
-  /* The same columns on every line: the method, the path as wide as the
-     longest the contract holds, what it does, then the scope. Each column
-     starts where the one above it does. */
+  /* The same columns on every line, each starting where the one above does. */
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   grid-template-areas: 'method path does scope';
@@ -3625,8 +3354,7 @@ select.form-select {
   grid-area: scope;
   justify-self: end;
 }
-/* Beside a 28-character path, what an operation does would break every
-   second word: below this it takes a line of its own, under the path. */
+/* Below this, what an operation does takes a line under the path, or it breaks every word. */
 @media (max-width: 720px) {
   .api-operation > summary {
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -3650,8 +3378,7 @@ select.form-select {
 .api-prose {
   max-width: 72ch;
 }
-/* The reset takes every paragraph's margin, and the paragraphs of one
-   description otherwise read as one block. */
+/* The reset takes every paragraph's margin, so one description's paragraphs get theirs back. */
 .api-prose + .api-prose {
   margin-block-start: var(--space-3);
 }

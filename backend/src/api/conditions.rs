@@ -1,11 +1,5 @@
-//! The condition vocabulary the rule builder is driven by.
-//!
-//! Its own module rather than another section of `rules.rs`: this is not a
-//! handler over the `rules` table, it is a static description of what a
-//! condition can be: its value shape, the metadata field it reads, and the
-//! media types it can ever match on. Kept there, `rules.rs` would be four
-//! unrelated things in one file: CRUD, preview, the import/export bundle, and
-//! this.
+//! The condition vocabulary the rule builder is driven by: each condition's
+//! value shape, the metadata field it reads and the media types it can match.
 
 use super::Json;
 use axum::extract::State;
@@ -22,18 +16,11 @@ struct Spec {
     field: Option<MetadataField>,
     media_types: &'static [&'static str],
     /// The `GET /media/facets` axis its values are drawn from, so the builder
-    /// offers what the library holds instead of asking for an exact spelling.
-    /// Empty where the values are not a closed set: a keyword, a title
-    /// fragment, an external id.
+    /// offers what the library holds. Empty where the values are not a closed set.
     suggestions: &'static str,
-    /// How the values of this condition combine, and the kind that asks the
-    /// same question the other way. Only where the media side is a *list*: an
-    /// item has one certification and one language, so "all of them" is a
-    /// question those cannot be asked.
-    ///
-    /// The pair is what lets the builder offer one condition with a choice
-    /// rather than two that read alike. `counterpart` empty means the condition
-    /// has no quantifier at all.
+    /// `any` or `all` where the media side is a list, empty otherwise. With
+    /// `counterpart`, the kind asking the other way, it lets the builder offer
+    /// one condition with a choice instead of two that read alike.
     quantifier: &'static str,
     counterpart: &'static str,
 }
@@ -78,22 +65,15 @@ pub struct ConditionSpec {
     pub counterpart: &'static str,
 }
 
-/// Machine-readable catalogue of condition types, so the rule builder does not
-/// have to hard-code the list that the backend already owns.
+/// The catalogue of condition types, so the rule builder hard-codes none.
 pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionCatalog> {
     let localizer = state.localizer().await;
 
-    // Which media types a condition can ever match on.
-    //
-    // Not a preference: Radarr's payload carries no `tvdbId`, no `seriesType`
-    // and no season list, so `upsert_media` leaves those columns null for every
-    // film and the three conditions below can only ever fail there. Offering
-    // them on a movie rule is offering a condition that cannot match.
+    // Radarr sends no tvdbId, series type or seasons: those conditions never match a film.
     const ANY: &[&str] = &["movie", "series"];
     const SERIES_ONLY: &[&str] = &["series"];
 
-    // The label comes from the dictionary, keyed as `ConditionLabel` + the
-    // PascalCase form of the kind.
+    // Each label is the dictionary key `ConditionLabel` and the kind in PascalCase.
     const CONDITIONS: &[Spec] = &[
         Spec {
             kind: "genre_contains",
@@ -164,6 +144,15 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
             field: Some(MetadataField::OriginalLanguage),
             media_types: ANY,
             suggestions: "original_languages",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
+            kind: "original_language_known",
+            value_type: "boolean",
+            field: Some(MetadataField::OriginalLanguage),
+            media_types: ANY,
+            suggestions: "",
             quantifier: "",
             counterpart: "",
         },
@@ -350,9 +339,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         },
     ];
 
-    // Whether a condition can match depends on which sources are enabled, so
-    // the catalogue answers it rather than the interface marking it
-    // "(needs TMDB)" once and for all.
+    // Whether a condition can match follows the sources enabled at this moment.
     let covered = metadata::covered_fields(&state.metadata_providers().await);
 
     let conditions = CONDITIONS
@@ -400,11 +387,8 @@ fn pascal_case(kind: &str) -> String {
 mod tests {
     use crate::models::Condition;
 
-    /// The catalogue, read out of this file's own source.
-    ///
-    /// `CONDITIONS` is a `const` inside a handler, so nothing outside can see
-    /// it. Reading the text is what lets a test compare it against the enum it
-    /// is supposed to describe.
+    /// The catalogue, read out of this file's source, since `CONDITIONS` is a
+    /// `const` inside a handler that no test can reach.
     fn catalogue() -> Vec<(String, String, Option<String>)> {
         let source = include_str!("conditions.rs");
         let mut found = Vec::new();
@@ -438,12 +422,9 @@ mod tests {
         }
     }
 
-    /// Every condition the engine understands is offered by the builder.
-    ///
-    /// The catalogue is a `const` in this file and the enum is in another, so
-    /// the compiler joins them nowhere: a variant added to `Condition` and
-    /// forgotten here evaluates correctly and is offered by nothing, which
-    /// looks exactly like a feature that was never built.
+    /// Every condition the engine understands is offered by the builder. The
+    /// compiler joins the catalogue to the enum nowhere, so a variant missing
+    /// here evaluates correctly and is offered by nothing.
     #[test]
     fn every_condition_the_engine_knows_is_in_the_catalogue() {
         let wire = wire_names();
@@ -459,11 +440,8 @@ mod tests {
         );
     }
 
-    /// The wire name of every `Condition` variant, from its serde rename.
-    ///
-    /// The enum renames no variant by rule, so a variant written without its
-    /// rename goes on the wire under its Rust name, which the renames alone
-    /// do not show: every variant line has to have one.
+    /// The wire name of every `Condition` variant, from its serde rename. The
+    /// enum has no `rename_all`, so every variant must carry its own rename.
     fn wire_names() -> Vec<String> {
         let source = include_str!("../models/rule.rs");
         let enumeration = source
@@ -488,20 +466,9 @@ mod tests {
         names
     }
 
-    /// Every axis a `Spec` names is an axis `/media/facets` answers with.
-    ///
-    /// `suggestions` is what selects a picker over the library's own values
-    /// instead of a free-text field, and the interface reads it by indexing the
-    /// facets payload, through a cast, because the key arrives at run time.
-    /// The cast erases the check and the `?? []` behind it turns a miss into an
-    /// empty list, so an axis renamed on one side leaves the rule builder
-    /// silently offering nothing, and the operator types values by hand. A rule
-    /// written against a value the library does not hold matches nothing and
-    /// reads on screen exactly like a rule that correctly matches nothing,
-    /// which is the thing facets exist to prevent.
-    ///
-    /// `check-api-types.py` cannot see this: it compares field *names*, and
-    /// `suggestions` carries a *value*.
+    /// Every axis a `Spec` names is one `/media/facets` answers. The interface
+    /// reads it through a cast that turns a miss into an empty list, and
+    /// `check-api-types.py` compares names only, so nothing else sees a rename.
     #[test]
     fn every_axis_a_spec_names_is_one_the_facets_payload_answers() {
         let types = include_str!("../../../frontend/src/api/types.ts");
@@ -538,21 +505,9 @@ mod tests {
         assert!(missing.is_empty(), "{missing:?}");
     }
 
-    /// Every entry names a condition the engine can actually be given.
-    ///
-    /// Every catalogue entry is a condition, and the catalogue and the engine
-    /// agree on which metadata field it reads.
-    ///
-    /// The builder emits `{"type": kind, "value": …}` straight from this table,
-    /// so a misspelt `kind` or a `value_type` that does not match the variant's
-    /// shape produces a rule the backend refuses, with the interface offering
-    /// it as if it worked.
-    ///
-    /// The field is stated twice, `Spec.field` here and
-    /// `Condition::metadata_field` there, and the two answer different readers:
-    /// the builder warns that no enabled source can supply the field, the
-    /// engine decides whether a condition could ever match. Disagreeing, the interface offers a
-    /// condition it says is fine and the evaluation reports it unanswerable.
+    /// Every catalogue entry is a condition the engine accepts, reading the
+    /// field the engine reads. The builder emits rules straight from this table,
+    /// so a mismatch offers a condition the backend refuses or calls unanswerable.
     #[test]
     fn the_catalogue_names_the_field_the_engine_reads() {
         for (kind, value_type, declared) in catalogue() {

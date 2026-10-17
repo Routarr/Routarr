@@ -1,20 +1,6 @@
-//! Exporting and restoring the configuration.
-//!
-//! What this is for: rebuilding an installation, or moving it to another
-//! machine, without redoing by hand the work that cannot be regenerated: the
-//! rules, the folder mappings and above all the manual overrides, which are
-//! human decisions no amount of resyncing brings back.
-//!
-//! What it deliberately is not: a database backup. The library, the decision
-//! history and the metadata cache are all reproducible from the Arrs and the
-//! metadata sources, so they are left out, and a bundle stays small enough to
-//! read and to diff. A backup is `services::backup`, which archives the
-//! database with the master key and the API key.
-//!
-//! Nothing host-specific crosses the boundary. Ids are generated per install,
-//! and API keys are sealed with a master key that exists on one machine only:
-//! both are exported by *meaning* (an instance's name, a root folder's path, a
-//! media's external id) or not at all.
+//! Exporting and restoring the configuration: rules, folder mappings and the
+//! overrides no resync brings back, keyed by meaning, since ids and sealed keys
+//! belong to one installation. A full backup is `services::backup`.
 
 use super::Json;
 use axum::extract::State;
@@ -62,7 +48,7 @@ pub struct Category {
     pub description: Option<String>,
 }
 
-/// An Arr connection, minus the one thing that cannot travel.
+/// An Arr connection without its key, which is sealed for one installation.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Instance {
@@ -71,14 +57,8 @@ pub struct Instance {
     pub base_url: String,
     pub enabled: bool,
     pub sync_interval_minutes: i64,
-    /// Always false, for a person reading the bundle: the import reads no key
-    /// from it.
-    ///
-    /// API keys are sealed with a master key held by one installation. Exporting
-    /// them would either leak them in plaintext or produce ciphertext the
-    /// destination cannot open, so they are simply absent, and the instance
-    /// arrives disabled, named in the report's `needs_key`, until someone
-    /// supplies one.
+    /// Always false: the import reads no key, and the instance arrives disabled,
+    /// named in the report's `needs_key`.
     #[serde(default)]
     pub has_api_key: bool,
 }
@@ -110,9 +90,7 @@ pub struct Override {
     pub target_category: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    // A bundle may hold a lock on an exception. It is read and dropped, since
-    // an exception pins its title whatever it holds: refused, the whole bundle
-    // would not import.
+    // A bundle may carry `locked`: read and dropped, since refusing it fails the import.
     #[serde(rename = "locked", default, skip_serializing)]
     pub _locked: Option<serde::de::IgnoredAny>,
 }
@@ -120,11 +98,7 @@ pub struct Override {
 pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundle>> {
     let pool = &state.pool;
 
-    // Sealed values are left behind. They are ciphertext under a master key
-    // this installation holds alone, so carrying them would put an opaque blob
-    // in the destination's table that nothing there can ever open, while
-    // `<key>_configured` would report the source as ready. The same reasoning
-    // that keeps an Arr's key out of a bundle applies to a metadata source's.
+    // Sealed values stay behind: nothing elsewhere opens them, yet they would read as set.
     let settings: Vec<Setting> =
         sqlx::query_as::<_, (String, String)>("SELECT key, value FROM settings ORDER BY key")
             .fetch_all(pool)
@@ -231,12 +205,10 @@ pub struct ImportReport {
     pub root_folders: usize,
     pub overrides: usize,
     pub rules: usize,
-    /// Everything that could not be restored, and why. Never silent: a backup
-    /// that quietly drops half its contents is worse than none.
+    /// Everything that could not be restored, and why, so nothing drops silently.
     pub skipped: Vec<String>,
-    /// The instances restored disabled, by name: no export carries an API key,
-    /// so each needs one entered before it can be enabled. Restored, so not in
-    /// `skipped`, which the interface reads as what failed.
+    /// The instances restored disabled, by name, each waiting for its API key.
+    /// Kept out of `skipped`, which the interface reads as what failed.
     pub needs_key: Vec<String>,
     /// Each rule restored otherwise than the bundle has it, with how.
     pub adjusted: Vec<String>,
@@ -267,23 +239,14 @@ pub async fn import(
     let mut report = ImportReport::default();
     let skip = |key: &str, values: &[(&str, &str)]| localizer.translate(key, values);
 
-    // What `default_category` and a folder mapping are allowed to name: the
-    // categories already here *plus* the ones this bundle is about to create.
-    // Settings are written first because everything after can depend on them,
-    // so validating against the table alone would reject every bundle that
-    // brings its own categories, which is every bundle from another
-    // installation.
+    // Settings and mappings may name the bundle's own categories as well as the table's.
     let mut categories = with_bundled(
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?,
         &bundle,
         &localizer,
     );
 
-    // A source the bundle enables that needs a key this installation lacks is
-    // left out of the list, and said, as `PUT /settings` refuses it. Keys never
-    // travel, so refusing the whole list would lose it on every restore. Read
-    // before the transaction opens, for the reason the rules below are judged
-    // there.
+    // Each source lacking its key here is dropped alone, since no key travels in a bundle.
     let mut keyless = Vec::new();
     for setting in bundle.settings.iter().filter(|s| s.key == "metadata_providers") {
         let empty = std::collections::HashMap::new();
@@ -292,9 +255,7 @@ pub async fn import(
         );
     }
 
-    // Judged before the transaction opens, against the categories as they will
-    // be once it commits: a pool of one connection, which the tests run on,
-    // cannot serve the reads judging needs while a transaction holds it.
+    // Judged outside the transaction: a one-connection pool cannot serve both at once.
     let mut importable = Vec::new();
     if !bundle.rules.is_empty() {
         let mut env = super::rules::environment(&state).await?;
@@ -318,9 +279,7 @@ pub async fn import(
     }
 
     let mut tx = crate::db::write_transaction(&state.pool).await?;
-    // Read again under the write lock: a category removed since the read
-    // above would otherwise be named by a setting, a mapping, a pin or a rule
-    // written below.
+    // Read again under the write lock, or a category removed meanwhile gets named below.
     categories = with_bundled(
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&mut *tx).await?,
         &bundle,
@@ -331,20 +290,13 @@ pub async fn import(
     for setting in &bundle.settings {
         let key = setting.key.as_str();
 
-        // A credential never arrives through a bundle: sealed elsewhere it
-        // opens with nothing here, and in the clear it came through a file
-        // people share. The export writes none, but a bundle edited by hand, or
-        // exported by a build that kept the setting in the clear, can carry one.
+        // A credential in a bundle is refused: sealed elsewhere, or shared in the clear.
         if crate::services::settings::is_secret(key) {
             report.skipped.push(skip("ImportSkippedCredential", &[("key", key)]));
             continue;
         }
 
-        // The same gate `PUT /settings` applies. A key this build does not know
-        // would sit in the table for ever, unreachable and unremovable through
-        // the API, and a value it does know but refuses is worse, because it
-        // looks applied. Reported rather than fatal: a bundle is restored as far as it
-        // can be, and `skipped` is what says how far.
+        // The gate `PUT /settings` applies: an unknown key would stay in the table for good.
         let checked = crate::api::settings::stored_value(key, &setting.value);
         if let Err(e) = crate::services::settings::check(key, &checked, &categories, &localizer) {
             let reason = e.public_message();
@@ -369,9 +321,7 @@ pub async fn import(
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
         )
         .bind(key)
-        // In the form `PUT /settings` stores it. The gate above validates that
-        // form, so binding the raw one would let `"Anime "` pass a check that
-        // `"anime"` answered and land as a name no category holds.
+        // The form the gate checked: the raw `"Anime "` would name no category.
         .bind(&value)
         .execute(&mut *tx)
         .await?;
@@ -379,11 +329,7 @@ pub async fn import(
     }
 
     for category in &bundle.categories {
-        // The same gate `POST /categories` applies. Trimming and lowercasing
-        // is only half of it: a name with a space or an ampersand, or one five
-        // hundred characters long, would be written and then unreachable, since
-        // `rename` runs this check and it could never be corrected through the
-        // API.
+        // The gate `POST /categories` applies, or a bad name lands where `rename` cannot fix it.
         let name = match crate::api::categories::normalise(&category.name, &localizer) {
             Ok(name) => name,
             Err(e) => {
@@ -407,13 +353,9 @@ pub async fn import(
         report.categories += 1;
     }
 
-    // Instances arrive without their API key, so they arrive disabled: an
-    // instance that looks connected but cannot authenticate would fail on every
-    // scheduler tick and fill the log with noise the user did not ask for.
+    // Disabled, since an instance without its key fails on every scheduler tick.
     for instance in &bundle.instances {
-        // The check `POST /instances` applies: written unchecked, a type no
-        // adapter knows or an address the key would leak past makes a row the
-        // create endpoint refuses, and one the edit screen cannot save.
+        // The check `POST /instances` applies, or the edit screen could never save the row.
         let checked = super::instances::validate(
             &instance.name,
             &instance.instance_type,
@@ -432,11 +374,7 @@ pub async fn import(
             }
         };
 
-        // Stored as `POST /instances` stores it: the name trimmed, the interval
-        // within the day the scheduler clamps it to when it reads it, so the
-        // number on screen is the one running. Found as the unique index holds
-        // names, case and spaces aside, and so is every instance a bundle's
-        // folders and exceptions name below.
+        // Stored as `POST /instances` stores it, and matched as the unique index compares names.
         let name = instance.name.trim();
         let existing: Option<String> =
             sqlx::query_scalar("SELECT id FROM instances WHERE lower(trim(name)) = lower(?)")
@@ -449,8 +387,7 @@ pub async fn import(
             continue;
         }
 
-        // Sealed like every key, though empty: the instance waits for the key
-        // a bundle never carries, and reads as waiting for it.
+        // Sealed though empty, so the instance reads as waiting for its key.
         sqlx::query(
             "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled,
              sync_interval_minutes, webhook_token)
@@ -469,18 +406,12 @@ pub async fn import(
         report.needs_key.push(name.to_string());
     }
 
-    // Mappings are matched on (instance name, path). Both are meaningful on the
-    // destination, and ids are not.
+    // Matched on instance name and path, which mean the same on another machine.
     for mapping in &bundle.root_folders {
-        // Lowercased like the category rows themselves, which the loop above
-        // writes that way: a bundle carrying `Anime` would otherwise create
-        // `anime` and point the folder at a name no row holds.
+        // Lowercased as the category loop writes it, or `Anime` names a row nobody holds.
         let category = mapping.category.trim().to_lowercase();
 
-        // Categories are joined by value with no foreign key, so nothing in the
-        // database would stop a mapping naming one that does not exist. It
-        // would simply route nowhere, and the unmapped-category warning could
-        // not fire either, since there is no category row to count.
+        // No foreign key guards a category, so a mapping naming a missing one routes nowhere.
         let mapped = [
             ("path", mapping.path.as_str()),
             ("category", mapping.category.as_str()),
@@ -491,8 +422,7 @@ pub async fn import(
             continue;
         }
 
-        // One category, one folder per instance, as the mapping route insists:
-        // two folders answering to one category leave the target ambiguous.
+        // One folder per category and instance, as the mapping route insists.
         let taken: Option<String> = sqlx::query_scalar(
             "SELECT path FROM root_folders
               WHERE category = ?
@@ -524,18 +454,14 @@ pub async fn import(
         .rows_affected();
 
         if affected == 0 {
-            // Expected on a fresh install: root folders only exist once the
-            // instance has been synced.
+            // Expected on a fresh install: root folders exist once the instance has synced.
             report.skipped.push(skip("ImportSkippedMappingUnsynced", &mapped));
         } else {
             report.root_folders += 1;
         }
     }
 
-    // Overrides are matched on external id, which is the only identity a media
-    // keeps across installations, on the instance of the name they were pinned
-    // under. A bundle naming none cannot tell two copies apart, so it pins
-    // every copy, and says so.
+    // Matched on external id within the named instance, or on every copy when none is named.
     for over in &bundle.overrides {
         let media_ids: Vec<String> = sqlx::query_scalar(
             "SELECT m.id FROM media m JOIN instances i ON i.id = m.instance_id
@@ -567,10 +493,7 @@ pub async fn import(
             continue;
         }
 
-        // An override short-circuits the engine entirely, so one naming a
-        // category this installation does not have routes its item nowhere,
-        // silently, and without appearing in `skipped`, which is the one place
-        // a partial restore is supposed to be visible.
+        // An override skips the engine, so one on a missing category would route nowhere unseen.
         let category = over.target_category.trim().to_lowercase();
         if !categories.contains(&category) {
             report.skipped.push(skip("ImportSkippedExceptionNoCategory", &pinned));
@@ -582,8 +505,7 @@ pub async fn import(
             let values = [pinned.as_slice(), &[("copies", copies.as_str())]].concat();
             report.skipped.push(skip("ImportExceptionOnEveryCopy", &values));
         }
-        // As `POST /overrides` pins: the importer named as who set it, and the
-        // proposals the pin now decides withdrawn.
+        // As `POST /overrides` pins: by the importer, withdrawing the proposals it now decides.
         let reason = over.reason.as_deref();
         let by = identity.attribution();
         match super::overrides::pin_in(&mut tx, &media_ids, &category, reason, &by, &localizer)
@@ -600,8 +522,7 @@ pub async fn import(
         }
     }
 
-    // Rules last, once the instances they are scoped to exist under the names
-    // the bundle gives them.
+    // Rules last, once the instances they are scoped to exist under their bundled names.
     let ids: std::collections::HashMap<String, String> =
         sqlx::query_as::<_, (String, String)>("SELECT name, id FROM instances")
             .fetch_all(&mut *tx)
@@ -618,31 +539,29 @@ pub async fn import(
             ));
             continue;
         }
-        // A configuration bundle has always carried the scope by name.
+        // A configuration bundle carries the scope by name.
         match super::rules::scope_here(bundled, true, &ids, &localizer) {
             super::rules::Scoped::Kept(rule, note) => {
                 report.adjusted.extend(note);
-                restored.push(rule);
+                restored.push((rule, bundled.marker()));
             }
             super::rules::Scoped::Refused(why) => report.skipped.push(why),
         }
     }
-    // A replace in which no rule survives would delete every rule and add
-    // none, and the next pass would route the library to the fallback
-    // category, as `POST /rules/import` refuses to.
+    // A replace with no surviving rule would send the whole library to the fallback category.
     if req.replace_rules && !restored.is_empty() {
         sqlx::query("DELETE FROM rules").execute(&mut *tx).await?;
     } else if req.replace_rules && !bundle.rules.is_empty() {
         report.skipped.push(skip("ImportRulesKept", &[]));
     }
-    for rule in &restored {
-        super::rules::insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule, &localizer).await?;
+    for (rule, marker) in &restored {
+        let id = Uuid::new_v4().to_string();
+        super::rules::insert_rule(&mut tx, &id, rule, *marker, &localizer).await?;
         report.rules += 1;
     }
 
     tx.commit().await?;
-    // As `PUT /settings` does: archives above a lowered retention go now, not
-    // at the next backup.
+    // As `PUT /settings` does: archives above a lowered retention go now.
     if bundle.settings.iter().any(|setting| setting.key == "backup_retention_count")
         && let Err(e) = crate::services::backup::prune(&state).await
     {
@@ -653,8 +572,7 @@ pub async fn import(
 }
 
 /// The category names in the table and those `bundle` creates, through the
-/// same gate its loop applies: a name about to be refused does not count as
-/// something `default_category`, a mapping or a rule may point at.
+/// gate its loop applies, so a name about to be refused counts for nothing.
 fn with_bundled(
     mut names: Vec<String>,
     bundle: &ConfigBundle,
