@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# Say when the running container no longer matches the Dockerfile it was built
-# from: a tool missing, or at another version than the `ARG` line pins.
-#
-# A rebuild is a manual step, so a container can run for weeks behind its
-# definition, and the only sign is a check that behaves differently from CI or
-# a command that is not found. Runs on every start, reads the Dockerfile
-# through the bind mount, and never fails the start: it prints one line per
-# tool that differs, and nothing when all agree.
+# Says, at every start, which tool is missing or differs from the version its
+# Dockerfile `ARG` pins. Never fails the start.
 set -uo pipefail
 
 DOCKERFILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/Dockerfile"
@@ -40,7 +34,6 @@ check gitleaks GITLEAKS gitleaks version
 check oasdiff OASDIFF oasdiff --version
 check ruff RUFF ruff --version
 check gh GH gh --version
-check rtk RTK rtk --version
 # `cargo auditable --version` answers with cargo's own version, so only its
 # presence can be read.
 if [ -n "$(pinned CARGO_AUDITABLE)" ] && ! command -v cargo-auditable >/dev/null 2>&1; then

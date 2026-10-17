@@ -38,74 +38,40 @@
   },
   "runArgs": [
     "--init",
-    // A ramdisk made by the container runtime: nothing to prepare on the
-    // host, and no privileges or CAP_SYS_ADMIN needed. Docker and Podman both
-    // accept this `--mount` form.
-    //
-    // No `tmpfs-size`, on purpose: the kernel then sizes a tmpfs at half the
-    // RAM it sees, which follows the machine where any figure written here
-    // would suit one and starve or crowd the next. A tmpfs occupies only what
-    // is written to it, so the size is a ceiling and not a reservation.
-    // `prune.sh` holds the build tree under 24 GiB whatever the ceiling, and
-    // `ramdisk.sh` sends the build to disk on a machine with too little RAM.
-    //
-    // The contents are gone on stop, rebuild or recreate. That is the trade:
-    // the Rust build tree is gigabytes of small files rewritten constantly,
-    // which is the worst shape of data for a copy-on-write filesystem, and the
-    // price of losing it is one cold `cargo build`.
+    // A ramdisk for the Rust build tree, emptied at every stop. No `tmpfs-size`:
+    // the kernel's default, half the RAM, follows the machine. `prune.sh` caps the
+    // tree, and `ramdisk.sh` moves it to disk on a small machine.
     "--mount",
     "type=tmpfs,destination=/ramdisk,tmpfs-mode=1777"
   ],
   "containerEnv": {
     "CARGO_HOME": "/cargo",
     "PLAYWRIGHT_BROWSERS_PATH": "/playwright",
-    // Cargo's own variable rather than a symlink in the workspace: `cargo`,
-    // `cargo-llvm-cov` and rust-analyzer all follow it, and nothing can mistake
-    // a link for a source directory. Unset outside this container, so the
-    // shell harnesses resolve the path instead of assuming either.
+    // Unset outside this container, so no script assumes where the binary is.
     "CARGO_TARGET_DIR": "/ramdisk/cargo-target",
-    // The mount point itself: processes starting before `ramdisk.sh` inherit
-    // this value, and a TMPDIR that does not exist yet fails `mktemp`.
-    "TMPDIR": "/ramdisk",
-    // Off by default, matching the rule the application follows: no outbound
-    // request nobody asked for. Remove this line to opt in.
-    "RTK_TELEMETRY_DISABLED": "1"
+    // The mount point itself, which exists before `ramdisk.sh` runs.
+    "TMPDIR": "/ramdisk"
   },
-  // User-level installers land in ~/.local/bin, which is on no default PATH.
-  // Added after the system directories so the checksum-pinned copies in
-  // /usr/local/bin still win.
+  // ~/.local/bin after the system directories, so the pinned tools still win.
   "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.local/bin",
-    "ROUTARR_RTK": "${localEnv:ROUTARR_RTK}"
+    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.local/bin"
   },
 
   "mounts": [
     "source=routarr-cargo,target=/cargo,type=volume",
     "source=routarr-playwright,target=/playwright,type=volume",
-    // Credentials and history that nothing else reconstructs, which a rebuild
-    // would otherwise wipe.
+    // Credentials and history a rebuild would wipe.
     "source=routarr-claude,target=/root/.claude,type=volume",
     // Same reason: a rebuild would silently sign `gh` out.
     "source=routarr-gh,target=/root/.config/gh,type=volume",
-    // The largest thing in the container filesystem, otherwise downloaded again
-    // on every rebuild after the devcontainer CLI has printed its last line, so
-    // the wait reads as a rebuild that stopped.
-    //
-    // `extensions` only, not the whole `.vscode-server`: `bin` and `data` are
-    // bound to the server build in the /vscode volume, and persisting
-    // version-bound state across upgrades is how a cache becomes a bug.
+    // Extensions only: the rest of `.vscode-server` is bound to its build.
     "source=routarr-vscode-extensions,target=/root/.vscode-server/extensions,type=volume"
   ],
   // `;` and not `&&`: `ramdisk.sh` is advisory, and an unexpected failure in
   // it must not leave a container with no node_modules.
   "postCreateCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/post-create.sh",
-  // `ramdisk.sh` on every start, not only on create: a tmpfs is empty again
-  // after each one. `tools.sh` names a tool the running container lacks or
-  // holds at another version than the Dockerfile pins.
-  //
-  // Both hooks arm the prune loop because both are events and neither is a
-  // clock. `--daemon` is idempotent, and `|| true` keeps a failed tidy-up from
-  // stopping the container coming up.
+  // The tmpfs is empty after every start. `--daemon` is idempotent, and
+  // `|| true` keeps a failed tidy-up from blocking the start.
   "postStartCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/tools.sh; bash .devcontainer/prune.sh --daemon || true",
   "postAttachCommand": "bash .devcontainer/prune.sh --daemon || true",
   "remoteUser": "root",
@@ -134,11 +100,7 @@
       "label": "Playwright report and trace viewer"
     }
   },
-  // Every port not listed is a test's: the backend suite's stand-ins bind a
-  // random one on each run, and the browser harness binds 9877 and 7979
-  // (`frontend/e2e/run.sh`). Forwarded automatically, each would stay in the
-  // Ports panel after it closed. A server started by hand on a port missing
-  // above comes up with no notification and nothing forwarded.
+  // Unlisted ports are the tests' own (`frontend/e2e/run.sh` binds 9877 and 7979).
   "otherPortsAttributes": {
     "onAutoForward": "ignore"
   }
