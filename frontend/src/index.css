@@ -1658,6 +1658,7 @@ input[type='checkbox']:disabled {
 
 .modal-content {
   background-color: var(--bg-surface);
+  --table-cover: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   width: 100%;
@@ -2607,6 +2608,8 @@ td * {
 /* A card set into the surface behind it, for a panel inside a panel. */
 .card-inset {
   background-color: var(--bg-input);
+  /* What hides a table's scroll shadow: the ground it lies on. */
+  --table-cover: var(--bg-input);
 }
 .badge-plain {
   background-color: var(--bg-surface);
@@ -2705,8 +2708,8 @@ td * {
 .table-container {
   /* Opaque across the shadow's width, or a table with nothing to scroll shows a dark band. */
   background-image:
-    linear-gradient(to right, var(--bg-card) 16px, transparent 32px),
-    linear-gradient(to left, var(--bg-card) 16px, transparent 32px),
+    linear-gradient(to right, var(--table-cover, var(--bg-card)) 16px, transparent 32px),
+    linear-gradient(to left, var(--table-cover, var(--bg-card)) 16px, transparent 32px),
     linear-gradient(to right, var(--scroll-shadow), transparent 14px),
     linear-gradient(to left, var(--scroll-shadow), transparent 14px);
   background-position:
