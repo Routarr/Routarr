@@ -1,31 +1,11 @@
-# Dev container for Routarr
-# The source arrives through the bind mount on /workspaces/Routarr: nothing is
-# copied into the image, only the system tooling is installed.
-#
-# Aligned with every other environment: the Rust version comes from
-# rust-toolchain.toml, the Node major is the one CI and the production image
-# use, and python3 runs the scripts CI runs (scripts/check-locales.py).
+# Dev container for Routarr: system tooling only, the source comes through the
+# bind mount. Rust follows rust-toolchain.toml, Node the major CI and the image use.
 FROM rust:1.99.0@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90
-# The RUN steps below pipe, and without this the right-hand side's exit code
-# masks a failing download on the left.
+# Without pipefail, a download failing on the left of a pipe goes unnoticed.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# Node from the official tarball, pinned to a version and to its checksum: the
-# Debian package is older and ships without npm, while CI and the production
-# Dockerfile are on a newer major, and a dev/CI gap of that kind is only ever
-# discovered by the first broken build. NodeSource's setup script would be
-# a `curl | bash` of unpinned code run as root, in an image that pins every
-# other tool it installs.
-#
-# psmisc provides `fuser`, which frontend/e2e/run.sh uses to free its ports
-# before starting. A run killed before its trap fires leaves a server holding
-# one, and the next run then silently talks to the stale process instead of
-# failing.
-#
-# imagemagick is what site/screenshots/run.sh encodes the README's screenshot
-# with.
-#
-# Comments stay outside the RUN: a `#` inside a backslash continuation is not
-# reliably stripped by every Docker parser version.
+# psmisc gives `fuser`, which frontend/e2e/run.sh frees its ports with.
+# imagemagick encodes the README's screenshot (site/screenshots/run.sh).
+# Comments stay outside RUN: a `#` in a continued line is not portable.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -38,10 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
   && rm -rf /var/lib/apt/lists/*
 
-# `scripts/check-versions.py` reads the major out of NODE_VERSION, against CI
-# and the production image. The sums are the two lines of the release's
-# SHASUMS256.txt this image can run. A bumped version without bumped sums
-# fails the build, which is the point.
+# Node from its tarball, pinned with the release's SHASUMS256.txt: Debian's is
+# older and has no npm. check-versions.py holds the major to CI's and the image's.
 ARG NODE_VERSION=24.21.0
 ARG NODE_SHA256_X64=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
 ARG NODE_SHA256_ARM64=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
@@ -58,23 +36,11 @@ RUN arch="$(dpkg --print-architecture)" \
      --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md' \
   && rm /tmp/node.tar.xz \
   && node --version && npm --version && npx --version
-# Neither libssl-dev (reqwest uses rustls, and there is no openssl-sys in
-# Cargo.lock) nor libsqlite3-dev (libsqlite3-sys is built in bundled mode).
+# No libssl-dev (rustls) and no libsqlite3-dev (SQLite is bundled).
 
-# cargo-llvm-cov, the coverage gate CI runs, from its release rather than
-# `cargo install`, which would build it from source on every container rebuild.
-# In the image rather than in the `/cargo` volume, so a fresh volume cannot
-# lose a tool CI gates on. The release publishes no checksum file, so the sums
-# are recorded here from the archives themselves, and match those
-# taiki-e/install-action records for the version `ci.yml` names: a replaced
-# asset under the same name fails the build instead of running.
-#
-# The check is `cargo llvm-cov`, not `cargo-llvm-cov`. This binary is a cargo
-# subcommand and nothing else: cargo passes the subcommand as its first
-# argument, so its parser *requires* that word and `cargo-llvm-cov --version`
-# fails with "expected subcommand 'llvm-cov'". Going through cargo also checks
-# the one thing worth checking, that cargo resolves the subcommand from
-# /usr/local/bin. It needs no llvm-tools, so it holds before the rustup step.
+# cargo-llvm-cov, CI's coverage gate, from its release. It publishes no checksum
+# file: the sums are those taiki-e/install-action records for ci.yml's version.
+# It answers only as `cargo llvm-cov`, its parser requiring the subcommand word.
 ARG CARGO_LLVM_COV_VERSION=0.9.1
 ARG CARGO_LLVM_COV_SHA256_X64=3fca950394a3c49457657c158b1619cec8dfd2647ae5b48746734c0ab969a522
 ARG CARGO_LLVM_COV_SHA256_ARM64=49c0085628392a8d727c4464d91ec417c613c5015f5197cd16d5c05aa3fb5ad1
@@ -91,11 +57,8 @@ RUN arch="$(dpkg --print-architecture)" \
   && rm /tmp/cargo-llvm-cov.tar.gz \
   && cargo llvm-cov --version
 
-# The two cargo subcommands the image build runs, at the versions and sums the
-# root `Dockerfile` names (`scripts/check-versions.py`): `cargo about` writes
-# the crates' licence notices from `backend/about.toml`, and `cargo auditable`
-# writes the crate list into the binary. Here so a licence a new crate brings
-# is met before the image build refuses it.
+# cargo about and cargo auditable at the root Dockerfile's versions and sums
+# (check-versions.py), so a new crate's licence is met before the image build.
 ARG CARGO_ABOUT_VERSION=0.9.2
 ARG CARGO_ABOUT_SHA256_X64=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
 ARG CARGO_ABOUT_SHA256_ARM64=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8
@@ -121,21 +84,11 @@ RUN arch="$(dpkg --print-architecture)" \
   && rm /tmp/cargo-about.tgz /tmp/cargo-auditable.txz \
   && cargo about --version && cargo auditable --version
 
-# The base image ships a bare toolchain (no rustfmt, no clippy, no rust-analyzer),
-# so in a fresh container the first `cargo fmt` stalls on a rustup download,
-# and so does the first rust-analyzer start, which is worse because nothing
-# reports it. `rustup show` inside a directory holding the toolchain file
-# installs exactly what that file declares, which keeps rust-toolchain.toml the
-# only place a component is named. The grep turns a missing one into a failed
-# build instead of a slow editor.
-#
-# This runs *before* CARGO_HOME is repointed: rustup writes its proxies into
-# $CARGO_HOME/bin, and /cargo is a volume that would shadow them at run time.
-# `backend/`, not the root: that is where the toolchain file lives, and a path
-# pointing anywhere else fails the container rebuild on a missing file.
+# The components rust-toolchain.toml names, so the first `cargo fmt` or
+# rust-analyzer start does not stall on a download. Before CARGO_HOME moves:
+# the /cargo volume would shadow rustup's proxies.
 COPY backend/rust-toolchain.toml /tmp/toolchain/rust-toolchain.toml
-# `cd` rather than WORKDIR: the directory is removed in the same step, and a
-# WORKDIR would leave the image standing in a directory that no longer exists.
+# `cd`, not WORKDIR: the directory goes in the same step.
 # hadolint ignore=DL3003
 RUN cd /tmp/toolchain \
   && rustup show \
@@ -143,41 +96,8 @@ RUN cd /tmp/toolchain \
   && rustup component list --installed | grep -q '^llvm-tools' \
   && rm -rf /tmp/toolchain
 
-# RTK (Rust Token Killer): a CLI proxy that compresses command output before an
-# AI coding agent reads it. Installed here rather than by `cargo install` for the
-# same reason as cargo-llvm-cov: the prebuilt binary costs seconds instead of
-# minutes on every rebuild.
-#
-# Two things are deliberate. The download is verified against the checksum
-# published with the release and **pinned here**, not fetched alongside the
-# archive: a checksum that travels with the file it vouches for proves only that
-# the download completed. And the source is the GitHub release, never
-# `cargo install rtk`: the `rtk` name on crates.io belongs to an unrelated
-# project ("Rust Type Kit"), which the upstream README warns about.
-ARG RTK_VERSION=0.46.0
-ARG RTK_SHA256_AMD64=79aa5b89c69566bbfeceb66c8a27cfbe52237fc7ee3e683115f43745a3262d21
-ARG RTK_SHA256_ARM64=e8c2e1787f46017ea7c5a711b2bc6a7f7cf61c7ad69385b4c1e4daff1135dcd1
-RUN arch="$(dpkg --print-architecture)" \
-  && case "$arch" in \
-       amd64) target=x86_64-unknown-linux-musl; sha="$RTK_SHA256_AMD64" ;; \
-       arm64) target=aarch64-unknown-linux-gnu;  sha="$RTK_SHA256_ARM64" ;; \
-       *) echo "unsupported arch: $arch" && exit 1 ;; \
-     esac \
-  && curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/rtk-${target}.tar.gz" \
-     -o /tmp/rtk.tar.gz \
-  && echo "${sha}  /tmp/rtk.tar.gz" | sha256sum -c - \
-  && tar -xz -C /usr/local/bin -f /tmp/rtk.tar.gz rtk \
-  && rm -f /tmp/rtk.tar.gz \
-  && chmod 0755 /usr/local/bin/rtk \
-  && rtk --version
-
-# The GitHub CLI. Same reasoning as cargo-llvm-cov and rtk above: the release
-# tarball with a checksum pinned here, rather than the vendor apt repository,
-# which would add a signing key and a second package index to every build.
-#
-# Its credentials live in ~/.config/gh, which devcontainer.json mounts as a
-# volume. Without it every rebuild would demand a fresh `gh auth login`, the
-# same friction the /cargo and /playwright volumes exist to avoid.
+# The GitHub CLI from its release, not the vendor apt repository. Its
+# credentials are in ~/.config/gh, a volume, so a rebuild keeps them.
 ARG GH_VERSION=2.98.0
 ARG GH_SHA256_AMD64=3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
 ARG GH_SHA256_ARM64=cf689084f3a3618f7eae4a2420d335d74626d65f5e594b9828d125d69f800d86
@@ -195,12 +115,9 @@ RUN arch="$(dpkg --print-architecture)" \
   && chmod 0755 /usr/local/bin/gh \
   && gh --version
 
-# The checks CI runs that no package of this image provides: the workflow,
-# script, Python and Dockerfile linters, the secret scanner, the licence and
-# source gate, and the API contract gate. Each version and amd64 sum is the one
-# `ci.yml` installs, which `scripts/check-versions.py` holds in step, so a
-# script, a workflow or a contract change is checked here before it is pushed.
-# The arm64 sums are recorded from the release archives themselves.
+# The linters, the secret scanner, the licence gate and the contract gate CI
+# runs, at ci.yml's versions and amd64 sums (check-versions.py). The arm64 sums
+# are recorded from the release archives.
 ARG ACTIONLINT_VERSION=1.7.12
 ARG ACTIONLINT_SHA256_X64=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 ARG ACTIONLINT_SHA256_ARM64=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
@@ -314,10 +231,8 @@ RUN arch="$(dpkg --print-architecture)" \
   && rm /tmp/cargo-deny.tgz \
   && cargo-deny --version
 
-# Playwright's system libraries, installed here rather than by
-# `playwright install --with-deps` in postCreateCommand, which would re-run
-# apt-get on every rebuild. Keep in step with @playwright/test in
-# frontend/package.json. Only the browser download stays a create step.
+# Playwright's system libraries, at frontend/package.json's version. Only the
+# browsers download at create time.
 ARG PLAYWRIGHT_VERSION=1.64.0
 RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium firefox webkit \
   && rm -rf /root/.npm /var/lib/apt/lists/*
@@ -326,8 +241,7 @@ RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium firefox web
 ENV CARGO_HOME=/cargo
 RUN mkdir -p /cargo
 
-# Playwright browsers live here rather than under the (non-persisted) home
-# directory, so a rebuilt container does not download Chromium again.
+# On a volume, so a rebuild does not download the browsers again.
 ENV PLAYWRIGHT_BROWSERS_PATH=/playwright
 RUN mkdir -p /playwright
 

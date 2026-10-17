@@ -1,27 +1,17 @@
 #!/usr/bin/env bash
-# Create step for the dev container. Every step is idempotent and skips its
-# expensive path when nothing changed. A plain
-# `npm ci && npx playwright install --with-deps chromium` would, on every
-# rebuild, wipe node_modules across the bind mount and run apt-get again:
-# several silent minutes that read as a hung "Rebuild container".
-# The system libraries live in the image, so only the browser, persisted in the
-# /playwright volume, can still be missing here.
+# Create step for the dev container. Each step skips its slow path when nothing
+# changed, or every rebuild reads as a hung "Rebuild container".
 set -euo pipefail
 
-# Age of this container, taken from PID 1: there is no time namespace here, so
-# /proc/uptime reports the host's. Everything before this point is VS Code
-# connecting and installing its server, which it reports nowhere. Seconds is a
-# healthy start, and minutes are the editor, not this container.
+# The container's age from PID 1 (/proc/uptime is the host's): minutes here
+# are VS Code installing its server, not this script.
 started="$(stat -c %Y /proc/1 2>/dev/null || echo 0)"
 age=$(( $(date +%s) - started ))
 printf 'container %dm %02ds old at the create step\n' "$((age / 60))" "$((age % 60))"
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Two npm trees: the interface and the showcase site. Preparing only
-# `frontend/` leaves a fresh container unable to run `npm run build` or
-# `node site/check.mjs`, which fails in a way that reads as a broken checkout
-# rather than a missing install.
+# Both npm trees, the interface and the site.
 install_if_stale() {
   dir="$1"
   cd "$root/$dir"
@@ -38,11 +28,8 @@ install_if_stale() {
 install_if_stale frontend
 install_if_stale site
 
-# The image ships its cargo subcommands, pinned by checksum, in /usr/local/bin.
-# Cargo resolves a `cargo-<name>` subcommand from $CARGO_HOME/bin first, and
-# /cargo is a volume that outlives the image: a copy left there by an old
-# `cargo install` shadows the pinned one silently. The volume keeps its
-# downloads, but not a tool the image provides.
+# Cargo looks in $CARGO_HOME/bin first, and an old `cargo install` left on the
+# /cargo volume would shadow the image's pinned build.
 for tool in cargo-llvm-cov cargo-deny cargo-about cargo-auditable; do
   if [ -x "/usr/local/bin/$tool" ] && [ -e "${CARGO_HOME:-/cargo}/bin/$tool" ]; then
     rm -f "${CARGO_HOME:-/cargo}/bin/$tool"
@@ -50,22 +37,7 @@ for tool in cargo-llvm-cov cargo-deny cargo-about cargo-auditable; do
   fi
 done
 
-# Fast no-op when the volume already holds these builds. The three engines the
-# end-to-end suite runs in, one at a time (ROUTARR_E2E_BROWSER).
+# A no-op when the volume holds them: the three engines e2e runs in.
 cd "$root/frontend"
 npx playwright install chromium firefox webkit
 
-# RTK's hook goes into the contributor's own Claude Code setup, so it is opt-in:
-# `ROUTARR_RTK=1` in the environment VS Code starts from. Idempotent, and cheap
-# enough to rerun: it writes into ~/.claude, and a fresh volume starts without it.
-#
-# The hook rewrites Bash commands (`git status` becomes `rtk git status`) so the
-# agent reads compressed output. It only covers the Bash tool: Claude Code's own
-# Read, Grep and Glob do not pass through it.
-if [[ "${ROUTARR_RTK:-}" == 1 ]]; then
-  if command -v rtk > /dev/null; then
-    rtk init -g && echo "RTK hook registered. Restart Claude Code for it to take effect"
-  else
-    echo "RTK is not installed: rebuild the container to get it" >&2
-  fi
-fi
