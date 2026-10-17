@@ -111,7 +111,7 @@
   "cta.recap.p": "Global dry-run is on from the first launch, and five more gates stand after it.",
   "cta.recap.p.2": "What each condition expected, what it observed, and the rules that did not win.",
   "cta.recap.p.3": "amd64 and arm64, a single SQLite file, no database service to run.",
-  "detail.h1": "The whole argument, <em>in one page.</em>",
+  "detail.h1": "The whole argument, <em>on one page.</em>",
   "detail.p": "What your Arrs already know and what they do not do with it, the four steps, how a decision explains itself, how a destination is declared, the full specification, and the objections worth raising before you install anything.",
   "detail.span": "How it decides",
   "explain.expected": "expected",

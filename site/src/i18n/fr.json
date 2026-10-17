@@ -111,7 +111,7 @@
   "cta.recap.p": "L'essai à blanc global est actif dès le premier lancement, et cinq autres portes l'attendent derrière.",
   "cta.recap.p.2": "Ce que chaque condition attendait, ce qu'elle a observé, et les règles qui n'ont pas gagné.",
   "cta.recap.p.3": "amd64 et arm64, un seul fichier SQLite, aucun service de base de données à faire tourner.",
-  "detail.h1": "L'argument complet, <em>en une page.</em>",
+  "detail.h1": "Tous les arguments, <em>en une page.</em>",
   "detail.p": "Ce que vos Arrs savent déjà et ce qu'ils n'en font pas, les quatre étapes, comment une décision s'explique, comment une destination se déclare, la fiche technique, et les objections qui méritent d'être posées avant d'installer quoi que ce soit.",
   "detail.span": "Comment il décide",
   "explain.expected": "attendu",
