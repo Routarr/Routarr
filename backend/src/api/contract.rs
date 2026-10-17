@@ -1,14 +1,6 @@
-//! The API an outside application may rely on, as an OpenAPI document.
-//!
-//! Each function below stands for the handler of one route and is never
-//! called: it carries the prose a reader of the reference sees, while every
-//! schema comes from the types the handlers take and return, so the document
-//! cannot describe a field the code does not send. The operations are the
-//! routes `GRANTS` opens to an application key, and `/ping`.
-//!
-//! `openapi/v1.json` pins the document. `tests/contract.rs` fails when the two
-//! part, and CI compares the pinned document with the last release's to catch
-//! a change that would break a client.
+//! The API an outside application may rely on, as an OpenAPI document. Each
+//! function below documents one route `GRANTS` opens and is never called, while
+//! every schema comes from the handlers' types. `openapi/v1.json` pins the document.
 
 use axum::extract::State;
 use axum::http::Method;
@@ -21,7 +13,6 @@ use utoipa::{Modify, OpenApi};
 use crate::api::applications::scope_for;
 use crate::state::AppState;
 
-// The types the operations name, under the names the schemas take.
 use crate::api::auth::Me;
 use crate::api::backup::BackupListResponse;
 use crate::api::conditions::ConditionCatalog;
@@ -37,6 +28,7 @@ use crate::api::root_folders::{Declared, Mapped, MappingConflict};
 use crate::api::rules::{
     PreviewRequest, PreviewResponse, Reordered, RuleImportReport, RuleVerdict,
 };
+use crate::api::templates::{TemplateAdded, TemplatePreview, TemplateRequest, TemplateSummary};
 use crate::api::{Deleted, PageQuery};
 use crate::error::ErrorResponse;
 use crate::models::{
@@ -81,8 +73,7 @@ documented_page!(RuleTestPage, Page_RuleTest, RuleTest);
 
 #[derive(OpenApi)]
 #[openapi(
-    // No `version`: the crate's is written, so the document names the release
-    // serving it, and `scripts/check-versions.py` holds the pinned one to it.
+    // No `version`: the crate's is used, and `scripts/check-versions.py` holds the pin to it.
     info(
         title = "Routarr API",
         description = "The part of Routarr's API another application may rely on: a script, \
@@ -167,6 +158,9 @@ kinds of a condition) may appear in any release."
         import_rules,
         validate_rule,
         preview_rule,
+        list_templates,
+        preview_template,
+        import_template,
         list_rule_tests,
         create_rule_test,
         remove_rule_test,
@@ -210,10 +204,8 @@ pub fn document(base_path: &str) -> Document {
     document
 }
 
-/// `GET /api/v1/openapi.json`, public: it describes the software, not the
-/// installation, and a client needs it before it holds a key. Written once
-/// per mount point, since it changes only with the release, and answered 304
-/// to a client that holds it already.
+/// `GET /api/v1/openapi.json`, public, since a client needs it before it holds a key.
+/// Written once per mount point, and answered 304 to a client that holds it already.
 pub async fn serve(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -322,9 +314,8 @@ fn who_am_i() {}
 
 /// What needs attention
 ///
-/// Read from the database alone, without reaching any Arr or source, so it is
-/// cheap enough to poll. `warnings` lists the configuration problems Routarr
-/// can see, each in the interface language.
+/// Read from the database alone, so it is cheap enough to poll. `warnings` lists
+/// the configuration problems Routarr can see, in the interface language.
 #[utoipa::path(
     get,
     path = "/status",
@@ -349,12 +340,10 @@ fn metrics() {}
 
 /// Reach every Arr and source, and report
 ///
-/// Probes each enabled instance and metadata source, up to a connect timeout
-/// each, and records what it found for `/status` to repeat. A probe of the
-/// same configuration in the last 30 seconds is answered again unless
-/// `fresh=true`, and a call made while one runs waits for it. `probe=false`
-/// reads the database alone: instances read `unchecked` and sources
-/// `connected: null`, while `warnings` repeat what the last probe found.
+/// Probes each enabled instance and source and records the result for `/status`. A probe of
+/// the same configuration under 30 seconds old is answered again unless `fresh=true`, and a
+/// call waits for one running. `probe=false` reads the database alone: instances read
+/// `unchecked`, sources `connected: null`, and `warnings` repeat the last probe.
 #[utoipa::path(
     get,
     path = "/health",
@@ -408,9 +397,8 @@ fn get_media() {}
 
 /// Where a title goes, and why
 ///
-/// Every rule the title was held against, each condition with what it
-/// expected and what it found, and the folder the winner sends it to. The
-/// same answer a simulation gives, for one title, without storing anything.
+/// Every rule the title was held against, each condition with what it expected and
+/// found, and the winner's folder: a simulation's answer for one title, storing nothing.
 #[utoipa::path(
     get,
     path = "/media/{id}/explain",
@@ -423,13 +411,11 @@ fn explain_media() {}
 
 /// Where a title another service names would go
 ///
-/// For each enabled Arr of the title's kind, or the one `instance` names. A
-/// title the library holds is decided as a simulation decides it. One the
-/// library does not hold is looked up in the Arr and decided the same way,
-/// and its `action` is `add`. Nothing is stored. `unanswered_fields` lists what
-/// the rules read and no source answered, which `enrich=true` asks the sources
-/// for. Radarr looks a movie up by its TMDB or IMDb id, Sonarr a series by its
-/// TheTVDB or IMDb id. 404 when no instance knows the title.
+/// Decided as a simulation decides, on each enabled Arr of the title's kind or the one
+/// `instance` names, storing nothing. A title the library lacks is looked up in the Arr
+/// (Radarr by TMDB or IMDb id, Sonarr by TheTVDB or IMDb id) and its `action` is `add`.
+/// `unanswered_fields` lists what the rules read and no source answered, which `enrich=true`
+/// asks the sources for. 404 when no instance knows the title.
 #[utoipa::path(
     get,
     path = "/route",
@@ -458,11 +444,9 @@ fn list_decisions() {}
 
 /// Run the rules over the library
 ///
-/// With `persist: true` the decisions are stored under the `simulation_id`
-/// this answers, replacing the pending ones of an earlier run. Only one
-/// persisting simulation runs at a time: another answers 409 until it ends.
-/// A preview, `persist: false`, waits its turn, and answers 409 while four
-/// are already running or waiting.
+/// With `persist: true` the decisions are stored under the `simulation_id` answered,
+/// replacing the pending ones. One persisting run goes at a time, and another answers 409.
+/// A preview, `persist: false`, waits its turn, and answers 409 while four run or wait.
 #[utoipa::path(
     post,
     path = "/simulate",
@@ -480,10 +464,8 @@ fn simulate() {}
 
 /// Apply chosen decisions
 ///
-/// Asks the Arr to move each title, behind the same guardrails as the
-/// interface. A decision no longer pending is skipped, so sending the same
-/// list twice moves nothing twice. `move_files` needs a key allowed to move
-/// files.
+/// Asks the Arr to move each title, behind the interface's guardrails. A decision no longer
+/// pending is skipped, so a repeat moves nothing. `move_files` needs a key that may move files.
 #[utoipa::path(
     post,
     path = "/decisions/apply",
@@ -506,9 +488,8 @@ fn apply() {}
 
 /// Apply everything a simulation proposed
 ///
-/// In slices of the batch limit, stopping at the first slice that fails.
-/// Always asks the `batch` guardrail first, whose question states how many
-/// titles move.
+/// In slices of the batch limit, stopping at the first that fails. The `batch` guardrail
+/// always asks first, its question stating how many titles move.
 #[utoipa::path(
     post,
     path = "/decisions/apply-all",
@@ -596,11 +577,9 @@ fn remove_exception() {}
 
 /// Force a title's category by the id another service gives it
 ///
-/// For an application that knows the title by its TMDB, TheTVDB or IMDb id.
-/// Every copy of the title the library holds has its category forced, one per
-/// instance, or only the one on `instance`. Each replaces the exception its copy had, and
-/// the pending decisions for it are withdrawn. 404 when no copy is in the
-/// library.
+/// For an application that knows the title by its TMDB, TheTVDB or IMDb id. Forces every
+/// copy the library holds, one per instance, or only the one on `instance`, replacing its
+/// exception and withdrawing its pending decisions. 404 when no copy is in the library.
 #[utoipa::path(
     put,
     path = "/overrides/external",
@@ -615,9 +594,8 @@ fn pin_by_external_id() {}
 
 /// Remove a title's exception by the id another service gives it
 ///
-/// Removes the exception on every copy of the title, or on the one on
-/// `instance`. `deleted` is false when none had one. 404 when no copy is in
-/// the library.
+/// On every copy of the title, or the one on `instance`. `deleted` is false when none
+/// had one. 404 when no copy is in the library.
 #[utoipa::path(
     delete,
     path = "/overrides/external",
@@ -656,10 +634,9 @@ fn get_task() {}
 
 /// Read every enabled Arr again
 ///
-/// Answers once every instance is read, one report each. An instance that
-/// fails is reported with its `error` and stops none of the others. With
-/// `respond-async` it answers once its task has started, and that task holds
-/// the reports when it ends. Each instance is read under a task of its own too.
+/// Answers once every instance is read, one report each. One that fails is reported with
+/// its `error` and stops none of the others. With `respond-async` the task holds the
+/// reports when it ends, and each instance is also read under a task of its own.
 #[utoipa::path(
     post,
     path = "/instances/sync",
@@ -692,13 +669,10 @@ body = Accepted, headers(("Location" = String, description = "The task, under `/
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn sync_instance() {}
 
-// --------------------------------------------------------------- instances
-
 /// The Arrs Routarr reads
 ///
-/// Their address, kind and last sync. Never the Arr's key, and for an
-/// application key neither the webhook address, whose token lets anyone post
-/// events as the Arr: `webhook_url` is `null` and `api_key_masked` empty.
+/// Their address, kind and last sync, never the Arr's key. For an application key
+/// `webhook_url` is `null`, since its token posts as the Arr, and `api_key_masked` empty.
 #[utoipa::path(
     get,
     path = "/instances",
@@ -734,9 +708,8 @@ fn list_sources() {}
 
 /// The values the library holds, for each condition
 ///
-/// What a rule could name: the genres, languages, countries, certifications,
-/// tags, series types and folders the library holds, each with how many
-/// titles carry it, and the closed vocabularies of languages and countries.
+/// The genres, languages, countries, certifications, tags, series types and folders the
+/// library holds, each with its title count, and the closed lists of languages and countries.
 #[utoipa::path(
     get,
     path = "/media/facets",
@@ -764,9 +737,8 @@ fn list_logs() {}
 
 /// The same log as a CSV file
 ///
-/// The filters of `/logs`, without its paging, up to the newest 50 000 rows.
-/// A cell that would start a formula in a spreadsheet starts with an
-/// apostrophe, which the spreadsheet reads as text.
+/// The filters of `/logs` without its paging, up to the newest 50 000 rows. A cell that
+/// would start a spreadsheet formula starts with an apostrophe, read as text.
 #[utoipa::path(
     get,
     path = "/logs/export",
@@ -837,9 +809,8 @@ fn get_rule() {}
 
 /// Create a rule
 ///
-/// Refused with 400 when its target category does not exist, when a
-/// condition has no value, or when no enabled source can answer one, as
-/// `/rules/validate` would say. It counts from the next simulation.
+/// Refused with 400, as `/rules/validate` would say, when its target category is missing, a
+/// condition has no value or no enabled source answers one. It counts from the next simulation.
 #[utoipa::path(
     post,
     path = "/rules",
@@ -902,9 +873,8 @@ fn reorder_rules() {}
 
 /// The conditions a rule may use
 ///
-/// Each condition with its value type, the media types it applies to, the
-/// metadata field it reads, whether an enabled source answers it, and the
-/// facet that lists its values.
+/// Each condition with its value type, media types, the metadata field it reads, whether
+/// an enabled source answers it, and the facet that lists its values.
 #[utoipa::path(
     get,
     path = "/rules/conditions",
@@ -972,6 +942,47 @@ fn validate_rule() {}
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn preview_rule() {}
+
+/// The rule templates
+///
+/// Ready-made rule sets for the usual library splits, in the reader's
+/// language: what each suggests, what it asks, and whether one is added.
+#[utoipa::path(
+    get,
+    path = "/rules/templates",
+    tag = "rules",
+    responses((status = 200, body = Vec<TemplateSummary>))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_templates() {}
+
+/// What adding a template would change, storing nothing
+#[utoipa::path(
+    post,
+    path = "/rules/templates/{id}/preview",
+    tag = "rules",
+    params(("id" = String, Path, description = "The template.")),
+    request_body = TemplateRequest,
+    responses((status = 200, body = TemplatePreview))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn preview_template() {}
+
+/// Add a template's rules
+///
+/// After the rules written by hand, among the templates added in catalogue order, creating
+/// the categories it names. One already added answers 409 `template_added` unless `replace`.
+#[utoipa::path(
+    post,
+    path = "/rules/templates/{id}/import",
+    tag = "rules",
+    params(("id" = String, Path, description = "The template.")),
+    request_body = TemplateRequest,
+    responses((status = 201, body = TemplateAdded,
+headers(("Location" = String, description = "The rules."))))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn import_template() {}
 
 /// The rule tests
 ///
@@ -1078,10 +1089,8 @@ fn list_root_folders() {}
 
 /// What the mappings leave unsaid
 ///
-/// Two folders of one instance claiming one category, a category a rule
-/// targets with no folder on an instance the rule reaches, a folder the Arr
-/// did not reach on its last look, a folder mapped to a category that no
-/// longer exists.
+/// Two folders of one instance claiming one category, a rule's category with no folder on an
+/// instance it reaches, a folder the Arr did not reach last time, a mapping to a removed one.
 #[utoipa::path(
     get,
     path = "/root-folders/conflicts",

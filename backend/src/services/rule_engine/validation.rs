@@ -4,9 +4,8 @@ use super::{certification_key, normalise_value, status_key};
 use crate::models::{Condition, MatchMode, MetadataField, ValidationIssue};
 
 /// The first value a list condition names twice, compared as matching compares
-/// them: `science fiction` repeats `Science-Fiction`, and `R+` does not repeat
-/// `R`. Read through the stored shape, `{"type": …, "value": […]}`, so a list
-/// variant added later is covered without an arm here.
+/// them: `science fiction` repeats `Science-Fiction`, `R+` does not repeat `R`.
+/// Read through the stored shape, so a new list variant needs no arm here.
 fn repeated_value(condition: &Condition) -> Option<String> {
     let stored = serde_json::to_value(condition).ok()?;
     let key = key_of(condition);
@@ -42,29 +41,18 @@ pub struct ValidationEnv<'a> {
     /// Categories mapped onto a folder of an instance the rule can route: in
     /// its scope, and of the kind that holds its media type.
     pub mapped_categories: &'a [String],
-    /// Metadata fields at least one enabled source can answer.
-    ///
-    /// Naming the fields rather than a provider is what keeps the warning
-    /// truthful once there are several sources: with Radarr alone, a genre rule
-    /// is perfectly fine and only a keyword rule is unanswerable.
+    /// Metadata fields at least one enabled source can answer, by field, since the
+    /// Arr alone answers genres and no keyword.
     pub covered_fields: &'a [MetadataField],
-    /// The year the caller considers current.
-    ///
-    /// Injected rather than read here, for the reason `EvalContext` carries its
-    /// own `now`: a validator that reads the clock cannot be tested against a
-    /// year that is not today's.
+    /// The year the caller considers current, injected so a test can pin it.
     pub current_year: i64,
 }
 
-/// The first surviving film, and the only defensible floor for a year: any
-/// later date would be a preference, any earlier one describes nothing.
+/// The year of the first surviving film, the floor for a year.
 pub const MIN_YEAR: i64 = 1888;
 
-/// How far ahead of the current year a rule may reach.
-///
-/// Radarr indexes announcements long before release, so a rule about a film
-/// still to come is legitimate. The ceiling exists to catch `2999` and `20255`,
-/// which are typing mistakes rather than intentions.
+/// How far ahead of the current year a rule may reach: Radarr lists films long
+/// before release, and the ceiling catches a typing mistake such as `20255`.
 pub const MAX_YEARS_AHEAD: i64 = 5;
 
 /// Longest name a rule may carry. A name is a table cell and a badge, and a
@@ -74,17 +62,15 @@ pub const MAX_NAME_LENGTH: usize = 200;
 /// Longest description a rule may carry: every rule list sends it.
 pub const MAX_DESCRIPTION_LENGTH: usize = 1000;
 
-/// Most conditions one list of a rule holds, its exclusions as many again.
-/// Every pass reads every condition of every rule for every title, and the
-/// check for contradictions reads each pair.
+/// Most conditions one list of a rule holds, its exclusions as many again: every
+/// pass reads each one per title, and the contradiction check reads each pair.
 pub const MAX_CONDITIONS: usize = 50;
 
 /// Most values one condition holds.
 pub const MAX_VALUES: usize = 200;
 
-/// Validate a rule before it is stored or enabled.
-///
-/// Errors block the write. Warnings are surfaced in the UI but do not.
+/// Validate a rule before it is stored or enabled. Errors block the write, and
+/// warnings do not.
 pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<ValidationIssue> {
     let RuleDraft {
         name,
@@ -151,9 +137,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
         ));
     }
 
-    // Each issue about one condition carries its section, its place in that
-    // section and its kind: the reader finds it by where the editor shows it,
-    // and the handler turns the three into a caption the reader knows.
+    // Each issue names its section, place and kind, which the handler turns into a caption.
     let placed =
         conditions.iter().enumerate().map(|(idx, condition)| ("conditions", idx, condition)).chain(
             exclusions.iter().enumerate().map(|(idx, condition)| ("exclusions", idx, condition)),
@@ -168,9 +152,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
             params.extend_from_slice(extra);
             params
         };
-        // An error, not a warning: a condition with no operand never matches,
-        // so the rule would be stored dead and read on screen exactly like a
-        // rule that correctly matches nothing.
+        // An error, since a rule that never matches reads on screen as a sound one.
         if condition.is_empty() {
             issues.push(ValidationIssue::error(section, "ValidationConditionEmpty", &at(&[])));
         }
@@ -197,9 +179,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 &at(&[("min", min.to_string()), ("max", max.to_string())]),
             ));
         }
-        // A year outside these bounds is a typing mistake, and stored it makes a
-        // rule that matches nothing while reading on screen exactly like one
-        // that correctly matches nothing.
+        // A year outside these bounds is a typing mistake, refused for the same reason.
         if let Condition::YearRange { min, max } = condition {
             let ceiling = current_year + MAX_YEARS_AHEAD;
             for year in [min, max].into_iter().flatten() {
@@ -216,9 +196,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 }
             }
         }
-        // No title was added within the last zero days, and every title with
-        // a file is over zero gigabytes: a count below one is a mistake, and
-        // stored it reads like a rule that correctly matches nothing.
+        // A count below one is a mistake: no title was added within the last zero days.
         if let Condition::AddedWithinDays(count)
         | Condition::SizeOnDiskOverGb(count)
         | Condition::SeasonCountOver(count) = condition
@@ -271,9 +249,12 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
     match (a, b) {
         (HasFiles(x), HasFiles(y))
         | (Monitored(x), Monitored(y))
-        | (HasMetadata(x), HasMetadata(y)) => x != y,
-        // Any of a list, with values forbidden: impossible only when every
-        // value of the list is.
+        | (HasMetadata(x), HasMetadata(y))
+        | (OriginalLanguageKnown(x), OriginalLanguageKnown(y)) => x != y,
+        // A listed language is a known one.
+        (OriginalLanguage(_), OriginalLanguageKnown(false))
+        | (OriginalLanguageKnown(false), OriginalLanguage(_)) => true,
+        // Any of a list, with values forbidden: impossible only when every value is.
         (GenreContains(x), GenreNotContains(y))
         | (GenreNotContains(y), GenreContains(x))
         | (KeywordContains(x), KeywordNotContains(y))
@@ -288,8 +269,7 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
             !x.is_empty() && x.iter().all(|v| y.iter().any(|w| w.eq_ignore_ascii_case(v)))
         }
         (YearRange { min: amin, max: amax }, YearRange { min: bmin, max: bmax }) => {
-            // A missing bound is infinite, which `Option`'s own ordering gets
-            // backwards for the upper end (it treats `None` as the smallest).
+            // A missing bound is infinite, where `Option` would order `None` as the smallest.
             let lo = tightest(*amin, *bmin, i64::max);
             let hi = tightest(*amax, *bmax, i64::min);
             matches!((lo, hi), (Some(l), Some(h)) if l > h)
@@ -398,8 +378,7 @@ mod tests {
             known_categories: known,
             mapped_categories: mapped,
             covered_fields: covered,
-            // Pinned, like `now()` above: a bound relative to the real clock
-            // would make these tests pass or fail depending on the year.
+            // Pinned, like `now()`, so the bounds do not move with the real year.
             current_year: 2026,
         }
     }
@@ -475,6 +454,16 @@ mod tests {
         let cases = [
             (Monitored(true), Monitored(false), Monitored(true)),
             (HasMetadata(true), HasMetadata(false), HasMetadata(true)),
+            (
+                OriginalLanguageKnown(true),
+                OriginalLanguageKnown(false),
+                OriginalLanguageKnown(true),
+            ),
+            (
+                OriginalLanguage(list(&["ja"])),
+                OriginalLanguageKnown(false),
+                OriginalLanguageKnown(true),
+            ),
             (
                 KeywordContains(list(&["mecha"])),
                 KeywordNotContains(list(&["Mecha"])),
@@ -585,8 +574,8 @@ mod tests {
         assert!(!issues.iter().any(|i| i.key == "ValidationExclusionConflict"), "{issues:?}");
     }
 
-    /// An error, not a warning: stored, the rule would never match and would
-    /// read on screen exactly like one that correctly matches nothing.
+    /// An empty condition is an error: the stored rule would never match, yet
+    /// read on screen as a sound one.
     #[test]
     fn an_empty_condition_value_is_an_error() {
         let issues = validate(vec![Condition::GenreContains(vec![])], vec![]);
@@ -636,8 +625,7 @@ mod tests {
         assert!(!fine.iter().any(|i| i.key == "ValidationYearRangeInverted"));
     }
 
-    /// A year such as 12 or 200000, stored, makes a rule that matches nothing
-    /// while reading on screen exactly like one that correctly matches nothing.
+    /// A year such as 12 or 200000 is an error, and the first film's year is not.
     #[test]
     fn an_implausible_year_is_an_error_and_the_first_film_year_is_not() {
         let first = validate(vec![Condition::YearRange { min: Some(MIN_YEAR), max: None }], vec![]);

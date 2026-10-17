@@ -45,28 +45,9 @@ pub struct MediaListItem {
     pub has_metadata: bool,
 }
 
-/// "Something a rule could read is known about this item", in SQL: what
-/// `MediaMetadata::merge` answers for the engine, and the two must agree.
-///
-/// Built from the source list rather than hard-coded: with every source off the
-/// answer is `0`, not "whatever happens to be left in the cache". The library
-/// column, the diagnostics count and the warning beside it all splice it, and
-/// must agree: a badge saying "metadata missing" over a count saying otherwise
-/// is how a diagnostic stops being read.
-///
-/// Only the *enabled* sources count, exactly as `routing::load_context` reads
-/// them. Each is joined on its own identifier, as `facet_rows` joins them: a
-/// TMDB id and a TheTVDB id share no namespace, and a source found by search
-/// is reached through what `source_identifiers` resolved the title's key to.
-/// A title known to no id is keyed by its folded title, which SQL cannot
-/// spell, so its search answers are left out, as in the facets. And a cached
-/// row is not a cached *answer*: a synopsis is readable by no condition, so
-/// the five fields `MetadataField` names are what is looked for, the rating
-/// as the certification regions pick it.
-///
-/// The order and the regions come from one snapshot of `settings`. The source
-/// ids are `&'static str` from the catalogue, never anything a caller sent,
-/// which is what makes splicing them safe.
+/// "Something a rule could read is known about this item", in SQL. It answers as
+/// `MediaMetadata::merge` does over the sources `routing::load_context` reads, or the
+/// library and the engine disagree. The spliced source ids are catalogue literals.
 pub(crate) fn metadata_predicate(settings: &crate::state::Settings) -> String {
     let providers = AppState::metadata_order_from(settings);
     let cache = metadata::rated_cache(&AppState::certification_regions_from(settings));
@@ -152,8 +133,7 @@ pub async fn list(
         filters.push_str(" AND m.title LIKE ? ESCAPE '\\'");
         binds.push(format!("%{}%", crate::db::escape_like(v)));
     }
-    // Both read what the last run decided, the outcome `computed_category`
-    // below shows: the decisions hold only what a run proposed.
+    // Both read the last run's outcome, since the decisions hold only what a run proposed.
     if let Some(v) = &query.category {
         filters
             .push_str(" AND m.id IN (SELECT r.media_id FROM media_routing r WHERE r.category = ?)");
@@ -166,14 +146,9 @@ pub async fn list(
         );
     }
 
-    // "Something is known about this item", counted over the *enabled* sources
-    // only. Reading it off any cached row would contradict `has_metadata` in the
-    // engine, which honours the order, and a list saying "metadata" next to a
-    // rule saying there is none is the kind of disagreement nobody debugs twice.
     let has_metadata = metadata_predicate(&state.settings().await);
 
-    // The correlated sub-selects keep this to two queries instead of the
-    // per-row lookups the explorer would otherwise need.
+    // Correlated sub-selects keep this to two queries, with no lookup per row.
     let list_sql = format!(
         "SELECT m.id, m.instance_id, i.name AS instance_name, m.arr_id, m.media_type, m.title,
                 m.year, m.tmdb_id, m.tvdb_id, m.imdb_id, m.current_root_folder, m.monitored, m.has_files, m.status,
@@ -234,8 +209,7 @@ impl ExternalTitle {
                     "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
                 )
             })?;
-        // An Arr writes a title it has no id for as 0, so 0 names every one of
-        // them at once.
+        // An Arr writes 0 for a missing id, so 0 would name every such title at once.
         if matches!(id, ExternalId::Tmdb(n) | ExternalId::Tvdb(n) if n <= 0) {
             return Err(AppError::BadRequest("An id is a number above 0.".into()));
         }
@@ -251,8 +225,7 @@ impl ExternalTitle {
 
 /// What `GET /route` reads from one query string: the title, named as
 /// `ExternalTitle` names it, and how it would be added.
-// Its own fields rather than the two types flattened: a flattened query reads
-// every value as text, and no number parses.
+// Its own fields, since a flattened query reads every value as text and no number parses.
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
@@ -304,8 +277,7 @@ pub async fn place(
 ) -> AppResult<Json<crate::services::placement::Placement>> {
     let title = options.title();
     let enrich = options.enrich.unwrap_or(false);
-    // Asking the sources now spends the owner's quotas, as the `operate`
-    // probes of `/health` do. What is cached is the read scope's.
+    // Asking the sources spends the owner's quotas and needs `operate`, the cache only `read`.
     if enrich && !identity.holds(crate::services::applications::Scope::Operate) {
         return Err(AppError::Forbidden(
             "enrich=true asks the metadata sources now and needs the operate scope. Leave it out \
@@ -400,9 +372,8 @@ pub struct Explanation {
     pub metadata: Option<MediaMetadata>,
     pub override_category: Option<String>,
     pub target_category: String,
-    /// What the rules alone decide, the exception left out: the category a
-    /// rule test pinned from this title expects, since a test replays the
-    /// rules alone. Equal to `target_category` when no exception is in force.
+    /// What the rules alone decide, leaving the exception out, as a rule test pinned from
+    /// this title expects. Equal to `target_category` when no exception is in force.
     pub rules_category: String,
     pub target_root_folder: Option<String>,
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
@@ -446,12 +417,8 @@ pub struct RuleTrace {
     pub conditions: Vec<rule_engine::ConditionOutcome>,
 }
 
-/// Explain, condition by condition, why a media item lands where it does.
-///
-/// Evaluated live rather than read from a stored decision, so it also explains
-/// rules that were edited since the last run. The category, the folder and the
-/// action come from `routing::route_one`, the simulation's own decision, and
-/// only the trace is built here.
+/// Explain, condition by condition, why a media item lands where it does. Evaluated live,
+/// so it covers rules edited since the last run, the decision coming from `routing::route_one`.
 pub async fn explain(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -476,21 +443,18 @@ pub async fn explain(
         None => category.clone(),
     };
 
-    // Trace every applicable rule, not just the winner: seeing why the *other*
-    // rules did not fire is usually the actual question.
+    // Trace every applicable rule: why the others did not fire is usually the question.
     let winner_id = evaluation.winner.as_ref().map(|w| w.rule_id.clone());
     let mut rule_traces = Vec::new();
 
-    // The rules the engine considers, in its order, and its own reading of
-    // each: a second definition here would call matched what it never fires.
+    // The engine's own order and reading, or the trace calls matched what never fires.
     for rule in rule_engine::in_order(&rules, &media) {
         let (matched, outcomes) =
             rule_engine::evaluate_conditions(&rule.conditions, rule.match_mode, ctx);
         let conditions: Vec<rule_engine::ConditionOutcome> =
             outcomes.into_iter().map(|outcome| localizer.localize_outcome(outcome)).collect();
 
-        // The engine's own veto, read for a title an exception pins too: the
-        // engine then reads no rule, and the trace is what each would do.
+        // The engine's veto, read even under an exception, so the trace shows what each would do.
         let excluded_by = matched
             .then(|| rule_engine::veto(rule, ctx))
             .flatten()
@@ -575,11 +539,7 @@ pub struct Facet {
 
 /// What the library holds on each axis a condition reads, each value with
 /// how many titles carry it: what a rule can be written against.
-// Without it, writing a rule means guessing which values the library holds,
-// and a rule written against one that is not there matches nothing, reading
-// on screen exactly like a rule that correctly matches nothing. Derived from
-// columns the sync already writes: no request leaves the process, and nothing
-// is cached, the answer being only as old as the last sync either way.
+// Derived from columns the sync writes: no request leaves the process and nothing is cached.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct LibraryFacets {
     pub total_media: i64,
@@ -609,9 +569,7 @@ fn vocabulary(table: &[(&str, &[&str])], localizer: &Localizer) -> Vec<Facet> {
     let mut out: Vec<Facet> = table
         .iter()
         .filter_map(|(code, spellings)| {
-            // A country that no longer exists in the reader's language: the
-            // browser, which names every other one, names these after the
-            // countries that took their codes.
+            // A retired country, which the browser names after the one that took its code.
             let name = if language::RETIRED.contains(code) {
                 localizer.translate(&format!("CountryRetired{code}"), &[])
             } else {
@@ -664,9 +622,7 @@ fn name_statuses(held: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> {
 
 /// Count the distinct values of one column, commonest first.
 async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
-    // `column` is interpolated, so it must stay a literal from this file and
-    // never anything a caller can influence, the same rule the metadata
-    // addressing follows.
+    // `column` is spliced, so it stays a literal from this file, never caller input.
     let sql = format!(
         "SELECT {column} AS value, COUNT(*) AS n FROM media
          WHERE {column} IS NOT NULL AND {column} != ''
@@ -697,7 +653,7 @@ async fn folder_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
 }
 
 /// The same, for a column holding a JSON array.
-async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
+pub(crate) async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
     let sql = format!(
         "SELECT j.value AS value, COUNT(*) AS n
          FROM media, json_each(media.{column}) j
@@ -712,16 +668,9 @@ async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Fac
         .collect())
 }
 
-/// Say what a certification code stands for, where that is not in dispute.
-///
-/// `U`, `TP` and `TV-PG` say nothing to most readers, and this panel exists to
-/// show what the library holds. The code stays the *value*, since it is what a
-/// rule matches on, and the name is only ever what is shown, which is why it goes
-/// in `label` beside it rather than replacing it.
-///
-/// `held` pairs each code with the systems that gave it. A code is named only
-/// when every one of them gives it the same meaning, and one MyAnimeList alone
-/// gives is labelled by MyAnimeList's own words, still grouped by its age.
+/// Say what a certification code stands for, in `label` beside the code a rule matches.
+/// A code is named only when every system that gave it means the same, and one MyAnimeList
+/// alone gives takes MyAnimeList's own words.
 fn name_certifications(
     held: Vec<(Facet, Vec<Option<String>>)>,
     localizer: &Localizer,
@@ -759,38 +708,20 @@ fn name_certifications(
                 .then(|| mal_words(&facet.value))
                 .flatten()
                 .map(|key| localizer.translate(key, &[]));
-            // The code first and the meaning after it: the reader is looking
-            // for the value their rule will carry.
+            // The code first: the reader is looking for the value their rule will carry.
             let label =
                 words.as_ref().or(group.as_ref()).map(|name| format!("{} ({name})", facet.value));
             (rank, Facet { label, group, ..facet })
         })
         .collect();
-    // Stable, so the most frequent code still leads its group: codes of
-    // several countries mean the same thing, and gathered they read as the
-    // choice they are.
+    // A stable sort, so the most frequent code still leads its group.
     named.sort_by_key(|(rank, _)| *rank);
     named.into_iter().map(|(_, facet)| facet).collect()
 }
 
-/// Everything the *enabled* sources say about one axis, not just the Arr row.
-///
-/// The rule builder offers this list, so it has to hold what the engine can
-/// actually match: a genre TMDB supplied is matched by a rule and would be
-/// missing from a list read off `media` alone. The `arr` branch is the media
-/// row, the others `metadata_cache`, and a source the user disabled
-/// contributes to none, exactly as `routing::load_context` reads them.
-///
-/// Counted with `COUNT(DISTINCT m.id)`, since one item is described by several
-/// sources at once. Spellings that differ only by case or by a separator are
-/// one value, as they are to
-/// [`normalise_value`](crate::services::rule_engine::normalise_value). Accents
-/// are not folded here, SQLite having no way to, so `Comédie` and `Comedie`
-/// stay two entries in the list while the engine still matches both.
-/// `media_column` is where the sync puts the Arr's own answer, and `None` for
-/// an axis the Arr does not report at all: origin countries live in the cache
-/// and nowhere else, and naming a column the table has not got fails the whole
-/// endpoint rather than that one axis.
+/// Everything the sources `routing::load_context` reads say about one axis, counted per
+/// title, folding case and separators but not accents. `media_column` is `None` for an axis
+/// the Arr does not report, since a column `media` lacks fails the whole endpoint.
 async fn metadata_facets(
     pool: &sqlx::SqlitePool,
     sources: &[&'static ProviderInfo],
@@ -822,10 +753,9 @@ async fn metadata_facets(
         .collect())
 }
 
-/// The certifications the enabled sources give, each with the systems that
-/// gave it: whether `R` is seventeen or eighteen and over depends on the
-/// system, and a MyAnimeList code is named by MyAnimeList's own words. A
-/// source rating for many countries gives the rating `regions` pick.
+/// The certifications the enabled sources give, each with the systems that gave it, since
+/// `R` means seventeen or eighteen by system. A source rating many countries gives the
+/// rating `regions` pick.
 async fn certification_facets(
     pool: &sqlx::SqlitePool,
     sources: &[&'static ProviderInfo],
@@ -866,18 +796,9 @@ async fn certification_facets(
     Ok(name_certifications(held, localizer))
 }
 
-/// Every `(media_id, value, scale)` the enabled sources hold on one axis, as
-/// one SQL union and the source ids it binds, in order. `None` when no source
-/// can answer it.
-///
-/// Each source is joined on its own identifier: a TMDB id and a TheTVDB id
-/// share no namespace, and a source found by title (AniList, MyAnimeList) is
-/// joined through what `source_identifiers` resolved, by the key
-/// [`metadata::local_key_of`] gives an item. An item known to no id is keyed by
-/// its normalised title, which SQL cannot spell, so its search answers are
-/// left out of the counts. `cache` is the table the answers are read from,
-/// `metadata_cache` or an expression over it. `scale` is the system a
-/// certification belongs to, and empty unless asked for.
+/// Every `(media_id, value, scale)` the enabled sources hold on one axis, as one SQL union
+/// and the source ids it binds in order, or `None` when no source answers. Each source joins
+/// on its own identifier, and a title known by no id is left out: SQL cannot spell its key.
 fn facet_rows(
     sources: &[&'static ProviderInfo],
     cache: &str,
@@ -939,8 +860,7 @@ fn facet_rows(
                 binds.push(source.id);
             }
             metadata::Addressing::Search => {
-                // One branch per kind of key, each served by an index on
-                // `media`, in the order `local_key_of` tries them.
+                // One branch per kind of key, each on an index of `media`, in `local_key_of` order.
                 for (on, guard) in [
                     (
                         "m.tmdb_id = CAST(substr(si.local_key, 6) AS INTEGER)",
@@ -975,8 +895,7 @@ fn facet_rows(
 
 pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFacets>> {
     let pool = &state.pool;
-    // The order and the regions the engine reads, so the list offered and the
-    // list matched are the same one.
+    // The order and regions the engine reads, so the list offered is the list matched.
     let settings = state.settings().await;
     let sources = AppState::metadata_order_from(&settings);
     let regions = AppState::certification_regions_from(&settings);
@@ -1006,8 +925,7 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
             false,
         )
         .await?,
-        // No media column: the sync does not read countries off the Arr's
-        // payload, so the cache is the only place they exist.
+        // No media column: the sync reads no countries off the Arr, only the cache holds them.
         origin_countries: metadata_facets(pool, &sources, None, "origin_countries", true).await?,
         certifications: certification_facets(pool, &sources, &regions, &localizer).await?,
         series_types: column_facets(pool, "series_type").await?,

@@ -7,6 +7,8 @@ import type {
   MediaListItem,
   OnboardingStatus,
   OnboardingStep,
+  TemplatePreview,
+  TemplateSummary,
   Warning,
 } from '../api/types';
 
@@ -59,11 +61,8 @@ export function paginated<T>(
 }
 
 /**
- * A health payload.
- *
- * Two screens read it, the dashboard and diagnostics. A literal built per test
- * drifts: a field added to `Health` reaches whichever fixture the author
- * happened to open. One fixture, overridden per test, keeps them honest.
+ * A health payload for the dashboard and diagnostics alike, overridden per test, so a field
+ * added to `Health` reaches both.
  */
 export function health(over: Partial<Health> = {}): Health {
   return {
@@ -250,6 +249,36 @@ export function onboardingStatus(
     state: 'pending',
     complete: steps.every((step) => step.done || step.optional),
     steps,
+    ...over,
+  };
+}
+
+/** A template as the gallery lists it, the documentaries unless a test says otherwise. */
+export function template(over: Partial<TemplateSummary> = {}): TemplateSummary {
+  return {
+    id: 'documentaries',
+    version: 1,
+    name: 'Documentaries',
+    description: 'Films and series of the Documentary genre.',
+    category: 'documentaries',
+    parameter: null,
+    languages: [],
+    requesters: [],
+    needs: [],
+    added_version: null,
+    rule_ids: [],
+    ...over,
+  };
+}
+
+/** What adding a template would do: nothing recognised, unless a test says otherwise. */
+export function templatePreview(over: Partial<TemplatePreview> = {}): TemplatePreview {
+  return {
+    rules: [],
+    creates: [],
+    reach: { titles: 0, to_move: 0, in_place: 0, unmapped: 0 },
+    titles: [],
+    taken_by: [],
     ...over,
   };
 }

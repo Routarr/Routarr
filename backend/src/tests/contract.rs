@@ -39,9 +39,8 @@ fn operations() -> Vec<(Method, String, Option<String>)> {
     found
 }
 
-/// The pinned file is what the code describes. A change to a type a handler
-/// returns changes the contract, and it has to be seen in review as a change
-/// to this file, where CI compares it with the last release's.
+/// The pinned file is what the code describes, so a change to the contract shows
+/// in review as a change to this file.
 #[test]
 fn the_pinned_contract_is_the_one_the_code_describes() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(PINNED);
@@ -113,10 +112,9 @@ async fn the_contract_is_served_without_a_key_under_its_mount_point() {
     assert_eq!(served.assert_ok()["servers"], json!([{ "url": "/routarr/api/v1" }]));
 }
 
-/// Every published schema is one an operation answers or takes, or the
-/// notification the webhook receives, which no operation names: a schema no
-/// call reaches is a model a generated client builds for nothing, and an item
-/// described inline beside its own schema is one type defined twice.
+/// Every published schema is reached from an operation, or is the notification
+/// the webhook receives: a schema no call reaches is a model a generated client
+/// builds for nothing.
 #[test]
 fn every_schema_is_reached_from_an_operation_or_is_the_webhook_payload() {
     fn references(value: &Value, found: &mut BTreeSet<String>) {
@@ -154,9 +152,8 @@ fn every_schema_is_reached_from_an_operation_or_is_the_webhook_payload() {
     assert_eq!(unreached, ["AllowedMentions", "Notification"]);
 }
 
-/// The types that report the state of an installation and its mappings say
-/// what each field holds, its values among them: an integrator reads them
-/// here, not in the source.
+/// The status and mapping types describe every field, for an integrator who
+/// reads the contract and never the source.
 #[test]
 fn every_field_of_the_status_and_mapping_types_is_described() {
     let document = described();
@@ -219,10 +216,9 @@ fn the_log_export_documents_no_paging() {
     assert_eq!(exported, filters);
 }
 
-/// A field a request body does not define is refused by name, on every
-/// operation that takes a body: ignored, a misspelled field changes what is
-/// written, as `categroy` unmapping a folder would. The body is refused
-/// before the handler runs, so each one here only has to parse.
+/// Every operation taking a body refuses, by name, a field it does not define,
+/// since an ignored misspelling changes what is written. The refusal comes
+/// before the handler, so each body here only has to parse.
 #[tokio::test]
 async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
     let app = TestApp::new().await;
@@ -261,6 +257,8 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
             json!({ "bundle": { "version": 2, "rules": [] } }),
         ),
         ("POST", "/rules/preview", "/rules/preview", json!({ "rule": rule })),
+        ("POST", "/rules/templates/{id}/import", "/rules/templates/anime/import", json!({})),
+        ("POST", "/rules/templates/{id}/preview", "/rules/templates/anime/preview", json!({})),
         ("POST", "/rules/reorder", "/rules/reorder", json!({ "rule_ids": [] })),
         ("POST", "/rules/validate", "/rules/validate", rule.clone()),
         ("PUT", "/rules/{id}", "/rules/r-1", rule),
@@ -453,8 +451,7 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     let task = started.json["job_id"].as_str().unwrap();
     checker.check("GET", "/jobs/{id}", 200, &app.get(&format!("/api/v1/jobs/{task}")).await);
 
-    // The sync is followed by the work after it, whose simulation holds the
-    // lock a persisting one takes: waited for, or `/simulate` below meets it.
+    // Waited for, since the simulation after the sync holds the lock `/simulate` takes.
     finished(&app, task).await;
     let followed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
@@ -467,9 +464,7 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     });
     followed.await.expect("the sync was never followed");
 
-    // The answers that do not wait, each a schema of its own: a proposal the
-    // pass after the sync wrote, applied, reverted, then proposed again by a
-    // fresh simulation and applied whole.
+    // Each answer that does not wait has a schema of its own.
     let proposals = app.post("/api/v1/simulate", json!({ "persist": true })).await;
     assert_eq!(proposals.status, StatusCode::OK, "{}", proposals.json);
     let proposed = proposals.json["decisions"][0]["id"].clone();
@@ -590,6 +585,11 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
         .collect();
     let reordered = app.post("/api/v1/rules/reorder", json!({ "rule_ids": ids })).await;
     checker.check("POST", "/rules/reorder", 200, &reordered);
+    checker.check("GET", "/rules/templates", 200, &app.get("/api/v1/rules/templates").await);
+    let template = app.post("/api/v1/rules/templates/anime/preview", json!({})).await;
+    checker.check("POST", "/rules/templates/{id}/preview", 200, &template);
+    let template = app.post("/api/v1/rules/templates/anime/import", json!({})).await;
+    checker.check("POST", "/rules/templates/{id}/import", 201, &template);
     let bundle = app.get("/api/v1/rules/export").await.json.clone();
     let imported =
         app.post("/api/v1/rules/import", json!({ "bundle": bundle, "replace": false })).await;

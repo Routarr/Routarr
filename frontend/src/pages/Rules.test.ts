@@ -8,13 +8,9 @@ import type { Category, ConditionCatalog, LibraryFacets, Rule, RuleHealth } from
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { statusRevision } from '../lib/status.svelte';
-import { instance } from '../test/fixtures';
+import { instance, template, templatePreview } from '../test/fixtures';
 
-/**
- * First match by ascending priority wins, so the order of this table *is* the
- * routing. Reordering it rewrites priorities on the server, and nothing about
- * it is cosmetic.
- */
+/** First match by priority wins, so the table's order is the routing the server keeps. */
 
 const catalog: ConditionCatalog = {
   match_modes: ['all', 'any'],
@@ -61,6 +57,7 @@ function rule(over: Partial<Rule> = {}): Rule {
     match_mode: 'all',
     target_category: 'anime',
     instance_ids: null,
+    template: null,
     created_at: '2026-08-27 10:00:00',
     updated_at: '2026-08-27 10:00:00',
     ...over,
@@ -96,6 +93,9 @@ function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en'
   if (!vi.isMockFunction(api.getLibraryFacets)) {
     vi.spyOn(api, 'getLibraryFacets').mockResolvedValue(NO_FACETS);
   }
+  if (!vi.isMockFunction(api.getTemplates)) {
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([]);
+  }
   return renderWithI18n(Rules, { language });
 }
 
@@ -118,10 +118,7 @@ describe('Rules', () => {
     expect(within(row).queryByText('Radarr')).toBeNull();
   });
 
-  /**
-   * The badges and the library panel come from two diagnostics the list does
-   * without. Failed silently, they look exactly like a healthy rule set.
-   */
+  /** The two diagnostics failing silently would look exactly like a healthy rule set. */
   it('says the rule analysis is missing, and reads it again on Retry', async () => {
     const report = vi
       .spyOn(api, 'getRuleHealth')
@@ -185,10 +182,7 @@ describe('Rules', () => {
     }
   });
 
-  /**
-   * The first rule cannot be raised and the last cannot be lowered. Offering
-   * either sends the server a reorder that changes nothing and reports success.
-   */
+  /** Raising the first or lowering the last would send a reorder that changes nothing. */
   it('cannot raise the first rule or lower the last', async () => {
     show([rule({ id: 'r1', name: 'First' }), rule({ id: 'r2', name: 'Last' })]);
 
@@ -205,9 +199,8 @@ describe('Rules', () => {
   });
 
   /**
-   * Reordering sends the whole list in its new order, not a single moved id:
-   * `POST /rules/reorder` rewrites every priority as `(index + 1) * 10`, so a
-   * partial list would renumber the rules it was not given.
+   * The reorder rewrites every priority from the list's order, so a partial list would
+   * renumber the rules it was not given.
    */
   it('sends the full new order when a rule moves', async () => {
     const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
@@ -220,10 +213,8 @@ describe('Rules', () => {
   });
 
   /**
-   * An action on a rule keeps the table on screen and the focus with the rule.
-   * Swapped for a skeleton at each reload, the rows would take the focus to the
-   * page and a keyboard user would start again from the top. The library facets
-   * are the screen's, read once: no action on a rule changes them.
+   * An action keeps the table and the focus with the rule, or a keyboard user starts again from
+   * the top. The library facets are read once, since no action on a rule changes them.
    */
   it("moving a rule keeps the table and the focus on the moved rule's button", async () => {
     const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
@@ -259,11 +250,7 @@ describe('Rules', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  /**
-   * The banner stays until something replaces it. Left standing across the
-   * next action, a success reads as that action's outcome, printed above the
-   * reason it was refused, and the older, louder sentence is the one believed.
-   */
+  /** A stale success above the next action's refusal reads as that action's outcome. */
   it('takes the previous success off screen when the next action is refused', async () => {
     vi.spyOn(api, 'duplicateRule').mockResolvedValue(undefined as never);
     vi.spyOn(api, 'deleteRule').mockRejectedValue(
@@ -281,10 +268,7 @@ describe('Rules', () => {
     expect(screen.queryByText('Rule duplicated')).toBeNull();
   });
 
-  /**
-   * A cancelled question did nothing, so it has nothing to take off screen. The
-   * last outcome is still the true one.
-   */
+  /** A cancelled question did nothing, so the last outcome stays on screen. */
   it('leaves the previous success standing when an import is cancelled', async () => {
     vi.spyOn(api, 'duplicateRule').mockResolvedValue(undefined as never);
     const importRules = vi.spyOn(api, 'importRules');
@@ -339,9 +323,8 @@ describe('Rules', () => {
   });
 
   /**
-   * The server refuses a value listed twice, but a stored rule can still hold
-   * one and open here. Its chips are keyed by value, and a repeat takes the
-   * screen down, so the editor starts from the list without it.
+   * A stored rule can still hold a repeated value, and chips keyed by value would crash on it,
+   * so the editor drops the repeat.
    */
   it('opens a rule stored with a repeated value, and saves it without the repeat', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
@@ -361,10 +344,7 @@ describe('Rules', () => {
     ]);
   });
 
-  /**
-   * A disabled rule is dimmed and marked, not hidden. Hiding it makes a routing
-   * that "should" match and does not look like a bug in the engine.
-   */
+  /** Hidden, a disabled rule would make a routing that does not match look like an engine bug. */
   it('marks a disabled rule rather than hiding it', async () => {
     show([rule({ enabled: false, name: 'Japanese animation' })]);
 
@@ -467,9 +447,8 @@ describe('Rules', () => {
   });
 
   /**
-   * The library sends the values it holds without a name, and a code `Intl`
-   * cannot name keeps none in the reader's language either. The vocabulary
-   * still names it, as the editor does, so the table reads the same name.
+   * A held value comes without a name, and `Intl` may have none for its code, so the table
+   * takes the vocabulary's name, as the editor does.
    */
   it('names a held value from the vocabulary when the language has no name for it', async () => {
     const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];
@@ -506,18 +485,13 @@ describe('Rules', () => {
     expect(await screen.findByText('Original language is one of Reserved (qaa)')).toBeTruthy();
   });
 
-  /**
-   * The builder is driven by the catalogue the backend serves, so a condition
-   * added in Rust needs no frontend change. Opening the editor must therefore
-   * wait for the catalogue rather than render an empty picker.
-   */
+  /** The editor waits for the catalogue it is built from, rather than draw an empty picker. */
   it('builds the editor from the catalogue the server serves', async () => {
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
 
-    // Offered in both pickers (conditions and exclusions), which is itself the
-    // point: one catalogue drives both lists.
+    // Found in both pickers, conditions and exclusions, since one catalogue drives both.
     expect((await screen.findAllByText('Genre contains')).length).toBeGreaterThan(0);
   });
 
@@ -567,10 +541,7 @@ describe('Rules', () => {
     expect(screen.getByText("'Kids': no target")).toBeTruthy();
   });
 
-  /**
-   * A rule imported switched off, or limited to fewer instances than its file
-   * names, is in, and still needs somebody to look at it.
-   */
+  /** A rule imported switched off or on fewer instances than its file names needs a look. */
   it('names each rule imported otherwise than its file has it', async () => {
     const note = "'Anime': imported switched off";
     await importFile({ imported: 1, skipped: [], adjusted: [note] });
@@ -580,7 +551,7 @@ describe('Rules', () => {
     expect(screen.getByText(note)).toBeTruthy();
   });
 
-  /** The editor is built from the catalogue, so the guide's link waits for it as the button does. */
+  /** The guide's link waits for the catalogue the editor is built from, as the button does. */
   it('opens the rule editor when the guide sends the reader here', async () => {
     window.history.replaceState({}, '', '/rules?new=1');
     show([]);
@@ -601,6 +572,98 @@ describe('Rules', () => {
   });
 });
 
+describe('the templates', () => {
+  /** Above the table while it is empty, below it once a rule is written. */
+  it('offers the templates first while no rule is written, and after the rules once one is', async () => {
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    const { unmount } = show([]);
+    const gallery = await screen.findByRole('heading', { name: 'Templates' });
+    const table = screen.getByRole('table', { name: 'Rules' });
+    expect(gallery.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount();
+
+    show([rule()]);
+    const below = await screen.findByRole('heading', { name: 'Templates' });
+    const after = screen.getByRole('table', { name: 'Rules' });
+    expect(below.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('says a template is added, names a category made without a folder, and reloads', async () => {
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    vi.spyOn(api, 'importTemplate').mockResolvedValue({
+      rules: [rule({ template: 'documentaries@1' })],
+      created: ['documentaries'],
+      replaced: 0,
+    });
+    show([]);
+    const loads = vi.mocked(api.getRules).mock.calls.length;
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add – Documentaries' }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add' }));
+
+    const summary = await screen.findByText('Template "Documentaries" added. Rules created: 1');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(screen.getByText(/The category "documentaries" has no folder yet/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(vi.mocked(api.getRules).mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('hands the gallery the focus when the guide sends the reader to it', async () => {
+    window.history.replaceState({}, '', '/rules#templates');
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    show([]);
+
+    const title = await screen.findByRole('heading', { name: 'Templates' });
+    await waitFor(() => expect(document.activeElement).toBe(title));
+    window.history.replaceState({}, '', '/rules');
+  });
+
+  /** A household language the library holds no film in is still named, not a bare code. */
+  it('names the languages the household watches in from the whole vocabulary', async () => {
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({
+      ...NO_FACETS,
+      vocabularies: {
+        original_languages: [{ value: 'fr', label: 'French (fr)', count: 0 }],
+        origin_countries: [],
+      },
+    });
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([
+      template({
+        id: 'foreign-films',
+        name: 'Foreign-language films',
+        parameter: 'languages',
+        languages: ['fr'],
+      }),
+    ]);
+    vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    show([]);
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Add – Foreign-language films' }),
+    );
+
+    const chips = within(await screen.findByRole('list', { name: 'Selected values' }));
+    expect(chips.getByText(/French/)).toBeTruthy();
+  });
+
+  /** Below the table once rules are written, the gallery is a link away. */
+  it('follows the link to the gallery from the screen it is on', async () => {
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    show([rule()]);
+
+    const link = await screen.findByRole('link', { name: 'Templates' });
+    expect(link.getAttribute('href')).toBe('/rules#templates');
+    window.history.pushState({}, '', '/rules#templates');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    const title = await screen.findByRole('heading', { name: 'Templates', level: 2 });
+    await waitFor(() => expect(document.activeElement).toBe(title));
+    window.history.replaceState({}, '', '/rules');
+  });
+});
+
 /** A deleted rule takes its row and its menu: the next rule's menu takes the focus. */
 it('hands the focus to the rule that took the place of the deleted one', async () => {
   const first = rule({ id: 'r1', name: 'First' });
@@ -618,9 +681,8 @@ it('hands the focus to the rule that took the place of the deleted one', async (
 });
 
 /**
- * What each rule decides, read off the health report: a rule under a broader
- * one, a copy of another, and one that matches nothing each say so on the row,
- * the first two by the rule to look at.
+ * A rule under a broader one, a copy of another and one that matches nothing each say so on
+ * their row, the first two naming the rule to look at.
  */
 describe('the rule health badges', () => {
   const verdict = (over: Partial<RuleHealth>): RuleHealth => ({

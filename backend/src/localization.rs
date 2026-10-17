@@ -1,10 +1,5 @@
-//! Translation of user-facing strings.
-//!
-//! Follows the Servarr convention: the dictionaries live in JSON files shipped
-//! with the binary, the backend serves the one matching the configured UI
-//! language, and any missing key falls back to English rather than showing a raw
-//! identifier. The language is an application setting, not a browser preference,
-//! so the whole install speaks one language.
+//! Translation of user-facing strings, as the Servarr apps do it: dictionaries shipped in
+//! the binary, one language for the whole install, and English for any key a language lacks.
 
 use crate::services::rule_engine::ConditionOutcome;
 use serde::Serialize;
@@ -22,34 +17,19 @@ pub struct Language {
 
 pub const DEFAULT_LANGUAGE: &str = "en";
 
-/// Languages written right to left.
-///
-/// Held here rather than in the frontend because the catalogue is here: adding
-/// `ar` to `CATALOG` should turn the interface around on its own, with nothing
-/// else to remember. Base tags only: a regional variant carries its script's
-/// direction, so `ar-EG` matches `ar`.
+/// Languages written right to left, by base tag, so `ar-EG` follows `ar`. Kept beside
+/// `CATALOG`, so a right-to-left language added there turns the interface around alone.
 const RTL_LANGUAGES: &[&str] = &["ar", "he", "fa", "ur", "yi", "dv", "ps"];
 
-/// Which way a language is written.
-///
-/// Anything unknown is left to right: guessing wrong mirrors an entire
-/// interface, and the default is right for all but a handful of scripts.
+/// Which way a language is written. Anything unknown is left to right, since a wrong
+/// guess mirrors the whole interface.
 pub fn direction(code: &str) -> &'static str {
     if RTL_LANGUAGES.contains(&base_tag(code).as_str()) { "rtl" } else { "ltr" }
 }
 
-/// The byte-unit symbols a language uses, where they are not the SI default.
-///
-/// Locale data, so it sits beside `RTL_LANGUAGES` rather than in the
-/// dictionaries: these are symbols, not prose, and a translator has nothing to
-/// decide about them. Generated from `Intl.NumberFormat`, which is the same
-/// source `frontend/src/api/format.ts` reads at run time, and that is what stops
-/// the two halves of the application naming one figure two ways.
-///
-/// Japanese differs from the default by one capital, and Arabic's petabyte is
-/// the one entry `Intl` gives as a word rather than a symbol. Inventing a
-/// prefix for it would be worse than repeating what the platform says, and no
-/// homelab reports a petabyte of free space.
+/// The byte-unit symbols a language uses, where they are not the SI default, taken from
+/// the `Intl.NumberFormat` that `frontend/src/api/format.ts` reads, so both halves name one
+/// figure alike. Arabic's petabyte is the one word `Intl` gives, and stays as it gives it.
 const BYTE_UNITS_DEFAULT: [&str; 6] = ["B", "kB", "MB", "GB", "TB", "PB"];
 const BYTE_UNITS: &[(&str, [&str; 6])] = &[
     ("ar", ["ب", "ك.ب", "م.ب", "غ.ب", "ت.ب", "بيتابايت"]),
@@ -60,11 +40,8 @@ const BYTE_UNITS: &[(&str, [&str; 6])] = &[
     ("uk", ["Б", "кБ", "МБ", "ГБ", "ТБ", "ПБ"]),
 ];
 
-/// Languages that write a fraction with a comma.
-///
-/// The majority of the shipped set, but the *default* is the point: a language
-/// added later gets a full stop, which is wrong for it far less often than
-/// silently printing `2.2` where the interface beside it prints `2,2`.
+/// Languages that write a fraction with a comma. Any other, a language added later
+/// included, gets a full stop.
 const DECIMAL_COMMA: &[&str] = &[
     "ca", "cs", "da", "de", "el", "es", "fi", "fr", "hu", "it", "nb", "nl", "pl", "pt", "ro", "ru",
     "sk", "sv", "tr", "uk",
@@ -84,10 +61,8 @@ pub fn decimal_separator(code: &str) -> char {
     if DECIMAL_COMMA.contains(&base_tag(code).as_str()) { ',' } else { '.' }
 }
 
-/// How long ago `then` was, in its largest whole unit and the reader's words,
-/// `3 h`, `2 d`. A stored UTC time in a sentence leaves the reader to work the
-/// age out in their own zone, and the age is what they weigh: twenty minutes
-/// reads as a nap and three days as a fault.
+/// How long ago `then` was, in its largest whole unit and the reader's words, `3 h` or
+/// `2 d`, since the age is what a reader weighs, never a UTC time.
 pub fn human_age(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
     let minutes = (chrono::Utc::now() - then).num_minutes().max(1);
     let (key, count) = match minutes {
@@ -98,13 +73,8 @@ pub fn human_age(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> 
     localizer.translate(key, &[("count", &count.to_string())])
 }
 
-/// Bytes as an operator reads them, in the vocabulary the interface uses.
-///
-/// Binary steps, because the figure is compared with what a file manager shows.
-/// The symbol and the decimal mark come from the language: spelled at each
-/// use, one figure would read in two vocabularies, in a refusal and in the
-/// root-folders table, on two screens an operator reads together.
-/// `frontend/src/api/format.ts` is the other half of that agreement.
+/// Bytes as an operator reads them, in binary steps as a file manager shows them, with the
+/// language's symbol and decimal mark. `frontend/src/api/format.ts` writes them alike.
 pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
     let units = byte_units(localizer.language());
     let mut value = bytes.max(0) as f64;
@@ -130,21 +100,15 @@ pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
 /// in the interface: `512B` in Korean.
 const UNIT_AGAINST_ITS_NUMBER: &[&str] = &["ko"];
 
-/// The placeholders that hold a machine format, an address, a path or a
-/// variable's name, which keeps its own direction in a sentence. In a
-/// right-to-left language each is set in a first strong isolate, or a path's
-/// leading slash moves to its end. There only: in English the marks would be
-/// invisible noise in a log line or a payload. The interface reads this list
-/// from `/localization`.
+/// The placeholders holding an address, a path or a name that keeps its own direction. In a
+/// right-to-left language each is set in a first strong isolate, or a path's leading slash
+/// moves to its end. The interface reads this list from `/localization`.
 pub const ISOLATED: &[&str] =
     &["address", "file", "folder", "host", "path", "paths", "url", "variable"];
 
-/// The placeholders that hold a count, written with their digits grouped
-/// the way the language groups them (`12 345` in French). A year in `{min}`,
-/// an id in `{value}` or a status in `{status}` grouped would read `2,026`, so
-/// `scripts/check-locales.py` refuses a placeholder that is neither listed here
-/// nor in its own list of the others. The interface reads this list from
-/// `/localization`.
+/// The placeholders holding a count, its digits grouped as the language groups them
+/// (`12 345` in French), which a year would not survive. `scripts/check-locales.py` refuses a
+/// placeholder in neither this list nor its own. The interface reads it from `/localization`.
 pub const COUNTS: &[&str] = &[
     "afterMoves",
     "afterUnmatched",
@@ -191,10 +155,9 @@ pub const COUNTS: &[&str] = &[
     "total",
 ];
 
-/// How a language groups the digits of a whole number: the separator, and how
-/// many digits a number needs before its first group is set apart (`1234` but
-/// `12.345` in Spanish). What `Intl.NumberFormat` prints in the interface for
-/// the same language, which `grouped_count_cases.json` holds both sides to.
+/// How a language groups a whole number's digits: the separator, and the fewest digits a
+/// number needs to be grouped (`1234` but `12.345` in Spanish), as `Intl.NumberFormat` does.
+/// `grouped_count_cases.json` holds both sides to it.
 const GROUPING: &[(&str, char, usize)] = &[
     ("ca", '.', 4),
     ("cs", '\u{a0}', 4),
@@ -248,12 +211,8 @@ fn base_tag(code: &str) -> String {
     code.split(['-', '_']).next().unwrap_or(code).to_lowercase()
 }
 
-/// Languages shipped with this build, in the order the picker shows them.
-///
-/// Each entry embeds its `locales/<code>.json` with `include_str!`, so a missing
-/// file fails the build, and `scripts/check-locales.py` refuses a key English
-/// lacks or a changed `{placeholder}`. Untranslated keys fall back to English at
-/// runtime, so a language may ship before it is complete.
+/// Languages shipped with this build, in the order the picker shows them. A missing file
+/// fails the build, and an untranslated key falls back to English at run time.
 const CATALOG: &[(Language, &str)] = &[
     (Language { code: "en", name: "English" }, include_str!("../locales/en.json")),
     (Language { code: "de", name: "Deutsch" }, include_str!("../locales/de.json")),
@@ -285,10 +244,8 @@ const CATALOG: &[(Language, &str)] = &[
 
 type Dictionary = HashMap<String, String>;
 
-/// A language that translates two keys and leaves every other to English, for
-/// the tests that prove the fallback through the API and the localizer: every
-/// shipped language is complete, so none of them can. Resolved like a shipped
-/// one, never offered by `languages()`.
+/// A language that translates two keys and leaves every other to English, for the tests of
+/// the fallback, since every shipped language is complete. Never offered by `languages()`.
 #[cfg(test)]
 const PARTIAL: (Language, &str) = (
     Language { code: "x-partial", name: "Partial" },
@@ -317,9 +274,7 @@ fn dictionaries() -> &'static HashMap<&'static str, Dictionary> {
         catalogue()
             .map(|(language, raw)| {
                 let parsed: Dictionary = serde_json::from_str(raw).unwrap_or_else(|e| {
-                    // A malformed shipped locale is a build mistake, not a
-                    // runtime condition. Degrade to keys rather than refusing to
-                    // start.
+                    // A build mistake: degrade to keys instead of refusing to start.
                     tracing::error!("Locale {} is not valid JSON: {e}", language.code);
                     Dictionary::new()
                 });
@@ -337,12 +292,8 @@ pub struct LanguageInfo {
     /// `ltr` or `rtl`, so the interface can turn itself around without keeping
     /// its own list of scripts in step with this one.
     pub direction: &'static str,
-    /// Share of English keys this language actually translates, 0–100.
-    ///
-    /// Shipped because a partial translation is allowed: rather than hiding an
-    /// incomplete language or refusing it, the picker says how complete it is.
-    /// Anything a language does not translate is served in English, so the
-    /// interface stays usable either way, but the user gets to know.
+    /// Share of English keys this language translates, 0 to 100, so the picker says how
+    /// complete a language is. Its missing keys are served in English.
     pub completion: u8,
 }
 
@@ -358,10 +309,7 @@ pub fn languages() -> Vec<LanguageInfo> {
                 code: language.code,
                 name: language.name,
                 direction: direction(language.code),
-                // Rounded down: 99% must not display as 100%, or the picker
-                // would claim a completeness the language does not have. With
-                // no English keys at all there is nothing to be missing, which
-                // is what the division by zero falls back to.
+                // Rounded down, so 99% never reads 100%. With no English key, nothing is missing.
                 completion: (translated * 100)
                     .checked_div(english_keys)
                     .map_or(100, |pct| pct.min(100) as u8),
@@ -386,11 +334,8 @@ pub fn dictionary(code: &str) -> Dictionary {
     merge(english, resolve(code).and_then(|code| dictionaries().get(code)))
 }
 
-/// English underneath, the translation on top.
-///
-/// Extracted so the partial-translation contract can be tested against a
-/// deliberately incomplete dictionary: while every shipped locale is complete,
-/// a test written against them proves nothing.
+/// English underneath, the translation on top, apart so a test can hand it an incomplete
+/// dictionary, since every shipped one is complete.
 fn merge(english: Dictionary, translated: Option<&Dictionary>) -> Dictionary {
     let mut merged = english;
     if let Some(translated) = translated {
@@ -400,9 +345,6 @@ fn merge(english: Dictionary, translated: Option<&Dictionary>) -> Dictionary {
 }
 
 /// The template for a key: the requested language first, English second.
-///
-/// This is what makes a partial translation safe rather than broken. [`merge`]
-/// says why it is a free function.
 fn lookup<'a>(
     translated: Option<&'a Dictionary>,
     english: Option<&'a Dictionary>,
@@ -426,11 +368,8 @@ impl Localizer {
         &self.language
     }
 
-    /// Look up `key`, substituting `{name}` placeholders from `params`.
-    ///
-    /// An unknown key returns the key itself: visibly wrong in the UI, which is
-    /// what makes a missing translation get reported instead of silently
-    /// rendering an empty string.
+    /// Look up `key`, substituting `{name}` placeholders from `params`. An unknown key
+    /// returns itself, visibly wrong, so a missing translation gets reported.
     pub fn translate(&self, key: &str, params: &[(&str, &str)]) -> String {
         let template = lookup(
             dictionaries().get(self.language.as_str()),
@@ -493,11 +432,8 @@ fn substitute(template: &str, params: &[(&str, &str)]) -> String {
     out
 }
 
-/// Resolve a requested code to a shipped language.
-///
-/// A regional variant is honoured when it is shipped in its own right
-/// (`pt-BR` differs from `pt` across the Servarr ecosystem) and otherwise falls
-/// back to its base language, so `fr-CA` still gets French rather than English.
+/// Resolve a requested code to a shipped language: a variant shipped in its own right
+/// whole, any other by its base language, so `fr-CA` gets French.
 fn resolve(code: &str) -> Option<&'static str> {
     let requested = code.trim().to_lowercase().replace('_', "-");
     if let Some(exact) = shipped(&requested) {
@@ -507,10 +443,8 @@ fn resolve(code: &str) -> Option<&'static str> {
     shipped(base)
 }
 
-/// Match a normalized code against the catalogue.
-///
-/// Locale files keep the Servarr naming (`nb_NO`, `zh_CN`), so both sides are
-/// normalized before comparison, or `nb-no` would never find `nb_NO`.
+/// Match a normalized code against the catalogue, whose Servarr names (`nb_NO`) are
+/// normalized too, or `nb-no` would never find `nb_NO`.
 fn shipped(code: &str) -> Option<&'static str> {
     catalogue()
         .map(|(language, _)| language.code)
@@ -589,8 +523,12 @@ impl Localizer {
     /// was added. Anything else, a genre or a path, is the title's own.
     fn engine_value(&self, kind: &str, value: &str) -> String {
         match (kind, value) {
-            ("has_files" | "monitored" | "has_metadata", "true") => self.translate("Yes", &[]),
-            ("has_files" | "monitored" | "has_metadata", "false") => self.translate("No", &[]),
+            ("has_files" | "monitored" | "has_metadata" | "original_language_known", "true") => {
+                self.translate("Yes", &[])
+            }
+            ("has_files" | "monitored" | "has_metadata" | "original_language_known", "false") => {
+                self.translate("No", &[])
+            }
             ("size_on_disk_over_gb", bytes) if !bytes.is_empty() => {
                 bytes.parse().map_or_else(|_| bytes.to_string(), |n| human_bytes(n, self))
             }
@@ -716,9 +654,7 @@ mod tests {
 
     #[test]
     fn the_catalogue_reports_each_language_its_own_direction() {
-        // The invariant is that the direction served is the one `direction()`
-        // derives from the tag, never a hand-kept list in the frontend, which
-        // is what lets a right-to-left language be added to `CATALOG` alone.
+        // The direction served is the one `direction()` derives, never a list in the frontend.
         for language in languages() {
             assert_eq!(
                 language.direction,
@@ -754,9 +690,7 @@ mod tests {
 
     #[test]
     fn a_partial_translation_falls_back_to_english_key_by_key() {
-        // Built by hand rather than taken from `locales/`: while every shipped
-        // dictionary is complete, a test written against them passes whether
-        // or not the fallback exists.
+        // Built by hand: every shipped dictionary is complete, so none can test the fallback.
         let english = Dictionary::from([
             ("Translated".to_string(), "English one".to_string()),
             ("Untranslated".to_string(), "English two".to_string()),
@@ -778,8 +712,7 @@ mod tests {
 
     #[test]
     fn a_partial_dictionary_is_served_complete() {
-        // The frontend gets one flat dictionary, so the same guarantee has to
-        // hold there: an incomplete translation must never yield a blank label.
+        // The frontend gets one flat dictionary, so an incomplete one never yields a blank.
         let english = Dictionary::from([
             ("Translated".to_string(), "English one".to_string()),
             ("Untranslated".to_string(), "English two".to_string()),

@@ -1,7 +1,4 @@
-// Shapes returned by the Routarr API, written by hand. Nothing generates them,
-// so a backend rename raises no type error: `scripts/check-api-types.py`
-// compares the field names of each interface with the backend response struct
-// it is paired with, and a new response type needs a line in its `PAIRS`.
+// Written by hand: `scripts/check-api-types.py` pairs each with its backend struct in `PAIRS`.
 
 export interface Paginated<T> {
   data: T[];
@@ -98,6 +95,8 @@ export interface Rule {
   match_mode: MatchMode;
   target_category: string;
   instance_ids: string[] | null;
+  /** The template and version it was added from, as `children@1`, null when written by hand. */
+  template: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -124,26 +123,15 @@ export interface ConditionSpec {
   needs_metadata: boolean;
   /** The metadata field it reads, if any. */
   metadata_field: string | null;
-  /**
-   * Whether an enabled source provides that field. A condition can be listed
-   * and unanswerable, and the builder says which.
-   */
+  /** Whether an enabled source provides that field: a listed condition may be unanswerable. */
   available: boolean;
-  /**
-   * The media types this condition can ever match on. Radarr reports no
-   * `tvdbId`, no `seriesType` and no seasons, so three conditions are
-   * series-only and would never fire on a film.
-   */
+  /** The media types it can match on. Radarr reports no `tvdbId`, `seriesType` or seasons. */
   media_types: string[];
-  /**
-   * The `LibraryFacets` axis its values are drawn from, empty when the library
-   * cannot enumerate them: a keyword or a title fragment is not a closed set.
-   */
+  /** The `LibraryFacets` axis its values come from, empty for an open set such as a keyword. */
   suggestions: string;
   /**
-   * How this condition's values combine (`any` or `all`), and the kind asking
-   * the same question the other way. Both empty where the media side is a
-   * single value, which cannot be asked for "all of".
+   * How its values combine (`any` or `all`), and the kind asking it the other way. Both empty
+   * for a single value on the media side, which cannot be "all of".
    */
   quantifier: string;
   counterpart: string;
@@ -182,18 +170,15 @@ export interface MaintenanceReport {
 /** Which gate the shell must show. Readable without a session, by necessity. */
 export interface AuthMode {
   mode: 'none' | 'apikey' | 'forms' | 'external' | 'oidc';
-  /** Whether the server holds a key at all. False in `forms` and `oidc` until
-   *  somebody creates one, so the card offers to create rather than replace. */
+  /** Whether the server holds a key. False in `forms` and `oidc` until one is created. */
   api_key_configured: boolean;
-  /** Set through `ROUTARR_API_KEY`, so it cannot be replaced from here: the new
-   *  one would last until the next restart. */
+  /** Set through `ROUTARR_API_KEY`, so a key replaced here would last until the next restart. */
   api_key_pinned: boolean;
 }
 
 /**
- * The proof a session gives before it makes or withdraws a key: the current
- * password in `forms`, the API key in `apikey`. A key sent in a header, and an
- * OpenID Connect session signed in within ten minutes, need none.
+ * The proof a session gives before it makes or withdraws a key: the password in `forms`, the
+ * API key in `apikey`. A header key, or an OpenID Connect sign-in within ten minutes, needs none.
  */
 export interface Proof {
   current_password?: string;
@@ -213,8 +198,7 @@ export interface Session {
   current: boolean;
 }
 
-/** What a password change answers: the new API key, shown once, when every
- *  key was revoked with it. */
+/** What a password change answers: the new API key, shown once, when every key was revoked. */
 export interface PasswordChanged {
   ok: boolean;
   api_key: string | null;
@@ -222,8 +206,7 @@ export interface PasswordChanged {
 
 /** What a restore answers with: staged, not applied until the next start. */
 export interface RestoreResult {
-  /** What the archive said about itself: the version and schema it was taken
-   *  from, and when. The backup card reads its `includes_master_key`. */
+  /** What the archive says of itself. The backup card reads its `includes_master_key`. */
   manifest: BackupManifest;
   restart_required: boolean;
 }
@@ -248,10 +231,7 @@ export interface MetadataProvider {
   /** False for a source whose data arrives with the library sync. */
   fetched: boolean;
   needs_key: boolean;
-  /**
-   * The environment variable its credential comes from, so the interface can
-   * name it instead of saying "a key is missing".
-   */
+  /** The environment variable its credential comes from, so the interface can name it. */
   key_env: string | null;
   configured: boolean;
   fields: string[];
@@ -275,10 +255,7 @@ export interface ConditionCatalog {
 export interface ValidationIssue {
   severity: 'error' | 'warning';
   field: string;
-  /**
-   * The dictionary key the message was written from, which says what kind
-   * of issue it is without reading the message.
-   */
+  /** The dictionary key the message came from, which names the kind of issue. */
   key: string;
   /** The values the message was written with, by placeholder. */
   params: Record<string, string>;
@@ -313,6 +290,93 @@ export interface RulePreview {
   after: SimulationSummary;
   changed: PreviewChange[];
   changed_total: number;
+}
+
+/** Ready-made rules for a usual library split. */
+export interface TemplateSummary {
+  id: string;
+  version: number;
+  name: string;
+  description: string;
+  /** Where its rules send titles, as added or as suggested. Null for `requesters`. */
+  category: string | null;
+  parameter: 'languages' | 'requesters' | null;
+  /** For `languages`: the languages the household watches in. */
+  languages: string[];
+  /** For `requesters`: the requesters the library's Seerr tags name. */
+  requesters: RequesterTag[];
+  /** The sources it needs, none of them enabled. */
+  needs: NeededSource[];
+  /** The version the rules in place came from, null when it is not added. */
+  added_version: number | null;
+  rule_ids: string[];
+}
+
+export interface NeededSource {
+  id: string;
+  name: string;
+}
+
+export interface RequesterTag {
+  tag: string;
+  name: string;
+  titles: number;
+  category: string;
+  /** Whether a rule added from the template routes them. */
+  added: boolean;
+}
+
+export interface TemplateRequest {
+  category?: string;
+  languages?: string[];
+  requesters?: { tag: string; category: string }[];
+  replace?: boolean;
+}
+
+export interface PlannedRule {
+  rule: RuleDraft;
+  issues: ValidationIssue[];
+}
+
+export interface TakenBy {
+  rule_id: string;
+  rule_name: string;
+  titles: number;
+}
+
+/** The titles a template would decide, by what becomes of them. */
+export interface TemplateReach {
+  titles: number;
+  to_move: number;
+  in_place: number;
+  unmapped: number;
+}
+
+export interface TemplateTitle {
+  media_id: string;
+  media_title: string;
+  media_type: string;
+  instance_name: string | null;
+  category: string;
+  rule_name: string;
+  action: DecisionAction;
+}
+
+export interface TemplatePreview {
+  rules: PlannedRule[];
+  /** Categories adding it would create. */
+  creates: string[];
+  reach: TemplateReach;
+  /** The first titles it would decide, those to move first. */
+  titles: TemplateTitle[];
+  /** The rules in place that would keep titles from it, most first. */
+  taken_by: TakenBy[];
+}
+
+export interface TemplateAdded {
+  rules: Rule[];
+  created: string[];
+  replaced: number;
 }
 
 /** One line of a decision's justification. */
@@ -356,13 +420,11 @@ export interface Decision {
   decided_at: string;
   applied_at: string | null;
   reverted_at: string | null;
-  /** What caused this decision: `manual`, `schedule` or `webhook`. Null on a
-   * row stored without one, which stays unattributed rather than guessed. */
+  /** What caused it: `manual`, `schedule` or `webhook`. Null on a row stored without one. */
   actor: string | null;
-  /** Who asked. Null for the scheduler, for the modes that name nobody, and on
-   * a row stored without one. */
+  /** Who asked. Null for the scheduler, a mode that names nobody, or a row stored without one. */
   subject: string | null;
-  /** Whether a revert may undo this move now: only the latest standing move of a title. */
+  /** Whether a revert may undo this move: only the latest standing move of a title. */
   revertible: boolean;
 }
 
@@ -468,9 +530,8 @@ export interface RuleTrace {
 }
 
 /**
- * The stored media row an explanation carries, as the backend holds it. Not a
- * library list item: no instance name, no category, no metadata flag. The
- * list fields are JSON arrays in a string, as they are stored.
+ * The stored media row an explanation carries, not a library list item. Its list fields are
+ * JSON arrays in a string, as stored.
  */
 export interface ExplainedMedia {
   id: string;
@@ -772,10 +833,7 @@ export interface SyncReport {
 
 export type Settings = Record<string, string>;
 
-/**
- * `GET /settings`: every stored value as text. A sealed one is left out, and
- * a `<key>_configured` boolean says whether one is stored.
- */
+/** `GET /settings`: every value as text, a sealed one replaced by its `<key>_configured` flag. */
 export type StoredSettings = Record<string, string | boolean>;
 
 /** Whether the getting-started guide is still wanted. */
@@ -884,28 +942,18 @@ export interface RuleHealthReport {
 
 /** One value present in the library, and how many items carry it. */
 export interface Facet {
-  /**
-   * What a rule stores and the engine compares, never the displayed text: a
-   * language is matched on `ja`, however it is shown.
-   */
+  /** What a rule stores and the engine compares: a language matches on `ja`, however shown. */
   value: string;
-  /**
-   * What to show instead of `value`, where the two differ. Absent for a genre,
-   * which is its own label.
-   */
+  /** What to show instead of `value`, where they differ. Absent for a genre, its own label. */
   label?: string;
   count: number;
-  /**
-   * What the value means, where several values mean the same thing, as
-   * certification codes of several countries do.
-   */
+  /** What the value means, where several mean one thing, as countries' certifications do. */
   group?: string;
 }
 
 /**
- * Values a condition may hold that the library does not define. A genre means
- * what the library says it means. A language is an ISO code from a fixed table,
- * and offering only the ones already synced would hide the rest.
+ * Values a condition may hold that the library does not define. A language comes from a fixed
+ * table, and offering only those already synced would hide the rest.
  */
 export interface Vocabularies {
   original_languages: Facet[];
@@ -916,10 +964,7 @@ export interface Vocabularies {
 export interface LibraryFacets {
   total_media: number;
   vocabularies: Vocabularies;
-  /**
-   * Carrying neither a genre nor an original language, so invisible to every
-   * condition that reads metadata.
-   */
+  /** Neither a genre nor an original language, so invisible to every metadata condition. */
   without_metadata: number;
   genres: Facet[];
   original_languages: Facet[];
@@ -933,15 +978,8 @@ export interface LibraryFacets {
 }
 
 /**
- * The axes of `LibraryFacets` that carry counted values.
- *
- * Derived rather than listed, so adding an axis to the interface above adds it
- * here too. What it buys is that indexing the payload is checked: the axis name
- * itself arrives from the backend at run time, and only a test can vouch for it
- * (`every_axis_a_spec_names_is_one_the_facets_payload_answers`, in
- * `api/conditions.rs`), but everything after the narrowing is the compiler's
- * again. Widened to `Record<string, Facet[]>`, a renamed axis would produce an
- * empty picker and no error anywhere.
+ * The axes of `LibraryFacets` that carry counted values, derived so a new axis joins them.
+ * Widened to `Record<string, Facet[]>`, a renamed axis would draw an empty picker silently.
  */
 export type FacetAxis = {
   [K in keyof LibraryFacets]: LibraryFacets[K] extends Facet[] ? K : never;

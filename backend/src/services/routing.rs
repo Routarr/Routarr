@@ -1,10 +1,6 @@
 //! Simulation: turn the current library state into explainable routing decisions.
-//!
-//! The whole run is built around preloading. Everything is fetched in a fixed
-//! number of queries and the decisions are written in a single transaction: a
-//! handful of queries *per media item* (metadata, instance name, default
-//! category, one INSERT) multiplies the round trips by the size of the
-//! library, and `tests/scale.rs` fails on it.
+//! A run loads in a fixed number of queries and writes in one transaction, since a
+//! query per item fails `tests/scale.rs`.
 
 use chrono::Utc;
 use sqlx::{AssertSqlSafe, SqlitePool};
@@ -26,30 +22,23 @@ const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250
 /// Knobs for a simulation run.
 #[derive(Debug, Clone)]
 pub struct SimulationOptions {
-    /// What caused this run, stored on every decision it writes.
-    ///
-    /// One of the `TRIGGER_*` constants. It is the history screen's answer to
-    /// "did the nightly sweep propose this, or did I", and `subject` is its
-    /// answer to which "I".
+    /// What caused this run, one of the `TRIGGER_*` constants, stored on every
+    /// decision it writes.
     pub trigger: String,
-    /// The name the authentication mode vouched for, when it vouched for one.
-    ///
-    /// `None` for the scheduler and the webhook, which nobody signed in to run,
-    /// and for the modes that name nobody. See `Identity::actor`.
+    /// The name the authentication mode vouched for, if any. `None` for the
+    /// scheduler and the webhook. See `Identity::actor`.
     pub subject: Option<String>,
     /// The application key that asked, when one did (`Attribution::key`).
     pub subject_key: Option<String>,
     pub instance_ids: Vec<String>,
-    /// Evaluate only these media rows. Used by the webhook path, where
-    /// re-evaluating the whole library on every import event would mean one full
-    /// simulation per episode of a season.
+    /// Evaluate only these media rows, so a webhook import runs no full
+    /// simulation per episode.
     pub media_ids: Option<Vec<String>>,
     pub media_type: Option<String>,
     /// Persist the decisions so they can be applied and audited.
     pub persist: bool,
-    /// Also persist decisions for media already in the right place. Off by
-    /// default: on a large library that is thousands of rows saying "nothing
-    /// to do" on every run.
+    /// Also persist decisions for media already in the right place, off by
+    /// default since a large library would store thousands such per run.
     pub persist_unchanged: bool,
     /// Evaluate this rule set instead of the stored one (impact preview).
     pub rules_override: Option<Vec<Rule>>,
@@ -89,13 +78,8 @@ struct RoutingContext {
     overrides: HashMap<String, String>,
     /// (instance_id, category) -> root folder path
     root_folders: HashMap<(String, String), String>,
-    /// (instance_id, **normalised** path) -> free bytes the Arr last reported.
-    ///
-    /// Loaded with the mapping above rather than queried per decision, like
-    /// everything else here. Normalised because the source path arrives from
-    /// the Arr's payload and the destination from this table, and a trailing
-    /// slash on one of them would make every item look like a cross-filesystem
-    /// move. `None` where the Arr reported no figure.
+    /// (instance_id, normalised path) -> free bytes the Arr last reported, or
+    /// `None`. Normalised, or a trailing slash makes every move cross filesystems.
     free_space: HashMap<(String, String), Option<i64>>,
     instance_names: HashMap<String, String>,
     /// The country each instance's Arr rates for, where it is known.
@@ -106,19 +90,13 @@ struct RoutingContext {
     providers: Vec<&'static ProviderInfo>,
     /// (source, external id, media type) -> that source's answer.
     metadata: HashMap<(String, String, String), ProviderMetadata>,
-    /// What the searching sources resolved each item to, loaded once like
-    /// everything else here: a lookup per item and per source is the shape this
-    /// module exists to avoid.
+    /// What the searching sources resolved each item to, loaded once, never per item.
     identifiers: metadata::Identifiers,
     default_category: String,
 }
 
 /// Everything one pass over the library reads, loaded once and held with the
-/// permit that bounds how many such loads run at once.
-///
-/// A preview evaluates two rule sets over the same library, and a health
-/// report evaluates the current one: loaded apart from the evaluating, each
-/// of them costs one load however many rule sets it asks about.
+/// permit that bounds concurrent loads. Several rule sets evaluate over one load.
 pub struct LoadedLibrary {
     /// `None` for named titles, which load their own context and no library.
     _pass: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -152,8 +130,7 @@ pub async fn load_library(
     let started = std::time::Instant::now();
     let order = load_order();
 
-    // A filter longer than one statement binds is a request no library can
-    // satisfy, and refused as one rather than failed inside the query.
+    // A filter one statement cannot bind is refused as a bad request.
     let media_filter_len = options.media_ids.as_ref().map_or(0, Vec::len);
     for (name, len) in
         [("instance_ids", options.instance_ids.len()), ("media_ids", media_filter_len)]
@@ -165,10 +142,7 @@ pub async fn load_library(
         }
     }
 
-    // Named titles, as the webhook asks after each delivery: their own context
-    // and no permit, or a season imported on a large library loads the whole
-    // cache once per episode, queued behind the previews. A title deleted
-    // meanwhile leaves nothing to load.
+    // Named titles load only their own context, with no permit to queue behind previews.
     if let Some(ids) = options.media_ids.as_deref() {
         let mut snapshot = pool.begin().await?;
         let media = load_media(
@@ -223,8 +197,7 @@ pub async fn simulate_loaded(
     let simulation_id = Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    // Every move and skip is worded, and as many titles left where they are
-    // as the run stores or returns.
+    // Every move and skip is worded, and as many unchanged titles as the run keeps.
     let unchanged = if options.persist_unchanged {
         usize::MAX
     } else {
@@ -294,12 +267,8 @@ pub async fn simulate_loaded(
     })
 }
 
-/// Run a pass on a thread of its own, reporting to `progress` meanwhile.
-///
-/// A pass over a large library is seconds of computing with nothing to wait
-/// on. On an async worker it would hold that worker, and two passes at once
-/// both of a small host's, while the status polling, the webhooks and the
-/// health checks wait.
+/// Run a pass on a blocking thread, reporting to `progress` meanwhile: seconds
+/// of computing on an async worker would stall the polling and the webhooks.
 async fn off_the_workers<T: Send + 'static>(
     progress: Option<&crate::jobs::Progress>,
     total: usize,
@@ -398,12 +367,7 @@ fn evaluate_pass(
             (DecisionAction::Move, Some(target)) => {
                 counters.moves_required += 1;
 
-                // Weigh the plan as it is built. A move between two folders
-                // that report the *same* free space is a rename on one
-                // filesystem and consumes nothing. Only what crosses one has to
-                // fit. Identical byte-level figures are strong evidence of the
-                // same volume, and the alternative (asking the Arr, which does
-                // not tell us) is no alternative.
+                // Equal free space means one filesystem, where a move consumes nothing.
                 let free_of = |path: &str| -> Option<i64> {
                     ctx.free_space
                         .get(&(media.instance_id.clone(), crate::paths::key(path)))
@@ -441,8 +405,7 @@ fn evaluate_pass(
     }
     evaluated.store(library.media.len(), Ordering::Relaxed);
 
-    // Sorted so a folder that cannot take what it is being sent comes first:
-    // this list exists to be read at a glance before anything is applied.
+    // A folder that cannot take what it is sent sorts first, to be seen before an apply.
     let mut capacity: Vec<CapacityForecast> = incoming
         .into_iter()
         .filter_map(|((instance_id, path), got)| {
@@ -463,9 +426,7 @@ fn evaluate_pass(
             })
         })
         .collect();
-    // Folders of one instance reporting the same free space are one volume,
-    // on the evidence the same-filesystem test reads: what they receive
-    // together has to fit, as the executor's capacity guard weighs it.
+    // Folders of one instance with equal free space are one volume, which must fit their sum.
     let mut volumes: HashMap<(String, i64), i64> = HashMap::new();
     for row in &capacity {
         *volumes.entry((row.instance_id.clone(), row.free_bytes)).or_default() +=
@@ -578,11 +539,8 @@ pub struct Route {
 }
 
 /// Decide one item: its metadata, the rules, its override and the mappings.
-///
-/// Shared by the simulation, the revalidation at apply time, the rule report
-/// and the explanation panel, which have to agree on where an item goes: a
-/// second spelling of it would retire a proposal the simulation still makes,
-/// apply one it no longer makes, or explain a folder it does not propose.
+/// The simulation, the apply, the rule report and the explanation all call it,
+/// so they agree on where an item goes.
 fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateTime<Utc>) -> Route {
     let metadata = resolve_metadata(
         media,
@@ -625,11 +583,8 @@ pub struct ItemRoute {
     pub route: Route,
 }
 
-/// Decide one item live, through `route`, from what the database holds now.
-///
-/// Loads what deciding this item reads and nothing of the rest of the library,
-/// so it takes no library-pass permit: the explanation panel asks it one title
-/// at a time.
+/// Decide one item live, through `route`, from what the database holds now. It
+/// loads only this item's context, so it takes no library-pass permit.
 pub async fn route_one(
     pool: &SqlitePool,
     media: &Media,
@@ -648,9 +603,7 @@ pub struct Fresh {
 }
 
 /// `route_one`, with answers a source gave just now where the cache has none.
-///
-/// Nothing is stored: a caller asking where a title would go must not fill the
-/// cache for a title the library does not hold.
+/// Stores nothing, so a title the library does not hold fills no cache.
 pub async fn route_one_with(
     pool: &SqlitePool,
     media: &Media,
@@ -672,13 +625,8 @@ pub async fn route_one_with(
 }
 
 /// Where the rules and mappings as they stand now send the items an apply is
-/// about to move. `None` for an item they send nowhere, its category having no
-/// folder on its instance, and no entry for an id with no media row.
-///
-/// What an apply checks a proposal against: a proposal records what the rules
-/// said when the simulation ran, and nothing retires it when a rule, a mapping
-/// or the metadata changes afterwards. The context is the items' own, so a
-/// slice costs what its items cost and waits for no library pass.
+/// about to move, since a stored proposal may be stale. `None` for an item sent
+/// nowhere, and no entry for an id with no media row.
 pub async fn revalidated_targets(
     pool: &SqlitePool,
     media_ids: &[String],
@@ -861,11 +809,91 @@ pub async fn compare(
     .await
 }
 
-/// What the engine decided about one item, in rule ids alone.
-///
-/// The decision rows carry rule *names*, which are not unique (the engine
-/// breaks ties on name precisely because two rules may share one), so anything
-/// counting per rule has to work from ids.
+/// What the rules of `watched` would decide among one rule set.
+#[derive(Debug, Default)]
+pub struct Reach {
+    pub titles: usize,
+    pub to_move: usize,
+    pub in_place: usize,
+    /// Decided, but their category has no folder on their instance.
+    pub unmapped: usize,
+    /// The first titles they decide, those to move first, worded.
+    pub sample: Vec<Decision>,
+    /// Each rule outside `watched` winning titles a rule of `watched` matched
+    /// too, with how many, most first.
+    pub taken: Vec<(String, usize)>,
+}
+
+/// Evaluate `rules` over `library` once, and tell what its rules of `watched`
+/// decide and what keeps them from deciding more.
+pub async fn reach(
+    library: &Arc<LoadedLibrary>,
+    rules: Vec<Rule>,
+    watched: Vec<String>,
+    sample: usize,
+    language: &str,
+) -> AppResult<Reach> {
+    let now = Utc::now();
+    let wording = Wording {
+        localizer: Localizer::new(language),
+        trigger: String::new(),
+        subject: None,
+        subject_key: None,
+        simulation_id: String::new(),
+        unchanged: 0,
+    };
+    let loaded = Arc::clone(library);
+    off_the_workers(None, 0, move |_| {
+        let mut reach = Reach::default();
+        let mut taken: HashMap<String, usize> = HashMap::new();
+        // By what becomes of them, so the sample shows moves first.
+        let mut kept: [Vec<(&Media, Route)>; 3] = Default::default();
+        for media in &loaded.media {
+            let route = route(&loaded.ctx, media, &rules, now);
+            let Some(winner) = &route.evaluation.winner else { continue };
+            if watched.contains(&winner.rule_id) {
+                reach.titles += 1;
+                let bucket = match route.action {
+                    DecisionAction::Move => {
+                        reach.to_move += 1;
+                        0
+                    }
+                    DecisionAction::Skip => {
+                        reach.unmapped += 1;
+                        1
+                    }
+                    DecisionAction::None => {
+                        reach.in_place += 1;
+                        2
+                    }
+                };
+                if kept[bucket].len() < sample {
+                    kept[bucket].push((media, route));
+                }
+            } else if route
+                .evaluation
+                .alternatives
+                .iter()
+                .any(|lost| watched.contains(&lost.rule_id))
+            {
+                *taken.entry(winner.rule_id.clone()).or_default() += 1;
+            }
+        }
+        reach.sample = kept
+            .into_iter()
+            .flatten()
+            .take(sample)
+            .map(|(media, route)| decide(&loaded.ctx, media, route, &wording, now))
+            .collect();
+        reach.taken = taken.into_iter().collect();
+        reach.taken.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        reach
+    })
+    .await
+}
+
+/// What the engine decided about one item, in rule ids, since two rules may
+/// share a name.
 pub struct LibraryOutcome {
     pub winner: Option<String>,
     /// Matched and lost on priority.
@@ -875,8 +903,7 @@ pub struct LibraryOutcome {
 }
 
 /// Evaluate every item against the current rules and report which rule did
-/// what. Persists nothing, renders no prose, and takes no localizer: it exists
-/// to be counted, not read.
+/// what, to be counted. Persists nothing and words nothing.
 pub async fn evaluate_library(
     pool: &SqlitePool,
     passes: &LibraryPasses,
@@ -889,9 +916,7 @@ pub async fn evaluate_library(
             .media
             .iter()
             .map(|media| {
-                // Overrides pass through `route`, because a pinned item genuinely
-                // is decided by a human and counting it against a rule would say
-                // the rule lost when it was never consulted.
+                // Through `route`, so a pinned item counts against no rule it never consulted.
                 let evaluation = route(ctx, media, &ctx.rules, now).evaluation;
                 LibraryOutcome {
                     winner: evaluation.winner.map(|m| m.rule_id),
@@ -908,13 +933,9 @@ pub fn format_timestamp(ts: chrono::DateTime<Utc>) -> String {
     ts.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-/// The inverse, so the shape of a stored timestamp is stated once. It reads
-/// the shapes an Arr writes as well, RFC 3339 and a bare date, which a rule
-/// test's snapshot of a title may still hold.
-///
-/// `None` rather than a fallback to the current instant: a caller reading a
-/// pinned instant that turned out unreadable must say so, not silently answer
-/// a different question with today's clock.
+/// The inverse of `format_timestamp`, also reading RFC 3339 and a bare date as
+/// an Arr writes them. `None` when unreadable, so a caller never falls back to
+/// today's clock unawares.
 pub fn parse_timestamp(raw: &str) -> Option<chrono::DateTime<Utc>> {
     let raw = raw.trim();
     if let Ok(stamp) = chrono::DateTime::parse_from_rfc3339(raw) {
@@ -939,11 +960,9 @@ enum Scope<'a> {
     Items(&'a [Media]),
 }
 
-/// Load rules, overrides, mappings and metadata in a fixed number of queries.
-///
-/// One statement per table whatever the scope, the items' ids bound in chunks:
-/// the panel, an apply and the simulation read the mappings alike. A single
-/// item's narrowed to its instance.
+/// Load rules, overrides, mappings and metadata in one statement per table
+/// whatever the scope, the items' ids bound in chunks. A single item's context
+/// is narrowed to its instance.
 async fn load_context(
     snapshot: &mut sqlx::SqliteConnection,
     scope: Scope<'_>,
@@ -982,13 +1001,7 @@ async fn load_context(
 
     let root_folders: HashMap<(String, String), String> =
         sqlx::query_as::<_, (String, String, String)>(
-            // Every mapped folder, reachable or not. An Arr reports a folder
-            // on a sleeping NAS as inaccessible, and reading that as *absent*
-            // would unmap its category: everything bound for it would become
-            // "skip", indistinguishable on screen from a category nobody
-            // mapped, and the rerun would supersede the plan built while the
-            // disk was awake. Unknown is not gone: whether the destination can
-            // be written to is asked at apply time, where it can be answered.
+            // Reachable or not, or a folder on a sleeping NAS reads as unmapped.
             "SELECT instance_id, category, path FROM root_folders
              WHERE category IS NOT NULL AND category != ''
                AND (? IS NULL OR instance_id = ?)",
@@ -1033,11 +1046,7 @@ async fn load_context(
             .await?;
     let regions = crate::state::AppState::certification_regions_of(regions_setting.as_deref());
 
-    // The configured order (`metadata_order`), never the subset able to answer
-    // today (`metadata_providers`): removing a key stops new fetches, and a
-    // cached answer from that source keeps counting. Filtered by the keys, the
-    // same library would route one way before a key is removed and another
-    // way after, with nothing fetched in between.
+    // The configured order whatever the keys, so a cached answer outlives its key.
     let providers_setting: Option<String> =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
             .fetch_optional(&mut *snapshot)
@@ -1074,13 +1083,9 @@ async fn load_context(
     })
 }
 
-/// Collapse every enabled source's answer for one item.
-///
-/// The order is the user's, and per field the first source that has a value
-/// keeps it, the Arr's English original language aside, which only fills the
-/// field when nothing else does. `arr` is answered from the row itself (it is the only source that
-/// never costs a request), and a fetched source only contributes when the item
-/// carries an identifier in that source's namespace *and* the cache holds it.
+/// Collapse every enabled source's answer for one item, the first source with a
+/// value keeping each field. The Arr's English original language comes last, and
+/// a fetched source counts only when the cache holds it under the item's id.
 pub(crate) fn resolve_metadata(
     media: &Media,
     providers: &[&'static ProviderInfo],
@@ -1097,10 +1102,7 @@ pub(crate) fn resolve_metadata(
             let mut from_arr = metadata::from_media(media);
             from_arr.certification_scale =
                 from_arr.certification.as_ref().and(arr_country.map(str::to_string));
-            // Radarr and Sonarr report English for every original language
-            // outside the ones they list, 57 for Radarr and 46 for Sonarr, so
-            // their English is offered last, where it fills the field only
-            // when no other source knows.
+            // An Arr says English for any language it does not list, so its English goes last.
             if from_arr.original_language.as_deref() == Some("en") {
                 arrs_english = from_arr.original_language.take();
             }
@@ -1127,16 +1129,9 @@ pub(crate) fn resolve_metadata(
     MediaMetadata::merge(parts)
 }
 
-/// Leave one rating among `parts`: that of the first certification region
-/// rated, whichever source gave it, else the first source's, in the order of
-/// the sources.
-///
-/// Each source answers in one system (TMDB and TheTVDB for the first region
-/// they rate, OMDb for the United States, a Radarr for the country of its
-/// metadata settings, MyAnimeList in its own), and the regions say whose
-/// system a rule is written for. A rating outside every region still answers
-/// when no source rates the title in one. A blank rating claims nothing, as in
-/// the merge, or the Arr's empty one would erase every source's.
+/// Leave one rating among `parts`: the first certification region's, whichever
+/// source gave it, else the first source's. A blank rating claims nothing, or
+/// the Arr's empty one would erase every source's.
 fn keep_the_regions_rating(parts: &mut [(&str, ProviderMetadata)], regions: &[String]) {
     for (_, part) in parts.iter_mut().filter(|(_, part)| part.certification.is_none()) {
         (part.certification, part.certification_scale) =
@@ -1181,16 +1176,17 @@ pub struct RuleRecord {
     updated_at: String,
     match_mode: String,
     exclusions: String,
+    template: Option<String>,
 }
 
-pub const RULE_COLUMNS: &str = "id, name, description, priority, enabled, media_type, conditions,
-     target_category, instance_ids, created_at, updated_at, match_mode, exclusions";
+/// The gap a reorder leaves between two rules, and a new rule after the last.
+pub const PRIORITY_STEP: i64 = 10;
 
-/// Every column `Media` expects, in one place.
-///
-/// `FromRow` maps by name, so a query that forgets a column fails at *runtime*,
-/// not at compile time, and only on the code path that runs it. Spelled out at
-/// each call site, adding a column is one such failure per site missed.
+pub const RULE_COLUMNS: &str = "id, name, description, priority, enabled, media_type, conditions,
+     target_category, instance_ids, created_at, updated_at, match_mode, exclusions, template";
+
+/// Every column `Media` expects, in one place: `FromRow` maps by name, so a
+/// query missing one fails at run time, on that path alone.
 pub const MEDIA_COLUMNS: &str = "id, instance_id, arr_id, media_type, title, sort_title, year,
      tmdb_id, tvdb_id, imdb_id, current_path, current_root_folder, monitored, has_files,
      status, added_at, series_type, size_on_disk, season_count, tags, genres,
@@ -1233,10 +1229,7 @@ where
 }
 
 pub fn rule_from_row(r: RuleRecord) -> Rule {
-    // A part that cannot be read, as after going back to a build that lacks a
-    // condition kind, makes the rule match nothing. Read as empty, dropped
-    // exclusions or a lost scope would widen it to the titles it was written
-    // to leave alone.
+    // An unreadable part makes the rule match nothing, never widens what it reaches.
     let unreadable = |part: &str, e: serde_json::Error| {
         tracing::warn!(rule_id = %r.id, rule = %r.name, "The rule matches nothing: its {part} cannot be read: {e}");
     };
@@ -1281,18 +1274,14 @@ pub fn rule_from_row(r: RuleRecord) -> Rule {
         match_mode,
         target_category: r.target_category,
         instance_ids,
+        template: r.template,
         created_at: r.created_at,
         updated_at: r.updated_at,
     }
 }
 
-/// Load media, filtering in SQL rather than in memory.
-///
-/// `instance_filter` is a plain list because an empty one is every instance,
-/// the way `Rule::covers_instance` reads the same shape, so there is no second
-/// spelling of "all" for a caller to get wrong. `media_ids` is not: an empty
-/// list there is these zero items, which a webhook whose item has just been
-/// deleted needs to say.
+/// Load media, filtering in SQL. An empty `instance_filter` is every instance, as
+/// `Rule::covers_instance` reads it, and an empty `media_ids` is no item at all.
 async fn load_media<'e, E>(
     executor: E,
     instance_filter: &[String],
@@ -1316,9 +1305,7 @@ where
         sql.push_str(&crate::db::placeholders(instance_filter.len()));
         sql.push(')');
     }
-    // An empty media list selects nothing. Read as no filter, it would have a
-    // webhook whose item has just been deleted evaluate, persist and
-    // automatically apply the whole instance.
+    // Nothing, or a webhook for a deleted item would apply the whole instance.
     let media_filter: &[String] = match media_ids {
         None => &[],
         Some([]) => {
@@ -1345,13 +1332,9 @@ where
     Ok(query.fetch_all(executor).await?)
 }
 
-/// How many whole-library passes one state runs at once.
-///
-/// A pass holds the rules, the overrides, the mappings, the metadata cache and
-/// every media row for as long as it runs, and no lock bounds that: a preview
-/// is not refused for a sweep, a health report is refused for nothing. Two at
-/// once is one sweep and one reader, and the third waits. A wait is what a read
-/// can afford, where a refusal is a 409 on a page that only wanted to render.
+/// How many whole-library passes one state runs at once, each holding the cache
+/// and every media row. A third waits, since a refusal would be a 409 on a page
+/// that only wanted to render.
 pub const MAX_CONCURRENT_LIBRARY_PASSES: usize = 2;
 
 /// The permits the whole-library passes of one state share. Held by the state
@@ -1366,9 +1349,8 @@ impl Default for LibraryPasses {
 }
 
 impl LibraryPasses {
-    /// The permit one whole-library pass holds while it runs.
-    ///
-    /// Public so a test can hold every permit and prove that the next pass waits.
+    /// The permit one whole-library pass holds while it runs, public so a test
+    /// can hold every permit.
     pub async fn take(&self) -> tokio::sync::OwnedSemaphorePermit {
         Arc::clone(&self.0)
             .acquire_owned()
@@ -1377,16 +1359,11 @@ impl LibraryPasses {
     }
 }
 
-/// How many ids one statement binds. SQLite caps bound parameters at 32 766,
-/// and this stays far under it so a library-sized list is a few statements, not
-/// an error on the one path that runs it.
+/// How many ids one statement binds, far under SQLite's cap on bound parameters.
 pub const BIND_CHUNK: usize = 400;
 
-/// Retire every pending proposal for these media, in place.
-///
-/// A run supersedes what it re-evaluated, a row that leaves the library, a
-/// full sync or a delete event, takes its proposals with it, and an override
-/// set or removed makes them wrong.
+/// Retire every pending proposal for these media, in place, once a run, a sync,
+/// a delete or an override has made them stale.
 pub async fn supersede_pending(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     media_ids: &[&str],
@@ -1394,11 +1371,8 @@ pub async fn supersede_pending(
     retire_pending(tx, "media_id", media_ids).await
 }
 
-/// Retire these pending proposals, and only these.
-///
-/// An apply retires the proposals it found stale by their own ids: a
-/// simulation may have written the item's next proposal since the apply read
-/// this one, and that one stands.
+/// Retire these pending proposals, and only these: a simulation may have written
+/// the item's next proposal since the apply read this one.
 pub async fn supersede_decisions(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     decision_ids: &[&str],
@@ -1406,9 +1380,8 @@ pub async fn supersede_decisions(
     retire_pending(tx, "id", decision_ids).await
 }
 
-/// A deleted instance's proposals would move titles that no longer exist, and
-/// the dashboard would go on counting them. What was applied is history and
-/// stays: only pending proposals are retired.
+/// Retire a deleted instance's pending proposals, which would move titles that
+/// no longer exist. What was applied stays.
 pub async fn supersede_instance_decisions(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     instance_id: &str,
@@ -1438,13 +1411,9 @@ async fn retire_pending(
     Ok(())
 }
 
-/// Persist a run: what it decided for every title it evaluated, then the
-/// proposals it makes in place of the pending ones.
-///
-/// A title is left alone when its row went after the library was read, or
-/// when a run that read the library later stored it first: the first would
-/// gain a proposal nothing retires, the second would lose its fresher answer
-/// to an older one. `decisions` is the subset of the run worth storing.
+/// Persist a run: what it decided for every title, then its proposals in place
+/// of the pending ones. A title is skipped when its row went after the read, or
+/// when a run that read the library later stored it first.
 async fn store_run(
     pool: &SqlitePool,
     library: &LoadedLibrary,
@@ -1457,8 +1426,7 @@ async fn store_run(
     if verdicts.is_empty() {
         return Ok(());
     }
-    // Every title in one statement, the rows bound as one JSON array: a
-    // statement per title, or per chunk of titles, grows with the library.
+    // One statement for every title, bound as a JSON array, whatever the library's size.
     let rows: Vec<serde_json::Value> = library
         .media
         .iter()
@@ -1492,8 +1460,7 @@ async fn store_run(
     .execute(&mut *tx)
     .await?;
 
-    // The titles this run decided, and only those: the proposals it would
-    // write for the others are already wrong.
+    // Only the titles this run decided: its proposals for the others are already wrong.
     let ours: HashSet<String> =
         sqlx::query_scalar("SELECT media_id FROM media_routing WHERE load_order = ?")
             .bind(library.order)

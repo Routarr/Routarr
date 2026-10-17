@@ -49,35 +49,19 @@ fn main() -> std::process::ExitCode {
 pub(crate) async fn open_storage(
     config: &config::Config,
 ) -> error::AppResult<(Option<String>, sqlx::SqlitePool, crypto::SecretBox)> {
-    // Before the pool opens, since a restore swaps the database file itself,
-    // which cannot be done safely underneath live connections. And before the
-    // API key is read, since the archive can carry another one: read first,
-    // the old key is served until the restart after, when it changes under
-    // every client without a word.
+    // Before the pool opens and the key is read: a restore swaps the database and key files.
     db::prepare_data_dir(config)?;
     services::backup::sweep_leftovers(config);
     if services::backup::apply_pending_restore(config).await? {
         info!("A staged backup was restored");
     }
 
-    // Resolve authentication before anything can serve a request. An API that
-    // moves files must not be open because a variable was forgotten.
-    //
-    // The environment wins over the stored key rather than the other way round.
-    // The stored one is generated, not chosen: an operator who pins
-    // ROUTARR_API_KEY in their compose file after a first start would otherwise
-    // find the value they declared silently ignored in favour of a file they
-    // never wrote. Declared configuration outranks generated state, and that is
-    // also why a rotation is refused while the variable is set: it could not
-    // survive the next restart.
-    // The other modes need no key, but one minted from the interface for a
-    // script has to survive a restart: they read the stored one, never make one.
+    // A declared ROUTARR_API_KEY outranks the generated file, which the other modes only read.
     let api_key = if config.api_key.is_none() && config.auth_mode == AuthMode::ApiKey {
         let path = config.api_key_path();
         let (key, generated) = crypto::load_or_generate_api_key(&path)?;
         if generated {
-            // The path and never the key, which a log shipper would keep.
-            // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
+            // The path, never the key. `scripts/smoke-image.sh` looks for this exact line.
             info!("Generated an API key at {}. Read it from that file", path.display());
         }
         Some(key)
@@ -97,10 +81,8 @@ pub(crate) async fn open_storage(
     Ok((api_key, pool, secrets))
 }
 
-/// Refuse a start that would make a new master key while the database holds
-/// values sealed with the one it had: `routarr.db` copied alone to a new
-/// volume, a key file deleted, or emptied by a power cut. A new key opens none
-/// of them, and the start would go on with every instance and source failing.
+/// Refuse a start that would make a new master key while the database holds values sealed
+/// with the old one, as when `routarr.db` was copied alone: a new key opens none of them.
 async fn refuse_a_lost_master_key(
     config: &config::Config,
     pool: &sqlx::SqlitePool,
@@ -172,12 +154,8 @@ async fn api_method_not_allowed() -> Response {
         .into_response()
 }
 
-/// What the request span records as the path.
-///
-/// The webhook token is a credential, and the span is on every line logged
-/// while a delivery is served, the error line an operator pastes into a
-/// ticket included, so that route is recorded as its template. Every other
-/// path is logged as sent: an id in it is what makes a line findable.
+/// What the request span records as the path: the webhook route as its template, since its
+/// token is a credential, and every other path as sent, so an id in it stays findable.
 fn loggable_path(request: &axum::extract::Request) -> String {
     match request.extensions().get::<axum::extract::MatchedPath>() {
         Some(matched) if matched.as_str().ends_with(WEBHOOK_ROUTE) => matched.as_str().to_owned(),
@@ -189,35 +167,25 @@ fn loggable_path(request: &axum::extract::Request) -> String {
 fn build_router(state: AppState) -> Router {
     let config = Arc::clone(&state.config);
 
-    // Unauthenticated liveness probe: safe to expose to a container runtime or
-    // an uptime monitor because it reveals nothing about the library.
+    // The unauthenticated liveness probe, which reveals nothing about the library.
     let public = Router::new()
         .route("/ping", get(api::health::ping))
-        // The login-less shell needs its strings before it can render anything,
-        // including an authentication error.
+        // The shell needs its strings before it renders anything, an authentication error included.
         .route("/localization", get(api::localization::dictionary))
         .route("/localization/languages", get(api::localization::languages))
-        // Which gate the shell must show, and the exchange behind it. Outside
-        // the middleware by necessity: a browser with no session cannot be
-        // asked for one to learn that it needs one.
+        // Outside the middleware, since a browser with no session learns here that it needs one.
         .route("/auth/mode", get(api::auth::mode))
         .route("/auth/logout", post(api::auth::logout))
-        // The contract describes the software, not the installation, and a
-        // client reads it before it holds a key.
+        // The contract describes the software, and a client reads it before it holds a key.
         .route("/openapi.json", get(api::contract::serve));
-    // Each way in exists in its own mode only. Elsewhere a request for the
-    // provider's start logs an error on an install that has no provider, and
-    // `/auth/login` checks a password a former `forms` mode left behind.
+    // Each way in exists in its own mode only, or `/auth/login` checks a stale `forms` password.
     let public = match config.auth_mode {
         AuthMode::Forms => public.route("/auth/login", post(api::auth::login)),
-        // The browser leaves and comes back, so both ends are outside the
-        // middleware: it has no session yet on the way out, and the provider's
-        // redirect carries none on the way in.
+        // Both ends outside the middleware: no session on the way out, none on the redirect back.
         AuthMode::Oidc => public
             .route("/auth/oidc/start", get(api::auth::oidc_start))
             .route("/auth/oidc/callback", get(api::auth::oidc_callback)),
-        // The browser's way in: the key sent once for a session cookie, so it
-        // is kept nowhere a script on the page could read it.
+        // The key sent once for a session cookie, kept nowhere a page script could read it.
         AuthMode::ApiKey => public.route("/auth/key-session", post(api::auth::key_session)),
         AuthMode::None | AuthMode::External => public,
     };
@@ -231,16 +199,12 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/auth/sessions", get(api::account::sessions).delete(api::account::end_sessions))
         .route("/auth/sessions/{handle}", delete(api::account::end_session))
-        // Keys for other applications, each held to its own scopes. Owner-only,
-        // like every route `api::applications::GRANTS` does not name.
+        // Keys for other applications. Owner-only, like every route `GRANTS` does not name.
         .route("/applications", get(api::applications::list).post(api::applications::create))
         .route("/applications/{id}", delete(api::applications::revoke))
         .route("/status", get(api::health::status))
         .route("/health", get(api::health::health_check))
-        // Behind the API key like everything else that describes the library:
-        // instance and category names are in there. Prometheus reaches it with
-        // `authorization: credentials`, which the middleware already accepts as
-        // `Bearer`.
+        // Behind the key, since it names instances. Prometheus authenticates as a bearer token.
         .route("/metrics", get(api::metrics::metrics))
         .route("/instances", get(api::instances::list).post(api::instances::create))
         .route(
@@ -264,18 +228,15 @@ fn build_router(state: AppState) -> Router {
         .route("/rules/preview", post(api::rules::preview))
         .route("/rules/validate", post(api::rules::validate))
         .route("/rules/conditions", get(api::conditions::condition_catalog))
-        // Pinned expectations. The preview says what a change *would* do, and
-        // these say what it must not do: with first-match-by-priority, inserting
-        // one rule rebalances every rule below it.
+        .route("/rules/templates", get(api::templates::list))
+        .route("/rules/templates/{id}/preview", post(api::templates::preview))
+        .route("/rules/templates/{id}/import", post(api::templates::import))
+        // Pinned expectations: inserting one rule can change what every rule below it decides.
         .route("/rule-tests", get(api::rule_tests::list).post(api::rule_tests::create))
         .route("/rule-tests/run", post(api::rule_tests::run))
-        // Which rules never win. Validation looks inside a rule. This is the
-        // only thing that looks between them, which is where first-match-by-
-        // priority puts its one trap.
+        // Which rules never win: the one check between rules, where first match sets its trap.
         .route("/rules/health", get(api::rules::health))
-        // What the library actually holds, per axis a condition reads. Nothing
-        // else groups `media`, and without it writing a rule means guessing
-        // what is present and finding out by trial.
+        // What the library holds per axis a condition reads, so a rule need not guess.
         .route("/media/facets", get(api::media::facets))
         .route("/rule-tests/{id}", delete(api::rule_tests::delete))
         .route("/rules/reorder", post(api::rules::reorder))
@@ -287,8 +248,7 @@ fn build_router(state: AppState) -> Router {
         .route("/media", get(api::media::list))
         .route("/media/{id}", get(api::media::get_one))
         .route("/media/{id}/explain", get(api::media::explain))
-        // Where a title another service names would go, whether the library
-        // holds it or only an Arr knows it. Stores nothing.
+        // Where a title another service names would go, held or not. Stores nothing.
         .route("/route", get(api::media::place))
         .route("/simulate", post(api::simulation::run))
         .route("/decisions", get(api::decisions::list))
@@ -296,8 +256,7 @@ fn build_router(state: AppState) -> Router {
         .route("/decisions/apply-all", post(api::decisions::apply_all))
         .route("/decisions/revert", post(api::decisions::revert))
         .route("/overrides", get(api::overrides::list).post(api::overrides::create))
-        // Pins by the id another service gives a title, for an application that
-        // knows the title by its TMDB, TheTVDB or IMDb id and not by Routarr's.
+        // Pins by the TMDB, TheTVDB or IMDb id another service gives a title.
         .route(
             "/overrides/external",
             put(api::overrides::pin_external).delete(api::overrides::unpin_external),
@@ -312,9 +271,7 @@ fn build_router(state: AppState) -> Router {
         .route("/security-log/export", get(api::security_log::export))
         .route("/maintenance/purge", post(api::maintenance::purge))
         .route("/backups", get(api::backup::list).post(api::backup::create))
-        // The name is validated against a generated shape before it ever
-        // becomes a path: these are the only routes where a caller picks a file
-        // in the directory that also holds the master key.
+        // The name is checked against the generated shape: the folder also holds the master key.
         .route("/backups/{name}", get(api::backup::download).delete(api::backup::remove))
         .route("/backups/{name}/restore", post(api::backup::restore))
         .route("/backups/passphrase", put(api::backup::set_passphrase))
@@ -333,15 +290,12 @@ fn build_router(state: AppState) -> Router {
         .route("/config/import", post(api::config::import))
         .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));
 
-    // Webhooks authenticate with their own per-instance token, in a header or
-    // in the path, so they sit outside the API-key middleware.
+    // Authenticated by their own per-instance token, outside the API-key middleware.
     let webhooks = Router::new()
         .route(WEBHOOK_ROUTE, post(api::webhook::receive))
         .route("/webhook/{instance_id}", post(api::webhook::receive_with_header));
 
-    // A miss under the API prefix is a JSON 404, whatever the method: left to
-    // the application's fallback it would answer `index.html` with a 200, and
-    // a script with a typo in its path would parse HTML as JSON.
+    // A JSON 404 for any miss under the API prefix, or a typo answers `index.html` with a 200.
     let api_routes = public
         .merge(protected)
         .merge(webhooks)
@@ -349,27 +303,19 @@ fn build_router(state: AppState) -> Router {
         .fallback(api_not_found);
 
     let mut api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
-    // Mounted under a sub-path, the root, where someone typing the bare
-    // address lands, leads in rather than answering an empty 404.
+    // Under a sub-path, the bare root leads in instead of answering an empty 404.
     if !config.base_path.is_empty() {
         let mounted = format!("{}/", config.base_path);
         let lead_in = move || async move { axum::response::Redirect::temporary(&mounted) };
         api = api.route("/", get(lead_in));
     }
     let app = request_layers(api)
-        // Rules and import bundles are the only large bodies. 2 MiB is generous
-        // for them and stops an unauthenticated request from buffering
-        // unbounded input.
+        // 2 MiB fits rules and import bundles, and bounds what an unauthenticated request buffers.
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(cors_layer(&config))
         .with_state(state.clone());
 
-    // Compression wraps the finished router so it also covers the static
-    // frontend bundle attach_frontend adds: a layer attached earlier only
-    // applies to the routes registered before it. The security headers go
-    // outermost for the same reason: they have to reach the served HTML, not
-    // just the API. A backup archive is compressed or sealed already: gzipped
-    // again it gains nothing and loses the length a download's progress reads.
+    // Last, to cover the frontend. An archive stays uncompressed, keeping its download length.
     let compressed = DefaultPredicate::new()
         .and(NotForContentType::const_new("application/zip"))
         .and(NotForContentType::const_new("application/octet-stream"));
@@ -383,30 +329,16 @@ fn build_router(state: AppState) -> Router {
 /// The largest body taken is 2 MiB, seconds on the slowest link.
 pub(crate) const BODY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// The layers every API request passes through, around `routes`.
-///
-/// One function for the router and for the tests that make a handler panic: a
-/// route added to the assembled router would sit outside every layer, since a
-/// `.layer()` wraps only the routes registered before it.
+/// The layers every API request passes through, around `routes`, shared with the tests
+/// that make a handler panic, since a `.layer()` wraps only the routes registered before it.
 pub(crate) fn request_layers<S>(routes: Router<S>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
     routes
-        // Every request gets an id, carried on the response and in the span of
-        // every line logged while serving it: a user pasting one
-        // `X-Request-Id` from the browser's network panel is how a failure in
-        // the log is matched to the click that caused it. Set outermost, so the
-        // trace layer inside already sees it.
+        // The span carries the request id, set outermost, so a failure in the log matches its click.
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
-        // Inside the request-id layers, so a panic still answers with the
-        // `X-Request-Id` the trace span recorded, which is the whole point of
-        // having one. Without this layer a panicking handler drops the
-        // connection: no status, no body, nothing to match against the log, and
-        // a client that cannot tell a bug from a cut cable.
-        //
-        // It hides nothing: `log_panics` logs the panic in the request span,
-        // and the caller learns something too.
+        // Inside the request-id layers, so a panic answers with its `X-Request-Id` instead of a cut.
         .layer(CatchPanicLayer::custom(panic_response))
         .layer(tower_http::timeout::RequestBodyDeadlineLayer::new(BODY_DEADLINE))
         .layer(middleware::map_response(not_stored))
@@ -437,13 +369,8 @@ pub(crate) fn request_span(request: &axum::extract::Request) -> tracing::Span {
     )
 }
 
-/// Log a panic through `tracing`, in the span entered where it happened.
-///
-/// The standard hook prints plain text to stderr: no request id, and a line
-/// that is not JSON under `ROUTARR_LOG_FORMAT=json`. A handler's panic is
-/// logged inside its request span instead, with a backtrace when
-/// `RUST_BACKTRACE` asks for one. With no subscriber to take the line, as in a
-/// test that never set one, the hook in place before this one prints it.
+/// Log a panic through `tracing`, in the span entered where it happened, with a backtrace
+/// when `RUST_BACKTRACE` asks. With no subscriber, as in a test, the previous hook prints it.
 pub(crate) fn log_panics() {
     static INSTALLED: std::sync::Once = std::sync::Once::new();
     INSTALLED.call_once(|| {
@@ -472,11 +399,8 @@ pub(crate) fn log_panics() {
     });
 }
 
-/// What a panicking handler answers.
-///
-/// The same shape as every other error this API returns, so the interface's
-/// client unwraps it like any other: `describeError` appends the request id to
-/// a 5xx, which is exactly the case this is.
+/// What a panicking handler answers, in the envelope every error shares, so the interface
+/// appends the request id to it as to any 5xx.
 pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -488,23 +412,9 @@ pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Resp
         .into_response()
 }
 
-/// Headers every response carries.
-///
-/// The API key lives in the browser's `localStorage`, so script injection is
-/// the vector that would hand it to someone else: `script-src 'self'` is what
-/// closes it, whatever ends up in the DOM.
-///
-/// `style-src` keeps `'unsafe-inline'`, a stated weakening. A few elements take
-/// a size or a colour mix computed from data as an inline `style` attribute (the
-/// confidence meter and its dot, the facet bars, a task's progress, the table
-/// skeleton, the size a screen hands a dialog), and CSP does not distinguish one
-/// from an injected `<style>` block. Styles cannot read `localStorage`, scripts
-/// can, and those are locked down. A per-response nonce on those elements is what
-/// would close it.
-///
-/// Everything else is same-origin: the application makes no external request.
-/// `Cross-Origin-Opener-Policy` severs `window.opener`, which costs nothing
-/// while nothing calls `window.open` and holds if that changes.
+/// Headers every response carries. `script-src 'self'` keeps injected markup from running.
+/// `style-src` keeps `'unsafe-inline'` for the `style` attributes computed from data, a
+/// weakening a nonce per response would close. Everything else is same-origin.
 async fn security_headers(request: axum::extract::Request, next: middleware::Next) -> Response {
     use axum::http::header::{HeaderName, HeaderValue};
 
@@ -542,10 +452,7 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
     info!("Serving frontend assets from: {}", config.frontend_dir.display());
     let page = index_html(config);
 
-    // Read once and served from memory with its mount point set once (see
-    // `index_html`). Its strings are added per request: the language is a
-    // setting that changes while the server runs. Not stored by the browser,
-    // which would keep the strings of the language it was last served in.
+    // Its strings are added per request and never cached, since the language can change.
     let fallback = get(move || {
         let page = page.clone();
         let state = state.clone();
@@ -555,10 +462,7 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
         }
     });
 
-    // `append_index_html_on_directories(false)` matters: left on, ServeDir
-    // answers `/` with index.html straight off disk and the rewrite below never
-    // runs. Off, `/` misses and falls through to the handler like any other
-    // client-side route.
+    // Off, or ServeDir answers `/` with index.html off disk and the rewrite never runs.
     let service = ServeDir::new(&config.frontend_dir)
         .append_index_html_on_directories(false)
         .fallback(fallback);
@@ -575,11 +479,8 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
     }
 }
 
-/// A file under `assets/` is named after a hash of what it holds, so a build
-/// that changes it gives it another name, and a browser may keep one as long
-/// as it likes rather than asking for every chunk again on every load. The
-/// page names them and is never kept (`attach_frontend`), and a miss there,
-/// answered with the page, keeps the page's own `no-cache`.
+/// A file under `assets/` is named after a hash of its content, so a browser may keep it
+/// for good. The page naming them is never kept, nor a miss answered with the page.
 async fn keep_hashed_files(request: axum::extract::Request, next: middleware::Next) -> Response {
     let hashed = request.uri().path().starts_with("/assets/");
     let mut response = next.run(request).await;
@@ -592,10 +493,8 @@ async fn keep_hashed_files(request: axum::extract::Request, next: middleware::Ne
     response
 }
 
-/// Every text file the frontend build writes is UTF-8, and `ServeDir` names
-/// the type without its charset. A browser left to guess may read
-/// `third-party-notices.txt` in a legacy encoding and garble every author's
-/// name outside ASCII.
+/// Every text file the frontend build writes is UTF-8, and `ServeDir` names the type
+/// without its charset, so a guessing browser may garble a name outside ASCII.
 async fn say_utf8(request: axum::extract::Request, next: middleware::Next) -> Response {
     use axum::http::{HeaderValue, header::CONTENT_TYPE};
 
@@ -609,14 +508,9 @@ async fn say_utf8(request: axum::extract::Request, next: middleware::Next) -> Re
     response
 }
 
-/// Read `index.html` and point its relative asset URLs at the mount point.
-///
-/// The frontend is built with `base: './'`, so it asks for `./assets/…`. Loaded
-/// from `/routarr/` that resolves correctly, but a deep link like
-/// `/routarr/rules` would resolve it to `/routarr/rules/assets/…` and 404, and
-/// the page would come up blank behind the proxy and only there. A `<base href>`
-/// pins the resolution to the mount point whatever the URL depth, and doubles
-/// as how the frontend discovers where it is mounted (`document.baseURI`).
+/// Read `index.html` and pin its relative asset URLs to the mount point with a `<base href>`,
+/// or a deep link behind a proxy asks for `./assets/` under its own path and gets a 404.
+/// The frontend reads its mount point back from `document.baseURI`.
 fn index_html(config: &Config) -> String {
     let path = config.frontend_dir.join("index.html");
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| {
@@ -627,18 +521,14 @@ fn index_html(config: &Config) -> String {
     let href = format!("{}/", config.base_path);
     match raw.split_once("<head>") {
         Some((head, tail)) => format!("{head}<head>\n    <base href=\"{href}\">{tail}"),
-        // No <head> means a file we do not recognise. Serving it untouched is
-        // better than serving a mangled one.
+        // No <head> means a file we do not recognise: served untouched, never mangled.
         None => raw,
     }
 }
 
-/// The page with `payload`, the `/localization` answer, before its `</head>`,
-/// where `frontend/src/main.ts` reads it before anything renders: the first
-/// paint asks for nothing more, and a dictionary that cannot be fetched is
-/// never a blank page followed by raw keys. Every `<` is escaped, so no string
-/// can close the element and run what follows. Never executed, the element is
-/// no script for the CSP to refuse.
+/// The page with `payload`, the `/localization` answer, before its `</head>`, so the first
+/// paint fetches nothing. Every `<` is escaped, so no string can close the element, and a
+/// JSON element is no script for the CSP to refuse.
 pub(crate) fn with_dictionary(page: &str, payload: &impl serde::Serialize) -> String {
     let json = serde_json::to_string(payload).unwrap_or_default().replace('<', "\\u003c");
     match page.split_once("</head>") {
@@ -649,11 +539,8 @@ pub(crate) fn with_dictionary(page: &str, payload: &impl serde::Serialize) -> St
     }
 }
 
-/// CORS is opt-in.
-///
-/// Any origin allowed with any header, on an API without authentication, lets
-/// any page the user visits drive the API. Same-origin by default.
-/// `ROUTARR_CORS_ORIGINS` names any other origin allowed.
+/// CORS is opt-in, same-origin by default, since any origin with any header lets every page
+/// the user visits drive the API. `ROUTARR_CORS_ORIGINS` names the others allowed.
 fn cors_layer(config: &Config) -> CorsLayer {
     if config.cors_origins.is_empty() {
         return CorsLayer::new();
@@ -682,8 +569,7 @@ fn cors_layer(config: &Config) -> CorsLayer {
             // `respond-async`, which the contract documents for a long call.
             axum::http::HeaderName::from_static("prefer"),
         ])
-        // What a page needs to follow a 202 and to report a failure: the task
-        // `Location` names, how long to wait, and the request's id for the log.
+        // What a page needs to follow a 202 and to report a failure, the request id included.
         .expose_headers([
             axum::http::header::LOCATION,
             axum::http::header::RETRY_AFTER,
@@ -710,8 +596,7 @@ fn warn_on_insecure_defaults(state: &AppState) {
         );
     }
     if state.config.auth_mode == AuthMode::None {
-        // Only reachable by asking for it, so this states a decision back to
-        // whoever made it rather than reporting an omission.
+        // Only reachable by asking for it, so this states a decision back to whoever made it.
         warn!(
             "ROUTARR_AUTH=none: the API is unauthenticated. Make sure Routarr is only \
              reachable from a trusted network, or from a proxy that authenticates for it."

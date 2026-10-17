@@ -1,34 +1,17 @@
 #!/usr/bin/env python3
 """Guard the translation dictionaries.
 
-Checks, in order of how much a failure would hurt:
-
-1. Every key referenced in the code exists in `locales/en.json`
-   (a missing key renders as a raw identifier in the UI).
-2. Placeholders match across languages, so a translation cannot drop the very
-   value the sentence is about.
-3. No language carries a key English does not have (a rename left behind).
-4. No key is left behind once its last use is deleted.
-5. No language falls below MIN_COMPLETION.
-6. Every dictionary keeps the English key order, which `add-locale.py` writes:
-   a file out of order has every line moved by the next run of it.
-7. A core term reads one way inside each language (`scripts/glossary.json`):
-   a reader who meets two words for "apply" cannot tell they are one act.
-8. No button of a confirmation starts with the language's Cancel word: beside
-   [Cancel], a [Cancel the move] that moves a title reads as a second way out.
-9. Every placeholder is classed as a count, grouped as the language groups
-   digits (`COUNTS` in `backend/src/localization.rs`), or as anything else
-   (`NOT_COUNTS` below): unclassed, a count reads `12345` or a year `2,026`.
-10. French puts a no-break space before `? ! : ; % »` and after `«`, as the
-   site's catalogue does: a plain one lets a line break strand the sign at the
-   start of the next line.
-
-A partial translation is allowed on purpose: an untranslated key falls back to
-English at runtime and `GET /localization/languages` reports each language's
-completion, so the picker states the truth rather than hiding it. A floor near
-full completion would block every translation on its way in, which is the
-opposite of what a translation workflow needs. What the floor catches is a file
-that is broken rather than merely incomplete.
+1. Every key the code references exists in `locales/en.json`.
+2. Placeholders match across languages.
+3. No language carries a key English does not have.
+4. No key outlives its last use.
+5. No language falls below MIN_COMPLETION, a partial translation being welcome.
+6. Every dictionary keeps the English key order `add-locale.py` writes.
+7. A core term reads one way in each language (`scripts/glossary.json`).
+8. No confirmation button starts with the language's Cancel word.
+9. Every placeholder is a count (`COUNTS` in `backend/src/localization.rs`) or
+   is listed in `NOT_COUNTS` below.
+10. French puts a no-break space before `? ! : ; % »` and after `«`.
 
 Run from the repository root: `python3 scripts/check-locales.py`
 """
@@ -43,16 +26,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "backend" / "locales"
 
-# Families whose keys are assembled at run time, each a prefix and the values
-# it is joined with in PascalCase: the file holding them and the pattern reading
-# them there. A value written in capitals (a country code) is joined as it is.
-# A family named `Prefix+Suffix` ends each key with the suffix.
-# A prefix alone would exempt every key that starts with it, a misspelt
-# `t('TriggeredBi')` and a literal key nobody reads any more included.
+# Keys built at run time: the prefix joined in PascalCase with each value the pattern
+# reads in the file, a capital value as it is. `Prefix+Suffix` ends each key with it.
 BUILT = {
     "ConditionLabel": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
-    # The sentence each condition reads as (`phraseKey` in the frontend), a
-    # yes or no condition said no, and a year range open at either end.
+    # The sentence of each condition, a yes or no one said no, and an open year range.
     "ConditionPhrase": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
     "ConditionPhrase+Not": (
         "backend/src/api/conditions.rs",
@@ -83,24 +61,21 @@ BUILT = {
     ),
 }
 
-# Below this a language is more English than its own, which is a broken file
-# rather than work in progress. Partial translations above it are welcome: the
-# picker shows their completion, so nothing is claimed that is not true.
+# Below this a language is more English than its own: a broken file.
 MIN_COMPLETION = 0.50
 
 GLOSSARY = ROOT / "scripts" / "glossary.json"
 
 COUNTS_SOURCE = ROOT / "backend" / "src" / "localization.rs"
 
-# The placeholders that hold anything but a count: names, paths, codes, sizes
-# already written with their unit, years, ids, statuses and ordinals.
+# The placeholders that hold anything but a count: names, paths, codes, years, ids.
 NOT_COUNTS = {
     "address", "age", "arr", "base", "category", "cause", "certification", "code", "condition",
     "countries", "country", "detail", "ends", "entry", "error", "expected", "field", "file", "first",
-    "folder", "found", "free", "handle", "host", "id", "index", "instance", "key", "kind", "label",
+    "folder", "found", "free", "handle", "host", "id", "index", "instance", "issue", "key", "kind", "label",
     "language", "last", "max", "message", "min", "minimum", "name", "names", "needed", "next",
     "number", "observed", "opened", "origin", "path", "paths", "provider", "query", "reason",
-    "reasons", "regions", "route", "rule", "schema", "scope", "scopes", "screen", "second",
+    "reasons", "template", "regions", "route", "rule", "schema", "scope", "scopes", "screen", "second",
     "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
     "tab", "title", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
 }
@@ -113,11 +88,7 @@ def source_text() -> str:
             # Tests deliberately use made-up keys to exercise the fallback.
             if ".test." in path.name:
                 continue
-            # And so does their scaffolding. `frontend/src/test/` holds the
-            # render helper and the payload fixtures, whose plausible-looking
-            # values ("Radarr", "Akira") match the lookup-map pattern below, and
-            # a key only `backend/src/tests/` quotes is one the product never
-            # shows, which the orphan check exists to find.
+            # And so does their scaffolding, and a key only a test quotes is an orphan.
             if {"test", "tests"} & set(path.relative_to(ROOT).parts[:-1]):
                 continue
             if path.suffix in {".rs", ".ts", ".svelte"} and path.is_file():
@@ -126,11 +97,7 @@ def source_text() -> str:
 
 
 def strip_rust_tests(text: str) -> str:
-    """Drop the trailing `#[cfg(test)] mod tests` block.
-
-    Rust test modules live in the same file as the code and use deliberately
-    made-up keys to exercise the fallback path.
-    """
+    """Drop the trailing `#[cfg(test)] mod tests` block and its made-up keys."""
     marker = "#[cfg(test)]\nmod tests {"
     index = text.find(marker)
     return text if index == -1 else text[:index]
@@ -145,8 +112,7 @@ def referenced_keys(text: str) -> set[str]:
         r'ValidationIssue::(?:error|warning)\(\s*[^,()]+,\s*"([A-Z][A-Za-z0-9]*)"',
         r'"(Condition[A-Z][A-Za-z0-9]*)"',                # rule engine outcome keys
         r'\(\s*"([A-Z][A-Za-z0-9]*)",\s*vec!\[',          # Rust: ("Key", vec![params])
-        # Keys held in config objects: `key`, `labelKey`, `titleKey` and every
-        # other `…Key`, and a route's `hint`.
+        # Keys held in config objects: `key`, every `…Key`, and a route's `hint`.
         r"\b(?:key|[a-z]+Key|hint):\s*'([A-Z][A-Za-z0-9]*)'",
         r"^\s*[a-z_]+:\s*'([A-Z][A-Za-z0-9]*)',\s*$",         # keys held in lookup maps
         r"\?\s*'([A-Z][A-Za-z0-9]*)'\s*:\s*'([A-Z][A-Za-z0-9]*)'",  # t(cond ? 'A' : 'B')
@@ -181,12 +147,8 @@ def arguments(text: str, opening: int) -> list[str]:
 
 
 def confirmation_labels(text: str) -> set[str]:
-    """The keys a button beside Cancel reads.
-
-    The label `askConfirmation` and `answering` take as a bare literal, and the
-    `label` of each option `ask` offers. The message is a rendered sentence and
-    never a bare literal, so it is not mistaken for one.
-    """
+    """The keys a button beside Cancel reads: the bare literal `askConfirmation`
+    and `answering` take, and the `label` of each option `ask` offers."""
     labels: set[str] = set()
     for call in re.finditer(r"\b(askConfirmation|answering|ask)\(", text):
         found = arguments(text, call.end() - 1)
@@ -246,27 +208,9 @@ def not_text(dictionaries: dict) -> list[str]:
 
 
 def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str, str]]) -> list[str]:
-    """A key carries a concept when its English value says the concept's word.
-
-    Chosen from the English, so a key added later is held to the word without
-    anyone listing it. `except` names the keys where the English word means
-    something else ("Move up", "Skip to content"), and a stale entry there is
-    itself a problem, or the list keeps exempting a key that no longer needs it.
-    A value still identical to the English is an untranslated fallback and is
-    not read.
-
-    `homonym` is English a key may say without carrying the concept, whose
-    translation must not take the concept's word either: in a dozen
-    languages the word for "apply" also means "application", and "the Arr
-    application" written with it puts the apply act into a sentence about
-    the Arr.
-
-    `beside` is a placeholder naming that same thing, `{service}`: the
-    concept's word may not stand next to it, as in "{service} alkalmazás".
-    Elsewhere in the sentence the word may mean something else. `beside_skip`
-    names the languages whose word never names an application at all, as the
-    Czech and Slovak ones, which mean "use", and "{service} uses" is correct.
-    """
+    """A key whose English says a concept's word, `except` aside, says the
+    language's word. A `homonym` translates without it, and the word may not
+    stand `beside` the placeholder naming that thing, `beside_skip` aside."""
     problems: list[str] = []
     # A placeholder names a value, not the concept: `{skipped}` is a count.
     said = {key: re.sub(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}", "", value) for key, value in english.items()}
@@ -348,8 +292,7 @@ def main() -> int:
         for key in sorted(keys - set(english)):
             problems.append(f"built at run time but missing from en.json: {key}")
 
-    # 1. Referenced but not defined. Only flag identifiers that look like keys we
-    #    own, to avoid tripping over unrelated capitalised string literals.
+    # 1. Referenced but not defined, among the identifiers that look like keys.
     for key in sorted(referenced - set(english)):
         if key in {"POST", "PUT", "GET", "DELETE"} or len(key) < 3:
             continue
@@ -394,8 +337,7 @@ def main() -> int:
         if f'"{key}"' not in text and f"'{key}'" not in text:
             problems.append(f"defined but never referenced: {key}")
 
-    # 6. In the English order. The first key out of place is enough to name:
-    #    `add-locale.py` given an empty batch rewrites the whole file in order.
+    # 6. In the English order, the first key out of place named.
     for language, dictionary in sorted(dictionaries.items()):
         found = [key for key in dictionary if key in english]
         expected = [key for key in english if key in dictionary]
@@ -410,8 +352,7 @@ def main() -> int:
     # 7. One word per core term.
     problems.extend(glossary_problems(english, dictionaries))
 
-    # 8. A confirmation's button against its Cancel. A label not yet translated
-    #    reads as English, which is what the reader then sees.
+    # 8. A confirmation's button against its Cancel, an untranslated label read as English.
     labels = sorted(confirmation_labels(text))
     for language, dictionary in sorted(dictionaries.items()):
         cancel = dictionary.get("Cancel", english["Cancel"]).split()[0].casefold()

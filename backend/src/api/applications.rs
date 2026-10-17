@@ -13,11 +13,8 @@ use crate::services::applications::{self, Application, Grant, Minted, NewApplica
 use crate::state::AppState;
 
 /// What an application key may call, by method and route under `/api/v1`.
-///
-/// A route missing here is the owner's alone: no key reaches the settings,
-/// an instance's credentials, a backup archive or another key, whatever its
-/// scopes. Adding a route to the router adds nothing here, which is the
-/// point: an application gains a route only by a line written for it.
+/// A route missing here is the owner's alone whatever a key's scopes, so a
+/// new route reaches no application until a line here grants it.
 pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/auth/me", Scope::Read),
     ("GET", "/status", Scope::Read),
@@ -33,8 +30,7 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/jobs/{id}", Scope::Read),
     ("GET", "/logs", Scope::Read),
     ("GET", "/logs/export", Scope::Read),
-    // Their address and state. Neither their key nor the webhook's address,
-    // whose token lets anyone post events as the Arr (`api::instances`).
+    // Address and state only: the webhook address carries a token that posts as the Arr.
     ("GET", "/instances", Scope::Read),
     ("GET", "/instances/{id}", Scope::Read),
     ("GET", "/root-folders", Scope::Read),
@@ -42,15 +38,15 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/rules", Scope::Read),
     ("GET", "/rules/{id}", Scope::Read),
     ("GET", "/rules/conditions", Scope::Read),
+    ("GET", "/rules/templates", Scope::Read),
     ("GET", "/rules/health", Scope::Read),
     ("GET", "/rules/export", Scope::Read),
     ("GET", "/rule-tests", Scope::Read),
     ("GET", "/media/facets", Scope::Read),
     ("GET", "/metadata/providers", Scope::Read),
-    // The archives' names, sizes and dates. Downloading one stays the owner's:
-    // an archive holds the master key every stored credential is sealed with.
+    // The list only: an archive holds the master key that seals every credential.
     ("GET", "/backups", Scope::Read),
-    // It probes every Arr and every source, and records what it found.
+    // It probes every Arr and every source and records what it found.
     ("GET", "/health", Scope::Operate),
     ("POST", "/rule-tests/run", Scope::Operate),
     ("POST", "/backups", Scope::Operate),
@@ -70,10 +66,11 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("POST", "/rules/{id}/duplicate", Scope::Configure),
     ("POST", "/rules/reorder", Scope::Configure),
     ("POST", "/rules/import", Scope::Configure),
-    // Neither writes, both serve whoever edits a rule: what the server makes
-    // of a draft, and what the draft would move.
+    // Configure, though neither writes: both serve whoever edits a rule.
     ("POST", "/rules/validate", Scope::Configure),
     ("POST", "/rules/preview", Scope::Configure),
+    ("POST", "/rules/templates/{id}/preview", Scope::Configure),
+    ("POST", "/rules/templates/{id}/import", Scope::Configure),
     ("POST", "/rule-tests", Scope::Configure),
     ("DELETE", "/rule-tests/{id}", Scope::Configure),
     ("POST", "/categories", Scope::Configure),
@@ -113,8 +110,7 @@ pub fn admit(grant: &Grant, request: &axum::extract::Request) -> AppResult<()> {
 /// The route a request asks for, as `METHOD /template`, and the scope it
 /// needs: `None` for a route the owner keeps.
 pub fn asked(request: &axum::extract::Request) -> (String, Option<Scope>) {
-    // The template, never the path sent: `/media/42` is `/media/{id}`, and a
-    // grant keyed by the path would match nothing but the path it named.
+    // The matched template, since a grant names `/media/{id}` and never `/media/42`.
     let matched = request
         .extensions()
         .get::<axum::extract::MatchedPath>()
@@ -129,7 +125,6 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Applicati
     Ok(Json(applications::list(&state.pool).await?))
 }
 
-/// Make a key. Its token is in this answer and nowhere else, ever.
 /// A key asked for, with the proof a session gives (`api::account::prove`).
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -140,6 +135,7 @@ pub struct Requested {
     pub proof: crate::api::account::Proof,
 }
 
+/// Make a key. Its token is in this answer and nowhere else.
 pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
