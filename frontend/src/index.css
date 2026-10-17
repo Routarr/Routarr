@@ -2631,7 +2631,7 @@ td * {
    column shrinks to its longest word and stacks a long title. */
 .cell-title {
   display: inline-block;
-  min-width: 16rem;
+  min-width: 10rem;
   overflow-wrap: anywhere;
 }
 
@@ -2699,8 +2699,13 @@ td * {
 /* A path wraps above a floor, as a title does. Its `<bdi>` keeps its leading slash in Arabic. */
 .cell-path {
   display: inline-block;
-  min-width: 12rem;
+  min-width: 8rem;
   overflow-wrap: anywhere;
+}
+
+/* The reasons a proposal is checked against stay wide, the title and paths giving way first. */
+.cell-reasons {
+  min-width: 13rem;
 }
 
 /* A table that scrolls says so: covers pinned to the content (`local`) hide shadows pinned to

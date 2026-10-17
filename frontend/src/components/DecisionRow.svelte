@@ -12,15 +12,11 @@
     onToggle,
   }: { decision: Decision; selected: boolean; onToggle: () => void } = $props();
 
-  // A justification is clamped to two lines, so a row keeps the height of its
-  // neighbours. A clamped one is offered in full behind a button: its title
-  // shows the rest to a mouse alone.
+  // A clamped justification needs its button: the title shows the rest to a mouse alone.
   let reasons = $state<HTMLElement>();
   let clamped = $state(false);
   let expanded = $state(false);
-  // Measured in the next frame: the button, shown or hidden, changes the
-  // table's layout, and a change made while the observer delivers resizes what
-  // it watches before it is done, which the browser reports as an error.
+  // Deferred a frame: toggling the button inside the callback is a ResizeObserver loop error.
   $effect(() => {
     const box = reasons;
     if (!box) return;
@@ -73,8 +69,8 @@
     </span>
   </td>
   <td>
-    <!-- The shape and the colour for the eye, the word for a screen reader,
-         which reads an unnamed icon as nothing. -->
+    <!-- A screen reader reads an unnamed icon as nothing,
+         so the word stays beside the shape and the colour. -->
     {#if decision.action === 'move'}
       <ArrowRight size={16} class="text-warning dir-aware" aria-hidden="true" />
       <span class="visually-hidden">{t('ActionMove')}</span>
@@ -107,7 +103,7 @@
   <td>
     <div
       id="reasons-{decision.id}"
-      class="flex flex-col gap-1"
+      class="cell-reasons flex flex-col gap-1"
       class:is-expanded={expanded}
       bind:this={reasons}
     >
