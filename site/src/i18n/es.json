@@ -111,7 +111,7 @@
   "cta.recap.p": "La ejecución en seco global está activa desde el primer arranque, y detrás hay cinco puertas más.",
   "cta.recap.p.2": "Qué esperaba cada condición, qué observó y las reglas que no ganaron.",
   "cta.recap.p.3": "amd64 y arm64, un solo archivo SQLite, ningún servicio de base de datos que ejecutar.",
-  "detail.h1": "El argumento completo, <em>en una página.</em>",
+  "detail.h1": "Todos los argumentos, <em>en una página.</em>",
   "detail.p": "Lo que sus Arrs ya saben y lo que no hacen con ello, los cuatro pasos, cómo se explica una decisión, cómo se declara un destino, la ficha técnica y las objeciones que conviene plantear antes de instalar nada.",
   "detail.span": "Cómo decide",
   "explain.expected": "esperado",
