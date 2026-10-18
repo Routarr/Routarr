@@ -153,6 +153,7 @@ pub const COUNTS: &[&str] = &[
     "tests",
     "threshold",
     "total",
+    "votes",
 ];
 
 /// How a language groups a whole number's digits: the separator, and the fewest digits a
@@ -534,6 +535,10 @@ impl Localizer {
             }
             ("added_within_days", added) => crate::services::routing::parse_timestamp(added)
                 .map_or_else(|| added.to_string(), |added| added.format("%Y-%m-%d").to_string()),
+            // A score's fraction, as `7,5` in French. No scale name holds a full stop.
+            ("score_range", score) => {
+                score.replace('.', &decimal_separator(self.language()).to_string())
+            }
             (_, other) => other.to_string(),
         }
     }

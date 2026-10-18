@@ -14,7 +14,6 @@ struct Spec {
     /// `metadata`, `arr`, `title` or `folder`: the family the builder lists it under.
     group: &'static str,
     value_type: &'static str,
-    /// The metadata field it reads, if any.
     field: Option<MetadataField>,
     media_types: &'static [&'static str],
     /// The `GET /media/facets` axis its values are drawn from, so the builder
@@ -33,6 +32,20 @@ pub struct ConditionCatalog {
     /// `all` or `any`.
     pub match_modes: Vec<&'static str>,
     pub conditions: Vec<ConditionSpec>,
+    /// The scales a `score_range` names.
+    pub score_scales: Vec<ScoreScale>,
+}
+
+/// A scale a score is given on.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ScoreScale {
+    /// The `scale` a `score_range` is written with.
+    pub id: &'static str,
+    pub name: &'static str,
+    /// The highest score: 10 or 100.
+    pub max: i64,
+    /// Whether its scores say how many voted, which `min_votes` reads.
+    pub votes: bool,
 }
 
 /// One condition a rule may use.
@@ -50,7 +63,7 @@ pub struct ConditionSpec {
     /// The dictionary key of the caption.
     pub label_key: String,
     /// The shape of `value`: `string_list`, `number_list`, `string`, `number`,
-    /// `boolean`, `year_range` or `number_range`.
+    /// `boolean`, `year_range`, `number_range` or `score_range`.
     pub value_type: &'static str,
     /// Whether it reads metadata a source supplies.
     pub needs_metadata: bool,
@@ -198,6 +211,16 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
             field: Some(MetadataField::Certification),
             media_types: ANY,
             suggestions: "certifications",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
+            kind: "score_range",
+            value_type: "score_range",
+            group: "metadata",
+            field: Some(MetadataField::Ratings),
+            media_types: ANY,
+            suggestions: "",
             quantifier: "",
             counterpart: "",
         },
@@ -447,7 +470,16 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         })
         .collect();
 
-    Json(ConditionCatalog { match_modes: vec!["all", "any"], conditions })
+    let score_scales = crate::models::SCALES
+        .iter()
+        .map(|scale| ScoreScale {
+            id: scale.id,
+            name: scale.name,
+            max: scale.max,
+            votes: scale.votes,
+        })
+        .collect();
+    Json(ConditionCatalog { match_modes: vec!["all", "any"], conditions, score_scales })
 }
 
 /// A condition's caption in the reader's language, as the builder shows it.
@@ -504,6 +536,7 @@ mod tests {
             "boolean" => serde_json::json!(true),
             "year_range" => serde_json::json!({ "min": 2000, "max": 2010 }),
             "number_range" => serde_json::json!({ "min": 30, "max": 90 }),
+            "score_range" => serde_json::json!({ "scale": "imdb", "min": 7.5, "max": null }),
             other => panic!("no sample for value_type {other}"),
         }
     }

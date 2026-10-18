@@ -1,9 +1,6 @@
-//! TMDB API v3 client.
-//!
-//! Details, keywords and certifications come back in a single request through
-//! `append_to_response`. Fetching them separately costs a call per item and
-//! leaves the certification unpopulated, so `certification_in` matches
-//! nothing.
+//! TMDB API v3 client. Details, keywords and certifications come in one request through
+//! `append_to_response`: fetched apart, they cost a call each and leave the certification
+//! empty, so `certification_in` matches nothing.
 
 use std::collections::BTreeMap;
 
@@ -24,8 +21,7 @@ pub struct TmdbClient {
     base_url: String,
 }
 
-// The key stays out: a client printed in a log line or a failed assertion
-// would carry it.
+// The key stays out: a client printed in a log line or a failed assertion would carry it.
 impl std::fmt::Debug for TmdbClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TmdbClient").field("base_url", &self.base_url).finish_non_exhaustive()
@@ -104,6 +100,8 @@ struct RawMovie {
     keywords: KeywordsBlock,
     #[serde(default)]
     release_dates: ReleaseDatesBlock,
+    vote_average: Option<f64>,
+    vote_count: Option<i64>,
 }
 
 /// Raw TV payload with the appended blocks.
@@ -122,6 +120,8 @@ struct RawTv {
     keywords: KeywordsBlock,
     #[serde(default)]
     content_ratings: ContentRatingsBlock,
+    vote_average: Option<f64>,
+    vote_count: Option<i64>,
 }
 
 /// Normalized metadata, identical for movies and series.
@@ -135,6 +135,8 @@ pub struct TmdbDetails {
     pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
+    /// TMDB's own score, out of 10, with its votes.
+    pub ratings: BTreeMap<String, crate::models::Rating>,
 }
 
 impl TmdbClient {
@@ -146,11 +148,8 @@ impl TmdbClient {
         }
     }
 
-    /// TMDB accepts a v3 key as an `api_key` query parameter and a v4 token as a
-    /// bearer. Users paste either, and sending *both* forms every time would
-    /// put a v4 token in the query string, where a mirror, a caching proxy or
-    /// an access log would record it. A v4 token is a JWT, so telling them
-    /// apart is unambiguous, and each is sent only the way it is meant to be.
+    /// A v3 key goes as `api_key` in the query and a v4 token, a JWT, as a bearer: in the
+    /// query, a v4 token is recorded by every mirror, caching proxy and access log on the way.
     fn get(&self, path: &str, query: &[(&str, &str)]) -> reqwest::RequestBuilder {
         let request = self.client.get(format!("{}{path}", self.base_url));
         let request = if is_v4_token(&self.api_key) {
@@ -192,6 +191,9 @@ impl TmdbClient {
             certifications: movie_certifications(&raw.release_dates),
             status: raw.status,
             overview: raw.overview,
+            ratings: crate::models::rating("tmdb", raw.vote_average, raw.vote_count)
+                .into_iter()
+                .collect(),
         })
     }
 
@@ -209,7 +211,6 @@ impl TmdbClient {
         Ok(tv_details(raw))
     }
 
-    /// Dispatch on Routarr's own media type discriminator.
     pub async fn get_details(&self, tmdb_id: i64, media_type: &str) -> AppResult<TmdbDetails> {
         match media_type {
             "movie" => self.get_movie(tmdb_id).await,
@@ -233,9 +234,8 @@ fn merge_keywords(block: KeywordsBlock) -> Vec<String> {
     all
 }
 
-/// `origin_country` is only populated on some TMDB records. The production
-/// countries stand in for it, so `origin_country` conditions still have data to
-/// work with.
+/// `origin_country` is missing from some TMDB records, where the production countries stand
+/// in for it so an `origin_country` condition still has data.
 fn countries(origin: Vec<String>, production: Vec<ProductionCountry>) -> Vec<String> {
     if !origin.is_empty() {
         return origin;
@@ -252,7 +252,6 @@ fn movie_certifications(block: &ReleaseDatesBlock) -> BTreeMap<String, String> {
     }))
 }
 
-/// Each country's rating of a series.
 fn tv_details(raw: RawTv) -> TmdbDetails {
     TmdbDetails {
         genres: raw.genres.into_iter().map(|g| g.name).collect(),
@@ -262,9 +261,13 @@ fn tv_details(raw: RawTv) -> TmdbDetails {
         certifications: tv_certifications(&raw.content_ratings),
         status: raw.status,
         overview: raw.overview,
+        ratings: crate::models::rating("tmdb", raw.vote_average, raw.vote_count)
+            .into_iter()
+            .collect(),
     }
 }
 
+/// Each country's rating of a series.
 fn tv_certifications(block: &ContentRatingsBlock) -> BTreeMap<String, String> {
     rated(block.results.iter().map(|entry| (entry.iso_3166_1.as_str(), Some(entry.rating.trim()))))
 }
@@ -293,8 +296,6 @@ mod tests {
 
     #[test]
     fn a_v4_token_is_told_apart_from_a_v3_key() {
-        // Sending a v4 token as a query parameter would write it into every
-        // access log between here and TMDB.
         assert!(is_v4_token("eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl"));
         assert!(!is_v4_token("0123456789abcdef0123456789abcdef"));
         assert!(!is_v4_token(""));
@@ -302,10 +303,8 @@ mod tests {
         assert!(!is_v4_token("eyJnotajwt"));
     }
 
-    /// A captured-shape TMDB movie, appended blocks included, through the
-    /// real types: the fields the client ignores, a release with an empty
-    /// certification before the rated one, and `origin_country` beside the
-    /// production countries. A change in TMDB's shape surfaces here.
+    /// A captured-shape TMDB movie through the real types: ignored fields, an empty
+    /// certification before the rated one, and `origin_country` beside the production countries.
     #[test]
     fn a_real_shape_movie_payload_deserialises() {
         let json = r#"{
@@ -343,10 +342,8 @@ mod tests {
         );
     }
 
-    /// A captured-shape TMDB series, `keywords` and `content_ratings`
-    /// appended, through the real mapping: the keywords under `results` where
-    /// a film has them under `keywords`, a rating with its descriptors, and
-    /// the many fields the client ignores.
+    /// A captured-shape TMDB series through the real mapping: keywords under `results` where a
+    /// film has them under `keywords`, a rating with descriptors, and many ignored fields.
     #[test]
     fn a_real_shape_series_payload_maps() {
         let json = r#"{
@@ -386,6 +383,8 @@ mod tests {
         assert_eq!(series.origin_countries, ["JP"]);
         assert_eq!(series.certifications, by_country(&[("DE", "16"), ("US", "TV-14")]));
         assert_eq!(series.status.as_deref(), Some("Ended"));
+        let tmdb = series.ratings["tmdb"];
+        assert_eq!((tmdb.value, tmdb.votes), (8.4, Some(2100)));
     }
 
     /// A blank TV rating rates nothing, and a country listed twice keeps its

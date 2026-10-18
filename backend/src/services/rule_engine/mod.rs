@@ -491,6 +491,39 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             list(kind, "ConditionCollectionIn", matched, values, &collection)
         }
 
+        Condition::ScoreRange { scale, min, max, min_votes } => {
+            let rating = metadata.and_then(|m| m.ratings.get(scale));
+            let matched = rating.is_some_and(|rating| {
+                min.is_none_or(|m| rating.value >= m)
+                    && max.is_none_or(|m| rating.value <= m)
+                    && min_votes.is_none_or(|n| rating.votes.is_some_and(|votes| votes >= n))
+            });
+            let named = crate::models::scale(scale).map_or(scale.as_str(), |known| known.name);
+            let bound = |bound: &Option<f64>| bound.map_or_else(|| "*".into(), |v| v.to_string());
+            let key = if min_votes.is_some() {
+                "ConditionScoreRangeVotes"
+            } else {
+                "ConditionScoreRange"
+            };
+            ConditionOutcome::new(
+                kind,
+                matched,
+                key,
+                &[
+                    ("scale", named.to_string()),
+                    ("min", bound(min)),
+                    ("max", bound(max)),
+                    ("votes", min_votes.map(|votes| votes.to_string()).unwrap_or_default()),
+                ],
+                rating
+                    .map(|rating| match rating.votes {
+                        Some(votes) => format!("{} ({votes})", rating.value),
+                        None => rating.value.to_string(),
+                    })
+                    .unwrap_or_default(),
+            )
+        }
+
         Condition::SizeOnDiskOverGb(threshold) => {
             const GB: i64 = 1024 * 1024 * 1024;
             ConditionOutcome::new(
@@ -569,6 +602,11 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
     if let Some(field) = condition.metadata_field() {
         outcome.source = metadata.and_then(|m| m.source_of(field.as_str())).map(str::to_string);
     }
+    // A scale's own source, which may not be the one that gave the first score.
+    if let Condition::ScoreRange { scale, .. } = condition {
+        outcome.source =
+            metadata.and_then(|m| m.source_of(&format!("ratings.{scale}"))).map(str::to_string);
+    }
 
     outcome
 }
@@ -634,6 +672,7 @@ mod tests {
             network: None,
             collection: None,
             collection_tmdb_id: None,
+            ratings: None,
             last_synced_at: None,
         }
     }
@@ -650,6 +689,11 @@ mod tests {
                 certification: Some("G".into()),
                 certification_scale: Some("US".into()),
                 status: Some("Released".into()),
+                ratings: [(
+                    "imdb".to_string(),
+                    crate::models::Rating { value: 8.1, votes: Some(393_000) },
+                )]
+                .into(),
                 ..Default::default()
             },
         )])
@@ -1193,6 +1237,28 @@ mod tests {
     }
 
     #[test]
+    fn a_score_range_reads_its_scale_and_its_votes_and_names_the_scale_s_source() {
+        let (media, metadata) = (media(), metadata());
+        let check = |scale: &str, min, max, min_votes| {
+            let condition = Condition::ScoreRange { scale: scale.into(), min, max, min_votes };
+            evaluate_single_condition(
+                &condition,
+                EvalContext { media: &media, metadata: Some(&metadata), now: now() },
+            )
+        };
+        assert!(check("imdb", Some(8.0), Some(8.1), None).matched);
+        assert!(check("imdb", None, None, Some(393_000)).matched);
+        assert!(!check("imdb", None, None, Some(393_001)).matched, "too few votes");
+        assert!(!check("imdb", Some(8.2), None, None).matched);
+        assert!(!check("tmdb", None, Some(10.0), None).matched, "an unrated scale matched");
+        let outcome = check("imdb", Some(7.5), None, None);
+        assert_eq!(
+            (outcome.source.as_deref(), outcome.observed.as_str()),
+            (Some("tmdb"), "8.1 (393000)")
+        );
+    }
+
+    #[test]
     fn a_runtime_range_reads_minutes_and_an_unknown_runtime_never_matches() {
         let holds = |runtime, min, max| {
             let mut m = media();
@@ -1379,7 +1445,7 @@ mod tests {
         assert!(punctuated("Spider-Man"));
         assert!(punctuated("no way home"));
 
-        // Widened, not loosened: an unrelated title still does not match.
+        // Folding finds more spellings of a title, never another title.
         assert!(!punctuated("batman"));
     }
 
@@ -1487,7 +1553,13 @@ mod tests {
             Some(RuntimeRange { .. }) => StudioIn(list(&["Studio Ghibli"])),
             Some(StudioIn(_)) => NetworkIn(list(&["Fuji TV"])),
             Some(NetworkIn(_)) => CollectionIn(list(&["Studio Ghibli Collection"])),
-            Some(CollectionIn(_)) => SizeOnDiskOverGb(1),
+            Some(CollectionIn(_)) => ScoreRange {
+                scale: "imdb".into(),
+                min: Some(7.5),
+                max: None,
+                min_votes: Some(1000),
+            },
+            Some(ScoreRange { .. }) => SizeOnDiskOverGb(1),
             Some(SizeOnDiskOverGb(_)) => SeasonCountOver(1),
             Some(SeasonCountOver(_)) => CertificationIn(list(&["G"])),
             Some(CertificationIn(_)) => StatusIs(list(&["released"])),
@@ -1532,7 +1604,7 @@ mod tests {
             assert!(seen.insert(current.kind()), "{} is visited twice", current.kind());
             condition = next_kind(Some(&current));
         }
-        assert_eq!(seen.len(), 34, "the walk visited {} kinds", seen.len());
+        assert_eq!(seen.len(), 35, "the walk visited {} kinds", seen.len());
     }
 
     #[test]

@@ -7,12 +7,6 @@ import type { ConditionSpec } from '../api/types';
 import ConditionValue from './ConditionValue.svelte';
 import ConditionValueHarness from '../test/ConditionValueHarness.svelte';
 
-/**
- * One editor per value type, every one named. The caption beside a condition cannot be a
- * `<label>`: the list renders twice, so a fixed `for` would repeat an id. The name travels on the
- * control, or a screen reader announces a bare textbox.
- */
-
 const spec = (over: Partial<ConditionSpec> = {}): ConditionSpec => ({
   type: 'genre_contains',
   label: 'Genre contains',
@@ -34,6 +28,11 @@ const show = (props: Record<string, unknown>) => renderWithI18n(ConditionValue, 
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * One editor per value type, every one named. The caption beside a condition cannot be a
+ * `<label>`: the list renders twice, so a fixed `for` would repeat an id. The name travels on the
+ * control, or a screen reader announces a bare textbox.
+ */
 describe('ConditionValue', () => {
   it('renders nothing for a condition the catalogue does not describe', () => {
     const { container } = show({ spec: undefined, value: null, onChange: vi.fn() });
@@ -139,6 +138,120 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(to, { target: { value: '1999' } });
     expect(onChange).toHaveBeenLastCalledWith({ min: null, max: 1999 }, false);
+  });
+
+  it('edits a score on its scale, and asks for votes only where the scale counts them', async () => {
+    const onChange = vi.fn();
+    const scales = [
+      { id: 'imdb', name: 'IMDb', max: 10, votes: true },
+      { id: 'metacritic', name: 'Metacritic', max: 100, votes: false },
+    ];
+    show({
+      spec: spec({ value_type: 'score_range', label: 'Score between' }),
+      value: { scale: 'imdb', min: null, max: null, min_votes: 500 },
+      scales,
+      onChange,
+    });
+
+    const from = screen.getByLabelText('Score between – from');
+    expect(from).toHaveAttribute('max', '10');
+    expect(from).toHaveAttribute('step', '0.1');
+    await fireEvent.input(from, { target: { value: '7.5' } });
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'imdb', min: 7.5, max: null, min_votes: 500 },
+      false,
+    );
+    expect(screen.getByLabelText('Score between – Minimum votes')).toBeTruthy();
+
+    await userEvent.selectOptions(screen.getByLabelText('Score between – Scale'), 'metacritic');
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'metacritic', min: null, max: null, min_votes: null },
+      false,
+    );
+  });
+
+  it('steps a hundred-point scale by one, asks no votes of it, and holds a bound it cannot read', async () => {
+    const onChange = vi.fn();
+    show({
+      spec: spec({ value_type: 'score_range', label: 'Score between' }),
+      value: { scale: 'metacritic', min: 60, max: null, min_votes: null },
+      scales: [
+        { id: 'imdb', name: 'IMDb', max: 10, votes: true },
+        { id: 'metacritic', name: 'Metacritic', max: 100, votes: false },
+      ],
+      onChange,
+    });
+
+    expect(screen.getByLabelText('Score between – Scale')).toHaveValue('metacritic');
+    expect(screen.queryByLabelText('Score between – Minimum votes')).toBeNull();
+    const from = screen.getByLabelText('Score between – from');
+    expect(from).toHaveAttribute('step', '1');
+    await fireEvent.input(from, { target: { value: '1e2' } });
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'metacritic', min: 60, max: null, min_votes: null },
+      true,
+    );
+    expect(from).toHaveAttribute('aria-invalid', 'true');
+    expect(from).toHaveAccessibleDescription('Enter a number.');
+  });
+
+  it('draws a score range with no value before the catalogue lists its scales', () => {
+    show({
+      spec: spec({ value_type: 'score_range', label: 'Score between' }),
+      value: null,
+      onChange: vi.fn(),
+    });
+
+    expect(screen.getByLabelText('Score between – Scale').querySelectorAll('option')).toHaveLength(
+      0,
+    );
+    expect(screen.getByLabelText('Score between – from')).toHaveValue(null);
+    expect(screen.queryByLabelText('Score between – Minimum votes')).toBeNull();
+  });
+
+  it('holds a score or a vote count it cannot read, and keeps the votes on a scale that counts them', async () => {
+    const onChange = vi.fn();
+    const scales = [
+      { id: 'imdb', name: 'IMDb', max: 10, votes: true },
+      { id: 'tmdb', name: 'TMDB', max: 10, votes: true },
+    ];
+    show({
+      spec: spec({ value_type: 'score_range', label: 'Score between' }),
+      value: { scale: 'imdb', min: 7, max: 9, min_votes: 500 },
+      scales,
+      onChange,
+    });
+
+    const votes = screen.getByLabelText('Score between – Minimum votes');
+    expect(votes).toHaveAccessibleDescription(
+      'Leave empty to take a score whatever its votes. A score from a handful of votes says little.',
+    );
+    await fireEvent.input(votes, { target: { value: '1.5' } });
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'imdb', min: 7, max: 9, min_votes: 500 },
+      true,
+    );
+    expect(votes).toHaveAttribute('aria-invalid', 'true');
+    expect(votes).toHaveAccessibleDescription(/Enter a whole number\.$/);
+
+    await fireEvent.input(votes, { target: { value: '1000' } });
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'imdb', min: 7, max: 9, min_votes: 1000 },
+      false,
+    );
+    await fireEvent.input(screen.getByLabelText('Score between – to'), {
+      target: { value: '' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'imdb', min: 7, max: null, min_votes: 500 },
+      false,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText('Score between – Scale'), 'tmdb');
+    expect(onChange).toHaveBeenLastCalledWith(
+      { scale: 'tmdb', min: 7, max: 9, min_votes: 500 },
+      false,
+    );
   });
 
   it('bounds a runtime range in minutes, not in years', async () => {

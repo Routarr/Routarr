@@ -56,6 +56,8 @@ PAIRS: dict[str, str] = {
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
     "ReasonLine": "ReasonLine",
+    "Rating": "Rating",
+    "ScoreScale": "ScoreScale",
     "Application": "Application",
     "ApplyReport": "ApplyReport",
     "BatchApplyReport": "BatchApplyReport",

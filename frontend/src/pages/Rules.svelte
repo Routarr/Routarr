@@ -12,7 +12,7 @@
     Trash2,
   } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
-  import { describeCondition, swapped } from '../api/format';
+  import { describeCondition, formatDecimal, swapped } from '../api/format';
   import {
     canonicalKey,
     facetOf,
@@ -163,6 +163,8 @@
       separator: t('ListSeparator'),
       empty: t('NoneSpoken'),
       name: (value) => nameIn(spec?.suggestions, value),
+      scale: (id) => catalog?.score_scales.find((scale) => scale.id === id)?.name ?? id,
+      number: (value) => formatDecimal(value, i18n.language),
     });
   }
 

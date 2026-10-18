@@ -1,8 +1,5 @@
-//! Enrichment against a live fake TMDB.
-//!
-//! The seam worth defending is attribution: results come back out of order, and
-//! pairing them with the input list by position files a movie's metadata under
-//! `series`.
+//! Enrichment against a live fake TMDB. Results come back out of order, and paired with the
+//! input by position a movie's metadata is filed under `series`.
 
 use crate::services::enrichment;
 
@@ -91,6 +88,25 @@ async fn tmdb_s_two_codes_outside_iso_are_read_as_a_rule_is_written() {
     assert_eq!(languages, [(CANTONESE, Some("zh".to_string())), (NO_LANGUAGE, None)]);
 }
 
+/// TMDB's score is cached with its votes, under its own scale, beside what the row answered.
+#[tokio::test]
+async fn tmdb_s_score_is_cached_with_its_votes() {
+    let tmdb = FakeTmdb::start().await;
+    let app = library(&tmdb, &[(8392, "movie", 8392)]).await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let stored: String =
+        sqlx::query_scalar("SELECT ratings FROM metadata_cache WHERE source = 'tmdb'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(stored, serde_json::json!({ "tmdb": { "value": 7.9, "votes": 1200 } }));
+}
+
 /// A v3 key travels as the `api_key` query parameter and a v4 token as a
 /// bearer, each only its own way: a v4 token in the query string is written
 /// into the access log of every mirror and proxy on the path.
@@ -116,10 +132,8 @@ async fn the_tmdb_credential_travels_the_way_its_kind_is_read() {
     }
 }
 
-/// A source's `Retry-After` holds the rest of the pass back: the request after
-/// a 429 asking for a second of quiet leaves at least a second after it. The
-/// pacing arithmetic has its own tests in `rate_limit`, and this one follows
-/// the header from the wire to the next request.
+/// A 429's `Retry-After` of a second holds the next request back at least that long, followed
+/// from the wire to the next request (`rate_limit` tests the pacing arithmetic).
 #[tokio::test]
 async fn a_retry_after_from_the_source_holds_back_the_next_request() {
     let tmdb = FakeTmdb::throttling_once(1).await;
@@ -139,10 +153,8 @@ async fn a_retry_after_from_the_source_holds_back_the_next_request() {
     assert!(gap >= std::time::Duration::from_secs(1), "the next request left after {gap:?}");
 }
 
-/// Sonarr sends one delivery per imported episode, and the webhook enriches
-/// the series on each. What the cache still holds is not fetched again: a
-/// season is one TMDB call, not one per episode, and so is a series TMDB does
-/// not have, whose 404 is an answer.
+/// Sonarr sends one delivery per imported episode, each enriching the series. What the cache
+/// holds is not fetched again, a series TMDB does not have included, whose 404 is an answer.
 #[tokio::test]
 async fn a_second_delivery_for_the_same_series_fetches_nothing() {
     for (missing, id) in [(vec![], 1399), (vec![1400], 1400)] {
@@ -183,10 +195,8 @@ async fn enriches_movies_and_series_from_one_call_each() {
 
 #[tokio::test]
 async fn results_are_filed_against_the_media_they_belong_to() {
-    // The movie, 100, is handed out first, two titles never asked going by
-    // identifier, and answers slowly, so its result comes back *after* the
-    // series'. Paired with the input list by position, the movie's metadata is
-    // filed under `series` and both rows are lost.
+    // The movie, 100, answers slowly, so its result comes back after the series'. Paired by
+    // position, its metadata would be filed under `series` and both rows lost.
     let tmdb = FakeTmdb::with(vec![], vec![100]).await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 
@@ -443,8 +453,7 @@ async fn the_pass_is_recorded_as_a_job() {
 
 #[tokio::test]
 async fn enriched_metadata_reaches_the_rule_engine() {
-    // The whole point of enrichment: a genre rule that could not match before
-    // matches after.
+    // A genre rule that cannot match before enrichment matches after it.
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100)]).await;
     sqlx::query("UPDATE media SET current_root_folder = '/movies/standard'")
@@ -539,12 +548,9 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     assert!(report.skipped > 0, "{report:?}");
 }
 
-/// A cached answer lives as many days as `metadata_cache_ttl_days` says when
-/// a pass reads it, seven when nothing is set, and a TMDB answer six months at
-/// most, as its terms require. The lifetime set now counts, not the one the
-/// answer was cached under, so lowering it refreshes the answers already
-/// cached. Counted otherwise, every pass refetches the whole library, or a
-/// stale answer outlives the setting by months.
+/// A cached answer lives `metadata_cache_ttl_days` as set when a pass reads it, seven unset,
+/// and a TMDB one six months at most, as its terms require. Lowering the setting refreshes the
+/// answers already cached, or a stale one outlives it by months.
 #[tokio::test]
 async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
     for (setting, days) in [(None, 7), (Some("1"), 1), (Some("365"), 180)] {

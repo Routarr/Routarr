@@ -1202,7 +1202,7 @@ pub const MEDIA_COLUMNS: &str = "id, instance_id, arr_id, media_type, title, sor
      tmdb_id, tvdb_id, imdb_id, current_path, current_root_folder, monitored, has_files,
      status, added_at, series_type, size_on_disk, season_count, tags, genres,
      original_language, certification, quality_profile, runtime, studio, network, collection,
-     collection_tmdb_id, last_synced_at";
+     collection_tmdb_id, ratings, last_synced_at";
 
 /// The library rows of a title another service names, on one instance or all.
 pub async fn media_by_external_id(

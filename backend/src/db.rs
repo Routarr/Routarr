@@ -15,6 +15,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("003_rule_template", include_str!("../migrations/003_rule_template.sql")),
     ("004_rule_test_verdicts", include_str!("../migrations/004_rule_test_verdicts.sql")),
     ("005_arr_payload_fields", include_str!("../migrations/005_arr_payload_fields.sql")),
+    ("006_ratings", include_str!("../migrations/006_ratings.sql")),
 ];
 
 /// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5` builds, in the
@@ -989,7 +990,6 @@ mod tests {
             SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
         sqlx::query("SELECT 1").execute(&bystander).await.unwrap();
 
-        // The write is in the WAL at this point, not in the database file.
         assert!(path.with_extension("db-wal").exists(), "expected a WAL to exist while running");
 
         checkpoint_and_close(&pool).await;

@@ -197,7 +197,6 @@ pub(crate) fn quota_spent(service: &str) -> AppError {
     upstream(service, 429, Upstream::QuotaSpent, String::new())
 }
 
-/// Whether `error` is [`quota_spent`]'s.
 pub(crate) fn is_quota_spent(error: &AppError) -> bool {
     matches!(error, AppError::ExternalApi { kind: Upstream::QuotaSpent, .. })
 }
@@ -360,6 +359,36 @@ where
         Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
         _ => None,
     })
+}
+
+/// Deserialize Radarr's `ratings`, its scores by source, keeping each on a scale Routarr knows.
+/// A score in another shape is unknown, as [`lenient_number`] reads a number.
+pub(crate) fn lenient_ratings<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::BTreeMap<String, crate::models::Rating>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(serde_json::Value::Object(sources)) =
+        Option::<serde_json::Value>::deserialize(deserializer)?
+    else {
+        return Ok(Default::default());
+    };
+    const SCALES: [(&str, &str); 4] = [
+        ("imdb", "imdb"),
+        ("tmdb", "tmdb"),
+        ("metacritic", "metacritic"),
+        ("rottenTomatoes", "rotten_tomatoes"),
+    ];
+    Ok(SCALES
+        .iter()
+        .filter_map(|(key, scale)| {
+            let given = sources.get(*key)?;
+            let value = given.get("value").and_then(serde_json::Value::as_f64);
+            let votes = given.get("votes").and_then(serde_json::Value::as_i64);
+            crate::models::rating(scale, value, votes)
+        })
+        .collect())
 }
 
 /// A film's collection as Radarr names it: `title` since its v5 payload, `name` before.
@@ -636,6 +665,31 @@ mod tests {
         assert_eq!((blank.studio, blank.collection), (None, None));
         let absent = parse("{}");
         assert_eq!((absent.runtime, absent.studio, absent.collection), (None, None, None));
+    }
+
+    #[test]
+    fn radarr_scores_are_read_by_scale_and_an_unrated_one_is_left_out() {
+        #[derive(Deserialize)]
+        struct Probe {
+            #[serde(default, deserialize_with = "lenient_ratings")]
+            ratings: std::collections::BTreeMap<String, crate::models::Rating>,
+        }
+        let parse = |json: &str| serde_json::from_str::<Probe>(json).unwrap().ratings;
+
+        let read = parse(
+            r#"{"ratings": {"imdb": {"votes": 393000, "value": 8.1, "type": "user"},
+                            "tmdb": {"votes": 0, "value": 0, "type": "user"},
+                            "metacritic": {"votes": 0, "value": 86},
+                            "rottenTomatoes": {"votes": 0, "value": 94},
+                            "trakt": {"votes": 9, "value": 8}}}"#,
+        );
+        let scales: Vec<&str> = read.keys().map(String::as_str).collect();
+        assert_eq!(scales, ["imdb", "metacritic", "rotten_tomatoes"]);
+        assert_eq!((read["imdb"].value, read["imdb"].votes), (8.1, Some(393000)));
+        assert_eq!(read["metacritic"].votes, None, "Metacritic counts no votes");
+        assert!(parse(r#"{"ratings": [1]}"#).is_empty());
+        assert!(parse(r#"{"ratings": {"imdb": {"value": "high"}}}"#).is_empty());
+        assert!(parse("{}").is_empty());
     }
 
     #[test]

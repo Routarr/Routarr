@@ -97,6 +97,7 @@ export const METADATA_FIELD_KEY: Record<string, string> = {
   original_language: 'FacetLanguages',
   origin_countries: 'FacetCountries',
   certification: 'FacetCertifications',
+  ratings: 'FacetRatings',
 };
 
 /** The dictionary key naming a kind of title. */
@@ -169,6 +170,10 @@ interface ConditionWords {
   empty: string;
   /** The name a stored value is shown under, where it has one. */
   name?: (value: string) => string;
+  /** A score scale's name, `IMDb` for `imdb`. */
+  scale?: (id: string) => string;
+  /** A number as the language writes it, `7,5` in French. */
+  number?: (value: number) => string;
 }
 
 /**
@@ -191,15 +196,42 @@ export function describeCondition(condition: Condition, words: ConditionWords): 
     return words.phrase(key(), { values });
   }
   if (value && typeof value === 'object') {
-    const { min, max } = value as { min?: number | null; max?: number | null };
-    if (min != null && max != null) return words.phrase(key(), { min: `${min}`, max: `${max}` });
-    if (min != null) return words.phrase(key('From'), { min: `${min}` });
-    if (max != null) return words.phrase(key('To'), { max: `${max}` });
-    return caption;
+    const { min, max, scale, min_votes } = value as {
+      min?: number | null;
+      max?: number | null;
+      scale?: string;
+      min_votes?: number | null;
+    };
+    // A score's fraction in the reader's form, a year or a runtime as written: `1 990` is no year.
+    const shown = (n: number) => (scale && words.number ? words.number(n) : `${n}`);
+    const named: Record<string, string> = scale ? { scale: words.scale?.(scale) ?? scale } : {};
+    const range =
+      min != null && max != null
+        ? words.phrase(key(), { ...named, min: shown(min), max: shown(max) })
+        : min != null
+          ? words.phrase(key('From'), { ...named, min: shown(min) })
+          : max != null
+            ? words.phrase(key('To'), { ...named, max: shown(max) })
+            : caption;
+    if (min_votes == null) return range;
+    const votes = words.phrase('ScoreVotesAtLeast', { votes: `${min_votes}` });
+    return `${range}${words.separator}${votes}`;
   }
   if (typeof value === 'boolean') return words.phrase(key(value ? '' : 'Not'));
   if (value === undefined || value === null) return caption;
   return words.phrase(key(), { value: String(value) });
+}
+
+/** A number with its fraction as the language writes it, `7,5` in French, `8,0` with one digit. */
+export function formatDecimal(value: number, language: string, minimumDigits = 0): string {
+  try {
+    return new Intl.NumberFormat(bcp47(language), {
+      minimumFractionDigits: minimumDigits,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return String(value);
+  }
 }
 
 /** A count with its digits grouped as the language groups them, `12 345` in French. */

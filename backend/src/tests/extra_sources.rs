@@ -1,10 +1,6 @@
-//! AniList, Jikan, OMDb and TheTVDB, each through its own client.
-//!
-//! Two of them, AniList and Jikan, know none of Routarr's identifiers, so
-//! they have to *find* an item before they can describe it. That search is the
-//! only place in the application where a source can attach the wrong work to a
-//! media item, and a wrong genre routes a film into the wrong folder. Most of
-//! what follows defends that seam.
+//! AniList, Jikan, OMDb and TheTVDB, each through its own client. AniList and Jikan know none of
+//! Routarr's identifiers and search for an item, the one place a source can attach the wrong
+//! work: most of what follows defends that seam.
 
 use crate::services::{enrichment, metadata};
 use crate::state::AppState;
@@ -106,10 +102,7 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "tvdb").await;
 
-    // Two enrichment passes and a health probe: three separate occasions on
-    // which the client is rebuilt. The token lives on the state, not the
-    // client, so exactly one login is spent on all three, and TheTVDB counts
-    // them.
+    // Two passes and a probe each rebuild the client: the token lives on the state.
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -130,10 +123,8 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
     );
 }
 
-/// TheTVDB documents a month's validity. A token kept past it answers 401 on
-/// every read, one per pending title per pass, `failed` climbing, and nothing
-/// naming the cause. The reads in flight when it expires log in once between
-/// them, not once each.
+/// TheTVDB documents a month's validity. A token kept past it answers 401 on every read with
+/// nothing naming the cause, and the reads in flight when it expires log in once between them.
 #[tokio::test]
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
@@ -144,8 +135,7 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
         .unwrap();
 
     sources.expire_tvdb_token();
-    // More titles to read than reads in flight, or the next pass has nothing
-    // to say.
+    // More titles than reads in flight, or the next pass has nothing to say.
     let more = app.state.config.metadata_concurrency as i64 + 2;
     for n in 0..more {
         sqlx::query(
@@ -235,8 +225,7 @@ async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
     .await
     .unwrap();
 
-    // Keyed on the identity the library already has, so the same film in a
-    // second Radarr is not searched for twice.
+    // Keyed on the library's identity, so the film in a second Radarr is not searched again.
     assert_eq!(resolved.0, "tmdb:8392");
     assert_eq!(resolved.1.as_deref(), Some("523"));
     assert_eq!(asked(&sources, "anilist"), ["523"], "another work was described");
@@ -369,8 +358,7 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
         .await
         .unwrap();
 
-    // Same title, sixteen years apart: not the same work. Better no metadata
-    // than another film's genres.
+    // Same title, sixteen years apart: not the same work.
     let resolved: (Option<String>,) =
         sqlx::query_as("SELECT external_id FROM source_identifiers WHERE source = 'anilist'")
             .fetch_one(&app.state.pool)
@@ -379,8 +367,7 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     assert_eq!(resolved.0, None);
     assert!(cached(&app, "anilist").await.is_none());
 
-    // And the "found nothing" is written down, so the next pass does not search
-    // the whole library again for ever.
+    // The miss is written down, so the next pass does not search again.
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -436,9 +423,9 @@ async fn a_jikan_film_is_resolved_by_its_aired_year() {
     assert_eq!(resolved.as_deref(), Some("523"));
 }
 
-/// The webhook enriches a new title before its rules run, from every source
-/// the row can address: TheTVDB by its id, AniList by a search. Asking TMDB
-/// alone, a series with no TMDB id was routed and auto-applied on nothing.
+/// The webhook enriches a new title before its rules run, from every source the row can
+/// address: TheTVDB by its id, AniList by a search. TMDB alone would leave a series with no TMDB
+/// id routed on nothing.
 #[tokio::test]
 async fn a_webhook_enrichment_asks_every_source_the_row_can_address() {
     let sources = FakeSources::start().await;
@@ -500,9 +487,8 @@ async fn an_upgrade_forgets_the_ids_written_as_zero_and_what_they_shared() {
         .unwrap();
     assert_eq!(keys, ["tmdb:1396"]);
 }
-/// A work is often listed after the library holds it: a film indexed before
-/// its release is not on AniList yet. A search that found nothing is asked
-/// again once it is old, not kept for good.
+/// A work is often listed after the library holds it, so a search that found nothing is asked
+/// again once it is old.
 #[tokio::test]
 async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
     let sources = FakeSources::with_mismatched_year().await;
@@ -557,8 +543,6 @@ async fn jikan_themes_and_demographics_become_keywords() {
     assert!(paths.contains(&"/jikan/anime/523/full".to_string()), "{paths:?}");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
-    // The vocabulary an anime library is actually sorted by, and which TMDB
-    // does not express at all.
     assert_eq!(keywords, r#"["iyashikei","kids"]"#);
     // "G - All Ages" keeps the code a rule names.
     assert_eq!(certification.as_deref(), Some("G"));
@@ -579,23 +563,19 @@ async fn every_source_contributes_what_only_it_has() {
     let media = media.assert_ok();
     let field_sources = &media["metadata"]["field_sources"];
 
-    // The Arr row is empty here, so AniList, the next in the order, wins the
-    // genres, and each later source only fills what is still missing.
+    // The Arr row is empty here, so AniList, next in the order, wins the genres.
     assert_eq!(field_sources["genres"], "anilist");
     assert_eq!(field_sources["keywords"], "anilist");
     assert_eq!(field_sources["origin_countries"], "anilist");
-    // Jikan rates before OMDb, but on MyAnimeList's scale, which is no
-    // region's. OMDb rates for the United States, the default region.
+    // Jikan rates first but on MyAnimeList's scale, and OMDb for the US, the default region.
     assert_eq!(field_sources["certification"], "omdb");
     // Neither anime source reports a language, and OMDb is the first that does.
     assert_eq!(field_sources["original_language"], "omdb");
 }
 
-/// Radarr and Sonarr report English for any original language outside the
-/// ones they list (Cantonese, which TMDB writes `cn`, Malay, Swahili),
-/// so their English is the one answer a later source may correct. Any other
-/// language they report stands, as the order says, and their English stands
-/// where no other source knows the language.
+/// Radarr and Sonarr report English for any original language they do not list (Cantonese,
+/// Malay, Swahili), so their English is the one answer a later source may correct. Any other
+/// language they report stands, and their English stands where no source knows better.
 #[tokio::test]
 async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
     let sources = FakeSources::start().await;
@@ -610,8 +590,7 @@ async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
         ("arr", "en", "en", "arr"),
     ] {
         app.store_setting("metadata_providers", order).await;
-        // Genres too, so the Arr answers in every case and is listed once
-        // although its English comes last.
+        // Genres too, so the Arr always answers and is listed once, its English offered last.
         sqlx::query("UPDATE media SET original_language = ?, genres = '[\"Animation\"]'")
             .bind(arr_says)
             .execute(&app.state.pool)
@@ -843,10 +822,9 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
     app
 }
 
-/// A work a source does not have is an answer like any other: cached for the
-/// cache's lifetime, so the next pass does not ask again, and a source counted
-/// by the day keeps its quota. TheTVDB and OMDb are asked by the library's id,
-/// AniList and Jikan by one an earlier search resolved.
+/// A work a source does not have is an answer like any other, cached so the next pass does not
+/// ask again and a daily quota is kept. TheTVDB and OMDb are asked by the library's id, AniList
+/// and Jikan by one an earlier search resolved.
 #[tokio::test]
 async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
     for source in ["tvdb", "omdb", "anilist", "jikan"] {
@@ -873,10 +851,9 @@ async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
     }
 }
 
-/// A revoked TheTVDB key is refused at every login. The pass stops at the
-/// breaker rather than spending a refused login on every title, and a login
-/// answering without a token is a refusal too: no read goes out with an
-/// empty bearer.
+/// A revoked TheTVDB key is refused at every login, and the pass stops at the breaker rather
+/// than spending a login on every title. A login answering without a token is a refusal too:
+/// no read goes out with an empty bearer.
 #[tokio::test]
 async fn a_tvdb_key_refused_at_login_costs_a_handful_of_attempts() {
     let revoked = FakeSources::start().await;
@@ -924,14 +901,9 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
     assert!(gap >= std::time::Duration::from_secs(1), "the next search left after {gap:?}");
 }
 
-/// Jikan answers `504` for *every* request whenever MyAnimeList is down.
-/// Without a breaker, a five-thousand-title library issues five thousand doomed
-/// requests, logs five thousand warnings, and repeats the whole thing on the
-/// next pass. A source that has refused five times in a row is down, so
-/// Routarr stops asking for the rest of the pass: a searching source tripped
-/// while searching is asked for no record of the titles it identified before.
-/// The requests in flight when the fifth refusal lands still go out, one fewer
-/// than the source's concurrency.
+/// Jikan answers `504` to every request while MyAnimeList is down. A source refusing five times
+/// in a row is not asked again that pass, not even for the titles a search identified before,
+/// but the requests in flight at the fifth refusal still go out.
 #[tokio::test]
 async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
     for source in ["jikan", "anilist", "omdb", "tvdb"] {
@@ -940,8 +912,7 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
         if source == "tvdb" {
             app.execute(&[SERIES_ALONE]).await;
         }
-        // Half the films identified on an earlier pass, so a searching source
-        // has records to fetch as well as titles to search.
+        // Half the films identified earlier, so a searching source has records to fetch.
         app.execute(&[
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
              SELECT searching.source, 'movie', 'tmdb:' || tmdb_id, tmdb_id
@@ -957,8 +928,7 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
                 .await
                 .unwrap();
 
-        // Nothing was enriched, which is expected, but the point is *how* it
-        // failed: the requests that went out are a handful, not one per item.
+        // The point is how it failed: a handful of requests, not one per item.
         assert_eq!(report.enriched, 0, "{source}");
         assert!(report.considered > 0, "{source} had no record to fetch: {report:?}");
         let attempts = sources.recorded().paths.len();
@@ -1012,9 +982,7 @@ async fn the_pace_follows_the_limit_anilist_states() {
 async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     let sources = FakeSources::start().await;
 
-    // Pointed at the fake, which is what a mirror or a proxy looks like, no
-    // published limit applies, and pacing it would buy a delay for nothing.
-    // This is also why the test suite does not spend a second per request.
+    // The fake is what a mirror or a proxy looks like, and no published limit applies to it.
     let app = TestApp::one_film_on(&sources, "anilist,jikan,omdb").await;
     for source in app.state.metadata_sources().await {
         assert!(
@@ -1041,25 +1009,20 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
         vec![("anilist", Some((30, 2))), ("jikan", Some((60, 3))), ("omdb", Some((300, 10)))]
     );
 
-    // A concurrency setting is a ceiling: Jikan, unofficial and documented at
-    // a handful a second, keeps two in flight whatever it says.
+    // A concurrency setting is a ceiling: Jikan keeps two in flight whatever it says.
     let concurrency: Vec<(&str, usize)> =
         sources.iter().map(|source| (source.id(), source.concurrency(8))).collect();
     assert_eq!(concurrency, vec![("anilist", 8), ("jikan", 2), ("omdb", 8)]);
 }
 
-/// A verdict must not outlive its subject.
-///
-/// `record_probe` writes nothing for a source it did not probe, and one
-/// switched off is not probed at all. Nothing expires the table either, so the
-/// probe prunes what it no longer looks at, or the source's last failure is
-/// reported for ever, on every `/status` poll, with no screen able to clear it.
+/// A verdict must not outlive its subject. A source switched off is not probed, and nothing
+/// expires `probe_results`, so the probe prunes what it no longer looks at, or the last failure
+/// is reported on every `/status` poll for ever.
 #[tokio::test]
 async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "arr,omdb").await;
-    // A port nothing listens on, which is how a source that has stopped
-    // answering behaves.
+    // A port nothing listens on, which is how a source that stopped answering behaves.
     let mut config = (*app.state.config).clone();
     config.omdb_base_url = "http://127.0.0.1:1".to_string();
     let app = TestApp::around(app.state.clone().with_config(config));
@@ -1086,11 +1049,9 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     );
 }
 
-/// A probe names what it found. A refused key, a source asking for fewer
-/// requests and one that does not answer each call for something else of the
-/// operator (a new key, patience, a look at the network), so one warning for
-/// all three sends them to the wrong place. A source taking no key that
-/// refuses is one not answering: there is no key to check.
+/// A probe names what it found: a refused key, a source asking for fewer requests and one that
+/// does not answer each call for something else of the operator. A source taking no key that
+/// refuses is one not answering, with no key to check.
 #[tokio::test]
 async fn a_probe_names_why_a_source_did_not_answer() {
     for (status, order, verdict) in [
@@ -1122,11 +1083,9 @@ async fn a_probe_waits_while_its_source_is_held_back() {
     assert!(started.elapsed() >= std::time::Duration::from_millis(250), "the probe did not wait");
 }
 
-/// A pass counts again from zero at each source and each stage, so the task
-/// names the one its count measures, and a stage starts on no count until it
-/// has one: under one label, or beside the last stage's figures, the count
-/// says nothing true. Only the reading stage, held before its first answer,
-/// has a count to check: a search writes the one it starts on at once.
+/// A pass counts again from zero at each source and each stage, so the task names the one its
+/// count measures, and a stage starts on no count until it has one. Only the reading stage, held
+/// before its first answer, has a count to check: a search writes its own at once.
 #[tokio::test]
 async fn a_pass_names_the_source_and_stage_its_count_measures() {
     for (order, id, stage, count) in [
@@ -1207,7 +1166,7 @@ async fn a_finished_pass_counts_the_whole_pass() {
 }
 
 /// An upgrade keeps due an answer whose expiry had passed: the expiry goes,
-/// and with it the only mark that it was.
+/// and with it the only mark that it was. A TMDB answer is due too, for the score it gives.
 #[tokio::test]
 async fn an_upgrade_keeps_due_the_answers_whose_time_had_come() {
     let pool = super::database_of_0_1_5().await;
@@ -1227,11 +1186,11 @@ async fn an_upgrade_keeps_due_the_answers_whose_time_had_come() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(due, [("jikan".to_string(), true), ("tmdb".to_string(), false)]);
+    assert_eq!(due, [("jikan".to_string(), true), ("tmdb".to_string(), true)]);
 }
 
-/// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read
-/// into every ISO language and country, and leaves the other sources' answers.
+/// An upgrade has OMDb and TheTVDB asked again, for names and codes read into every ISO language
+/// and country, and TMDB for the score it gives.
 #[tokio::test]
 async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
     let pool = super::database_of_0_1_5().await;
@@ -1252,7 +1211,7 @@ async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(due, ["omdb", "tvdb"]);
+    assert_eq!(due, ["omdb", "tmdb", "tvdb"]);
 }
 
 /// An upgrade reads each cached status into the words the Arrs use, as a new

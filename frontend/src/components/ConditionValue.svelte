@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ConditionSpec, Facet } from '../api/types';
+  import type { ConditionSpec, Facet, ScoreScale } from '../api/types';
   import {
     MAX_RUNTIME,
     MIN_YEAR,
@@ -7,6 +7,7 @@
     parseNumberList,
     rejectedNumbers,
     keyOfKind,
+    parseScoreBound,
     parseStringList,
     parseWholeBound,
   } from '../api/conditions';
@@ -20,9 +21,12 @@
     suggestionsLoading = false,
     suggestionsError = null,
     describedBy,
+    scales = [],
     onChange,
   }: {
     spec?: ConditionSpec;
+    /** The scales a score range names, from the catalogue. */
+    scales?: ScoreScale[];
     value: unknown;
     /**
      * What the library carries on this condition's axis. Empty when the catalogue names no axis,
@@ -40,7 +44,38 @@
     onChange: (value: unknown, unreadable: boolean) => void;
   } = $props();
 
-  const range = $derived((value ?? {}) as { min?: number | null; max?: number | null });
+  const range = $derived(
+    (value ?? {}) as {
+      min?: number | null;
+      max?: number | null;
+      scale?: string;
+      min_votes?: number | null;
+    },
+  );
+  const chosenScale = $derived(scales.find((scale) => scale.id === range.scale) ?? scales[0]);
+
+  /** A score bound neither empty nor a number on the scale keeps the value it had. */
+  let scoreUnreadable = $state({ min: false, max: false, votes: false });
+  function typeScore(bound: 'min' | 'max', input: HTMLInputElement) {
+    const typed = input.value.trim();
+    const read = parseScoreBound(typed);
+    scoreUnreadable[bound] = input.validity.badInput || (typed !== '' && read === null);
+    const next = scoreUnreadable[bound] ? range[bound] : read;
+    onChange({ ...range, [bound]: next }, Object.values(scoreUnreadable).some(Boolean));
+  }
+  function typeVotes(input: HTMLInputElement) {
+    const typed = input.value.trim();
+    const read = parseWholeBound(typed);
+    // Below one is the server's to refuse, with the reason under the rule.
+    scoreUnreadable.votes = input.validity.badInput || (typed !== '' && read === null);
+    const next = scoreUnreadable.votes ? range.min_votes : read;
+    onChange({ ...range, min_votes: next }, Object.values(scoreUnreadable).some(Boolean));
+  }
+  function chooseScale(id: string) {
+    const scale = scales.find((each) => each.id === id);
+    // A vote count means nothing on a scale that counts none, and the server refuses it.
+    onChange({ ...range, scale: id, min_votes: scale?.votes ? range.min_votes : null }, false);
+  }
   const list = $derived(Array.isArray(value) ? (value as string[]) : []);
 
   /**
@@ -172,6 +207,74 @@
     {#if yearUnreadable}
       <p id={errorId} class="field-error">{t('EnterWholeNumber')}</p>
     {/if}
+  {:else if spec.value_type === 'score_range'}
+    <div class="flex flex-col gap-2">
+      <select
+        aria-label="{spec.label} – {t('ScoreScale')}"
+        class="form-select"
+        value={chosenScale?.id ?? ''}
+        onchange={(event) => chooseScale(event.currentTarget.value)}
+      >
+        {#each scales as scale (scale.id)}
+          <option value={scale.id}>{scale.name}</option>
+        {/each}
+      </select>
+      <div class="flex gap-2">
+        <input
+          aria-describedby={scoreUnreadable.min ? errorId : undefined}
+          aria-invalid={scoreUnreadable.min ? 'true' : undefined}
+          aria-label="{spec.label} – {t('PlaceholderYearFrom')}"
+          type="number"
+          class="form-input"
+          min="0"
+          max={chosenScale?.max}
+          step={chosenScale?.max === 10 ? '0.1' : '1'}
+          placeholder={t('PlaceholderYearFrom')}
+          value={range.min ?? ''}
+          oninput={(event) => typeScore('min', event.currentTarget)}
+        />
+        <input
+          aria-describedby={scoreUnreadable.max ? errorId : undefined}
+          aria-invalid={scoreUnreadable.max ? 'true' : undefined}
+          aria-label="{spec.label} – {t('PlaceholderYearTo')}"
+          type="number"
+          class="form-input"
+          min="0"
+          max={chosenScale?.max}
+          step={chosenScale?.max === 10 ? '0.1' : '1'}
+          placeholder={t('PlaceholderYearTo')}
+          value={range.max ?? ''}
+          oninput={(event) => typeScore('max', event.currentTarget)}
+        />
+      </div>
+      {#if scoreUnreadable.min || scoreUnreadable.max}
+        <p id={errorId} class="field-error">{t('EnterNumber')}</p>
+      {/if}
+      {#if chosenScale?.votes}
+        <!-- Labelled in sight: a filled count no longer shows the placeholder that named it. -->
+        <div class="flex flex-col gap-1">
+          <label class="text-muted text-sm" for="{errorId}-votes-field"
+            >{t('ScoreMinimumVotes')}</label
+          >
+          <input
+            id="{errorId}-votes-field"
+            aria-describedby="{errorId}-votes{scoreUnreadable.votes ? ` ${errorId}-whole` : ''}"
+            aria-invalid={scoreUnreadable.votes ? 'true' : undefined}
+            aria-label="{spec.label} – {t('ScoreMinimumVotes')}"
+            type="number"
+            class="form-input"
+            min="1"
+            step="1"
+            value={range.min_votes ?? ''}
+            oninput={(event) => typeVotes(event.currentTarget)}
+          />
+          <p id="{errorId}-votes" class="form-hint">{t('ScoreMinimumVotesHint')}</p>
+          {#if scoreUnreadable.votes}
+            <p id="{errorId}-whole" class="field-error">{t('EnterWholeNumber')}</p>
+          {/if}
+        </div>
+      {/if}
+    </div>
   {:else if spec.value_type === 'string'}
     <input
       aria-label={spec.label}

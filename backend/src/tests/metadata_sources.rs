@@ -1,10 +1,6 @@
-//! Several metadata sources, ordered by priority.
-//!
-//! The two properties worth defending: a library with **no TMDB key at all**
-//! still routes on genre, language and certification, because Radarr and Sonarr
-//! carry those in the payload the sync already reads. And when two sources
-//! disagree, the order the user set decides, field by field, with the loser
-//! still filling in what the winner had nothing to say about.
+//! Several metadata sources, ordered by priority. A library with no TMDB key still routes on
+//! what the Arr payload carries, and when two sources disagree the order decides field by field,
+//! the loser still filling what the winner lacks.
 
 use crate::services::maintenance;
 use sqlx::AssertSqlSafe;
@@ -111,8 +107,7 @@ async fn a_lower_source_still_fills_what_the_higher_one_lacks() {
     let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
-    // Radarr wins the genres above. Keywords exist only in TMDB's answer and
-    // must still be reachable.
+    // Radarr wins the genres, and the keywords exist only in TMDB's answer.
     app.seed_rule_on(serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
 
     assert_eq!(app.decided_category().await, "anime");
@@ -167,8 +162,7 @@ async fn the_explanation_names_the_source_that_answered() {
     let condition = &explanation["rule_traces"][0]["conditions"][0];
 
     assert_eq!(condition["matched"], true);
-    // Two sources hold genres and they disagree. Without this the explanation
-    // cannot be checked against either of them.
+    // Two sources disagree on the genres: the explanation names the one it read.
     assert_eq!(condition["source"], "arr");
 }
 
@@ -207,8 +201,7 @@ async fn the_provider_catalogue_reports_what_each_source_needs() {
     assert_eq!(tmdb["id"], "tmdb");
     assert_eq!(tmdb["needs_key"], true);
     assert_eq!(tmdb["configured"], false);
-    // Named, so the interface can say what to set rather than "a key is
-    // missing", which nobody can act on.
+    // Named, so the interface can say which variable to set.
     assert_eq!(tmdb["key_env"], "TMDB_API_KEY");
     assert_eq!(tmdb["media_types"], serde_json::json!(["movie", "series"]));
     // Credited and linked wherever its data is shown, as its terms ask.
@@ -264,19 +257,19 @@ async fn listed_has_metadata(app: &TestApp) -> bool {
     app.get("/api/v1/media").await.assert_ok()["data"][0]["has_metadata"] == true
 }
 
-/// A source switched off stops speaking for an item.
-///
-/// The engine reads the enabled order. A predicate filtering on nothing would
-/// let a row cached by a source the operator disabled yesterday make the column
-/// promise metadata, while the engine treats the same item as undescribed.
+/// A source switched off stops speaking for an item. The engine reads the enabled order, so a
+/// row cached by a disabled source must not make the column promise metadata.
 #[tokio::test]
 async fn a_disabled_source_no_longer_answers_for_an_item() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
-    sqlx::query("UPDATE media SET genres = '[]', original_language = NULL, certification = NULL")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL,
+                          ratings = NULL",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
     let tmdb_id: i64 = sqlx::query_scalar("SELECT tmdb_id FROM media ORDER BY id LIMIT 1")
         .fetch_one(&app.state.pool)
         .await
@@ -286,18 +279,13 @@ async fn a_disabled_source_no_longer_answers_for_an_item() {
     set_order(&app, "arr,tmdb").await;
     assert!(listed_has_metadata(&app).await, "the cached answer should count while tmdb is on");
 
-    // Another fetched source in its place, so the cache clause is still built:
-    // reduced to `arr` alone it is not emitted at all, and the check would pass
-    // whether or not the filter exists.
+    // Another fetched source, since `arr` alone omits the cache clause and proves nothing.
     set_order(&app, "arr,anilist").await;
     assert!(!listed_has_metadata(&app).await, "a source switched off still spoke for the item");
 }
 
-/// A series TheTVDB describes counts, though it carries no TMDB id.
-///
-/// A predicate looking only in the `tmdb_id` namespace would read a series
-/// enriched by a source that addresses by `tvdb_id` as undescribed for ever, on
-/// the one screen somebody opens to find out why a rule matches nothing.
+/// A series TheTVDB describes counts, though it carries no TMDB id: a predicate reading the
+/// `tmdb_id` namespace alone would call it undescribed for ever.
 #[tokio::test]
 async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
     let arr = FakeArr::start().await;
@@ -335,7 +323,8 @@ async fn a_title_known_through_anilist_has_metadata_in_the_library() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
     app.execute(&[
-        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL",
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL,
+                          ratings = NULL",
     ])
     .await;
     let (id, tmdb_id): (String, i64) =
@@ -383,10 +372,8 @@ async fn an_id_from_another_namespace_is_not_metadata() {
     assert!(!listed_has_metadata(&app).await, "another series' answer counted");
 }
 
-/// The column, the diagnostics count and the warning beside it are one question.
-///
-/// Three spellings of it is how a badge ends up contradicting the number above
-/// it.
+/// The column, the diagnostics count and the warning beside it are one question, or a badge
+/// contradicts the number above it.
 #[tokio::test]
 async fn the_three_metadata_counters_agree_on_one_library() {
     let arr = FakeArr::start().await;
@@ -413,21 +400,21 @@ async fn the_three_metadata_counters_agree_on_one_library() {
     assert!(warning_messages(&health).contains(&warning), "{health}");
 }
 
-/// A cached row is not the same as a cached *answer*.
-///
-/// One holding only a synopsis is unreadable by every condition, so the engine
-/// and the list must both say the item is unknown. Counting it would have the
-/// column promise metadata about an item no rule can touch.
+/// A cached row holding only a synopsis is no answer: no condition reads it, so the engine and
+/// the list both call the item unknown.
 #[tokio::test]
 async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
 
     // Nothing the Arr can contribute, so only the cache is left to answer.
-    sqlx::query("UPDATE media SET genres = '[]', original_language = NULL, certification = NULL")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL,
+                          ratings = NULL",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
     let tmdb_id: i64 = sqlx::query_scalar("SELECT tmdb_id FROM media ORDER BY id LIMIT 1")
         .fetch_one(&app.state.pool)
         .await
@@ -466,10 +453,8 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     );
 }
 
-/// One described field is enough, whichever it is and whoever supplied it:
-/// the engine reads every field `MetadataField` names, so the list, the
-/// diagnostics and the rule builder's count must too, or each calls "missing"
-/// an item a rule matches.
+/// One described field is enough, whichever it is and whoever supplied it: the engine reads
+/// every field `MetadataField` names, so the list, the diagnostics and the builder's count do too.
 #[tokio::test]
 async fn any_field_a_rule_reads_describes_the_item_to_every_counter() {
     let cases = [
@@ -478,6 +463,12 @@ async fn any_field_a_rule_reads_describes_the_item_to_every_counter() {
         ("an Arr certification", "certification = 'PG'", None),
         ("cached keywords", "genres = '[]'", Some("keywords = '[\"kaiju\"]'")),
         ("a cached rating", "genres = '[]'", Some("certifications = '{\"US\":\"PG\"}'")),
+        ("Radarr's score", "ratings = '{\"imdb\":{\"value\":8.1,\"votes\":9}}'", None),
+        (
+            "a cached score",
+            "genres = '[]'",
+            Some("ratings = '{\"tmdb\":{\"value\":7.9,\"votes\":9}}'"),
+        ),
     ];
     for (case, arr_field, cached) in cases {
         let app = one_undescribed_film().await;
@@ -513,7 +504,8 @@ async fn one_undescribed_film() -> TestApp {
     let app = TestApp::synced_from("radarr", &arr).await;
     app.execute(&[
         "DELETE FROM media WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)",
-        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL",
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL,
+                          ratings = NULL",
     ])
     .await;
     set_order(&app, "arr,tmdb").await;

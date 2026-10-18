@@ -122,7 +122,14 @@ export interface ConditionSpec {
   /** The dictionary key `label` was written from. */
   label_key: string;
   value_type:
-    'string' | 'string_list' | 'number' | 'number_list' | 'boolean' | 'year_range' | 'number_range';
+    | 'string'
+    | 'string_list'
+    | 'number'
+    | 'number_list'
+    | 'boolean'
+    | 'year_range'
+    | 'number_range'
+    | 'score_range';
   needs_metadata: boolean;
   /** The metadata field it reads, if any. */
   metadata_field: string | null;
@@ -253,6 +260,22 @@ export interface MetadataProviders {
 export interface ConditionCatalog {
   match_modes: MatchMode[];
   conditions: ConditionSpec[];
+  /** The scales a `score_range` names. */
+  score_scales: ScoreScale[];
+}
+
+/** A scale a score is given on: out of 10 or 100, with or without a vote count. */
+export interface ScoreScale {
+  id: string;
+  name: string;
+  max: number;
+  votes: boolean;
+}
+
+/** A score on one scale, and its votes where the scale counts them. */
+export interface Rating {
+  value: number;
+  votes: number | null;
 }
 
 export interface ValidationIssue {
@@ -518,7 +541,9 @@ export interface MediaMetadata {
   /** In the words Radarr and Sonarr use: `released`, `continuing`, `ended`... */
   status: string | null;
   overview: string | null;
-  /** Field name -> the source that supplied it. */
+  /** Each scale's score, by scale id. */
+  ratings: Record<string, Rating>;
+  /** Field name -> the source that supplied it, `ratings.<scale>` for a score. */
   field_sources: Record<string, string>;
   /** Sources that supplied at least one field, highest priority first. */
   sources: string[];
@@ -582,6 +607,8 @@ export interface ExplainedMedia {
   network: string | null;
   collection: string | null;
   collection_tmdb_id: number | null;
+  /** The scores Radarr reports, by scale, as a JSON object in a string. */
+  ratings: string | null;
   last_synced_at: string | null;
   /** The Arr's tag labels: `tags` holds the same as a JSON string. */
   tag_list: string[];
@@ -1000,7 +1027,7 @@ export interface Vocabularies {
 export interface LibraryFacets {
   total_media: number;
   vocabularies: Vocabularies;
-  /** Neither a genre nor an original language, so invisible to every metadata condition. */
+  /** Titles no source describes in any field a metadata condition reads. */
   without_metadata: number;
   genres: Facet[];
   original_languages: Facet[];

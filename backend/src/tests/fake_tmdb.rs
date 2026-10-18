@@ -1,8 +1,5 @@
-//! An in-process TMDB stand-in.
-//!
-//! Answering slowly and out of order is what this fake is for: enrichment pairs
-//! results with its input list, and a result that comes back out of order is
-//! how a movie's metadata ends up filed against a series.
+//! An in-process TMDB stand-in. It answers slowly and out of order, since enrichment pairs
+//! results with its input list and a result out of order files a movie's metadata on a series.
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -33,8 +30,7 @@ struct FakeState {
     erroring: Arc<Vec<i64>>,
     /// Ids that answer slowly, to force out-of-order completion.
     slow: Arc<Vec<i64>>,
-    /// The `Retry-After` seconds the next item request is refused with, a 429
-    /// answered once.
+    /// The `Retry-After` seconds the next item request is refused with, a 429 answered once.
     throttle: Arc<Mutex<Option<u64>>>,
     /// The status every item request answers, as TMDB does while it is down.
     down: Option<u16>,
@@ -147,8 +143,7 @@ async fn movie(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    // Two ids answer TMDB's two codes outside ISO 639-1: `cn`, its Cantonese,
-    // and `xx`, no language at all.
+    // TMDB's two codes outside ISO 639-1.
     let language = match id {
         CANTONESE => "cn",
         NO_LANGUAGE => "xx",
@@ -159,11 +154,12 @@ async fn movie(
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
         "original_language": language,
-        // Leaves `origin_country` out, as some TMDB records do, so the client
-        // falls back to `production_countries`.
+        // No `origin_country`, as on some TMDB records: the client reads `production_countries`.
         "production_countries": [{ "iso_3166_1": "JP", "name": "Japan" }],
         "status": "Released",
         "overview": "Un film.",
+        "vote_average": 7.9,
+        "vote_count": 1200,
         "poster_path": "/p.jpg",
     });
     appended(

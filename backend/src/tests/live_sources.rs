@@ -1,20 +1,13 @@
-//! Live validation against the **real** metadata APIs.
-//!
-//! The rest of the suite is offline, which keeps it fast and hermetic but
-//! shares one blind spot: a fake written to match the client drifts with it,
-//! agreeing forever while the real API moves. Captured payloads narrow that,
-//! and only a real request closes it.
-//!
-//! Ignored by default and opt-in:
+//! Live checks against the **real** metadata APIs: a fake written to match a client agrees with
+//! it forever while the real API moves, and only a real request notices. Ignored by default, and
+//! kept out of CI so a green build never depends on a third party's uptime.
 //!
 //! ```bash
 //! cargo test live_sources -- --ignored --nocapture --test-threads=1   # keyless only
 //! TMDB_API_KEY=… OMDB_API_KEY=… TVDB_API_KEY=… cargo test live_sources -- --ignored  # everything
 //! ```
 //!
-//! A source with no credential skips itself rather than failing, so the keyless
-//! pair is runnable by anyone. Excluded from CI: a green build must not depend
-//! on a third party's uptime.
+//! A source with no credential skips itself, so the keyless pair runs for anyone.
 
 use crate::config::Config;
 use crate::integrations::anilist::AniListClient;
@@ -23,12 +16,8 @@ use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 
-/// A real HTTP client with the project's own timeouts and redirect policy, so
-/// what is exercised is the shipped configuration and not a bare reqwest.
-///
-/// The shipped timeout, not the test one: the offline suite's 300 ms is spent
-/// on a loopback socket, and a real API across the internet outlasts it, which
-/// Jikan's test would report as the source being down and skip.
+/// The shipped HTTP client, its redirect policy and its timeout: the offline suite's is spent on
+/// a loopback socket, and a real API outlasts it, which Jikan's test would read as the source down.
 fn client() -> reqwest::Client {
     let config = Config {
         http_timeout: std::time::Duration::from_secs(crate::config::DEFAULT_HTTP_TIMEOUT_SECS),
@@ -52,10 +41,8 @@ async fn anilist_answers_the_shape_the_client_expects() {
     let candidates = anilist.search(TITLE, "movie").await.expect("AniList search");
     assert!(!candidates.is_empty(), "AniList returned no candidate for {TITLE}");
 
-    // The resolution contract: at least one candidate must carry a title that
-    // matches once normalised, and a year that agrees. If AniList ever stops
-    // returning `startDate.year`, resolution silently stops working, and this
-    // is the only test that would notice.
+    // A candidate must match the title once normalised and agree on the year: without
+    // `startDate.year` the resolution silently stops working, and only this test would notice.
     let matched = candidates.iter().find(|c| {
         c.titles.iter().any(|t| {
             crate::services::rule_engine::normalise_value(t)
@@ -70,6 +57,7 @@ async fn anilist_answers_the_shape_the_client_expects() {
     assert_eq!(details.origin_countries, vec!["JP"], "countryOfOrigin drifted");
     // Tags are the reason to have AniList at all.
     assert!(!details.keywords.is_empty(), "no tag cleared the agreement floor");
+    assert!(details.ratings.contains_key("anilist"), "no AniList score read");
     println!("AniList {}: {:?} / {:?}", matched.id, details.genres, details.keywords);
 }
 
@@ -123,6 +111,8 @@ async fn jikan_answers_the_shape_the_client_expects() {
     assert!(!details.genres.is_empty(), "Jikan returned no genres");
     // Themes/demographics are what this source uniquely brings.
     assert!(!details.keywords.is_empty(), "no themes or demographics came back");
+    let mal = details.ratings.get("mal").expect("no MyAnimeList score read");
+    assert!(mal.votes.is_some(), "MyAnimeList votes not read: {mal:?}");
     println!("Jikan {}: {:?} / {:?}", matched.id, details.genres, details.keywords);
 }
 
@@ -143,6 +133,8 @@ async fn tmdb_answers_the_shape_the_client_expects() {
     // The appended blocks: asked for, and answered.
     assert!(!details.keywords.is_empty(), "no keywords came back");
     assert!(details.certifications.contains_key("US"), "no US rating came back");
+    let tmdb_score = details.ratings.get("tmdb").expect("no TMDB score read");
+    assert!(tmdb_score.votes.is_some(), "TMDB votes not read: {tmdb_score:?}");
     println!("TMDB 8392: {:?} / {:?}", details.genres, details.certifications);
 }
 
@@ -168,7 +160,20 @@ async fn omdb_answers_the_shape_the_client_expects() {
     // The normalisation contract: prose in, ISO codes out.
     assert_eq!(details.original_language.as_deref(), Some("ja"), "language normalisation drifted");
     assert_eq!(details.origin_countries, vec!["JP"], "country normalisation drifted");
-    println!("OMDb {IMDB_ID}: {:?} / {:?}", details.genres, details.certification);
+    // The scores as text: `8.1`, `393,000`, `86`, `94%`. Each scale read, IMDb with its votes.
+    let imdb = details.ratings.get("imdb").expect("no IMDb score read");
+    assert!(imdb.votes.is_some_and(|votes| votes > 100_000), "IMDb votes not read: {imdb:?}");
+    for scale in ["metacritic", "rotten_tomatoes"] {
+        assert!(
+            details.ratings.contains_key(scale),
+            "no {scale} score read: {:?}",
+            details.ratings
+        );
+    }
+    println!(
+        "OMDb {IMDB_ID}: {:?} / {:?} / {:?}",
+        details.genres, details.certification, details.ratings
+    );
 }
 
 #[tokio::test]
@@ -188,8 +193,7 @@ async fn thetvdb_answers_the_shape_the_client_expects() {
         std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     );
 
-    // The login flow is the part no other source has, so it is the part most
-    // worth proving against the real service.
+    // The login flow is the part no other source has, the one most worth proving for real.
     assert!(tvdb.test_connection().await.expect("TheTVDB login"), "TheTVDB rejected the key");
 
     let details = tvdb.get_details(TVDB_SERIES).await.expect("TheTVDB details");
@@ -237,7 +241,6 @@ async fn jikan_survives_a_burst_at_the_configured_concurrency() {
     }
 
     println!("Jikan burst: {} of {} throttled", throttled, outcomes.len());
-    // Documented, not asserted: how much Jikan throttles is its business. What
-    // matters is that throttling arrives as a typed 429 the enrichment pass
-    // already knows how to back off from.
+    // Not asserted: how much Jikan throttles is its business, as long as it arrives as a typed
+    // 429 the enrichment pass backs off from.
 }

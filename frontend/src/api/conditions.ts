@@ -23,6 +23,8 @@ export function defaultConditionValue(spec: ConditionSpec): unknown {
     case 'year_range':
     case 'number_range':
       return { min: null, max: null };
+    case 'score_range':
+      return { scale: 'imdb', min: null, max: null, min_votes: null };
     case 'string':
       return '';
     default:
@@ -177,6 +179,13 @@ export const maxYear = (now = new Date()) => now.getFullYear() + 5;
 /** The longest runtime a rule may name, in minutes: `MAX_RUNTIME` in the rule engine. */
 export const MAX_RUNTIME = 1440;
 
+/** A score bound as typed, `7.5` or `7,5`, or `null` for none and for what is not a number. */
+export function parseScoreBound(input: string): number | null {
+  const trimmed = input.trim().replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
 /**
  * A whole number, or null to clear the bound rather than send 0. `Number` accepts `2e5` and
  * ` 12 ` as finite, and either stored as a year or a runtime makes a rule that matches nothing.
@@ -203,9 +212,8 @@ export function conditionAppliesTo(spec: ConditionSpec, mediaType: string): bool
 }
 
 /**
- * Name what the library holds from the vocabulary that defines it, or the held codes would be the
- * only ones shown bare (`en` above `Afrikaans (af)`). The rule builder's picker and the panel
- * above the rule table both read it, so neither shows the codes bare.
+ * Name what the library holds from the vocabulary that defines it, or the held codes are the only
+ * ones shown bare (`en` above `Afrikaans (af)`) in the rule builder and the panel above the table.
  */
 export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
   if (!vocabulary.length) return held;

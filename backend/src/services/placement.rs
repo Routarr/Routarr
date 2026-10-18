@@ -50,8 +50,8 @@ pub struct PlacementAnswer {
     pub is_override: bool,
     pub confidence: f32,
     /// The metadata fields a rule tried up to the winner reads that no source
-    /// answered: `genres`, `keywords`, `original_language`, `origin_countries`
-    /// or `certification`. A source answering one may change the placement.
+    /// answered: `genres`, `keywords`, `original_language`, `origin_countries`,
+    /// `certification` or `ratings`. A source answering one may change the placement.
     pub unanswered_fields: Vec<&'static str>,
 }
 
@@ -278,6 +278,7 @@ async fn unheld(
         network: item.network,
         collection: item.collection.as_ref().and_then(|c| c.title.clone()),
         collection_tmdb_id: item.collection.and_then(|c| c.tmdb_id),
+        ratings: serde_json::to_string(&item.ratings).ok(),
         last_synced_at: None,
     })
 }

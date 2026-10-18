@@ -1,17 +1,8 @@
 //! The metadata sources, their priority order, and where each one gets its ids.
 //!
-//! An enum rather than a `dyn` trait, like `integrations::adapter::ArrAdapter`:
-//! a provider is added in code anyway, and the enum keeps the whole set
-//! checkable at compile time.
-//!
-//! Two kinds of source:
-//!
-//! * `arr` costs nothing: Radarr and Sonarr return genres, original language
-//!   and certification in the payload the sync already reads, so it is never
-//!   fetched, rate-limited or stale, and needs no key. It is what makes the
-//!   others optional.
-//! * a *fetched* source issues one request per item and is cached in
-//!   `metadata_cache` under its own id namespace.
+//! `arr` answers from the payload the sync already reads: never fetched, paced or stale, and
+//! keyless, which makes the others optional. A fetched source issues one request per item and is
+//! cached in `metadata_cache` under its own id namespace.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -44,22 +35,17 @@ pub fn cache_days(source: &str, configured: i64) -> i64 {
     if source == TMDB { configured.min(TMDB_CACHE_DAYS) } else { configured }
 }
 
-/// Order applied when the setting is missing or unreadable: the free source
-/// alone. Every other source is opt-in: each is extra requests, and a keyed
-/// one listed without its key answers nothing and makes the diagnostics warn.
-/// A TMDB key in the environment lists TMDB at startup
+/// The order when the setting is missing or unreadable: the free source alone. Every other
+/// source is opt-in, and a TMDB key in the environment lists TMDB at startup
 /// (`maintenance::converge_metadata_sources`).
 pub const DEFAULT_ORDER: &[&str] = &[ARR];
 
 /// How a source is addressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addressing {
-    /// Answered from the `media` row. Nothing to look up, nothing to cache, no
-    /// request: this is what `arr` is.
+    /// Answered from the `media` row, with no lookup, cache or request: what `arr` is.
     Local,
-    /// The identifier is a column of `media`. It is interpolated into SQL, so it
-    /// must stay a literal from this file and never anything a user can
-    /// influence.
+    /// The identifier is a column of `media`, spliced into SQL, so it stays a literal of this file.
     Column(&'static str),
     /// The source knows none of our identifiers, so the item has to be found by
     /// title and year and the answer remembered in `source_identifiers`.
@@ -70,19 +56,14 @@ pub enum Addressing {
 #[derive(Debug, Clone, Copy)]
 pub struct ProviderInfo {
     pub id: &'static str,
-    /// Shown as-is in the interface. A proper noun in every language, like
-    /// "Radarr" and "Sonarr" everywhere else in Routarr, so it is never
-    /// translated.
+    /// Shown as-is: a proper noun in every language, never translated.
     pub display_name: &'static str,
     /// False for `arr`, whose data arrives with the library sync.
     pub fetched: bool,
     /// Whether the user must supply a credential before it can answer.
     pub needs_key: bool,
-    /// The environment variable that credential is read from.
-    ///
-    /// Named here so the interface can say *which* variable to set rather than
-    /// "an API key is missing", a message the user cannot act on. `None` for a
-    /// source that authenticates nothing.
+    /// The environment variable the credential is read from, which the interface names so the
+    /// user knows what to set. `None` for a source that authenticates nothing.
     pub key_env: Option<&'static str>,
     pub addressing: Addressing,
     pub fields: &'static [MetadataField],
@@ -94,7 +75,6 @@ pub struct ProviderInfo {
     pub website: Option<&'static str>,
 }
 
-/// What a source answering films and series answers for.
 const EVERY_MEDIA_TYPE: &[&str] = &["movie", "series"];
 
 /// Every source this build knows about, in no particular order: priority is
@@ -107,12 +87,12 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         key_env: None,
         addressing: Addressing::Local,
-        // No keywords and no origin country: the Arr APIs simply do not carry
-        // them. Those two fields are the entire reason to add a second source.
+        // No keywords and no origin country: the Arr APIs do not carry them.
         fields: &[
             MetadataField::Genres,
             MetadataField::OriginalLanguage,
             MetadataField::Certification,
+            MetadataField::Ratings,
         ],
         media_types: EVERY_MEDIA_TYPE,
         website: None,
@@ -130,6 +110,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginalLanguage,
             MetadataField::OriginCountries,
             MetadataField::Certification,
+            MetadataField::Ratings,
         ],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://www.themoviedb.org"),
@@ -142,9 +123,13 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         key_env: None,
         addressing: Addressing::Search,
-        // No certification: AniList has only an adult flag, which is not a
-        // rating a `certification_in` rule could name.
-        fields: &[MetadataField::Genres, MetadataField::Keywords, MetadataField::OriginCountries],
+        // No certification: AniList's adult flag is no rating a `certification_in` rule names.
+        fields: &[
+            MetadataField::Genres,
+            MetadataField::Keywords,
+            MetadataField::OriginCountries,
+            MetadataField::Ratings,
+        ],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://anilist.co"),
     },
@@ -155,7 +140,12 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         key_env: None,
         addressing: Addressing::Search,
-        fields: &[MetadataField::Genres, MetadataField::Keywords, MetadataField::Certification],
+        fields: &[
+            MetadataField::Genres,
+            MetadataField::Keywords,
+            MetadataField::Certification,
+            MetadataField::Ratings,
+        ],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://myanimelist.net"),
     },
@@ -163,8 +153,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         id: OMDB,
         display_name: "OMDb",
         fetched: true,
-        // A free key, but a key: OMDb rejects an unauthenticated request rather
-        // than degrading.
+        // A free key, but a key: OMDb rejects an unauthenticated request.
         needs_key: true,
         key_env: Some("OMDB_API_KEY"),
         addressing: Addressing::Column("imdb_id"),
@@ -173,6 +162,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginalLanguage,
             MetadataField::OriginCountries,
             MetadataField::Certification,
+            MetadataField::Ratings,
         ],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://www.omdbapi.com"),
@@ -195,18 +185,13 @@ pub const PROVIDERS: &[ProviderInfo] = &[
     },
 ];
 
-/// Whether a source can answer at all in this configuration.
-///
-/// A source listed by the user but missing its credential is not an error: it
-/// simply contributes nothing, and the sources below it answer instead. That is
-/// the whole promise of the ordered list.
+/// Whether a source can answer at all in this configuration. A listed source missing its
+/// credential contributes nothing, and the sources below it answer instead.
 pub fn is_usable(
     provider: &ProviderInfo,
     keys: &std::collections::HashMap<&'static str, String>,
 ) -> bool {
-    // Resolved keys rather than the config: a credential saved in the interface
-    // counts exactly as much as one handed in by the environment, and only the
-    // caller knows which of the two answered.
+    // Resolved keys: a key saved in the interface counts as much as one from the environment.
     if provider.needs_key { keys.contains_key(provider.id) } else { true }
 }
 
@@ -214,12 +199,8 @@ pub fn info(id: &str) -> Option<&'static ProviderInfo> {
     PROVIDERS.iter().find(|p| p.id == id)
 }
 
-/// Parse the `metadata_providers` setting into an order.
-///
-/// An unknown id is dropped rather than refused: a database written by a newer
-/// build that knows a source this one lacks must still route on this one,
-/// minus that source.
-/// A duplicate keeps only its first, highest, position.
+/// Parse the `metadata_providers` setting into an order. An unknown id is dropped, not refused,
+/// so a database written by a newer build still routes here. A duplicate keeps its first place.
 pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
     let mut seen: Vec<&'static ProviderInfo> = Vec::new();
     for id in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -229,9 +210,7 @@ pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
             seen.push(provider);
         }
     }
-    // `arr` is always read, last if nowhere else: the validator refuses a list
-    // without it, and a stored value written around the validator must not
-    // leave a library with no source at all.
+    // Last if unlisted: a value written around the validator must not leave no source at all.
     if !seen.iter().any(|p| p.id == "arr")
         && let Some(arr) = info("arr")
     {
@@ -240,12 +219,8 @@ pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
     seen
 }
 
-/// Metadata sources as the user ordered them, highest priority first, from the
-/// `metadata_providers` setting.
-///
-/// An absent setting is the shipped default. Any stored value, the empty
-/// string included, still yields `arr` (see `parse_order`), so turning every
-/// fetched source off leaves the library routed on what the Arr reports.
+/// Metadata sources as the user ordered them, highest priority first. An absent setting is the
+/// shipped default, and any stored value, empty included, still yields `arr` (`parse_order`).
 pub fn configured_order(setting: Option<&str>) -> Vec<&'static ProviderInfo> {
     match setting {
         Some(value) => parse_order(value),
@@ -266,11 +241,8 @@ pub fn covered_fields(providers: &[&'static ProviderInfo]) -> Vec<MetadataField>
     fields
 }
 
-/// The `arr` source: what Radarr or Sonarr already told us about this item.
-///
-/// Reads the row, never the network. A malformed `genres` payload yields no
-/// genres rather than an error, like `tag_labels`: one signal must not be able
-/// to break an evaluation.
+/// The `arr` source, read from the row. A malformed `genres` payload yields no genres rather
+/// than an error: one signal must not break an evaluation.
 pub fn from_media(media: &Media) -> ProviderMetadata {
     ProviderMetadata {
         genres: media.genre_list(),
@@ -278,32 +250,19 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
         original_language: media.original_language.clone(),
         origin_countries: Vec::new(),
         certification: media.certification.clone(),
-        // The instance's, which the row does not hold: set by whoever knows
-        // the instance (`routing::resolve_metadata`).
+        // The instance's, which the row does not hold: set by `routing::resolve_metadata`.
         certification_scale: None,
         certifications: Default::default(),
-        // `status` and `overview` stay empty: the first is already a
-        // column of `media` that the engine reads directly, and the other two
-        // are not in the Arr payloads.
+        // `status` is a `media` column the engine reads, and no Arr payload carries `overview`.
         status: None,
         overview: None,
+        ratings: media.rating_map(),
     }
 }
 
-/// A source that has to be asked over the network.
-///
-/// A new source adds a variant here, and the compiler finds every exhaustive
-/// match on it. It does not find the arms that fall through to a default when
-/// the source is missing from them: `resolve` for a `Search` source (the source
-/// resolves nothing and is never fetched), `rate` for a paced public endpoint
-/// (it goes unpaced), `AppState::metadata_sources` (no client is ever built),
-/// and for a keyed source `provider_key_from` and `provider_keys_from` (its
-/// environment key is never read, and the source never counts as usable).
-/// The one pace every request to a source waits on, the enrichment pass's,
-/// `GET /route`'s and the health probe's alike: each at the full published
-/// rate, they would ask twice as fast as the source allows, and its 429s stop
-/// a pass. Held by the state rather than the process, so two states never
-/// slow each other.
+/// The one pace every request to a source waits on, the enrichment's, `GET /route`'s and the
+/// health probe's alike: each at the full rate, they would earn the 429s that stop a pass. Held
+/// by the state rather than the process, so two states never slow each other.
 #[derive(Debug, Clone, Default)]
 pub struct Paces(Arc<std::sync::Mutex<HashMap<&'static str, RateLimiter>>>);
 
@@ -320,6 +279,10 @@ impl Paces {
     }
 }
 
+/// A source asked over the network. The compiler finds a new variant's exhaustive matches, not
+/// the arms that fall through: `resolve` for a `Search` source, `rate` for a paced public
+/// endpoint, `AppState::metadata_sources`, and for a keyed source `provider_key_from` and
+/// `provider_keys_from`.
 #[derive(Debug, Clone)]
 pub enum FetchingSource {
     Tmdb(TmdbClient),
@@ -344,46 +307,30 @@ impl FetchingSource {
         info(self.id()).map(|provider| provider.addressing).unwrap_or(Addressing::Local)
     }
 
-    /// The sustained ceiling, in requests per minute, and the burst an idle
-    /// bucket holds.
-    ///
-    /// Concurrency bounds how many requests are *open*. This bounds how many are
-    /// *made*. Four in flight against a fast source is forty a second, which is
-    /// how a pass earns a 429 while never exceeding its concurrency cap.
-    /// These are the *published* limits of the *public* endpoints, so they only
-    /// apply while a source is pointed at one. A base URL the operator changed
-    /// is a mirror, a caching proxy or a local instance. It has its own limits,
-    /// usually none, and pacing it to a third party's ceiling would be a delay
-    /// bought for nothing.
+    /// The sustained ceiling, in requests per minute, and the burst an idle bucket holds.
+    /// Concurrency bounds the requests open, this the requests made. These are the public
+    /// endpoints' limits: a changed base URL is a mirror or a proxy with limits of its own.
     pub fn rate(&self) -> Option<(u32, u32)> {
         match self {
-            // AniList documents 30 a minute while degraded, 90 otherwise, and
-            // states the one in force beside each answer, which the pace
-            // follows (`paced_after`). Nothing authenticates, so the limit is
-            // per address and shared with anything else on the host.
+            // 30 a minute degraded, 90 otherwise: `paced_after` follows the one stated.
             Self::AniList(client)
                 if client.base_url() == crate::integrations::anilist::DEFAULT_BASE_URL =>
             {
                 Some((30, 2))
             }
-            // Jikan documents three a second *and* sixty a minute. The minute is
-            // the binding one, and it is unofficial infrastructure that deserves
-            // the politeness.
+            // Three a second and sixty a minute: the minute binds.
             Self::Jikan(client)
                 if client.base_url() == crate::integrations::jikan::DEFAULT_BASE_URL =>
             {
                 Some((60, 3))
             }
-            // OMDb's free tier is a daily quota rather than a rate, but it is
-            // one person's hobby server: a modest ceiling costs nothing.
+            // A daily quota rather than a rate, but a modest ceiling spares a hobby server.
             Self::Omdb(client)
                 if client.base_url() == crate::integrations::omdb::DEFAULT_BASE_URL =>
             {
                 Some((300, 10))
             }
-            // TMDB publishes about forty a second, which concurrency stays
-            // under, and TheTVDB publishes none. A new source on a paced public
-            // endpoint lands here too until it has its own arm, and goes unpaced.
+            // TMDB's forty a second is above what concurrency allows, and TheTVDB publishes none.
             _ => None,
         }
     }
@@ -413,11 +360,8 @@ impl FetchingSource {
         }
     }
 
-    /// How many of this source's requests may be in flight at once.
-    ///
-    /// Jikan is an unofficial service with a documented handful of requests per
-    /// second. The shared setting is a ceiling, not a target, and exceeding it
-    /// here would only earn the 429 that stops the whole pass.
+    /// How many of this source's requests may be in flight at once. Jikan allows a handful a
+    /// second, and more would only earn the 429 that stops the whole pass.
     pub fn concurrency(&self, configured: usize) -> usize {
         match self {
             Self::Jikan(_) => configured.min(2),
@@ -435,11 +379,6 @@ impl FetchingSource {
         }
     }
 
-    /// Find this source's identifier for an item it has no shared id with.
-    ///
-    /// Returns `None` when nothing matched. That is an answer in its own right,
-    /// and the one that stops the next pass from searching again for the same
-    /// item.
     /// [`FetchingSource::resolve`], a search the source refuses for this
     /// title read as one that found nothing ([`is_a_miss`]).
     pub async fn find(
@@ -463,6 +402,8 @@ impl FetchingSource {
         }
     }
 
+    /// This source's identifier for an item it shares no id with. `None` when nothing matched,
+    /// an answer that stops the next pass from searching again.
     pub async fn resolve(
         &self,
         title: &str,
@@ -487,8 +428,6 @@ impl FetchingSource {
                 ))
             }
             // Every other source is addressed by an id the library already has.
-            // A new `Search` source without its own arm lands here as well, and
-            // silently resolves nothing, so it is never fetched either.
             _ => Ok(None),
         }
     }
@@ -507,6 +446,7 @@ impl FetchingSource {
                     certifications: details.certifications,
                     status: details.status,
                     overview: details.overview,
+                    ratings: details.ratings,
                     ..Default::default()
                 }
             }
@@ -518,6 +458,7 @@ impl FetchingSource {
                     origin_countries: details.origin_countries,
                     status: details.status,
                     overview: details.overview,
+                    ratings: details.ratings,
                     ..Default::default()
                 }
             }
@@ -534,6 +475,7 @@ impl FetchingSource {
                     certification: details.certification,
                     status: details.status,
                     overview: details.overview,
+                    ratings: details.ratings,
                     ..Default::default()
                 }
             }
@@ -547,6 +489,7 @@ impl FetchingSource {
                     certification_scale: details.certification.as_ref().map(|_| "US".to_string()),
                     certification: details.certification,
                     overview: details.overview,
+                    ratings: details.ratings,
                     ..Default::default()
                 }
             }
@@ -586,12 +529,9 @@ fn numeric(external_id: &str, service: &str) -> AppResult<i64> {
 
 // ------------------------------------------------------------ resolution
 
-/// Accept a candidate only on an exact title match and a year that agrees.
-///
-/// Deliberately strict. A search is the one place where a source can attach the
-/// *wrong* work to a media item, and a wrong genre routes a film into the wrong
-/// folder, which is the failure this whole application exists to avoid. Better
-/// to resolve nothing and let the source below answer.
+/// Accept a candidate only on an exact title match and a year that agrees. A search is where a
+/// source can attach the wrong work, whose genres route a film into the wrong folder: better to
+/// resolve nothing and let the source below answer.
 fn pick_candidate<I>(title: &str, year: Option<i64>, candidates: I) -> Option<String>
 where
     I: IntoIterator<Item = (String, Option<i64>, Vec<String>)>,
@@ -603,15 +543,12 @@ where
 
     for (id, candidate_year, titles) in candidates {
         let title_matches = titles.iter().any(|t| normalise_value(t) == wanted);
-        // A release year drifts by one between databases (a December film is a
-        // January release elsewhere), so one year of tolerance and no more.
+        // A year drifts by one between databases: a December film is a January one elsewhere.
         let year_matches = match (year, candidate_year) {
             (Some(wanted), Some(found)) => (wanted - found).abs() <= 1,
-            // The library not knowing the year is not the candidate's fault, so
-            // an exact title match alone has to carry it.
+            // An unknown library year is not the candidate's fault: the exact title carries it.
             (None, _) => true,
-            // The candidate not knowing its own year, when we know ours, is too
-            // little to go on.
+            // A candidate not knowing its year, when ours is known, is too little to go on.
             (Some(_), None) => false,
         };
 
@@ -623,10 +560,8 @@ where
     None
 }
 
-/// The library's own identity for an item, namespaced by the id it comes from.
-///
-/// Shared by every instance holding the same item, so a film present in two
-/// Radarrs is searched for once, not twice.
+/// The library's own identity for an item, namespaced by the id it comes from. Shared by every
+/// instance holding the item, so a film in two Radarrs is searched for once.
 pub fn local_key(media: &Media) -> String {
     local_key_of(media.tmdb_id, media.tvdb_id, media.imdb_id.as_deref(), &media.title, media.year)
 }
@@ -667,7 +602,6 @@ pub async fn load_identifiers(connection: &mut sqlx::SqliteConnection) -> AppRes
         .collect())
 }
 
-/// The resolutions made for one item, which is all one media page reads.
 /// Whether the cached answer of `source` for `external_id` was asked for
 /// again. An answer that cannot be read is taken as current: asking a source
 /// on a database error is a request spent for nothing.
@@ -690,6 +624,7 @@ pub async fn is_stale(
     stale.unwrap_or(false)
 }
 
+/// The resolutions made for these items, which is all one media page reads.
 pub async fn load_identifiers_of(
     connection: &mut sqlx::SqliteConnection,
     media: &[Media],
@@ -725,16 +660,9 @@ pub async fn load_identifiers_of(
     Ok(identifiers)
 }
 
-/// How long a search that found nothing for `key` holds before the source is
-/// asked again: thirty days and up to ten more, the same ones for a key each
-/// time.
-///
-/// A work is often listed after the library holds it: a film indexed before its
-/// release is not on AniList or MyAnimeList yet. Not every pass either: a
-/// library's worth of misses, searched again each week against sources paced
-/// to about a request a second, would hold the enrichment for hours. And not
-/// on one day: the misses of a first pass would all come due in the same hours
-/// a month later.
+/// How long a search that found nothing for `key` holds: thirty days and up to ten more, the
+/// same for a key each time. A work is often listed late, but every miss searched each pass would
+/// hold a paced enrichment for hours, and one shared lifetime would bring them all due at once.
 fn miss_lifetime(key: &str) -> chrono::Duration {
     use sha2::Digest;
     let spread = sha2::Sha256::digest(key.as_bytes())[0] % 11;
@@ -769,12 +697,9 @@ pub async fn resolved_keys(pool: &SqlitePool, source: &str) -> AppResult<HashSet
 /// titles that may be anime, the default, or for every title.
 pub const ANIME_SEARCH: [&str; 2] = ["animated", "all"];
 
-/// Whether a source found by search may be searched for a title its Arr files
-/// under `genres` and `series_type`, under the `anime_search` setting `scope`.
-///
-/// Both such sources, AniList and MyAnimeList, list anime alone, so by default
-/// only a title that may be anime is: one filed under Animation or Anime, an
-/// anime series, or one with no genre yet to tell.
+/// Whether a source found by search may be searched for a title its Arr files under `genres` and
+/// `series_type`. AniList and MyAnimeList list anime alone, so under the default `scope` only a
+/// title that may be anime is: Animation or Anime, an anime series, or no genre yet.
 pub fn may_search(scope: &str, genres: &[String], series_type: Option<&str>) -> bool {
     scope == ANIME_SEARCH[1]
         || series_type.is_some_and(|kind| kind.eq_ignore_ascii_case("anime"))
@@ -784,10 +709,8 @@ pub fn may_search(scope: &str, genres: &[String], series_type: Option<&str>) -> 
             .any(|genre| matches!(normalise_value(genre).as_str(), "animation" | "anime"))
 }
 
-/// `(media_type, local_key)` as one string, for set membership.
-///
-/// The separator is a character no title can contain, so a series and a film
-/// with the same key can never collide.
+/// `(media_type, local_key)` as one string. No title holds the separator, so a series and a film
+/// with the same key never collide.
 pub fn resolution_key(media_type: &str, local_key: &str) -> String {
     format!("{media_type}\u{1f}{local_key}")
 }
@@ -841,15 +764,12 @@ pub fn external_id(
     }
 }
 
-/// One row of `metadata_cache`, as the per-item path reads it.
-///
-/// A named `FromRow` rather than a tuple: sqlx is used without compile-time
-/// macros here, so a tuple would bind by position and a column inserted in the
-/// middle of the list would fail at run time, on whichever path happened to run
-/// it. `FromRow` maps by name.
+/// One row of `metadata_cache`, as the per-item path reads it. A named `FromRow`, since a tuple
+/// binds by position and a column inserted in the list would fail at run time.
 #[derive(Debug, sqlx::FromRow)]
 pub struct CacheRow {
     pub genres: String,
+    pub ratings: String,
     pub keywords: String,
     pub original_language: Option<String>,
     pub origin_countries: String,
@@ -860,24 +780,17 @@ pub struct CacheRow {
     pub overview: Option<String>,
 }
 
-/// The columns a rule can actually be written against.
-///
-/// `MetadataField` names five: genres, keywords, original language, origin
-/// countries, certification. The status and the synopsis are matchable by no
-/// condition, and the routing pass never opens them. A TMDB overview runs
-/// several times longer than an AniList one, so reading them in `load_cache`
-/// would load, for nothing, a share of the cache that grows with every source
-/// an operator adds.
-///
-/// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows both,
-/// and one row is not worth a second query to trim.
+/// The columns a rule can be written against. No condition reads the status or the synopsis,
+/// and the overviews would weigh on `load_cache` for nothing, so only the per-item path reads
+/// them (`CACHE_COLUMNS`), for the explanation panel.
 pub const EVALUATED_COLUMNS: &str = "source, external_id, media_type, genres, keywords,
-     original_language, origin_countries, certification, certification_scale, certifications";
+     original_language, origin_countries, certification, certification_scale, certifications,
+     ratings";
 
 /// What one row answers with. The three key columns are not among them: the
 /// only reader addresses a row by them and never reads them back.
 pub const CACHE_COLUMNS: &str = "genres, keywords, original_language, origin_countries,
-     certification, certification_scale, certifications, status, overview";
+     certification, certification_scale, certifications, status, overview, ratings";
 
 impl CacheRow {
     /// Malformed JSON yields an empty list rather than an error: one bad cache
@@ -893,6 +806,7 @@ impl CacheRow {
             certifications: serde_json::from_str(&self.certifications).unwrap_or_default(),
             status: self.status,
             overview: self.overview,
+            ratings: serde_json::from_str(&self.ratings).unwrap_or_default(),
         }
     }
 }
@@ -910,14 +824,9 @@ pub fn rating_for(
     })
 }
 
-/// `metadata_cache` as a table expression whose `certification` and
-/// `certification_scale` hold what [`rating_for`] picks for `regions` from a
-/// row's `certifications`, for the SQL that counts or lists ratings. A rating
-/// the row holds in its own column stands, as the merge keeps it.
-///
-/// The regions are spliced, never bound, so the expression reads in any
-/// query whatever it binds: only two ASCII letters are kept, which is all a
-/// country code is and all the settings accept.
+/// `metadata_cache` as a table expression whose `certification` and `certification_scale` hold
+/// what [`rating_for`] picks for `regions`, unless the row's own column holds a rating. The
+/// regions are spliced, never bound, so it reads in any query: only two ASCII letters are kept.
 pub fn rated_cache(regions: &[String]) -> String {
     let codes: Vec<String> = regions
         .iter()
@@ -947,23 +856,20 @@ pub fn rated_cache(regions: &[String]) -> String {
                  origin_countries,
                  COALESCE(certification, {value}) AS certification,
                  CASE WHEN certification IS NOT NULL THEN certification_scale
-                      ELSE {region} END AS certification_scale
+                      ELSE {region} END AS certification_scale,
+                 ratings
             FROM metadata_cache)",
         value = picked("TRIM(k.value)"),
         region = picked("k.key"),
     )
 }
 
-/// Every cached answer, keyed by `(source, external id, media type)`.
-///
-/// Loaded whole, once per simulation: the alternative is one query per item and
-/// per source, which the query count in `tests/scale.rs` refuses.
+/// Every cached answer, keyed by `(source, external id, media type)`. Loaded whole, once per
+/// simulation: a query per item and source is what `tests/scale.rs` refuses.
 pub async fn load_cache(
     connection: &mut sqlx::SqliteConnection,
 ) -> AppResult<std::collections::HashMap<(String, String, String), ProviderMetadata>> {
-    /// The evaluated columns and nothing else. A named `FromRow` for the same
-    /// reason `CacheRow` is one: sqlx has no compile-time macros here, so a
-    /// tuple would bind by position.
+    /// The evaluated columns alone, named for the reason `CacheRow` is.
     #[derive(Debug, sqlx::FromRow)]
     struct EvaluatedRow {
         source: String,
@@ -976,6 +882,7 @@ pub async fn load_cache(
         certification: Option<String>,
         certification_scale: Option<String>,
         certifications: String,
+        ratings: String,
     }
 
     let rows: Vec<EvaluatedRow> =
@@ -994,8 +901,8 @@ pub async fn load_cache(
                 certification: row.certification,
                 certification_scale: row.certification_scale,
                 certifications: row.certifications,
-                // Not loaded, because no condition can read them. The per-item
-                // path is where the panel gets them.
+                ratings: row.ratings,
+                // No condition reads them, and the panel gets them from the per-item path.
                 status: None,
                 overview: None,
             }
@@ -1005,13 +912,8 @@ pub async fn load_cache(
         .collect())
 }
 
-/// The cached answers for the items named, keyed as [`load_cache`] keys the
-/// library's.
-///
-/// Every column of each row, `CACHE_COLUMNS`: the one-item readers show the
-/// status and the synopsis beside what the rules read. One lookup
-/// per source and media type that holds an identifier for an item, its ids
-/// bound in chunks.
+/// The cached answers for the items named, keyed as [`load_cache`] keys the library's. Every
+/// column, `CACHE_COLUMNS`, since the one-item readers show the status and the synopsis.
 pub async fn load_cache_of(
     connection: &mut sqlx::SqliteConnection,
     media: &[Media],
@@ -1119,8 +1021,7 @@ mod tests {
     }
 
     /// A source may spell a title without its accents, or with them where the
-    /// library has none, and the rules already read both as one value. A search
-    /// that compared them strictly would leave the work unresolved.
+    /// library has none, and the rules already read both as one value.
     #[test]
     fn a_title_matches_its_candidate_whatever_its_accents() {
         let candidates = || {
@@ -1190,10 +1091,9 @@ mod tests {
         assert_eq!(days, (30..=40).collect());
     }
 
-    /// AniList and MyAnimeList list anime alone: a title is searched there when
-    /// its Arr files it under Animation or Anime, however spelt, when it is an
-    /// anime series, or when no genre tells yet, and any title when the
-    /// setting says so.
+    /// A title is searched on AniList and MyAnimeList when filed under Animation or Anime,
+    /// however spelt, as an anime series, or with no genre yet, and any title when the setting
+    /// says so.
     #[test]
     fn only_a_title_that_may_be_anime_is_searched_by_default() {
         let genres = |names: &[&str]| names.iter().map(|name| name.to_string()).collect::<Vec<_>>();
@@ -1205,10 +1105,9 @@ mod tests {
         assert!(may_search("all", &genres(&["Drama"]), None));
     }
 
-    /// The year agrees within one year either way, no further, and a candidate
-    /// that does not know its year is refused when the library knows it. A
-    /// title of punctuation alone matches nothing, and the first candidate
-    /// that matches is the one taken.
+    /// The year agrees within one either way, and a candidate without a year is refused when
+    /// the library knows it. A title of punctuation alone matches nothing, and the first
+    /// candidate that matches is taken.
     #[test]
     fn a_candidate_is_taken_on_its_title_and_a_year_within_one() {
         let totoro = |id: &str, year: Option<i64>| {
@@ -1241,6 +1140,6 @@ mod tests {
     #[test]
     fn adding_tmdb_covers_every_field() {
         let fields = covered_fields(&[info(ARR).unwrap(), info(TMDB).unwrap()]);
-        assert_eq!(fields.len(), 5);
+        assert_eq!(fields.len(), MetadataField::ALL.len());
     }
 }

@@ -699,14 +699,18 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         "added": "2026-08-20T10:00:00Z",
         "sizeOnDisk": 8_589_934_592i64,
         "tags": [1],
-        // Radarr sends the language as a name, which the sync turns into the `ja` a rule names.
         "genres": ["Animation", "Family"],
+        // Radarr sends the language as a name, which the sync turns into the `ja` a rule names.
         "originalLanguage": { "id": 8, "name": "Japanese" },
         "certification": "G",
         "qualityProfileId": 4,
         "runtime": 86,
         "studio": "Studio Ghibli",
-        "collection": { "title": "Studio Ghibli Collection", "tmdbId": 1000 }
+        "collection": { "title": "Studio Ghibli Collection", "tmdbId": 1000 },
+        "ratings": {
+            "imdb": { "votes": 393000, "value": 8.1, "type": "user" },
+            "rottenTomatoes": { "votes": 0, "value": 94, "type": "user" }
+        }
     });
     laid_over(&state.movie_edits, 10, &mut movie);
     movie

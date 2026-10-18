@@ -75,6 +75,8 @@ pub struct RadarrMovie {
     pub studio: Option<String>,
     #[serde(default, deserialize_with = "super::lenient_collection", skip_serializing)]
     pub collection: Option<super::ArrCollection>,
+    #[serde(default, deserialize_with = "super::lenient_ratings", skip_serializing)]
+    pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
 }
 
 /// What Radarr counts of a movie on disk.

@@ -1,12 +1,6 @@
-//! AniList, through its public GraphQL API.
-//!
-//! The one source in the set that needs **no credential of any kind**, and the
-//! one that is strongest exactly where TMDB is weakest: it knows what an anime
-//! is, its country of origin, and it carries community tags that make far better
-//! keywords than TMDB's sparse ones.
-//!
-//! It has no TMDB, TVDB or IMDb identifier, so an item has to be found by title
-//! and year first, which `services::metadata` does once and remembers.
+//! AniList, through its public GraphQL API, which needs no credential. It knows anime, their
+//! country of origin and community tags. With no TMDB, TVDB or IMDb id, an item is found by
+//! title and year first, which `services::metadata` does once and remembers.
 
 use std::sync::{Arc, Mutex};
 
@@ -40,6 +34,7 @@ const DETAILS_QUERY: &str = "query ($id: Int) {
     status
     description(asHtml: false)
     tags { name rank }
+    averageScore
   }
 }";
 
@@ -60,7 +55,6 @@ pub struct AniListCandidate {
     pub titles: Vec<String>,
 }
 
-/// What AniList knows about one work.
 #[derive(Debug, Clone, Default)]
 pub struct AniListDetails {
     pub genres: Vec<String>,
@@ -68,6 +62,8 @@ pub struct AniListDetails {
     pub origin_countries: Vec<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
+    /// AniList's score, out of 100.
+    pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
 }
 
 /// AniList answers a failure with a 200, `data: null` and an `errors` list.
@@ -152,12 +148,14 @@ struct RawDetails {
     description: Option<String>,
     #[serde(default)]
     tags: Vec<RawTag>,
+    #[serde(rename = "averageScore")]
+    average_score: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawTag {
     name: String,
-    /// 0–100 community agreement. A tag nobody agrees with is noise in a rule.
+    /// Community agreement, 0 to 100.
     rank: Option<i64>,
 }
 
@@ -210,9 +208,7 @@ impl AniListClient {
     /// Candidates for a title, most relevant first.
     pub async fn search(&self, title: &str, media_type: &str) -> AppResult<Vec<AniListCandidate>> {
         debug!("Searching AniList for {title}");
-        // AniList's own vocabulary: a film is `MOVIE`, anything episodic is left
-        // unconstrained rather than guessed at (TV, OVA, ONA and SPECIAL are all
-        // "a series" as far as Sonarr is concerned).
+        // TV, OVA, ONA and SPECIAL are all a series to Sonarr, so only a film's format is asked.
         let format = if media_type == "movie" { Some("MOVIE") } else { None };
 
         let response: GraphQlResponse<SearchData> = self
@@ -258,6 +254,7 @@ fn details_of(raw: RawDetails) -> AniListDetails {
         origin_countries: raw.country_of_origin.into_iter().collect(),
         status: raw.status,
         overview: raw.description,
+        ratings: crate::models::rating("anilist", raw.average_score, None).into_iter().collect(),
     }
 }
 
@@ -285,8 +282,7 @@ mod tests {
         };
         let titles = titles_of(Some(title), vec!["Totoro".into()]);
 
-        // A library names it in English, AniList indexes it in romaji: matching
-        // on one spelling only would resolve almost nothing.
+        // A library names it in English and AniList indexes it in romaji.
         assert_eq!(titles.len(), 4);
         assert!(titles.contains(&"My Neighbor Totoro".to_string()));
     }
@@ -296,14 +292,9 @@ mod tests {
         assert!(titles_of(None, vec![]).is_empty());
     }
 
-    /// A captured-shape AniList search response, deserialised through the real
-    /// client types. This is what guards against the wire format drifting from
-    /// what the mapping expects, the one thing an in-process fake cannot do,
-    /// because the fake is written to match the mapping rather than the API.
-    ///
-    /// The realistic edges are deliberate: `english` is `null` (common for a
-    /// work indexed only in romaji), and there are extra fields the client does
-    /// not read (`format`, `episodes`) which serde must ignore.
+    /// A captured-shape search through the real client types guards the wire format, which a
+    /// fake written to the mapping cannot. `english` is `null`, as for a work indexed only in
+    /// romaji, and serde must ignore `format` and `episodes`.
     #[test]
     fn a_real_shape_search_payload_deserialises_and_maps() {
         let json = r#"{
@@ -337,6 +328,7 @@ mod tests {
             "genres": ["Adventure", "Comedy", "Supernatural"],
             "countryOfOrigin": "JP",
             "status": "FINISHED",
+            "averageScore": 85,
             "description": "Two young girls move to the countryside.",
             "tags": [
               { "name": "Rural", "rank": 88 },
@@ -353,5 +345,6 @@ mod tests {
         assert_eq!(details.origin_countries, vec!["JP"]);
         // Only the tags above the agreement floor become keywords.
         assert_eq!(details.keywords, vec!["Iyashikei", "Rural"]);
+        assert_eq!(details.ratings["anilist"].value, 85.0);
     }
 }

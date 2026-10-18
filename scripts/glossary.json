@@ -780,5 +780,38 @@
       "zh_CN": "质量配置",
       "zh_TW": "品質設定檔"
     }
+  },
+  "score": {
+    "en": "\\bscores?\\b",
+    "except": [
+      "TermTextConfidence"
+    ],
+    "words": {
+      "ar": "ت[ً-ْـ]*ق[ً-ْـ]*ي[ً-ْـ]*ي[ً-ْـ]*م",
+      "ca": "puntuaci",
+      "cs": "hodnocen",
+      "da": "bedømmels",
+      "de": "bewertung",
+      "el": "βαθμολογ",
+      "es": "puntuaci",
+      "fi": "arvosan",
+      "fr": "\\bnotes?\\b",
+      "hu": "pontszám",
+      "it": "puntegg",
+      "ja": "スコア",
+      "ko": "점수",
+      "nb_NO": "poengsum",
+      "nl": "\\bscore",
+      "pl": "ocen",
+      "pt": "pontua(ç|c)",
+      "ro": "scor",
+      "ru": "оцен",
+      "sk": "hodnoten",
+      "sv": "betyg",
+      "tr": "puan",
+      "uk": "оцін",
+      "zh_CN": "评分",
+      "zh_TW": "評分"
+    }
   }
 }
