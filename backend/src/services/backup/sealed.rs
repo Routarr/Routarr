@@ -1,26 +1,16 @@
-//! Archives sealed with the backup passphrase.
-//!
-//! An archive carries the master key, which opens every credential the
-//! database holds, so a copy of the backup folder (an off-site sync, a NAS
-//! share) is worth as much as the installation itself. With a passphrase set,
-//! every archive is sealed for it, and worth nothing without it.
-//!
-//! The format, all of it read before a byte is opened:
+//! Archives sealed with the backup passphrase: an archive carries the master key, so a copy
+//! of the backup folder is worth the installation itself unless it is sealed.
 //!
 //! ```text
 //! MAGIC (8) | Argon2id memory KiB, passes, lanes (3 x u32 LE) | salt (16)
 //!   | STREAM nonce prefix (7) | digest (16) | check (16) | chunks
 //! ```
 //!
-//! `digest`, a SHA-256 of the header before it, says the header arrived as it
-//! was written. The passphrase and the salt give, through Argon2id, the
-//! AES-256-GCM key and a key for `check`, an HMAC of the header before it: a
-//! header whole whose check another passphrase gives is the wrong passphrase,
-//! said before anything is opened, and a header altered is damage.
-//! The archive follows in chunks of [`CHUNK`] bytes, each sealed with the
-//! STREAM construction (Hoang, Reyhanitabar, Rogaway, Vizár, 2015) and the
-//! whole header as associated data, the last flagged as last: a chunk altered,
-//! moved, dropped or added after the end does not open.
+//! `digest`, a SHA-256 of what precedes it, tells damage. `check`, an HMAC of what precedes it
+//! under a key Argon2id derives from the passphrase, then tells a wrong passphrase before
+//! anything is opened. Each chunk is sealed with STREAM over AES-256-GCM, the header as
+//! associated data and the last one flagged, so a chunk altered, moved, dropped or appended
+//! does not open.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -65,14 +55,13 @@ const CHECK_LEN: usize = 16;
 
 const HEADER_LEN: usize = MAGIC.len() + 12 + SALT_LEN + PREFIX_LEN + DIGEST_LEN + CHECK_LEN;
 
-/// How much of the archive one chunk seals.
+/// Plaintext bytes per chunk. Absent from the header, so a change breaks every sealed archive.
 const CHUNK: usize = 64 * 1024;
 
 const TAG_LEN: usize = 16;
 
-/// What an archive's key is derived with: Argon2id at 64 MiB and three
-/// passes, above OWASP's floor of 19 MiB and two, paid once per archive sealed
-/// or opened. Written in each archive, so a later change opens the old ones.
+/// Above OWASP's Argon2id floor of 19 MiB and two passes. Written in each archive, so a change
+/// still opens the old ones.
 const SEALING_COST: Cost = Cost { memory_kib: 64 * 1024, passes: 3, lanes: 1 };
 
 /// The most an archive may ask to be opened with: a header written by hand
@@ -92,7 +81,6 @@ impl Cost {
     }
 }
 
-/// Whether an archive's name says it is sealed.
 pub fn is_sealed_name(name: &str) -> bool {
     name.ends_with(SUFFIX)
 }
@@ -104,9 +92,8 @@ pub fn is_sealed_file(path: &Path) -> bool {
         && &start == MAGIC
 }
 
-/// A passphrase as typed, trimmed and in Unicode's composed form (NFC, as
-/// RFC 8265 asks), the same words whatever keyboard typed them. The text it
-/// came in is wiped.
+/// A passphrase as typed, trimmed and in NFC as RFC 8265 asks, so any keyboard types the same
+/// words. The text it came in is wiped.
 pub fn passphrase_of(mut typed: String) -> Passphrase {
     use unicode_normalization::UnicodeNormalization;
     use zeroize::Zeroize;
@@ -116,9 +103,8 @@ pub fn passphrase_of(mut typed: String) -> Passphrase {
     normalised
 }
 
-/// The passphrase the settings hold, opened. `None` when none is set, and an
-/// error when one is set and cannot be opened: an archive taken in the clear
-/// in its place would carry the credentials the operator asked to seal.
+/// The stored passphrase, opened, or `None` when none is set. An error when it cannot be
+/// opened: an archive taken in the clear instead would expose what the operator sealed.
 pub async fn passphrase(state: &AppState) -> AppResult<Option<Passphrase>> {
     let settings = state.settings().await;
     let Some(sealed) = settings.raw(SETTING).filter(|value| !value.trim().is_empty()) else {
@@ -131,10 +117,8 @@ pub async fn passphrase(state: &AppState) -> AppResult<Option<Passphrase>> {
     Ok(Some(passphrase_of(opened)))
 }
 
-/// The passphrase a database holds, for the work done before the server
-/// builds its state: the backup before a migration, and the commands run
-/// with the server stopped. The master key is read where it is, never
-/// generated: a start that finds it missing has to refuse.
+/// The passphrase a database holds, read before the server builds its state. The master key
+/// is read where it is, never generated: a start that finds it missing has to refuse.
 pub async fn stored_passphrase(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
@@ -191,8 +175,7 @@ fn check(check_key: &[u8], header: &[u8]) -> AppResult<[u8; CHECK_LEN]> {
     Ok(check)
 }
 
-/// The digest a header carries of itself: what tells damage from a wrong
-/// passphrase.
+/// The digest a header carries of itself: what tells damage from a wrong passphrase.
 fn digest(header: &[u8]) -> [u8; DIGEST_LEN] {
     use sha2::Digest;
 
@@ -380,9 +363,8 @@ pub(super) struct Opened {
     _scaffold: Scaffold,
 }
 
-/// Open the sealed `archive` with the first of `passphrases` that opens it,
-/// into a file of its own in the work directory of `data_dir`. `Ok(None)` when
-/// none does, or none was given.
+/// Open the sealed `archive` into a file of its own in the work directory, with the first of
+/// `passphrases` that opens it. `Ok(None)` when none does.
 pub(super) fn opened_copy(
     data_dir: &Path,
     archive: &Path,
@@ -399,10 +381,9 @@ pub(super) fn opened_copy(
     Ok(None)
 }
 
-/// The manifest of a sealed archive, read from its first chunk alone: the
-/// manifest is the archive's first entry, and opening the whole of it to read
-/// a few hundred bytes would cost a full copy of the database. `None` when
-/// `passphrase` does not open it.
+/// The manifest of a sealed archive, read from its first chunk alone since `build_zip` writes
+/// it first: opening the whole archive costs a copy of the database. `None` when `passphrase`
+/// does not open it.
 pub(super) fn manifest(
     sealed: &Path,
     passphrase: &Passphrase,
@@ -431,7 +412,7 @@ pub(super) fn manifest(
     else {
         return Err(AppError::BadRequest(localizer.translate("ErrorBackupNoManifest", &[])));
     };
-    if entry.name() != super::MANIFEST_ENTRY {
+    if entry.name().map_err(|e| unreadable(&e))? != super::MANIFEST_ENTRY {
         return Err(AppError::BadRequest(localizer.translate("ErrorBackupNoManifest", &[])));
     }
     let mut raw = String::new();
@@ -444,20 +425,12 @@ pub(super) fn manifest(
 pub struct Resealed {
     /// Archives sealed, sealed again or opened.
     pub changed: usize,
-    /// Archives left as they are: sealed with a passphrase neither the old
-    /// nor the new one is, or that could not be converted, each logged.
+    /// Archives left as they are, each logged: sealed with neither passphrase, or not converted.
     pub left: usize,
 }
 
-/// Bring every archive on disk to the passphrase now set: seal those in the
-/// clear, seal again those `old` sealed, and open them all when the
-/// passphrase is removed. An archive neither passphrase opens, sealed with an
-/// older one, or that fails to convert, is left as it is and counted, and the
-/// pass goes on to the next: one archive must not leave all the others as
-/// they were.
-///
-/// After any backup already running, under the same lock: an archive taken
-/// meanwhile would be missed, or found half written.
+/// Bring every archive to `new`, opening them all when it is `None`. One that fails is left and
+/// counted, and the pass goes on. Under the backup lock, so no archive is written meanwhile.
 pub async fn reseal(
     state: &AppState,
     old: Option<Passphrase>,
@@ -538,8 +511,7 @@ fn reseal_one(
         (false, None) => return Ok(Some(false)),
         (false, Some(new)) => seal(&path, &partial, new)?,
         (true, _) => {
-            // Already sealed for the new passphrase, as an interrupted pass
-            // leaves the archives it reached.
+            // Already sealed for `new`, as an interrupted pass leaves the archives it reached.
             if let Some(new) = new
                 && opens(&path, new, localizer)?
             {
@@ -591,9 +563,8 @@ pub async fn set(state: &AppState, new: Passphrase, by: Attribution) -> AppResul
     Ok(())
 }
 
-/// Seal what a pass interrupted left in the clear, after a start: a
-/// passphrase is set and an archive on disk is not sealed. Archives sealed
-/// with an older passphrase stay as they are, the old one being gone.
+/// At a start, seal the archives an interrupted pass left in the clear. Those sealed with an
+/// older passphrase stay as they are, the old one being gone.
 pub async fn resume(state: &AppState) {
     let current = match passphrase(state).await {
         Ok(Some(current)) => current,
@@ -608,8 +579,7 @@ pub async fn resume(state: &AppState) {
     reseal_in_background(state, None, Some(current), by);
 }
 
-/// The pass that brings the archives to a passphrase changed in the settings,
-/// on a task of its own: the save answers at once, and the pass shows on the
+/// Run `reseal` on a task of its own, so the save answers at once and the pass shows on the
 /// Tasks screen.
 pub fn reseal_in_background(
     state: &AppState,
@@ -686,9 +656,7 @@ mod tests {
         assert!(opens(&sealed, &passphrase("the passphrase"), &english()).unwrap());
     }
 
-    /// Each way a sealed file can be altered after it was written: a byte
-    /// flipped, the last chunk cut off, a chunk added after the end, two
-    /// chunks swapped. None opens.
+    /// A sealed file altered by a byte or by a whole chunk never opens.
     #[test]
     fn an_archive_altered_in_any_way_does_not_open() {
         let dir = crate::tests::TempDir::new("seal-altered");
@@ -719,9 +687,8 @@ mod tests {
         }
     }
 
-    /// A header written by hand asking for more than a restore spends, in
-    /// memory, passes or lanes, and a file that is no sealed archive, are
-    /// refused before any work.
+    /// A header asking for more memory, passes or lanes than a restore spends is refused before
+    /// any work, as is a file that is no sealed archive.
     #[test]
     fn a_header_asking_too_much_or_none_at_all_is_refused() {
         let dir = crate::tests::TempDir::new("seal-header");
