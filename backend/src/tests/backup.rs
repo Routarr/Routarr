@@ -1,9 +1,5 @@
-//! Backups: taking one, keeping the right number, and restoring safely.
-//!
-//! The property that matters most is not that a zip appears. It is that the
-//! archive is **self-sufficient**, and that a restore never half-applies. A
-//! database restored without `routarr.key` opens fine and has no readable Arr
-//! credential in it, which is the failure a backup exists to prevent.
+//! Backups: taking one, keeping the right number, and restoring safely. An archive carries its
+//! master key, without which no restored credential opens, and a restore never half-applies.
 
 use crate::localization::Localizer;
 use crate::services::backup;
@@ -11,19 +7,14 @@ use crate::state::AppState;
 
 use super::{TempDir, TestApp, warning_messages};
 
-/// A harness backed by a real database file in a throwaway directory.
-///
-/// Not the usual in-memory pool: a backup is a *file* operation, and
-/// `VACUUM INTO`, the whole point of taking a consistent copy without stopping
-/// the server, does nothing at all against `:memory:`. Testing it there would
-/// prove something that cannot happen in production.
+/// A harness on a real database file in a throwaway directory, since `VACUUM INTO` writes
+/// nothing against `:memory:`.
 pub(crate) async fn app_with_files(label: &str) -> (TestApp, TempDir) {
     let dir = TempDir::new(&format!("backup-{label}"));
 
     let mut config = crate::config::Config::for_tests();
     config.set_db_path(dir.join("routarr.db"));
-    // The file is the key, as on an installation that never set
-    // `ROUTARR_SECRET_KEY`: what the archive carries is what sealed the data.
+    // The key file seals the data, as on an installation without `ROUTARR_SECRET_KEY`.
     config.secret_key = None;
     std::fs::write(config.secret_key_path(), "a-master-key").unwrap();
     std::fs::write(config.api_key_path(), "an-api-key").unwrap();
@@ -44,13 +35,11 @@ pub(crate) async fn app_with_files(label: &str) -> (TestApp, TempDir) {
 fn entries(archive: &std::path::Path) -> Vec<String> {
     let file = std::fs::File::open(archive).unwrap();
     let mut zip = zip::ZipArchive::new(file).unwrap();
-    (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_string()).collect()
+    (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().unwrap().to_string()).collect()
 }
 
-/// With the master key in `ROUTARR_SECRET_KEY`, a `routarr.key` beside the
-/// database is a stale file, not the key anything is sealed with. The archive
-/// leaves it out and says it carries no key, so the restore warns rather than
-/// opening a database nothing can read.
+/// With the master key in `ROUTARR_SECRET_KEY`, a stale `routarr.key` stays out of the archive,
+/// and the manifest says it carries no key.
 #[tokio::test]
 async fn a_key_from_the_environment_is_not_claimed_by_the_archive() {
     let (app, dir) = app_with_files("environment-key").await;
@@ -72,8 +61,7 @@ async fn a_backup_carries_everything_a_restore_needs() {
     let archive = dir.join("backups").join(&file.name);
     let names = entries(&archive);
 
-    // The database alone is not a backup: without the master key every Arr
-    // credential in it is undecryptable.
+    // Without the master key, no Arr credential in the database decrypts.
     assert!(names.contains(&"routarr.db".to_string()));
     assert!(names.contains(&"routarr.key".to_string()));
     assert!(names.contains(&"routarr.api_key".to_string()));
@@ -92,8 +80,7 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
 
-    // Extract the database and open it: a `VACUUM INTO` snapshot has to be a
-    // valid, self-contained database, WAL folded in.
+    // A `VACUUM INTO` snapshot is a self-contained database, the WAL folded in.
     let extracted = dir.join("extracted.db");
     {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
@@ -110,10 +97,8 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
     pool.close().await;
 }
 
-/// The hourly pass folds the write-ahead log into the database file, so a
-/// copy of `routarr.db` alone, taken while Routarr runs, holds what was written
-/// before the pass rather than possibly no table at all. Such a copy is still
-/// not a safe one: the archives are.
+/// The maintenance pass folds the WAL into the database file, so a copy of `routarr.db` taken
+/// while Routarr runs holds what was written before the pass.
 #[tokio::test]
 async fn a_maintenance_pass_folds_the_log_into_the_database() {
     let (app, dir) = app_with_files("checkpoint").await;
@@ -132,10 +117,8 @@ async fn a_maintenance_pass_folds_the_log_into_the_database() {
     pool.close().await;
 }
 
-/// A retention count stored above the ceiling this build enforces is honoured
-/// as it is: lowering it removes archives, and nothing but the operator's own
-/// save may do that. Named in the warnings until then, since the screen
-/// refuses to save it as it stands.
+/// A retention count above the ceiling stays until the operator's own save lowers it, since
+/// lowering it removes archives. The warnings name it by its label meanwhile.
 #[tokio::test]
 async fn a_retention_count_above_the_maximum_is_kept_until_the_operator_lowers_it() {
     let (app, dir) = app_with_files("retention-ceiling").await;
@@ -189,8 +172,7 @@ async fn only_the_retained_count_survives_a_prune() {
 
     app.store_setting("backup_retention_count", "2").await;
 
-    // The name carries a second-resolution timestamp, so three in the same
-    // second would collide. They are written directly instead.
+    // Written by hand, since three backups taken in one second would share a name.
     let backups = dir.join("backups");
     std::fs::create_dir_all(&backups).unwrap();
     for stamp in ["20260101-000000", "20260102-000000", "20260103-000000"] {
@@ -236,10 +218,10 @@ async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
     {
         let mut source = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
         let mut out = zip::ZipWriter::new(std::fs::File::create(&forged).unwrap());
-        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+        let options = zip::write::SimpleFileOptions::default();
         for i in 0..source.len() {
             let mut entry = source.by_index(i).unwrap();
-            let name = entry.name().to_string();
+            let name = entry.name().unwrap().to_string();
             out.start_file(&name, options).unwrap();
             if name == "manifest.json" {
                 let manifest = serde_json::json!({
@@ -261,8 +243,6 @@ async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
     let message = outcome.expect_err("a newer schema must be refused").to_string();
     assert!(message.contains("Upgrade Routarr, then restore"), "unhelpful refusal: {message}");
 
-    // And nothing was staged: a refusal that still wrote files would be worse
-    // than no check at all.
     let staged = dir.join("routarr.db.restore-pending");
     assert!(!staged.exists(), "a refused restore left files behind");
 }
@@ -274,13 +254,12 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
 
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
-    // Change the live database after the backup, so a successful restore is
-    // observable rather than a no-op.
+    // Changed after the backup, so the restore is observable.
     sqlx::query("DELETE FROM media").execute(&app.state.pool).await.unwrap();
 
     backup::stage_restore(&app.state, &file.name, None).await.unwrap();
 
-    // Staged, not swapped: the pool is still open on the old file.
+    // Only staged: the pool is still open on the old file.
     assert!(dir.join("routarr.db.restore-pending").exists());
     let live: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&app.state.pool).await.unwrap();
@@ -297,8 +276,7 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     let restored: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
     assert_eq!(restored, 1, "the staged database was not applied");
-    // The backup that wrote the archive is in it as the success it was, not
-    // as a task the next start finds running and marks interrupted.
+    // The backup's own job is in the archive as a success, never as one left running.
     let interrupted = crate::jobs::JobRegistry::new(pool.clone()).recover_orphans().await.unwrap();
     assert_eq!(interrupted, 0, "the restored database holds its backup as still running");
     let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE kind = 'backup'")
@@ -309,9 +287,7 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     pool.close().await;
 }
 
-/// A restore brings back the library of its day, not a credential the
-/// installation has withdrawn since: a key revoked because it leaked stays
-/// revoked, and the notifications keep the signing secrets of today.
+/// A key revoked since the backup stays revoked, and the signing secrets stay today's.
 #[tokio::test]
 async fn a_restore_brings_back_no_credential_withdrawn_since() {
     use crate::services::{applications, notify};
@@ -359,12 +335,9 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
     pool.close().await;
 }
 
-/// A master key or a signing secret withdrawn since the backup stays
-/// withdrawn. The installation then holds neither, as a new host does, and
-/// only the record of the withdrawal tells the two apart: a new host still
-/// gets the archive's, and so does one whose withdrawn credentials were
-/// replaced, then lost. A key `ROUTARR_API_KEY` stands in for is not brought
-/// back either, and the record goes with the restored database.
+/// The master API key or a signing secret withdrawn since the backup stays withdrawn, and the
+/// record travels. A new host, or one whose replacements were lost, gets the archive's. A key
+/// `ROUTARR_API_KEY` overrides is not brought back.
 #[tokio::test]
 async fn a_restore_brings_back_no_key_or_secret_withdrawn_since() {
     use crate::services::notify;
@@ -425,8 +398,8 @@ async fn a_restore_brings_back_no_key_or_secret_withdrawn_since() {
     }
 }
 
-/// A restore writes the record of withdrawals into an archive 0.1.5 took,
-/// before that table existed, and the next start's migration still applies.
+/// A restore writes the withdrawals table into an archive older than it, and the next start's
+/// migration still applies.
 #[tokio::test]
 async fn an_archive_given_the_withdrawals_ahead_of_its_migration_still_upgrades() {
     let pool = super::database_of_0_1_5().await;
@@ -448,9 +421,8 @@ async fn an_archive_given_the_withdrawals_ahead_of_its_migration_still_upgrades(
     assert_eq!(kept, 1, "the migration replaced the record the restore wrote");
 }
 
-/// The master API key and the account's password are today's too: one
-/// rotated or changed because it leaked is not brought back, and every session
-/// the archive held is closed, as a changed password closes them.
+/// A restore keeps today's master API key and password, and closes every session the archive
+/// held.
 #[tokio::test]
 async fn a_restore_keeps_todays_api_key_and_password_and_signs_everyone_out() {
     let (app, _dir) = app_with_files("signins").await;
@@ -487,10 +459,8 @@ async fn a_restore_keeps_todays_api_key_and_password_and_signs_everyone_out() {
     pool.close().await;
 }
 
-/// A restore onto a host whose key file is not the archive's, as a new host
-/// generates one, brings the archive's back: every credential sealed under it
-/// opens again. Counting the restored rows would pass with the keys swapped
-/// or left behind, and the restore would open a database nothing can read.
+/// A restore onto a new host brings back the archive's key file, and its credentials open.
+/// Counting rows would pass with the key left behind.
 #[tokio::test]
 async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
     let (app, _dir) = app_with_files("keys-travel").await;
@@ -514,10 +484,8 @@ async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
     assert_eq!(std::fs::read_to_string(config.api_key_path()).unwrap(), "an-api-key");
 }
 
-/// On a host where `ROUTARR_SECRET_KEY` is set, that key wins at the next
-/// start over the `routarr.key` a restore brings back. An archive sealed under
-/// its key file would then restore credentials nothing can open, so it is
-/// refused while it can still be, naming the variable.
+/// With `ROUTARR_SECRET_KEY` set, which wins over a restored `routarr.key`, an archive sealed
+/// under its key file is refused at staging, naming the variable.
 #[tokio::test]
 async fn a_restore_the_next_start_could_not_open_is_refused() {
     let (app, dir) = app_with_files("environment-wins").await;
@@ -533,9 +501,8 @@ async fn a_restore_the_next_start_could_not_open_is_refused() {
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
 }
 
-/// Without the variable the next start opens with the key file the archive
-/// brings back. One that is not the key its credentials were sealed with, as
-/// an archive taken while the variable was set could carry, is refused too.
+/// Without the variable, an archive whose own key file does not open its credentials is
+/// refused too.
 #[tokio::test]
 async fn a_restore_whose_own_key_file_cannot_open_it_is_refused() {
     let (app, dir) = app_with_files("stale-key-file").await;
@@ -553,9 +520,8 @@ async fn a_restore_whose_own_key_file_cannot_open_it_is_refused() {
     assert!(refused.to_string().contains("routarr.key"), "{refused}");
 }
 
-/// A name taken from the URL never leaves the backup folder: the routes that
-/// download, delete and restore an archive each refuse one that climbs out,
-/// and the file it names, the master key here, is left as it was.
+/// The download, delete and restore routes each refuse a name that climbs out of the backup
+/// folder, and leave the file it names untouched.
 #[tokio::test]
 async fn no_backup_route_reaches_a_file_outside_the_backup_folder() {
     let (app, dir) = app_with_files("traversal").await;
@@ -574,9 +540,8 @@ async fn no_backup_route_reaches_a_file_outside_the_backup_folder() {
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "something was staged");
 }
 
-/// A start applies a staged restore before it opens anything the archive
-/// replaces: the database it opens, and the master key it opens it with, are
-/// the archive's, not the ones on disk before the restart.
+/// A start applies a staged restore before opening anything, so the database and the master
+/// key it opens are the archive's.
 #[tokio::test]
 async fn a_start_opens_the_restored_database_with_the_restored_key() {
     let (app, dir) = app_with_files("start-order").await;
@@ -597,9 +562,8 @@ async fn a_start_opens_the_restored_database_with_the_restored_key() {
     assert_eq!(secrets.open(&sealed).expect("opened with the key of before"), "arr-key");
 }
 
-/// Everything a start writes beside the database holds a secret or the data:
-/// the master key, the generated password, the database and its sidecars,
-/// each readable by the owner alone.
+/// Every file a start writes beside the database holds a secret or the data, so each is
+/// readable by its owner alone.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_start_leaves_every_file_it_writes_readable_by_its_owner_alone() {
@@ -663,9 +627,8 @@ async fn a_second_backup_in_the_same_second_is_refused_before_any_copy() {
     assert_eq!(left, Vec::<String>::new(), "a copy was written for nothing");
 }
 
-/// A restore keeps the database it replaces, beside it as
-/// `routarr.db.pre-restore`: the wrong line picked in the list of archives
-/// would otherwise lose everything written since that archive.
+/// A restore sets the database it replaces aside as `routarr.db.pre-restore`, so picking the
+/// wrong archive loses nothing written since.
 #[tokio::test]
 async fn a_restore_keeps_the_database_it_replaces() {
     let (app, dir) = app_with_files("pre-restore").await;
@@ -704,11 +667,8 @@ fn restore_leftovers(dir: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// Flip one byte in the middle of an entry's compressed data.
-///
-/// The zip reader checks an entry's CRC only once it has read the entry to its
-/// end, so the damage is found after part of it has already been copied out,
-/// which is the moment a restore has to recover from.
+/// Flip one byte in the middle of an entry's compressed data, which the CRC finds only once
+/// part of the entry is copied out.
 pub(crate) fn damage_entry(archive: &std::path::Path, entry: &str) {
     let (start, size) = {
         let mut zip = zip::ZipArchive::new(std::fs::File::open(archive).unwrap()).unwrap();
@@ -736,10 +696,10 @@ fn rewrite(
 ) {
     let mut source = zip::ZipArchive::new(std::fs::File::open(archive).unwrap()).unwrap();
     let mut out = zip::ZipWriter::new(std::fs::File::create(forged).unwrap());
-    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     for i in 0..source.len() {
         let mut file = source.by_index(i).unwrap();
-        let name = file.name().to_string();
+        let name = file.name().unwrap().to_string();
         if name != entry {
             out.start_file(&name, options).unwrap();
             std::io::copy(&mut file, &mut out).unwrap();
@@ -779,8 +739,7 @@ async fn a_restore_that_fails_while_staging_leaves_nothing_for_the_next_start() 
         .await
         .expect_err("a damaged archive must be refused");
 
-    // What was copied before the damage was found must not stay behind: the
-    // next start would move it over the live database.
+    // What is copied before the damage is found would replace the live database.
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
     assert!(
         matches!(refused, crate::error::AppError::BadRequest(_)),
@@ -798,9 +757,7 @@ async fn an_archive_whose_database_is_not_one_is_refused_before_anything_is_stag
     let (app, dir) = app_with_files("empty-db").await;
     let backups = dir.join("backups");
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
-    // A well-formed archive whose database entry is empty: its CRC is right,
-    // its manifest reads, and restoring it would start the next run on an
-    // empty schema.
+    // An empty database entry: its CRC is right and its manifest reads.
     forge(
         &backups.join(&file.name),
         &backups.join("routarr-backup-20000101-000000.zip"),
@@ -823,8 +780,7 @@ async fn a_pending_restore_that_cannot_be_read_is_not_applied_at_the_next_start(
     let config = app.state.config.clone();
     app.state.pool.close().await;
 
-    // A pending set whose database is not one, damaged since it was staged.
-    // The next start is where it would be applied.
+    // A pending set whose database is damaged after staging.
     std::fs::write(dir.join("routarr.db.restore-pending"), b"not a database").unwrap();
     std::fs::write(dir.join("routarr.key.restore-pending"), b"another-master-key").unwrap();
 
@@ -852,9 +808,7 @@ async fn keys_pending_without_their_database_are_not_applied() {
     let config = app.state.config.clone();
     app.state.pool.close().await;
 
-    // The database is staged, and applied, last. Keys pending without it are a
-    // staging that stopped before its end, and applied alone they would leave
-    // the live database under a master key that does not open it.
+    // Keys pending alone are an interrupted staging, and would lock the live database away.
     std::fs::write(dir.join("routarr.key.restore-pending"), b"another-master-key").unwrap();
 
     assert!(!backup::apply_pending_restore(&config).await.unwrap(), "keys were applied alone");
@@ -892,9 +846,8 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
     );
 }
 
-/// `integrity_check` is what finds damage inside a database whose first pages
-/// read: the migrations table answers, and a page further in is garbage that
-/// the first query to reach it after the restart reports as a malformed file.
+/// A database whose first pages read and whose later page is garbage is refused at staging,
+/// since `integrity_check` finds it.
 #[tokio::test]
 async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
     let (app, dir) = app_with_files("damaged-inside").await;
@@ -902,8 +855,7 @@ async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
     let backups = dir.join("backups");
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
-    // The media table's page, found in the archive's own database and then
-    // overwritten with a page type SQLite does not have.
+    // The media table's root page, given a page type SQLite does not have.
     let copy = dir.join("inspected.db");
     std::fs::write(&copy, entry_bytes(&backups.join(&file.name), "routarr.db")).unwrap();
     let inspect = sqlx::SqlitePool::connect(&format!("sqlite://{}", copy.display())).await.unwrap();
@@ -930,10 +882,8 @@ async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
 }
 
-/// A key entry the archive holds and cannot read is a damaged archive, not an
-/// archive without a key. Taken for an absent one, the restore goes ahead
-/// without it while the manifest says the key is included, and after the
-/// restart no Arr credential opens.
+/// A key entry the archive holds and cannot read is refused as damage: taken for an absent
+/// key, the restore would leave no Arr credential readable.
 #[tokio::test]
 async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
     let (app, dir) = app_with_files("damaged-key").await;
@@ -958,9 +908,8 @@ async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
 }
 
-/// The manifest says whether the master key travelled. An archive that says
-/// it did and does not carry it has lost it, and restoring its database under
-/// the current key leaves every sealed credential unreadable.
+/// An archive missing the master key its manifest lists is refused: restored under the
+/// current key, no sealed credential would open.
 #[tokio::test]
 async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
     let (app, dir) = app_with_files("missing-key").await;
@@ -981,9 +930,7 @@ async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
 }
 
-/// A restore that is refused replaces nothing. Discarded before the second
-/// archive is read, the first one is lost, and the operator hears only about
-/// the second.
+/// A refused restore leaves the one already staged in place.
 #[tokio::test]
 async fn a_refused_restore_leaves_the_one_already_staged() {
     let (app, dir) = app_with_files("refused-second").await;
@@ -1010,9 +957,8 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
     );
 }
 
-/// Two stagings write the same files. A request dropped by a proxy leaves its
-/// staging running on a blocking thread, and a retry beside it would have the
-/// first one remove, or overwrite, what the second has just checked.
+/// Stagings write the same files, so a second waits for the first, which runs on after a
+/// proxy drops its request.
 #[tokio::test]
 async fn a_restore_is_staged_one_at_a_time() {
     let (app, _dir) = app_with_files("one-at-a-time").await;
@@ -1031,9 +977,8 @@ async fn a_restore_is_staged_one_at_a_time() {
     backup::stage_restore(&app.state, &file.name, None).await.unwrap();
 }
 
-/// A newer binary may stage a restore and an older one make the next start.
-/// The migrations only go forward, so the older one would run against a schema
-/// it does not know.
+/// A database pending from a newer schema, as a newer binary may stage before a downgrade, is
+/// not applied.
 #[tokio::test]
 async fn a_pending_database_from_a_newer_schema_is_not_applied() {
     let (app, dir) = app_with_files("newer-pending").await;
@@ -1057,10 +1002,8 @@ async fn a_pending_database_from_a_newer_schema_is_not_applied() {
     assert_eq!(media_count(&config).await, 1, "the live database did not survive");
 }
 
-/// A process killed mid-backup or mid-staging leaves files no later pass takes
-/// away: a copy of the whole database, an archive holding the master key in
-/// clear, a staged database. Nothing else runs at a start, so that is where
-/// they go.
+/// A start sweeps what a killed backup or staging leaves, database copies and the master key
+/// in the clear, and nothing else.
 #[tokio::test]
 async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
     let (app, dir) = app_with_files("sweep").await;
@@ -1100,9 +1043,8 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
 
 // ------------------------------------------------------------------- API
 
-/// A backup runs to its end whatever its caller does. One whose caller left
-/// still writes its archive and says so on its task, and holds the backup
-/// lock until then, so a second one asked meanwhile waits its turn.
+/// A backup whose caller leaves still writes its archive, records it on its task and holds
+/// the lock until then.
 #[tokio::test]
 async fn a_backup_whose_caller_leaves_still_records_its_outcome() {
     let (app, dir) = app_with_files("caller-leaves").await;
@@ -1136,9 +1078,7 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     let created = app.post("/api/v1/backups", serde_json::json!({})).await;
     let name = created.assert_ok()["name"].as_str().unwrap().to_string();
 
-    // Dated by the stamp in its name, as retention and the schedule read it,
-    // not by the file's own date, which a copy of the folder to a new host
-    // resets.
+    // Dated by the stamp in its name, since a copy of the folder resets the file's own date.
     let file = std::fs::File::options().write(true).open(dir.join("backups").join(&name)).unwrap();
     file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200)).unwrap();
     let stamp = name.trim_start_matches("routarr-backup-").trim_end_matches(".zip");
@@ -1151,10 +1091,7 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     let listed_at = body["backups"][0]["created_at"].as_str().unwrap();
     assert_eq!(listed_at, stamped.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
 
-    // The download is the point of the route, beyond its refusals: the bytes
-    // have to be the archive, typed as one. Asked by a browser, which accepts
-    // gzip: an archive is compressed already, and gzipped again it loses the
-    // length a download's progress reads.
+    // Asked as a browser would: gzipped again, an archive loses the length progress reads.
     use http_body_util::BodyExt;
     let request = axum::http::Request::get(format!("/api/v1/backups/{name}"))
         .header("accept-encoding", "gzip, deflate, br")
@@ -1188,9 +1125,7 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
 
 // ------------------------------------------------- what bounds the list
 
-/// Pruning only after a backup is taken would leave every archive above the new
-/// retention on disk, and on screen, until the next scheduled run, which with a
-/// 24-hour interval is the next day.
+/// A lowered retention prunes at the save, without waiting for the next scheduled backup.
 #[tokio::test]
 async fn lowering_the_retention_takes_effect_immediately() {
     let (app, dir) = app_with_files("retention-now").await;
@@ -1235,8 +1170,7 @@ async fn the_restore_route_stages_and_asks_for_a_restart() {
     // Staged beside the database, never swapped under a live pool.
     assert!(dir.join("routarr.db.restore-pending").exists());
 
-    // A name that is not a backup must not become a path: this route turns a
-    // URL segment into a filename, next to the master key.
+    // This route turns a URL segment into a file name, next to the master key.
     let refused = app.post("/api/v1/backups/..%2Froutarr.key/restore", serde_json::json!({})).await;
     assert_ne!(
         refused.status,
@@ -1246,10 +1180,8 @@ async fn the_restore_route_stages_and_asks_for_a_restart() {
     );
 }
 
-/// An installation whose master key lives in `ROUTARR_SECRET_KEY` has no key
-/// file, so its archives carry none. Restoring one elsewhere leaves every
-/// sealed Arr credential unreadable, and the manifest is the only thing that
-/// can say so before the restart makes it visible.
+/// An archive taken without a key file says so in its manifest, and the restore returns it:
+/// it is the only warning before the restart.
 #[tokio::test]
 async fn an_archive_without_the_master_key_says_so() {
     let (app, dir) = app_with_files("no-master-key").await;
@@ -1263,30 +1195,18 @@ async fn an_archive_without_the_master_key_says_so() {
     let manifest = backup::read_manifest(&archive, &Localizer::new("en")).unwrap();
     assert!(!manifest.includes_master_key, "the manifest has to admit it");
 
-    // And the restore hands that answer to the caller rather than swallowing
-    // it: this is what the interface warns on.
+    // The interface warns on what the restore returns.
     let staged = backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     assert!(!staged.includes_master_key);
 }
 
-/// A backup that fails is retried on its own cadence, not on every tick.
-///
-/// Stamped on success alone, `last_backup` would bring a backup failing for a
-/// reason that will not resolve itself (a full disk, a directory it cannot
-/// write) due again at the very next tick. With the default fifteen-minute
-/// interval that is ninety-six `VACUUM INTO` a day against SQLite's single
-/// writer, and ninety-six failed rows on the screen an operator opens to find
-/// out what needs attention.
-///
-/// `sync` already draws this line: `last_sync_attempt_at` is stamped always,
-/// `last_sync_at` only on success. This is the same distinction, for a job
-/// that costs far more.
+/// A failing backup waits for its interval like a working one: stamped on success alone,
+/// `last_backup` would retry it at every tick.
 #[tokio::test]
 async fn a_backup_that_cannot_be_written_is_not_retried_every_tick() {
     let (app, dir) = app_with_files("failing-cadence").await;
 
-    // A file where the backups directory has to be: `create_dir_all` fails and
-    // no amount of retrying will change that.
+    // A file where the backups directory goes, so every attempt fails.
     std::fs::write(dir.join("backups"), b"not a directory").unwrap();
 
     set_enabled(&app).await;
@@ -1315,9 +1235,7 @@ async fn a_backup_that_cannot_be_written_is_not_retried_every_tick() {
     assert_eq!(attempts, 1, "a failing backup was attempted {attempts} times in two ticks");
 }
 
-/// What worked is stamped as what failed is: a second tick inside every
-/// interval syncs nothing again, backs up nothing again and purges nothing
-/// again. A success left unstamped would run on every tick.
+/// A success is stamped as a failure is, or it would run again at every tick.
 #[tokio::test]
 async fn a_second_tick_inside_every_interval_repeats_nothing_that_worked() {
     let (app, _dir) = app_with_files("working-cadence").await;
@@ -1378,9 +1296,8 @@ async fn open_file(path: &std::path::Path) -> sqlx::SqliteConnection {
         .unwrap()
 }
 
-/// An archive a newer release migrated further than this build knows is
-/// refused when it is staged, as the start that would apply it refuses it,
-/// rather than staged and then refused at every start.
+/// An archive a newer release migrated is refused at staging, as the start applying it would
+/// refuse it.
 #[tokio::test]
 async fn an_archive_a_newer_release_migrated_is_refused_when_staged() {
     let (app, dir) = app_with_files("ahead").await;
@@ -1394,9 +1311,7 @@ async fn an_archive_a_newer_release_migrated_is_refused_when_staged() {
     assert!(!dir.join("routarr.db.restore-pending").exists(), "a refused restore left files");
 }
 
-/// A pending restore whose database a newer release migrated, as one staged
-/// by that release before going back, is set aside at the start rather than
-/// applied and then refused at every start.
+/// A pending restore whose database a newer release migrated is discarded at the start.
 #[tokio::test]
 async fn a_pending_restore_a_newer_release_migrated_is_discarded() {
     let (app, dir) = app_with_files("ahead-pending").await;
@@ -1435,9 +1350,8 @@ async fn a_restore_can_be_staged_without_the_server() {
     assert_eq!(titles, 1, "the archive was not restored");
 }
 
-/// A start refused for a database a newer release migrated names the way
-/// back: the newest archive this build can open, and the command restoring it
-/// with the server stopped.
+/// A start refused for a database a newer release migrated names the newest archive this
+/// build can open, and the command restoring it.
 #[tokio::test]
 async fn a_refused_start_names_the_archive_to_restore() {
     let (app, _dir) = app_with_files("refused-start").await;
@@ -1452,9 +1366,8 @@ async fn a_refused_start_names_the_archive_to_restore() {
     assert!(message.contains(&format!("routarr restore {}", file.name)), "{message}");
 }
 
-/// A start that migrates a database takes a backup of it first, at the schema
-/// it had: the archives kept afterwards are of the new schema, which the
-/// release before cannot open. A first start has nothing to keep.
+/// A start that migrates a database backs it up first, at the schema it had. A first start
+/// has nothing to back up.
 #[tokio::test]
 async fn a_start_that_migrates_takes_a_backup_first() {
     let backups = |dir: &TempDir| -> Vec<String> {
@@ -1493,9 +1406,8 @@ async fn a_start_that_migrates_takes_a_backup_first() {
     assert_eq!(manifest.schema, "013_opened_by", "the archive is not of the schema 0.1.5 left");
 }
 
-/// An archive a release older than 0.1.5 took is refused, naming 0.1.5: its
-/// database holds a schema no migration of this release starts from, and the
-/// next start would refuse it once restored. Nothing is staged.
+/// An archive older than this build's first migration is refused, naming the release to go
+/// through, and nothing is staged.
 #[tokio::test]
 async fn an_archive_from_before_0_1_5_is_refused_naming_the_release_to_go_through() {
     let (app, dir) = app_with_files("before-0-1-5").await;
@@ -1504,7 +1416,7 @@ async fn an_archive_from_before_0_1_5_is_refused_naming_the_release_to_go_throug
     {
         let archive = std::fs::File::create(dir.join("backups").join(name)).unwrap();
         let mut zip = zip::ZipWriter::new(archive);
-        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+        let options = zip::write::SimpleFileOptions::default();
         zip.start_file("manifest.json", options).unwrap();
         let manifest = serde_json::json!({
             "version": "0.1.2", "schema": "010_job_result",
@@ -1524,9 +1436,8 @@ async fn an_archive_from_before_0_1_5_is_refused_naming_the_release_to_go_throug
     assert!(!dir.join("routarr.db.restore-pending").exists(), "something was staged");
 }
 
-/// No archive for twice the interval says so: the schedule stopped, or its
-/// failures left the Tasks screen. An archive within it, or an installation
-/// too young to have missed one, says nothing.
+/// No archive for two intervals raises a warning. A recent archive, or an installation too
+/// young to have missed one, raises none.
 #[tokio::test]
 async fn a_backup_missed_for_two_intervals_is_warned_of() {
     async fn overdue(app: &TestApp) -> bool {
