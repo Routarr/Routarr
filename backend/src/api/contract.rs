@@ -16,7 +16,9 @@ use crate::state::AppState;
 use crate::api::auth::Me;
 use crate::api::backup::BackupListResponse;
 use crate::api::conditions::ConditionCatalog;
-use crate::api::decisions::{ApplyAllRequest, ApplyDecisionsRequest, RevertDecisionsRequest};
+use crate::api::decisions::{
+    ApplyAllRequest, ApplyDecisionsRequest, RevertAllRequest, RevertDecisionsRequest,
+};
 use crate::api::health::{HealthQuery, HealthResponse, Pong, StatusResponse};
 use crate::api::jobs::{Accepted, Job, JobQuery};
 use crate::api::logs::{LogEntry, LogFilter, LogQuery};
@@ -129,6 +131,7 @@ kinds of a condition) may appear in any release."
         apply,
         apply_all,
         revert,
+        revert_all,
         list_exceptions,
         set_exception,
         remove_exception,
@@ -489,8 +492,9 @@ fn apply() {}
 
 /// Apply everything a simulation proposed
 ///
-/// In slices of the batch limit, stopping at the first that fails. The `batch` guardrail
-/// always asks first, its question stating how many titles move.
+/// Every move, or those a filter keeps, in slices of the batch limit, stopping at the first
+/// that fails. The `batch` guardrail always asks first, its question stating how many titles
+/// move and the filter that chose them.
 #[utoipa::path(
     post,
     path = "/decisions/apply-all",
@@ -534,6 +538,33 @@ an apply is running, or the global dry run is on.", body = ErrorResponse),
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn revert() {}
+
+/// Move back every title a filter matches
+///
+/// The applied moves a revert may still undo that the filter, the simulation and the times
+/// keep, in slices of the batch limit. The `batch` guardrail always asks first, as for an
+/// apply of a whole simulation.
+#[utoipa::path(
+    post,
+    path = "/decisions/revert-all",
+    tag = "decisions",
+    request_body = RevertAllRequest,
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
+    responses(
+        (status = 200, body = BatchApplyReport),
+        (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
+        (status = 400, description = "No move the filter matches can be reverted.",
+body = ErrorResponse),
+        (status = 409, description = "The `batch` confirmation is asked, an apply is running, \
+or the global dry run is on.", body = ErrorResponse),
+    )
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn revert_all() {}
 
 // -------------------------------------------------------------- exceptions
 

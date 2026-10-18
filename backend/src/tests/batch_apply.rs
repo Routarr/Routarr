@@ -1,9 +1,5 @@
-//! Applying a whole simulation in slices.
-//!
-//! The case: the first reclassification of an existing library, where the batch
-//! ceiling turns a single decision into dozens of identical confirmations. Here
-//! the ceiling becomes the slice size, and what replaces it as the guardrail is
-//! a confirmation that is always required.
+//! Applying a whole simulation in slices. The batch limit sizes the slices instead of turning a
+//! first reclassification into dozens of confirmations, and one confirmation is always asked.
 
 use crate::jobs::Attribution;
 use crate::services::executor;
@@ -25,6 +21,7 @@ async fn a_library_larger_than_the_batch_limit_is_applied_in_slices() {
     let report = executor::apply_simulation_in_batches(
         &app.state,
         &simulation,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -61,6 +58,7 @@ async fn global_dry_run_still_outranks_it() {
     let refused = executor::apply_simulation_in_batches(
         &app.state,
         &simulation,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -73,9 +71,7 @@ async fn global_dry_run_still_outranks_it() {
 
 #[tokio::test]
 async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
-    // The Arr rejects every write. The first slice fails, and the rest must not
-    // be attempted, because an Arr that just refused five moves will refuse five
-    // hundred.
+    // Every write refused: an Arr that just refused five moves will refuse five hundred.
     let arr = FakeArr::failing(500).await;
     let app = TestApp::films_to_move(&arr, 12).await;
     set_batch_limit(&app, 5).await;
@@ -84,6 +80,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     let report = executor::apply_simulation_in_batches(
         &app.state,
         &simulation,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -98,8 +95,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     assert!(!report.errors.is_empty(), "the failure must be reported, not just counted");
     assert_eq!(app.last_job_status("apply").await, "failed", "nothing done is a failed job");
 
-    // What was never attempted is still pending, so the next simulation
-    // reproposes it and nothing is silently lost.
+    // What was never attempted stays pending, for the next simulation to repropose.
     let pending: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE status = 'pending'")
             .fetch_one(&app.state.pool)
@@ -108,11 +104,9 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     assert_eq!(pending, 7, "the untouched slices stay in the queue");
 }
 
-/// A later slice that cannot be read for revalidation ends the run as a
-/// refused slice does: the titles earlier slices moved are reported, the job
-/// closes with its report, and the rest stays pending. The count of routing
-/// changes, the first thing a slice reads, leaves while the first slice's edit
-/// is held, so the second slice cannot load.
+/// A later slice that cannot be read for revalidation ends the run as a refused one does: the
+/// earlier moves are reported, the job keeps its report, and the rest stays pending. A table it
+/// reads goes while the first slice's edit is held, so the second cannot load.
 #[tokio::test]
 async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_its_report() {
     use std::time::Duration;
@@ -123,8 +117,15 @@ async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_it
     let simulation = app.simulate().await;
 
     let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
-    let run =
-        executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
+    let every = crate::models::DecisionFilter::default();
+    let run = executor::apply_simulation_in_batches(
+        &app.state,
+        &simulation,
+        &every,
+        false,
+        &confirmed,
+        &by,
+    );
     let unreadable = async {
         while arr.recorded().writes.is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -151,6 +152,7 @@ async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty
     let refused = executor::apply_simulation_in_batches(
         &app.state,
         &simulation,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -160,10 +162,9 @@ async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty
     assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))));
 }
 
-/// A scheduled pass after a sync writes every proposal again under a new
-/// simulation. Applying the earlier one applies the identical proposals that
-/// replaced its own, leaves the one now going elsewhere, and touches no title
-/// it did not propose.
+/// A pass after a sync writes every proposal again under a new simulation. Applying the earlier
+/// one goes through the identical proposals since, leaves the one now going elsewhere, and
+/// moves no title it did not propose.
 #[tokio::test]
 async fn an_earlier_simulation_is_applied_through_the_identical_proposals_since() {
     let arr = FakeArr::start().await;
@@ -194,8 +195,8 @@ async fn an_earlier_simulation_is_applied_through_the_identical_proposals_since(
     assert_eq!(pending, ["m-4"], "a title the earlier simulation never proposed was moved");
 }
 
-/// Every proposal of a simulation replaced by another move: refused with the
-/// reason, not "no decision selected".
+/// Every proposal of a simulation replaced by another move: refused with the reason, not "no
+/// decision selected".
 #[tokio::test]
 async fn a_simulation_whose_proposals_all_go_elsewhere_now_is_refused() {
     let arr = FakeArr::start().await;
@@ -210,6 +211,7 @@ async fn a_simulation_whose_proposals_all_go_elsewhere_now_is_refused() {
     let refused = executor::apply_simulation_in_batches(
         &app.state,
         &earlier,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -250,6 +252,7 @@ async fn apply(app: &TestApp, simulation: &str) -> crate::services::executor::Ba
     executor::apply_simulation_in_batches(
         &app.state,
         simulation,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -258,9 +261,8 @@ async fn apply(app: &TestApp, simulation: &str) -> crate::services::executor::Ba
     .unwrap()
 }
 
-/// Progress is written as each slice ends, so the operations queue shows a
-/// run moving rather than one that jumps to its end. Each edit is held, so the
-/// count between two slices stands long enough to be read.
+/// Progress is written as each slice ends, so the operations queue shows a run moving rather
+/// than one that jumps to its end. Each edit is held so the count between slices can be read.
 #[tokio::test]
 async fn progress_is_recorded_as_each_slice_ends() {
     use std::time::Duration;
@@ -271,8 +273,15 @@ async fn progress_is_recorded_as_each_slice_ends() {
     let simulation = app.simulate().await;
 
     let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
-    let run =
-        executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
+    let every = crate::models::DecisionFilter::default();
+    let run = executor::apply_simulation_in_batches(
+        &app.state,
+        &simulation,
+        &every,
+        false,
+        &confirmed,
+        &by,
+    );
     let midway = async {
         loop {
             let job: Option<(i64, i64, String)> = sqlx::query_as(
@@ -298,9 +307,8 @@ async fn progress_is_recorded_as_each_slice_ends() {
     assert!(current < total, "{current} of {total} while running");
 }
 
-/// A run stops at the first slice the Arr refuses whole however much moved
-/// before it, and what moved counts: the job succeeded, and its counts say
-/// what failed.
+/// A run stops at the first slice the Arr refuses whole however much moved before it, and what
+/// moved counts: the job succeeded, and its counts say what failed.
 #[tokio::test]
 async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     let arr = FakeArr::start().await;
@@ -315,6 +323,7 @@ async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     let report = executor::apply_simulation_in_batches(
         &app.state,
         &simulation,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -328,8 +337,8 @@ async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     assert_eq!(app.last_job_status("apply").await, "success");
 }
 
-/// The dry-run turned on while a whole simulation is applied stops the
-/// slice running before its next move, and the slices after it never run.
+/// The dry-run turned on while a whole simulation is applied stops the slice running before its
+/// next move, and the slices after it never run.
 #[tokio::test]
 async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
     use std::time::Duration;
@@ -339,9 +348,16 @@ async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
     set_batch_limit(&app, 5).await;
     let simulation = app.simulate().await;
     let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
+    let every = crate::models::DecisionFilter::default();
 
-    let run =
-        executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
+    let run = executor::apply_simulation_in_batches(
+        &app.state,
+        &simulation,
+        &every,
+        false,
+        &confirmed,
+        &by,
+    );
     let switch = async {
         while arr.recorded().writes.is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -356,8 +372,8 @@ async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 9);
 }
 
-/// One film the Arr refuses, deleted there since the last sync say, fails
-/// alone, and the slices after it still run.
+/// One film the Arr refuses, deleted there since the last sync say, fails alone, and the
+/// slices after it still run.
 #[tokio::test]
 async fn one_refused_film_does_not_end_the_run() {
     let arr = FakeArr::start().await;
@@ -383,16 +399,14 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
         .post("/api/v1/decisions/apply-all", serde_json::json!({ "simulation_id": simulation }))
         .await;
 
-    // A stable code, never the message text: the client must recognise this
-    // without parsing prose that changes with the language.
+    // A stable code, never the message, which changes with the language.
     assert_eq!(response.status, axum::http::StatusCode::CONFLICT);
     assert_eq!(response.json["error"], "confirmation_required");
     assert!(arr.recorded().writes.is_empty(), "nothing may be written before confirming");
 }
 
-/// The question is asked whole: how many move, and whether their files move
-/// with them. The interface shows it as it comes, so a clause missing here is
-/// missing on screen, and a threshold of zero is no threshold to name.
+/// The question is asked whole: how many move, and whether their files move with them. The
+/// interface shows it as it comes, so a clause missing here is missing on screen.
 #[tokio::test]
 async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let arr = FakeArr::start().await;

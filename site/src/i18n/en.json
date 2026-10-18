@@ -49,6 +49,7 @@
   "api.ref.op.apply": "Apply chosen decisions",
   "api.ref.op.apply_all": "Apply everything a simulation proposed",
   "api.ref.op.revert": "Move titles back",
+  "api.ref.op.revert_all": "Move back every title a filter matches",
   "api.ref.op.health": "Reach every Arr and source, and report",
   "api.ref.op.sync_all": "Read every enabled Arr again",
   "api.ref.op.sync_instance": "Read one Arr again",

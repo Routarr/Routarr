@@ -1,6 +1,8 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { readBackend } from '../test/backend';
 import {
+  dayStart,
+  setFields,
   describeCondition,
   failureDetail,
   formatBytes,
@@ -67,14 +69,8 @@ describe('formatBytes', () => {
   ][];
 
   /**
-   * Each size in each shipped language, named as the server names it, which
-   * the same cases hold the server to. Binary steps and one decimal past
-   * bytes, the unit and the decimal mark of the reader's language rather than
-   * the source's, and its spacing: none in Korean. The short form spaces the
-   * unit and the narrow form holds the abbreviation, and where `Intl` spells
-   * the byte out (Dutch, Greek, Turkish, Korean, Traditional Chinese) the
-   * symbol is the kilobyte's without its prefix. A language stored as
-   * `nb_NO` is read as Norwegian, where `Intl` refuses the underscore.
+   * Each size in each shipped language as the server names it, from the cases that hold the
+   * server: binary steps, one decimal past bytes, the reader's unit, decimal mark and spacing.
    */
   it.each(SIZES)('names %d bytes in %s as %j', (bytes, language, named) => {
     expect(plain(formatBytes(bytes, language))).toBe(named);
@@ -94,9 +90,8 @@ describe('formatBytes', () => {
 
 describe('describeCondition', () => {
   /**
-   * Each condition reads as one sentence of the dictionary, its values filled
-   * in, so no language glues a caption, a quantifier and a list together.
-   * Stand-in sentences that name their key, so the key picked shows.
+   * Each condition reads as one dictionary sentence, so no language glues a caption, a quantifier
+   * and a list together. The stand-in sentences name their key, so the key picked shows.
    */
   const words = {
     separator: ', ',
@@ -170,10 +165,8 @@ describe('formatTimestamp', () => {
   });
 
   /**
-   * Without the Z, a browser east of Greenwich would shift the hour and a sync
-   * could appear to have run in the future. The zone is pinned east of
-   * Greenwich: on a host running in UTC, local time and UTC agree, and the two
-   * readings would match whichever one the code took.
+   * Without the Z, a browser east of Greenwich shifts the hour. The zone is pinned there, since on
+   * a UTC host both readings match whichever one the code took.
    */
   it('treats the stored value as UTC rather than local time', () => {
     vi.stubEnv('TZ', 'Asia/Tokyo');
@@ -205,19 +198,13 @@ describe('formatTimestamp', () => {
 });
 
 describe('formatPercent', () => {
-  /**
-   * French puts a non-breaking space before the sign and English does not,
-   * which is why this goes through `Intl` rather than a template string.
-   */
+  /** French puts a non-breaking space before the sign, which a template string would not. */
   it('writes the sign the way the language writes it', () => {
     expect(formatPercent(0.7, 'en')).toBe('70%');
     expect(formatPercent(0.7, 'fr').replace(/\u202f|\u00a0/g, ' ')).toBe('70 %');
   });
 
-  /**
-   * The underscore form is what the settings store, where BCP-47 wants a
-   * hyphen, and an unfixed `zh_CN` throws rather than falling back.
-   */
+  /** The settings store `zh_CN`, which `Intl` throws on rather than falling back. */
   it('accepts the stored locale form', () => {
     expect(formatPercent(0.45, 'zh_CN')).toBe('45%');
   });
@@ -326,5 +313,32 @@ describe('inClearPastHome', () => {
     ]) {
       expect(inClearPastHome(address), address).toBe(true);
     }
+  });
+});
+
+describe('setFields', () => {
+  it('leaves out a field nobody set, which would narrow to nothing', () => {
+    expect(setFields({ instance_id: 'i1', category: '', search: 'aki' })).toEqual({
+      instance_id: 'i1',
+      search: 'aki',
+    });
+  });
+});
+
+describe('dayStart', () => {
+  const local = (instant: string | undefined) => {
+    const at = new Date(instant ?? NaN);
+    return [at.getFullYear(), at.getMonth() + 1, at.getDate(), at.getHours(), at.getMinutes()];
+  };
+
+  it('is the local midnight a day starts at, and with `after` the next one', () => {
+    expect(local(dayStart('2026-10-18'))).toEqual([2026, 10, 18, 0, 0]);
+    expect(local(dayStart('2026-10-18', true))).toEqual([2026, 10, 19, 0, 0]);
+    expect(local(dayStart('2026-12-31', true))).toEqual([2027, 1, 1, 0, 0]);
+  });
+
+  it('gives nothing for no day', () => {
+    expect(dayStart('')).toBeUndefined();
+    expect(dayStart('not a day')).toBeUndefined();
   });
 });

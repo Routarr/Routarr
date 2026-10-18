@@ -453,7 +453,17 @@ export interface ApplyReport {
   errors: { decision_id: string; media_title: string; message: string }[];
 }
 
-/** Outcome of applying a whole simulation slice by slice. */
+/** Which titles an apply or a revert of many covers, as the decisions list filters them. */
+export interface DecisionFilter {
+  instance_id?: string;
+  media_type?: string;
+  category?: string;
+  current_root_folder?: string;
+  rule_id?: string;
+  search?: string;
+}
+
+/** Outcome of a run in slices: a whole simulation applied, or what a filter matches reverted. */
 export interface BatchApplyReport {
   candidates: number;
   applied: number;

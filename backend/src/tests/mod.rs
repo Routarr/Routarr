@@ -17,6 +17,7 @@ mod connection;
 mod contract;
 mod crypto_format;
 mod daily_quota;
+mod decision_filters;
 mod enrichment;
 mod executor;
 mod extra_sources;

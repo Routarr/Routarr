@@ -8,7 +8,7 @@ import type { Category, ConditionCatalog, LibraryFacets, Rule, RuleHealth } from
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { statusRevision } from '../lib/status.svelte';
-import { instance, template, templatePreview } from '../test/fixtures';
+import { instance, rule, template, templatePreview } from '../test/fixtures';
 
 /** First match by priority wins, so the table's order is the routing the server keeps. */
 
@@ -43,26 +43,6 @@ const categories = [
     root_folder_count: 1,
   },
 ] as Category[];
-
-function rule(over: Partial<Rule> = {}): Rule {
-  return {
-    id: 'r1',
-    name: 'Japanese animation',
-    description: null,
-    priority: 10,
-    enabled: true,
-    media_type: 'both',
-    conditions: [{ type: 'genre_contains', value: ['Animation'] }],
-    exclusions: [],
-    match_mode: 'all',
-    target_category: 'anime',
-    instance_ids: null,
-    template: null,
-    created_at: '2026-08-27 10:00:00',
-    updated_at: '2026-08-27 10:00:00',
-    ...over,
-  };
-}
 
 /** Two Radarr, so a rule kept to one of them names which. */
 const INSTANCES = [instance(), instance({ id: 'i2', name: 'Radarr 4K' })];

@@ -16,9 +16,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("004_rule_test_verdicts", include_str!("../migrations/004_rule_test_verdicts.sql")),
 ];
 
-/// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5`
-/// builds, in the order they ran. Archives name their schema by the last of
-/// them, and one that stops short of it was taken by an older release.
+/// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5` builds, in the
+/// order they ran. An archive 0.1.5 took is named by the last, an older release's by another.
 pub(crate) const NAMES_OF_0_1_5: [&str; 13] = [
     "001_initial_schema",
     "002_onboarding",
@@ -152,15 +151,14 @@ pub fn is_newer_schema(name: &str) -> bool {
     !MIGRATIONS.iter().any(|(known, _)| *known == name) && !NAMES_OF_0_1_5.contains(&name)
 }
 
-/// Whether a migration name is one a release older than 0.1.5 stopped at. A
-/// database or an archive at it goes through 0.1.5 before this release opens
-/// it.
+/// Whether a migration name is one a release older than 0.1.5 stopped at. A database or an
+/// archive at it goes through 0.1.5 before this release opens it.
 pub fn is_before_0_1_5(name: &str) -> bool {
     NAMES_OF_0_1_5[..NAMES_OF_0_1_5.len() - 1].contains(&name)
 }
 
-/// Whether running the migrations would change a schema some release already
-/// built: the database holds migrations, and this build lists one it lacks.
+/// Whether running the migrations would change a schema some release already built: the
+/// database holds migrations, and this build lists one it lacks.
 async fn migrates_a_schema(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
     let migrated: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
@@ -185,8 +183,8 @@ pub async fn checkpoint_and_close(pool: &SqlitePool) {
     pool.close().await;
 }
 
-/// Apply any migration not yet recorded in `_migrations`, after refusing a
-/// database a newer release migrated, or one an older release than 0.1.5 left.
+/// Apply any migration not yet recorded in `_migrations`, after refusing a database a newer
+/// release migrated, or one an older release than 0.1.5 left.
 pub async fn run_migrations(pool: &SqlitePool) -> crate::error::AppResult<()> {
     refuse_a_newer_schema(pool).await?;
     read_the_names_of_0_1_5(pool).await?;
@@ -253,8 +251,8 @@ async fn read_the_names_of_0_1_5(pool: &SqlitePool) -> crate::error::AppResult<(
     Ok(())
 }
 
-/// Refuse a database a newer release migrated further than this build knows:
-/// run on, this one would read and write a schema it does not know.
+/// Refuse a database a newer release migrated further than this build knows, whose schema
+/// this one would read and write blind.
 async fn refuse_a_newer_schema(pool: &SqlitePool) -> crate::error::AppResult<()> {
     match opened_ahead(&mut *pool.acquire().await?).await? {
         None => Ok(()),
@@ -307,8 +305,7 @@ pub async fn opened_ahead(
         .map(|(version, _)| version))
 }
 
-/// Record this release, and the last migration it applied, as having opened
-/// the database.
+/// Record this release, and the last migration it applied, as having opened the database.
 async fn record_this_release(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO _opened_by (version, schema) VALUES (?, ?)
@@ -321,14 +318,13 @@ async fn record_this_release(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// A version as numbers to compare, `0.1.10` after `0.1.9`. A part that is
-/// not a number counts as 0.
+/// A version as numbers to compare, `0.1.10` after `0.1.9`, a part not a number counting as 0.
 fn release(version: &str) -> Vec<u64> {
     version.split(['.', '-']).take(3).map(|part| part.parse().unwrap_or(0)).collect()
 }
 
-/// Apply the migrations up to `last` included, leaving the schema of the
-/// release that shipped `last` for a test to upgrade from.
+/// Apply the migrations up to `last` included, leaving the schema of the release that shipped
+/// `last` for a test to upgrade from.
 #[cfg(test)]
 pub async fn run_migrations_through(pool: &SqlitePool, last: &str) -> Result<(), sqlx::Error> {
     let end = MIGRATIONS.iter().position(|(name, _)| *name == last).expect("a listed migration");
@@ -377,8 +373,8 @@ async fn apply_migrations(
     Ok(())
 }
 
-/// One migration and its record, in one transaction: a failure half-way
-/// leaves the schema untouched instead of half-applied and unrecorded.
+/// One migration and its record, in one transaction: a failure half-way leaves the schema
+/// untouched instead of half-applied and unrecorded.
 async fn apply_migration(
     connection: &mut sqlx::SqliteConnection,
     name: &str,
@@ -406,9 +402,8 @@ pub fn placeholders(n: usize) -> String {
     vec!["?"; n].join(", ")
 }
 
-/// Escape `%`, `_` and `\` in user input destined for a `LIKE ? ESCAPE '\'`
-/// pattern. Without it, searching for "100%" matches every title starting with
-/// "100", and a stray backslash changes the meaning of whatever follows it.
+/// Escape `%`, `_` and `\` in user input for a `LIKE ? ESCAPE '\'` pattern. Unescaped, "100%"
+/// matches every title starting with "100", and a backslash changes what follows it.
 pub fn escape_like(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for c in input.chars() {
@@ -420,6 +415,91 @@ pub fn escape_like(input: &str) -> String {
     out
 }
 
+/// Conditions on one aliased table, each written as ` AND ...` and its value bound in order.
+/// Only `&'static str` names reach the text, so a statement built from them is safe to mark.
+#[derive(Debug, Clone)]
+pub struct Conditions {
+    alias: &'static str,
+    sql: String,
+    binds: Vec<String>,
+}
+
+impl Conditions {
+    pub fn on(alias: &'static str) -> Self {
+        Self { alias, sql: String::new(), binds: Vec::new() }
+    }
+
+    fn push(&mut self, column: &str, test: &str, value: String) -> &mut Self {
+        self.sql.push_str(&format!(" AND {}.{column} {test}", self.alias));
+        self.binds.push(value);
+        self
+    }
+
+    /// The column holds `value`, when there is one.
+    pub fn equal(&mut self, column: &'static str, value: Option<&str>) -> &mut Self {
+        match value {
+            Some(value) => self.push(column, "= ?", value.to_string()),
+            None => self,
+        }
+    }
+
+    /// The column names the folder `value` names, as `crate::paths::same` reads two.
+    pub fn same_path(&mut self, column: &'static str, value: Option<&str>) -> &mut Self {
+        match value {
+            Some(value) => self.push(column, "= ? COLLATE path", value.to_string()),
+            None => self,
+        }
+    }
+
+    /// The column holds `value` anywhere, ASCII letters in any case.
+    pub fn contains(&mut self, column: &'static str, value: Option<&str>) -> &mut Self {
+        match value {
+            Some(value) => {
+                self.push(column, "LIKE ? ESCAPE '\\'", format!("%{}%", escape_like(value)))
+            }
+            None => self,
+        }
+    }
+
+    /// The stored timestamp in the column is `value` or later.
+    pub fn from(&mut self, column: &'static str, value: Option<&str>) -> &mut Self {
+        match value {
+            Some(value) => self.push(column, ">= ?", value.to_string()),
+            None => self,
+        }
+    }
+
+    /// The stored timestamp in the column is earlier than `value`.
+    pub fn before(&mut self, column: &'static str, value: Option<&str>) -> &mut Self {
+        match value {
+            Some(value) => self.push(column, "< ?", value.to_string()),
+            None => self,
+        }
+    }
+
+    /// A condition with nothing to bind, written for this alias by its caller.
+    pub fn holds(&mut self, condition: &'static str) -> &mut Self {
+        self.sql.push_str(&format!(" AND ({condition})"));
+        self
+    }
+
+    /// A condition with nothing to bind that must not hold.
+    pub fn fails(&mut self, condition: &'static str) -> &mut Self {
+        self.sql.push_str(&format!(" AND NOT ({condition})"));
+        self
+    }
+
+    /// What to append after a `WHERE`, each condition led by ` AND`.
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+
+    /// The values the conditions bind, in the order they were written.
+    pub fn binds(&self) -> &[String] {
+        &self.binds
+    }
+}
+
 /// A transaction that takes the write lock as it starts, for a check and the write it
 /// guards: under a plain `BEGIN` another writer can change what was checked in between.
 pub async fn write_transaction(
@@ -428,9 +508,8 @@ pub async fn write_transaction(
     pool.begin_with("BEGIN IMMEDIATE").await
 }
 
-/// `options` with what every query of the application may name: the `path`
-/// collation, which compares two folders as [`crate::paths::key`] does. A
-/// connection opened without it fails every statement that names it.
+/// `options` with the `path` collation, which compares two folders as [`crate::paths::key`]
+/// does. A connection opened without it fails every statement that names it.
 pub fn with_paths(options: SqliteConnectOptions) -> SqliteConnectOptions {
     options.collation(crate::paths::COLLATION, crate::paths::collate)
 }
@@ -452,9 +531,8 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
-    /// A newer release that migrated no further than this build leaves a
-    /// database this build reads as its own: going back a patch release is
-    /// no reason to stop.
+    /// A newer release that migrated no further than this build leaves a database this build
+    /// reads as its own: going back a patch release is no reason to stop.
     #[tokio::test]
     async fn a_newer_release_with_the_same_schema_is_not_refused() {
         let pool = test_pool().await;
@@ -524,8 +602,8 @@ mod tests {
         assert_eq!(recorded[0].1, "2026-09-21 10:00:00", "the day of the install was lost");
     }
 
-    /// A database an older release than 0.1.5 left holds a schema no migration
-    /// here starts from: refused, naming 0.1.5, and left as it was.
+    /// A database an older release than 0.1.5 left holds a schema no migration here starts
+    /// from: refused, naming 0.1.5, and left as it was.
     #[tokio::test]
     async fn a_database_older_than_0_1_5_is_refused_naming_the_release_to_go_through() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -547,9 +625,8 @@ mod tests {
         assert_eq!(names, 11, "the refused database was changed");
     }
 
-    /// A database a build between two releases migrated holds 0.1.5's names
-    /// and others no release shipped: refused, naming one, and left as it was
-    /// rather than built over half way.
+    /// A database a build between two releases migrated holds 0.1.5's names and others no
+    /// release shipped: refused, naming one, and left as it was rather than built over half way.
     #[tokio::test]
     async fn a_database_a_build_between_releases_migrated_is_refused_untouched() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -569,9 +646,8 @@ mod tests {
         assert_eq!(names, 14, "the refused database was changed");
     }
 
-    /// An archive names its schema by the last migration it holds: one 0.1.5
-    /// took is of a schema this build upgrades, one an older release took is
-    /// before it, and neither is ahead.
+    /// An archive names its schema by the last migration it holds: one 0.1.5 took is of a
+    /// schema this build upgrades, one an older release took is before it, and neither is ahead.
     #[test]
     fn an_archives_schema_reads_as_of_0_1_5_before_it_or_ahead() {
         for of_0_1_5 in ["013_opened_by", "001_release_0_1_5", "002_release_0_2_0"] {
@@ -594,9 +670,8 @@ mod tests {
         assert!(parts >= vec![3, 50, 2], "SQLite {version} predates 3.50.2");
     }
 
-    /// A table rebuilt through a copy carries none of the original's indexes,
-    /// so the lookups the sync and the enrichment make on these two tables
-    /// are pinned by name.
+    /// A table rebuilt through a copy carries none of the original's indexes, so the lookups the
+    /// sync and the enrichment make on these two tables are pinned by name.
     #[tokio::test]
     async fn the_root_folder_and_identifier_indexes_exist() {
         let pool = test_pool().await;
@@ -640,8 +715,8 @@ mod tests {
         sqlx::query_scalar("SELECT COUNT(*) FROM overrides").fetch_one(pool).await.unwrap()
     }
 
-    /// SQLite changes a CHECK or a column type only by rebuilding the table,
-    /// and dropping the original under foreign keys deletes what points at it.
+    /// SQLite changes a CHECK or a column type only by rebuilding the table, and dropping the
+    /// original under foreign keys deletes what points at it.
     #[tokio::test]
     async fn a_migration_that_rebuilds_a_parent_table_keeps_its_children() {
         let pool = library_with_an_override().await;
@@ -666,8 +741,7 @@ mod tests {
         assert_eq!(enforced, 1, "foreign keys stayed off after the migration");
     }
 
-    /// With foreign keys off while it runs, a migration is held to them
-    /// before it commits.
+    /// With foreign keys off while it runs, a migration is held to them before it commits.
     #[tokio::test]
     async fn a_migration_that_leaves_a_row_pointing_at_nothing_is_refused() {
         let pool = library_with_an_override().await;
@@ -682,8 +756,8 @@ mod tests {
         assert_eq!((titles, overrides(&pool).await), (1, 1), "the migration was not rolled back");
     }
 
-    /// A migration is read as SQLite reads it: a block comment and a quoted
-    /// name may hold a `;` or a `'` without cutting the statement.
+    /// A migration is read as SQLite reads it: a block comment and a quoted name may hold a `;`
+    /// or a `'` without cutting the statement.
     #[tokio::test]
     async fn a_migration_is_read_as_sqlite_reads_it() {
         let pool = test_pool().await;
@@ -720,9 +794,8 @@ mod tests {
         rows.into_iter().map(|(_, _, _, detail)| detail).collect::<Vec<_>>().join("\n")
     }
 
-    /// A title's resolutions are read by its key, for every explanation and
-    /// every webhook, and pruned by key every hour: neither reads the whole
-    /// table, which holds a row per title and per source found by search.
+    /// A title's resolutions are read by its key, for every explanation and webhook, and pruned
+    /// by key every hour: neither scans a table holding a row per title and per source.
     #[tokio::test]
     async fn the_identifier_lookups_seek_an_index() {
         let pool = test_pool().await;
@@ -736,8 +809,8 @@ mod tests {
         }
     }
 
-    /// A title's history and an instance's are read from the move log by the
-    /// title or the instance, newest first.
+    /// A title's history and an instance's are read from the move log by the title or the
+    /// instance, newest first.
     #[tokio::test]
     async fn the_log_filters_seek_an_index() {
         let pool = test_pool().await;
@@ -755,8 +828,8 @@ mod tests {
         }
     }
 
-    /// An index whose columns start another's is kept up on every write for
-    /// nothing: the longer one answers its lookups.
+    /// An index whose columns start another's is kept up on every write for nothing: the longer
+    /// one answers its lookups.
     #[tokio::test]
     async fn no_index_repeats_the_start_of_another() {
         let pool = test_pool().await;
@@ -792,8 +865,8 @@ mod tests {
         assert_eq!(repeated, Vec::<String>::new());
     }
 
-    /// A database opened where the path says, whatever it holds: a URL would
-    /// read `%41` as `A` and stop at a `?`.
+    /// A database opened where the path says, whatever it holds: a URL would read `%41` as `A`
+    /// and stop at a `?`.
     #[tokio::test]
     async fn the_database_opens_at_the_path_as_written() {
         let dir = crate::tests::TempDir::new("db-path");
@@ -807,8 +880,8 @@ mod tests {
         assert!(!dir.join("aAb").exists(), "the path was read as a URL");
     }
 
-    /// The write-ahead log takes the size of the largest transaction, a sync
-    /// of the whole library, and keeps it unless a limit trims it.
+    /// The write-ahead log takes the size of the largest transaction, a sync of the whole
+    /// library, and keeps it unless a limit trims it.
     #[tokio::test]
     async fn the_write_ahead_log_is_kept_small() {
         let dir = crate::tests::TempDir::new("wal-limit");
@@ -823,9 +896,8 @@ mod tests {
         assert_eq!(limit, 64 * 1024 * 1024);
     }
 
-    /// The schema refuses what the code never writes: a state nothing sets, a
-    /// folder of no known origin, a flag that is neither 0 nor 1, a title's
-    /// countries left NULL where every reader expects a list.
+    /// The schema refuses what the code never writes: a state nothing sets, a folder of no known
+    /// origin, a flag neither 0 nor 1, a title's countries NULL where every reader expects a list.
     #[tokio::test]
     async fn the_schema_refuses_values_the_code_never_writes() {
         let pool = library_with_an_override().await;
@@ -848,8 +920,8 @@ mod tests {
         }
     }
 
-    /// The tables the schema rebuilds keep every row, and the rows that point
-    /// at them, through an upgrade.
+    /// The tables the schema rebuilds keep every row, and the rows that point at them, through
+    /// an upgrade.
     #[tokio::test]
     async fn an_upgrade_that_tightens_the_schema_keeps_every_row() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -943,8 +1015,8 @@ mod tests {
         bystander.close().await;
     }
 
-    /// A migration file is applied only once `MIGRATIONS` lists it: one written
-    /// and left out reaches no database, with every test green.
+    /// A migration file is applied only once `MIGRATIONS` lists it: one written and left out
+    /// reaches no database, with every test green.
     #[test]
     fn every_migration_file_is_listed_in_order() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -960,9 +1032,8 @@ mod tests {
         assert_eq!(listed, files);
     }
 
-    /// The process folds the log back once the server has stopped serving.
-    /// Read out of its source, since no test runs it: a shutdown that drops the
-    /// pool instead leaves the `.db` without the last writes.
+    /// The process folds the log back once the server has stopped serving, read out of its
+    /// source since no test runs it: a shutdown that drops the pool loses the last writes.
     #[test]
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
         const MAIN: &str = include_str!("process.rs");

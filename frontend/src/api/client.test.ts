@@ -12,7 +12,6 @@ interface FakeResponse {
   headers?: Record<string, string>;
 }
 
-/** Stub `fetch` and hand back the spy so calls can be inspected. */
 function mockFetch(response: FakeResponse) {
   const payload = response.body ?? {};
   const spy = vi.fn().mockResolvedValue({
@@ -28,12 +27,8 @@ function mockFetch(response: FakeResponse) {
 }
 
 /**
- * The URL and options of the nth `fetch`, or a failure that says so.
- *
- * Every assertion below reaches into `spy.mock.calls[0][1]`, and when the call
- * never happened that reads as `cannot read properties of undefined`, which
- * names neither the call that was expected nor the one that was made. Asserting
- * here turns the same mistake into "fetch was not called".
+ * The URL and options of the nth `fetch`, or a failure that says so: indexed bare, a call that
+ * never happened reads as `cannot read properties of undefined`, which names neither call.
  */
 function fetchCall(spy: ReturnType<typeof mockFetch>, index = 0) {
   const call = spy.mock.calls[index];
@@ -42,8 +37,7 @@ function fetchCall(spy: ReturnType<typeof mockFetch>, index = 0) {
       `fetch was called ${spy.mock.calls.length} time(s), wanted at least ${index + 1}`,
     );
   }
-  // `body` is narrowed to `string` here rather than left as `BodyInit`: this
-  // client only ever sends JSON, and every assertion below parses it.
+  // `body` is a string: the client sends only JSON, and every assertion below parses it.
   const [url, options] = call as [
     string,
     Omit<RequestInit, 'body'> & { headers: Record<string, string>; body: string },
@@ -56,8 +50,7 @@ afterEach(() => {
 });
 
 /**
- * Every route the backend serves, as `VERB /path` with each parameter written
- * `{}`, read from the route table in `backend/src/main.rs`. Each `.route(`
+ * Every route in `backend/src/main.rs`, as `VERB /path` with each parameter `{}`. Each `.route(`
  * call is read to the parenthesis that closes it, since a long one spans lines.
  */
 const SERVED: Set<string> = (() => {
@@ -92,9 +85,8 @@ describe('the key in the browser', () => {
   });
 
   /**
-   * A key kept in the browser's storage is readable by any script on the
-   * page. Found there, it goes once to the server for a session cookie, which
-   * no script can read, and is removed before anything else is asked.
+   * A key in storage is readable by any script on the page. It goes once to the server for a
+   * session cookie, which no script can read, and is removed before anything else is asked.
    */
   it('exchanges a key found in storage once for a session, and removes it', async () => {
     vi.resetModules();
@@ -118,10 +110,7 @@ describe('the key in the browser', () => {
 });
 
 describe('error handling', () => {
-  /**
-   * A refused session or key, whichever screen asked, is the shell's to act
-   * on at once: it shows its gate rather than waiting for its next poll.
-   */
+  /** A refusal, whichever screen asked, shows the shell's gate at once, not at its next poll. */
   it('tells whoever listens of a refusal, and of nothing else', async () => {
     const refused = vi.fn();
     const stop = onRefused(refused);
@@ -253,10 +242,7 @@ describe('request bodies', () => {
     expect(fetchCall(spy).options.method).toBe('POST');
   });
 
-  /**
-   * A name, not a yes. Several guardrails can refuse the same apply, and a
-   * boolean would answer every one of them at once.
-   */
+  /** A name, not a yes: a boolean would answer every guardrail that refuses the apply. */
   it('names the guardrails already answered', async () => {
     const spy = mockFetch({ body: {} });
     await api.applyDecisions(['a', 'b'], true, ['capacity']);
@@ -265,6 +251,25 @@ describe('request bodies', () => {
       decision_ids: ['a', 'b'],
       move_files: true,
       confirm: ['capacity'],
+    });
+  });
+
+  it('sends the filter of an apply or a revert of many beside its scope', async () => {
+    const spy = mockFetch({ body: {} });
+    await api.applyAllDecisions('s1', { category: 'anime' }, false, ['batch']);
+    expect(JSON.parse(fetchCall(spy).options.body)).toEqual({
+      simulation_id: 's1',
+      filter: { category: 'anime' },
+      move_files: false,
+      confirm: ['batch'],
+    });
+
+    const scope = { filter: { rule_id: 'r1' }, since: '2026-10-18T00:00:00.000Z' };
+    await api.revertAllDecisions(scope, true, ['batch']);
+    expect(JSON.parse(fetchCall(spy, 1).options.body)).toEqual({
+      ...scope,
+      move_files: true,
+      confirm: ['batch'],
     });
   });
 
@@ -293,27 +298,18 @@ describe('request bodies', () => {
       },
     });
 
-    const failure = await api.applyAllDecisions('s-1').catch((err: unknown) => err);
+    const failure = await api.applyAllDecisions('s-1', {}).catch((err: unknown) => err);
     expect((failure as ApiError).includes).toEqual(['unreachable']);
   });
 });
 
 /**
- * The whole surface, swept.
- *
- * `client.ts` is a long list of one-line methods that interpolate their
- * arguments into a path. The failure mode is not a type error but an argument
- * landing in the wrong hole, which produces `/instances/[object Object]` and a
- * 404 the caller reports as "not found". Nothing in the type system objects,
- * and no hand-written test covers every method.
- *
- * So every one of them is called with a placeholder and the request it made is
- * inspected: one call, to this API, with nothing unserialised in the path, and
- * a verb and a path the backend's route table serves.
+ * Every method, called with placeholders. An argument in the wrong hole builds a path such as
+ * `/instances/[object Object]`, a 404 no type check refuses, so each must make one request, to
+ * this API, at a verb and a path the backend's route table serves.
  */
 describe('every endpoint', () => {
-  /** Methods that build a URL for the browser rather than fetching one. */
-  // Files are fetched as blobs (`downloadBackup`, `exportLogs`), not linked.
+  /** Methods that build a URL for the browser. Files are fetched as blobs, never linked. */
   const URL_BUILDERS = ['oidcStartUrl'];
 
   const methods = Object.entries(api).filter(
@@ -321,8 +317,7 @@ describe('every endpoint', () => {
   ) as [string, (...args: unknown[]) => unknown][];
 
   it('covers the whole client, so this sweep cannot quietly shrink', () => {
-    // A floor rather than an exact count: the point is that the list is being
-    // derived from the object, not that it has a particular size today.
+    // A floor, not a count: the list is derived from the object, whatever its size.
     expect(methods.length).toBeGreaterThan(50);
   });
 
@@ -346,8 +341,7 @@ describe('every endpoint', () => {
   it.each(methods)('%s issues one well-formed request', async (name, method) => {
     const spy = mockFetch({ body: {} });
 
-    // Only the request is under test here, so a string standing in for an
-    // object is harmless.
+    // Only the request is under test, so a string standing in for an object is harmless.
     await Promise.resolve(method(...PLACEHOLDERS)).catch(() => {});
 
     expect(spy, `${name} made no request`).toHaveBeenCalledTimes(1);
@@ -355,16 +349,14 @@ describe('every endpoint', () => {
     expect(url, `${name} left the API base`).toContain('/api/v1/');
     expect(url, `${name} put an object in its path`).not.toContain('[object');
     expect(url, `${name} interpolated an absent argument`).not.toContain('undefined');
-    // A verb or a path the server does not route answers 404 or 405, which the
-    // caller reports as "not found" about something that exists.
+    // An unrouted verb or path answers 404 or 405, reported as "not found" about what exists.
     expect(SERVED, `${name} asks for a route the backend does not serve`).toContain(
       route(options.method ?? 'GET', url),
     );
   });
 
   it('builds the sign-in link without fetching it', () => {
-    // A link the browser follows itself, off this origin and back. It must
-    // still start at this API, at a route the server answers.
+    // Followed off this origin and back, it still starts at a route this API serves.
     for (const name of URL_BUILDERS) {
       const build = (api as unknown as Record<string, () => string>)[name];
       // A name listed here and absent from the client fails under its own name.
@@ -380,9 +372,8 @@ describe('a server that never answers', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   /**
-   * The browser's own timeout surfaces as a `TimeoutError`. It has to become an
-   * `ApiError` with a stable kind, or the banner shows the DOMException's
-   * English sentence whatever language the interface is in.
+   * The browser's `TimeoutError` becomes an `ApiError` with a stable kind, or the banner shows
+   * the DOMException's English sentence whatever language the interface speaks.
    */
   it('is reported as a timeout, not as a raw exception', async () => {
     vi.stubGlobal(
@@ -397,10 +388,8 @@ describe('a server that never answers', () => {
   });
 
   /**
-   * The timeout covers the body as well as the headers, and a large page can
-   * send its headers at once and its body past the bound. Read outside the
-   * mapping, that timeout would reach the banner as the browser's own
-   * untranslated sentence, in every language.
+   * The timeout covers the body too: a large page can send its headers at once and its body past
+   * the bound, and read outside the mapping it reaches the banner untranslated.
    */
   it.each([
     ['a reply', true, 200],
@@ -438,7 +427,7 @@ describe('a server that never answers', () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  /** `fetch` as a browser implements it: pending until its signal aborts, then rejected with the reason. */
+  /** A browser's `fetch`: pending until its signal aborts, then rejected with its reason. */
   function stubPendingFetch() {
     vi.stubGlobal(
       'fetch',
@@ -454,9 +443,8 @@ describe('a server that never answers', () => {
   }
 
   /**
-   * The point of handing a load a signal. A superseded or abandoned load has
-   * to stop at the network, not only be ignored when it lands, and it has to
-   * surface as a cancellation rather than as a timeout the banner would report.
+   * A superseded or abandoned load stops at the network rather than only being ignored, and
+   * surfaces as a cancellation, not as a timeout the banner would report.
    */
   it("aborts the request when the caller's signal aborts", async () => {
     stubPendingFetch();
@@ -481,9 +469,8 @@ describe('a server that never answers', () => {
   });
 
   /**
-   * A caller's signal joins the timeout, it does not replace it. Replaced, the
-   * request most likely to be waiting on a host that never answers would lose
-   * its bound the moment it became cancellable.
+   * A caller's signal joins the timeout. Replaced, a request waiting on a host that never answers
+   * would lose its bound the moment it became cancellable.
    */
   it('keeps the timeout when the caller passes a signal of its own', async () => {
     stubPendingFetch();
@@ -502,9 +489,8 @@ describe('a server that never answers', () => {
   });
 
   /**
-   * A refused connection is not a timeout, and saying so would send the user
-   * looking in the wrong place. Left as it came, it is the browser's own
-   * sentence, in the browser's language whatever the interface speaks.
+   * A refused connection is not a timeout, which would send the user looking elsewhere. Left as
+   * it came, it is the browser's sentence, in the browser's language.
    */
   it('reports a connection that failed as unreachable, not as a timeout', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
@@ -518,10 +504,7 @@ describe('a server that never answers', () => {
 describe('a failing response', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  /**
-   * The id is what an operator greps the log for. It has to survive the trip
-   * from the header to the error the screen shows.
-   */
+  /** The id an operator greps the log for survives from the header to the error shown. */
   it('carries the request id the server answered with', async () => {
     mockFetch({
       ok: false,
@@ -543,9 +526,8 @@ describe('a failing response', () => {
   });
 
   /**
-   * A file is read as a blob, not as JSON, but its refusal is the same
-   * envelope. Read as text, an archive pruned between the list and the click
-   * shows the operator the literal `{"error":...}`.
+   * A file is read as a blob, but its refusal is the envelope. Read as text, an archive pruned
+   * between the list and the click shows the literal `{"error":...}`.
    */
   it('reads the refusal of a download out of its envelope', async () => {
     mockFetch({ ok: false, status: 404, body: { error: 'not_found', message: 'No such backup' } });
@@ -557,9 +539,8 @@ describe('a failing response', () => {
 });
 
 /**
- * The sign-in with a provider is a link the browser follows, so it carries the
- * mount point itself. The base is read once, as the module loads, which is why
- * this test loads a fresh copy under one.
+ * The provider sign-in is a link the browser follows, so it carries the mount point. The base is
+ * read once as the module loads, so the test loads a fresh copy under one.
  */
 describe('the provider sign-in link', () => {
   afterEach(() => {
@@ -577,9 +558,8 @@ describe('the provider sign-in link', () => {
 });
 
 /**
- * A long write is followed through its job rather than waited for: cut at the
- * request bound, an apply over a whole library would read as a server that
- * never answered while the server finished it.
+ * A long write is followed through its job: cut at the request bound, an apply over a whole
+ * library would read as a server that never answered while it finished.
  */
 describe('a write followed through its job', () => {
   const answer = (status: number, payload: unknown) => ({
@@ -747,7 +727,7 @@ describe('a write followed through its job', () => {
         .mockResolvedValueOnce(job('failed', { result: refused })),
     );
 
-    const applied = api.applyAllDecisions('s1');
+    const applied = api.applyAllDecisions('s1', {});
     await vi.advanceTimersByTimeAsync(1000);
 
     await expect(applied).resolves.toEqual(refused);
@@ -781,7 +761,7 @@ describe('a write followed through its job', () => {
       ),
     );
 
-    const error = (await api.applyAllDecisions('s1').catch((e) => e)) as ApiError;
+    const error = (await api.applyAllDecisions('s1', {}).catch((e) => e)) as ApiError;
     expect(error.needsConfirmation).toBe(true);
     expect(error.confirm).toBe('batch');
   });

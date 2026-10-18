@@ -214,6 +214,38 @@ pub struct CapacityForecast {
     pub fits: bool,
 }
 
+/// Which titles an apply or a revert covers, as the decisions list filters them. Each field
+/// set narrows the set, and none set leaves it whole.
+#[derive(Debug, Clone, Default, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionFilter {
+    /// Only the decisions about this instance's titles.
+    pub instance_id: Option<String>,
+    /// `movie` or `series`.
+    pub media_type: Option<String>,
+    /// Only the decisions sending a title to this category.
+    pub category: Option<String>,
+    /// Only the titles in this root folder when the decision was made.
+    pub current_root_folder: Option<String>,
+    /// Only the decisions this rule made.
+    pub rule_id: Option<String>,
+    /// Part of the title, ASCII letters in any case.
+    pub search: Option<String>,
+}
+
+impl DecisionFilter {
+    /// Narrow `conditions`, written on a `decisions` alias, to the titles this filter keeps.
+    pub fn narrow(&self, conditions: &mut crate::db::Conditions) {
+        conditions
+            .equal("instance_id", self.instance_id.as_deref())
+            .equal("media_type", self.media_type.as_deref())
+            .equal("target_category", self.category.as_deref())
+            .same_path("current_root_folder", self.current_root_folder.as_deref())
+            .equal("matched_rule_id", self.rule_id.as_deref())
+            .contains("media_title", self.search.as_deref());
+    }
+}
+
 /// Query parameters for decision listing.
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -227,18 +259,44 @@ pub struct DecisionQuery {
     pub status: Option<String>,
     /// Only the decisions sending a title to this category.
     pub category: Option<String>,
+    /// Only the titles in this root folder when the decision was made.
+    pub current_root_folder: Option<String>,
+    /// Only the decisions this rule made.
+    pub rule_id: Option<String>,
     /// `move`, `none` or `skip`.
     pub action: Option<String>,
     /// Only what this simulation proposed.
     pub simulation_id: Option<String>,
     /// Part of the title, ASCII letters in any case.
     pub search: Option<String>,
+    /// Only the decisions made at this time or later, in RFC 3339.
+    #[param(format = DateTime)]
+    pub since: Option<String>,
+    /// Only the decisions made before this time, in RFC 3339.
+    #[param(format = DateTime)]
+    pub until: Option<String>,
+    /// Only the applied moves a revert may still undo, or with `false` every other decision.
+    pub revertible: Option<bool>,
     /// Include the superseded decisions. Defaults to false.
     pub include_superseded: Option<bool>,
     /// From 1. Defaults to 1.
     pub page: Option<u32>,
     /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
+}
+
+impl DecisionQuery {
+    /// The titles this query lists, as an apply or a revert would take them.
+    pub fn filter(&self) -> DecisionFilter {
+        DecisionFilter {
+            instance_id: self.instance_id.clone(),
+            media_type: self.media_type.clone(),
+            category: self.category.clone(),
+            current_root_folder: self.current_root_folder.clone(),
+            rule_id: self.rule_id.clone(),
+            search: self.search.clone(),
+        }
+    }
 }
 
 fn default_true() -> bool {

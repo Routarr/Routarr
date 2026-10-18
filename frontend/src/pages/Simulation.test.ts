@@ -3,7 +3,8 @@ import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { decision, job, paginated } from '../test/fixtures';
+import { category, decision, job, paginated, rule } from '../test/fixtures';
+import userEvent from '@testing-library/user-event';
 import { ApiError, api, type Following } from '../api/client';
 import type { Decision, SimulationResult } from '../api/types';
 import Simulation from './Simulation.svelte';
@@ -19,10 +20,7 @@ import { statusRevision } from '../lib/status.svelte';
 /** What each run stored, as `/decisions` lists it under the run's id. */
 const RUNS = new Map<string, Decision[]>();
 
-/**
- * A stored run's report, which keeps its counts alone, its proposals left
- * for `/decisions` to list.
- */
+/** A stored run's report: its counts alone, its proposals left for `/decisions` to list. */
 function simulation(decisions: Decision[]): SimulationResult {
   const id = `s${RUNS.size + 1}`;
   RUNS.set(id, decisions);
@@ -72,20 +70,38 @@ const applied = {
   errors: [],
 };
 
+/** The decisions a run stored, or those left pending, that `params` keeps. */
+function listed(pending: Decision[], params: Record<string, unknown> = {}) {
+  const run = typeof params.simulation_id === 'string' ? RUNS.get(params.simulation_id) : null;
+  return (run ?? pending).filter(
+    (d) =>
+      (!params.status || d.status === params.status) &&
+      (!params.action || d.action === params.action),
+  );
+}
+
 /** Render and wait for the pending-decisions fetch the page makes on mount. */
 async function show(pending: Decision[]) {
   vi.spyOn(api, 'getDecisions').mockImplementation(async (params) =>
-    paginated(
-      typeof params?.simulation_id === 'string' ? (RUNS.get(params.simulation_id) ?? []) : pending,
-    ),
+    paginated(listed(pending, params)),
+  );
+  vi.spyOn(api, 'countDecisions').mockImplementation(
+    async (params) => listed(pending, params).length,
   );
   const view = renderWithI18n(Simulation);
   await screen.findByRole('heading', { name: 'Simulation' });
   return view;
 }
 
-// No run is going on when the screen opens, unless a test says otherwise.
-beforeEach(() => vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([])));
+// No run is going on when the screen opens, unless a test says otherwise, and nothing to filter.
+beforeEach(() => {
+  vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
+  vi.spyOn(api, 'getSettings').mockResolvedValue({ batch_limit: '50' });
+  vi.spyOn(api, 'getInstances').mockResolvedValue([]);
+  vi.spyOn(api, 'getCategories').mockResolvedValue([]);
+  vi.spyOn(api, 'getRootFolders').mockResolvedValue([]);
+  vi.spyOn(api, 'getRules').mockResolvedValue([]);
+});
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -250,12 +266,12 @@ describe('the file move', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
     await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(1));
-    expect(nthCall(applyAll)[1]).toBe(false);
+    expect(nthCall(applyAll)[2]).toBe(false);
 
     await fireEvent.click(await screen.findByLabelText(/^Move the files on disk too/));
     await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
     await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(2));
-    expect(nthCall(applyAll, 1)[1]).toBe(true);
+    expect(nthCall(applyAll, 1)[2]).toBe(true);
   });
 });
 
@@ -284,7 +300,7 @@ describe('what the screen refuses to do', () => {
     expect(await answerConfirmation(null)).toMatch(/1/);
     // Asked, and never answered: the one request carried no answer.
     expect(applyAll).toHaveBeenCalledTimes(1);
-    expect(nthCall(applyAll)[2]).toEqual([]);
+    expect(nthCall(applyAll)[3]).toEqual([]);
   });
 
   /**
@@ -344,8 +360,8 @@ describe('what the screen refuses to do', () => {
     expect(await answerConfirmation()).toContain("'/mnt/nas' is not answering.");
     await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(2));
     // The one question answers what it states, so every name goes back.
-    expect(nthCall(applyAll)[2]).toEqual([]);
-    expect(nthCall(applyAll, 1)[2]).toEqual(['batch', 'unreachable']);
+    expect(nthCall(applyAll)[3]).toEqual([]);
+    expect(nthCall(applyAll, 1)[3]).toEqual(['batch', 'unreachable']);
   });
 
   /** The screen where the category is mapped, by the name the navigation gives it. */
@@ -490,10 +506,7 @@ describe('what the screen says after applying', () => {
     expect(screen.getByText('Akira: The Arr refused the move')).toBeTruthy();
   });
 
-  /**
-   * The moves were made even when the refresh after them fails, so the
-   * refresh's failure is shown beside the report and never in its place.
-   */
+  /** The moves were made even when the refresh fails, whose failure sits beside the report. */
   it('keeps the report of an apply whose refresh failed', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation')
@@ -526,9 +539,8 @@ describe('what the screen says after applying', () => {
   });
 
   /**
-   * Part done and part failed is neither a success nor a failure. Red over
-   * forty-nine moves made would say nothing was done, green would hide the
-   * one that was not.
+   * Part done and part failed is neither a success nor a failure: red over 49 moves made says
+   * nothing was done, green hides the one that was not.
    */
   it('reports an Apply all stopped after some moves as a partial result', async () => {
     await show([]);
@@ -561,10 +573,7 @@ describe('what the screen says after applying', () => {
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
   });
 
-  /**
-   * A move the Arr is still making and a proposal replaced since leave the
-   * apply unfinished, each said beside the count.
-   */
+  /** A move the Arr is still making and a proposal replaced since each say so beside the count. */
   it('says what the Arr is still moving and what was replaced', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision({ id: 'd1' })]));
@@ -733,10 +742,7 @@ describe('what the screen says after applying', () => {
     expect(screen.queryByText('Akira: The Arr refused the move')).toBeNull();
   });
 
-  /**
-   * An apply button turns disabled while it writes, which drops its focus to
-   * the start of the page, where the next Tab begins again from the top.
-   */
+  /** A disabled apply button drops its focus to the page, where the next Tab starts at the top. */
   it.each([
     ['Apply selected', /apply selected/i],
     ['Apply all', /apply all/i],
@@ -769,10 +775,7 @@ describe('what the screen says after applying', () => {
   });
 });
 
-/**
- * A run of any size is followed through its task rather than waited for, so
- * no request bound cuts it, and the screen shows it going on.
- */
+/** A run of any size is followed through its task, so no request bound cuts it. */
 describe('a run followed through its task', () => {
   it('shows how far the run has gone while it is followed', async () => {
     await show([]);
@@ -840,5 +843,128 @@ describe('a run followed through its task', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+});
+
+describe('narrowing what is reviewed and applied', () => {
+  /** The batch limit refuses a selection past it whole, so a page never preselects more. */
+  it('preselects no more moves than the batch limit, and says where the selection stops', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue({ batch_limit: '2' });
+    await show([]);
+    const moves = [decision(), decision(), decision()];
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation(moves));
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    expect(await screen.findByRole('button', { name: 'Apply selected (2)' })).toBeTruthy();
+    expect(
+      screen.getByText('The selection stops at the batch limit. Moves at a time: 2.'),
+    ).toBeTruthy();
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Select every proposed move' }));
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Select every proposed move' }));
+    expect(screen.getByRole('button', { name: 'Apply selected (2)' })).toBeTruthy();
+  });
+
+  /** The top bar counts every pending decision, and the list it sends the reader to pages. */
+  it('counts every pending decision and pages through them', async () => {
+    const getDecisions = vi
+      .spyOn(api, 'getDecisions')
+      .mockResolvedValue(paginated([decision()], { total_pages: 3, total: 120 }));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(0);
+    renderWithI18n(Simulation);
+
+    expect(await screen.findByText('Decisions awaiting review: 120')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() =>
+      expect(getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'pending', page: 2 }),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  /** A pass after a sync replaces the proposals under review, and the list would empty. */
+  it('offers the latest proposals once a newer simulation replaced the run', async () => {
+    await show([]);
+    const reviewed = simulation([decision()]);
+    const latest = simulation([decision({ media_title: 'Totoro' })]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(reviewed);
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await screen.findByText('Akira');
+
+    vi.spyOn(api, 'getJobs').mockResolvedValue(
+      paginated([job({ kind: 'simulate', result: latest })]),
+    );
+    RUNS.set(reviewed.simulation_id, []);
+    await userEvent.selectOptions(screen.getByLabelText('Filter by action'), 'move');
+
+    expect(await screen.findByText('A newer simulation replaced these proposals.')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Show the latest proposals' }));
+
+    expect(await screen.findByText('Totoro')).toBeTruthy();
+    expect(api.getDecisions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ simulation_id: latest.simulation_id, action: 'move', page: 1 }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('narrows the list and Apply all to the filters, and names the apply by them', async () => {
+    vi.spyOn(api, 'getCategories').mockResolvedValue([category({ name: 'anime' })]);
+    vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision(), decision()]));
+    const applyAll = vi.spyOn(api, 'applyAllDecisions').mockResolvedValue(batchReport);
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    expect(await screen.findByRole('button', { name: 'Apply all (2)' })).toBeTruthy();
+
+    await screen.findByRole('option', { name: 'Japanese animation' });
+    await userEvent.selectOptions(screen.getByLabelText('Filter by category'), 'anime');
+    await userEvent.selectOptions(screen.getByLabelText('Filter by rule'), 'r1');
+
+    await waitFor(() =>
+      expect(api.getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: 'anime', rule_id: 'r1', page: 1 }),
+        expect.any(AbortSignal),
+      ),
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Apply the matching moves (2)' }),
+    );
+    await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(1));
+    expect(nthCall(applyAll)[1]).toEqual({ category: 'anime', rule_id: 'r1' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(await screen.findByRole('button', { name: 'Apply all (2)' })).toBeTruthy();
+  });
+
+  it('applies nothing past a filter on skips, which keeps no move', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision(), decision({ action: 'skip' })]),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await screen.findByRole('button', { name: 'Apply all (1)' });
+
+    await userEvent.selectOptions(screen.getByLabelText('Filter by action'), 'skip');
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull());
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+  });
+
+  it('says the filters keep nothing rather than asking for a run', async () => {
+    await show([]);
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search a title' }), 'heat');
+
+    expect(await screen.findByText('No decision matches these filters.')).toBeTruthy();
+  });
+
+  it('says the filter choices could not be read', async () => {
+    vi.spyOn(api, 'getRules').mockRejectedValue(
+      new ApiError('The rules are unreadable', 503, 'unavailable'),
+    );
+    await show([]);
+
+    expect(await screen.findByText('The rules are unreadable')).toBeTruthy();
   });
 });

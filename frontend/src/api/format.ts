@@ -1,13 +1,9 @@
 import type { Condition, DecisionAction, LogAction, MediaType } from './types';
 
 /**
- * The byte symbol for a locale, off the kilobyte's.
- *
- * `ko` → `o`, `\u043a\u0411` → `\u0411`, `kt` → `t`, and Arabic's `\u0643.\u0628` → `\u0628`: an SI
- * prefix, then the symbol. Everything after the last `.` where there is one,
- * since Arabic separates the two, and everything after the first character
- * otherwise. Returns nothing when the kilobyte form is itself a word, so the
- * caller keeps whatever `Intl` gave it rather than truncating prose.
+ * The byte symbol off the kilobyte's: what follows the last `.`, as in Arabic's `\u0643.\u0628`,
+ * else the first character, as in `ko`. Nothing when the kilobyte is itself a word, so the
+ * caller keeps what `Intl` gave rather than truncating prose.
  */
 function byteSymbol(locale: string): string | undefined {
   const kilo = new Intl.NumberFormat(locale, {
@@ -23,16 +19,14 @@ function byteSymbol(locale: string): string | undefined {
 }
 
 /**
- * The language setting as `Intl` and the page's `lang` read it. The
- * dictionaries are named `nb_NO` or `zh_TW`, and `Intl` refuses the
- * underscore: each formatter would throw, and fall back to the server's
- * English. Neither is a language tag a browser picks a font or a voice from.
+ * The language setting as `Intl` and the page's `lang` read it. `Intl` refuses the underscore of
+ * `nb_NO` or `zh_TW`, so each formatter would throw, and no browser picks a font from it.
  */
 export const bcp47 = (language: string) => language.replace('_', '-');
 
 /**
- * An address without the `user:pass@` before its host, which a browser
- * opening it would offer to sign in with. The server answers them masked.
+ * An address without the `user:pass@` before its host, which a browser opening it would offer to
+ * sign in with. The server answers them masked.
  */
 export const withoutCredentials = (address: string): string =>
   address.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
@@ -41,10 +35,9 @@ export const withoutCredentials = (address: string): string =>
 const LOCAL_SUFFIXES = ['.local', '.lan', '.home', '.internal', '.localdomain', '.home.arpa'];
 
 /**
- * Whether an address sends the Arr's key unencrypted to a host that may lie
- * past the home network: `http` to a public IP address, or to a name a public
- * DNS could answer. A container name, `localhost`, a private or link-local
- * address and a home network's name stay home.
+ * Whether an address sends the Arr's key in clear past the home network: `http` to a public IP
+ * address, or to a name a public DNS could answer. A container name, `localhost`, a private or
+ * link-local address and a home network's name stay home.
  */
 export function inClearPastHome(address: string): boolean {
   let url: URL;
@@ -110,42 +103,21 @@ export const METADATA_FIELD_KEY: Record<string, string> = {
 export const mediaTypeKey = (type: MediaType): string => (type === 'movie' ? 'Movies' : 'Series');
 
 /**
- * What a failed sync or probe ran into. The backend writes `error: ` and the
- * error's own text, which comes from the network or the Arr: a badge says
- * that it failed in the reader's language, and its title holds this.
+ * What a failed sync or probe ran into, past the backend's `error: `. The text comes from the
+ * network or the Arr, so a badge says it failed in the reader's language and its title holds this.
  */
 export const failureDetail = (status: string): string => status.replace(/^error: /, '');
 
 /**
- * A path placed in a sentence, in a first strong isolate: in a right-to-left
- * message its leading slash otherwise lands at the far end, and its segments
- * read in the message's direction.
+ * A path placed in a sentence, in a first strong isolate: in a right-to-left message its leading
+ * slash otherwise lands at the far end, and its segments read in the message's direction.
  */
 export const isolated = (text: string): string => `\u2068${text}\u2069`;
 
 /**
- * Human-readable size in the reader's language, or a hyphen when the Arr did
- * not report one.
- *
- * The unit names come from `Intl`, which knows each language's own (French
- * writes `o`, `Ko`, `Go`), so this costs no translation and stays right for a
- * language added later.
- *
- * The scale is binary: the figure is compared against what a file manager
- * reports and against the backend's own `human_bytes`. It is the convention
- * every desktop uses, a mebibyte called a megabyte.
- *
- * Two forms are combined, and each contributes what it gets right: `short`
- * spaces the unit the way the language does (French puts one before it,
- * Korean does not), while `narrow` holds the abbreviation. Short alone writes
- * the byte unit as `byte` in English and `Byte` in German, and narrow alone
- * drops the French space.
- *
- * The byte symbol is the exception, and it is derived rather than asked for:
- * `narrow` answers with a *word* in Dutch, Greek, Turkish, Korean and
- * Traditional Chinese. `byteSymbol` takes it off the kilobyte's instead, the
- * same symbol with an SI prefix in front, which agrees with `Intl` everywhere
- * it does abbreviate.
+ * A size in the reader's language, on the binary scale of a file manager and of `human_bytes`.
+ * `short` spaces the unit as the language does and `narrow` holds the abbreviation. The byte's,
+ * a word in several languages, comes from `byteSymbol`.
  */
 export function formatBytes(bytes: number | null | undefined, language = 'en'): string {
   if (bytes === null || bytes === undefined) return '-';
@@ -180,8 +152,7 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
       .map((part) => (part.type === 'unit' ? (abbreviation ?? part.value) : part.value))
       .join('');
   } catch {
-    // A locale `Intl` refuses, or an engine without the unit style: the figure
-    // still has to reach the screen.
+    // A locale `Intl` refuses, or an engine without the unit style, still shows the figure.
     return `${value.toFixed(digits)} ${['B', 'KB', 'MB', 'GB', 'TB', 'PB'][unit]}`;
   }
 }
@@ -201,10 +172,9 @@ interface ConditionWords {
 }
 
 /**
- * The dictionary key of the sentence a condition reads as. A whole sentence
- * per condition, its values in a placeholder, so each language places and
- * declines "any of", "all of" and "none of" as its grammar wants. `Not` is a
- * yes or no condition said no, `From` and `To` a year range open at one end.
+ * The dictionary key of a condition's whole sentence, its values in a placeholder, so each
+ * language declines "any of" or "none of" as its grammar wants. `Not` is a yes or no condition
+ * said no, `From` and `To` a year range open at one end.
  */
 export const phraseKey = (type: string, form: '' | 'Not' | 'From' | 'To' = ''): string =>
   `ConditionPhrase${type.split('_').map(capitalize).join('')}${form}`;
@@ -242,11 +212,8 @@ export function formatCount(value: number, language: string): string {
 }
 
 /**
- * A 0–1 ratio as the language writes a percentage.
- *
- * `Intl` rather than `${n}%`: French puts a non-breaking space before the
- * sign, English does not, and several locales use a different sign entirely.
- * Same underscore-to-hyphen fix as the date formats, for the same reason.
+ * A 0 to 1 ratio as the language writes a percentage: French puts a non-breaking space before
+ * the sign, and several locales use another sign.
  */
 export function formatPercent(value: number | null | undefined, language: string): string {
   const ratio = Math.min(1, Math.max(0, value ?? 0));
@@ -261,17 +228,8 @@ export function formatPercent(value: number | null | undefined, language: string
 }
 
 /**
- * A timestamp the way the configured language writes it.
- *
- * The backend stores `YYYY-MM-DD HH:MM:SS` in UTC. Rendered raw it is nineteen
- * monospace characters, wide enough to push a table cell onto a second line,
- * and it reads like a log file rather than a date.
- *
- * `Intl` does the formatting, so this costs no translation keys: the app
- * language is the locale. Language codes are stored Servarr-style (`nb_NO`,
- * `zh_CN`), where BCP-47 wants a hyphen. Seconds are dropped: nobody
- * schedules a sync to the second. The value is returned unchanged if it
- * cannot be parsed, since a visibly odd string beats a silent "Invalid Date".
+ * A stored UTC timestamp as the configured language writes it, to the minute. One that cannot
+ * be parsed comes back as it is, since a visibly odd string beats a silent "Invalid Date".
  */
 export function formatTimestamp(
   value: string | null | undefined,
@@ -280,8 +238,7 @@ export function formatTimestamp(
 ): string {
   if (!value) return fallback;
 
-  // The stored form has no zone marker. It is UTC, and saying so keeps the
-  // browser from reading it as local time and shifting it by the offset.
+  // Stored as UTC without a zone marker, which a browser would read as local time.
   const parsed = new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`);
   if (Number.isNaN(parsed.getTime())) return value;
 
@@ -297,14 +254,8 @@ export function formatTimestamp(
 }
 
 /**
- * A recent moment as "4 minutes ago", anything older as its date.
- *
- * A dashboard and a log are read to answer "is this fresh?", and an absolute
- * timestamp makes the reader do the subtraction. Past a week the relative form
- * stops helping ("3 months ago" is vaguer than the date), so it hands back.
- *
- * `Intl.RelativeTimeFormat` does the wording, so this costs no translation
- * keys, exactly as `formatTimestamp` does for dates.
+ * A moment of the last week as "4 minutes ago", an older one as its date: past a week the
+ * relative form is vaguer than the date.
  */
 export function formatRelative(
   value: string | null | undefined,
@@ -340,10 +291,9 @@ export function formatRelative(
 }
 
 /**
- * A language or a region named in the reader's language, the code kept in
- * brackets as the server's vocabulary writes it. That vocabulary is spelled in
- * English for every reader, and the browser knows the names in all of them.
- * `null` when it has none for the code, so the caller keeps the server's.
+ * A language or a region named in the reader's language, the code in brackets, where the server's
+ * vocabulary is spelled in English for every reader. `null` when the browser has no name for the
+ * code, so the caller keeps the server's.
  */
 export function localName(
   type: 'language' | 'region',
@@ -352,10 +302,7 @@ export function localName(
 ): string | null {
   try {
     const region = code.toUpperCase();
-    // A code that no longer exists is named after the country that replaced
-    // it, `SU` as Russia and `DD` as Germany, so the picker would offer two
-    // Russias and a rule on `RU` would miss every Soviet film. Left to the
-    // caller, which names it from the server's table.
+    // `Intl` names a retired code after its successor, `SU` as Russia: two Russias in a picker.
     if (type === 'region' && Intl.getCanonicalLocales(`und-${region}`)[0] !== `und-${region}`) {
       return null;
     }
@@ -373,16 +320,14 @@ export function toggled<T>(list: readonly T[], value: T, on: boolean): T[] {
 }
 
 /**
- * `items` with the entry at `index` traded for its neighbour `by` places away,
- * or `null` when there is no such neighbour. The list handed in is left as it
- * is: a reorder is sent to the server, and the screen redraws from its answer.
+ * `items` with the entry at `index` traded for its neighbour `by` places away, or `null` with no
+ * such neighbour. The list is left as it is: the screen redraws from the server's answer.
  */
 export function swapped<T>(items: readonly T[], index: number, by: number): T[] | null {
   const target = index + by;
   const from = items[index];
   const to = items[target];
-  // Reading both is the bounds check: past either end reads `undefined`, and so
-  // does the hole of a sparse array, which a check on the length lets through.
+  // The bounds check, which also refuses a sparse array's hole that a length check lets through.
   if (from === undefined || to === undefined) return null;
   const next = [...items];
   next[index] = to;
@@ -391,9 +336,8 @@ export function swapped<T>(items: readonly T[], index: number, by: number): T[] 
 }
 
 /**
- * The entries in runs of one key, in the order they came, each with its index
- * in the whole list. A list drawn in groups is still walked as one by the
- * arrows, and the index is the place they count.
+ * The entries in runs of one key, in order, each with its index in the whole list: a list drawn
+ * in groups is still walked as one by the arrows.
  */
 export function runsOf<T, K>(
   items: readonly T[],
@@ -407,4 +351,22 @@ export function runsOf<T, K>(
     else runs.push({ key, entries: [{ item, index }] });
   });
   return runs;
+}
+
+/** The fields a person set, the empty ones left out: sent empty, a field narrows to nothing. */
+export function setFields<T extends Record<string, string>>(fields: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== ''),
+  ) as Partial<T>;
+}
+
+/**
+ * The start of a `YYYY-MM-DD` day in the reader's time zone, as the instant a server reads,
+ * and `undefined` for no day. `after` gives the start of the next one, the bound that keeps
+ * the whole day in.
+ */
+export function dayStart(day: string, after = false): string | undefined {
+  const [year, month, date] = day.split('-').map(Number);
+  if (!year || !month || !date) return undefined;
+  return new Date(year, month - 1, date + (after ? 1 : 0)).toISOString();
 }

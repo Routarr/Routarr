@@ -2,16 +2,15 @@
 
 use sqlx::AssertSqlSafe;
 
-use super::load::CURRENT_FOR_RUN;
+use super::load::current_for_run;
+use crate::db::Conditions;
 use crate::error::{AppError, AppResult};
+use crate::models::DecisionFilter;
 use crate::state::AppState;
 
-/// The names a guardrail asks under.
-///
-/// A caller that has looked at one refusal sends its name back, and only that
-/// one is lifted. Written as constants rather than as literals at each site
-/// because the string crosses the wire and comes back: a typo on one side is a
-/// guardrail that can never be answered.
+/// The names a guardrail asks under. A caller sends back the name of the refusal it read, and
+/// only that one is lifted. Constants, since a typo on either side of the wire is a guardrail
+/// nobody can answer.
 pub mod confirm {
     /// The destination cannot hold the plan.
     pub const CAPACITY: &str = "capacity";
@@ -22,18 +21,14 @@ pub mod confirm {
     /// The destination is not answering right now.
     pub const UNREACHABLE: &str = "unreachable";
 
-    /// Every name above: what an application key may be allowed to answer,
-    /// and what `Confirmed::all()` builds from in tests. Written once, because
-    /// a guardrail added to the module and forgotten in a second list is one
-    /// no key can ever be given, and one the tests never answer.
+    /// Every name above: what an application key may be allowed to answer, and what
+    /// `Confirmed::all()` answers in tests. A name missing here is one no key or test answers.
     pub const ALL: &[&str] = &[CAPACITY, THRESHOLD, BATCH, UNREACHABLE];
 }
 
 /// The guardrails the caller has looked at and accepts: `capacity`,
 /// `threshold`, `batch` or `unreachable`.
-// A list of names, never a boolean: with one flag read by every guardrail
-// that asks, answering one question answers them all, and confirming a
-// capacity shortfall silently waves the batch threshold through as well.
+// Names, never a boolean: one flag would let confirming one guardrail wave the others through.
 #[derive(Debug, Clone, Default, serde::Deserialize, utoipa::ToSchema)]
 #[serde(transparent)]
 pub struct Confirmed(Vec<String>);
@@ -54,9 +49,8 @@ impl Confirmed {
         Self(self.0.iter().filter(|answered| keep(answered)).cloned().collect())
     }
 
-    /// Every question answered, for tests, which assert what happens *after*
-    /// the asking. Not available to the application, where it would be the
-    /// blanket flag this type exists to prevent.
+    /// Every question answered, for tests of what follows the asking. Test-only, since in the
+    /// application it would be the blanket flag this type exists to prevent.
     #[cfg(test)]
     pub fn all() -> Self {
         Self(confirm::ALL.iter().map(|kind| (*kind).to_string()).collect())
@@ -73,11 +67,9 @@ pub(super) async fn guard_dry_run(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
-/// Enforce the batch ceiling: nothing, and never more than `batch_limit`.
-///
-/// A count, so it runs before any guard that spells the ids out in a query:
-/// `batch_limit` is capped at a thousand, and SQLite binds 32 766 parameters
-/// at most, so a list this has passed always fits one statement.
+/// Refuse an empty selection or one above `batch_limit`, before any guard that binds the ids:
+/// the limit is capped at a thousand and SQLite binds 32 766 values at most, so a list this
+/// passes fits one statement.
 pub(super) async fn guard_batch_limit(state: &AppState, count: usize) -> AppResult<()> {
     let localizer = state.localizer().await;
 
@@ -87,8 +79,7 @@ pub(super) async fn guard_batch_limit(state: &AppState, count: usize) -> AppResu
 
     let batch_limit: usize = state.bounding_setting::<usize>("batch_limit").await?;
     if count > batch_limit {
-        // The setting by its label and where it is edited: its storage key
-        // names no field anybody can find.
+        // Named by its label and where it is edited, since nobody can find its storage key.
         return Err(AppError::BadRequest(localizer.translate(
             "ErrorBatchLimit",
             &[
@@ -125,15 +116,9 @@ pub(super) async fn guard_confirmation(
     Ok(())
 }
 
-/// Refuse to write into a destination the Arr says it cannot reach.
-///
-/// A root folder on a NAS that spins down is reported inaccessible, and the
-/// routing map deliberately keeps it: unknown is not gone, and a plan built
-/// while the disk was awake must survive the nap. The question is asked here
-/// instead, at the one moment it can be answered. It is asked rather than
-/// refused, because a NAS that wakes on access cannot be told from a dead disk,
-/// and refusing outright would make the product unusable for those
-/// installations.
+/// Ask before writing into a destination the Arr reports unreachable. A sleeping NAS stays in
+/// the routing map, unknown rather than gone, and cannot be told from a dead disk, so the
+/// question is asked here, at the one moment it can be answered.
 pub(super) async fn guard_reachable(
     state: &AppState,
     scope: CapacityScope<'_>,
@@ -142,13 +127,11 @@ pub(super) async fn guard_reachable(
     if confirmed.has(confirm::UNREACHABLE) {
         return Ok(());
     }
-    let Some(Weighed { rows, to, .. }) = scope.weighed() else {
+    let Some(Weighed { rows, binds, to, .. }) = scope.weighed() else {
         return Ok(());
     };
 
-    // A folder stored as not answering may have woken since a scheduled sync
-    // last listed it, once a day: its instance is asked again before the
-    // question is.
+    // A folder stored as asleep may have woken since the last sync: its instance is asked again.
     let sleeping = format!(
         "SELECT DISTINCT tgt.instance_id
          FROM decisions d
@@ -159,13 +142,8 @@ pub(super) async fn guard_reachable(
            AND tgt.accessible = 0"
     );
     let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sleeping.as_str()));
-    match scope {
-        CapacityScope::Decisions(ids) | CapacityScope::Reverting(ids) => {
-            for id in ids {
-                query = query.bind(id);
-            }
-        }
-        CapacityScope::Simulation(id) => query = query.bind(id),
+    for bind in &binds {
+        query = query.bind(bind);
     }
     for instance_id in query.fetch_all(&state.pool).await? {
         if let Err(e) = crate::services::sync::refresh_root_folders(state, &instance_id).await {
@@ -185,20 +163,13 @@ pub(super) async fn guard_reachable(
          LIMIT 1"
     );
     let mut query = sqlx::query_as::<_, (String, Option<String>)>(AssertSqlSafe(sql.as_str()));
-    match scope {
-        CapacityScope::Decisions(ids) | CapacityScope::Reverting(ids) => {
-            for id in ids {
-                query = query.bind(id);
-            }
-        }
-        CapacityScope::Simulation(id) => query = query.bind(id),
+    for bind in &binds {
+        query = query.bind(bind);
     }
 
     if let Some((path, last_seen)) = query.fetch_optional(&state.pool).await? {
         let localizer = state.localizer().await;
-        // How long rather than a verdict: twenty minutes reads as a nap and
-        // three days as a fault, and the operator is the one who knows their
-        // hardware.
+        // An age rather than a verdict: only the operator knows if it reads as a nap or a fault.
         let since = last_seen.as_deref().and_then(crate::services::routing::parse_timestamp);
         let message = match since {
             Some(then) => localizer.translate(
@@ -216,18 +187,22 @@ pub(super) async fn guard_reachable(
     Ok(())
 }
 
-/// What a guard weighs: a person's selection, a whole run, or moves undone.
+/// What a guard weighs: a person's selection, a run or what a filter keeps of it, or moves
+/// undone, listed or matched.
 #[derive(Clone, Copy)]
 pub(super) enum CapacityScope<'a> {
     Decisions(&'a [String]),
-    Simulation(&'a str),
+    Simulation(&'a str, &'a DecisionFilter),
     Reverting(&'a [String]),
+    RevertingMatching(&'a Conditions),
 }
 
 /// The moves a guard weighs, as SQL over `decisions d`.
 pub(super) struct Weighed {
     /// Which decisions, narrowed to the moves still to write.
     rows: String,
+    /// The values `rows` binds, in order.
+    binds: Vec<String>,
     /// The folder each move writes into.
     to: &'static str,
     /// The folder each move leaves.
@@ -237,15 +212,9 @@ pub(super) struct Weighed {
 /// The proposals an apply writes.
 pub(super) const PROPOSED: &str = "d.status = 'pending' AND d.superseded = 0 AND d.action = 'move'";
 
-/// The moves a revert may undo: applied, not undone yet, knowing where they
-/// came from, and the latest of their title's standing moves. Undoing an
-/// older one would send the title back to its first folder and skip the ones
-/// between. The title must still be where the move put it, or the revert
-/// pulls it out of a folder somebody chose since. The folder it goes back to
-/// must still be one of its instance's, since the guards weigh a destination
-/// through its `root_folders` row and ask nothing about a folder without one.
-/// The decisions list reads it too, to draw a Revert button on exactly the
-/// rows it lets through.
+/// The moves a revert may undo: applied and not undone, the title's latest (an older one skips
+/// those between), the title still where it was put (not in a folder chosen since), and its
+/// origin still a root folder, whose row the guards weigh. The Revert button reads it too.
 pub(crate) const REVERTIBLE: &str =
     "d.status = 'applied' AND d.reverted_at IS NULL AND d.current_root_folder IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM decisions later
@@ -263,61 +232,50 @@ impl CapacityScope<'_> {
     /// `None` for an empty selection, which there is nothing to weigh in.
     fn weighed(self) -> Option<Weighed> {
         let listed = |ids: &[String]| format!("d.id IN ({})", crate::db::placeholders(ids.len()));
-        let forward = |rows: String| Weighed {
+        let forward = |rows: String, binds: Vec<String>| Weighed {
             rows: format!("{rows} AND {PROPOSED}"),
+            binds,
             to: "d.target_root_folder",
             from: "d.current_root_folder",
         };
+        let back = |rows: String, binds: Vec<String>| Weighed {
+            rows,
+            binds,
+            to: "d.current_root_folder",
+            from: "d.target_root_folder",
+        };
         match self {
             CapacityScope::Decisions([]) | CapacityScope::Reverting([]) => None,
-            CapacityScope::Decisions(ids) => Some(forward(listed(ids))),
-            // A whole run is selected by its id rather than by listing its
-            // decisions: a library-sized run has more of them than one
-            // statement can bind.
-            CapacityScope::Simulation(_) => Some(forward(format!("d.id IN ({CURRENT_FOR_RUN})"))),
-            // Back to the folder each move came from.
-            CapacityScope::Reverting(ids) => Some(Weighed {
-                rows: format!("{} AND {REVERTIBLE}", listed(ids)),
-                to: "d.current_root_folder",
-                from: "d.target_root_folder",
-            }),
+            CapacityScope::Decisions(ids) => Some(forward(listed(ids), ids.to_vec())),
+            // By id and filter: a library-sized run has more decisions than a statement binds.
+            CapacityScope::Simulation(id, filter) => {
+                let (current, binds) = current_for_run(id, filter);
+                Some(forward(format!("d.id IN ({current})"), binds))
+            }
+            CapacityScope::Reverting(ids) => {
+                Some(back(format!("{} AND {REVERTIBLE}", listed(ids)), ids.to_vec()))
+            }
+            CapacityScope::RevertingMatching(matching) => {
+                Some(back(format!("{REVERTIBLE}{}", matching.sql()), matching.binds().to_vec()))
+            }
         }
     }
 }
 
-/// Refuse a plan a destination cannot hold.
-///
-/// A batch that overruns its destination fails partway through at the Arr and
-/// leaves the library half-moved, and hard to notice, since the Arr records
-/// the new path whether or not the file arrived.
-///
-/// Only bytes that cross a filesystem count: two folders reporting the same
-/// free space are almost certainly one volume, where a move is a rename. Two
-/// *different* volumes that happen to report the same figure (two full disks,
-/// say) read as one and are waved through. The same-volume test is evidence,
-/// not proof, which is what the confirmation below is for.
-///
-/// The figure is `root_folders.free_space` as the last sync stored it, not as
-/// the disk stands now. A download since then makes it optimistic, so the guard
-/// bounds a plan against a recent past rather than the present.
-/// Joined through the path collation because the source path comes from the
-/// Arr's payload and the destination from our table, each closed or not by a
-/// separator, and on Windows in either case.
-///
-/// `ConfirmationRequired`, not a refusal: the same-volume test is evidence
-/// rather than proof, so being wrong costs one click.
+/// Ask before a plan a destination cannot hold: the Arr fails it partway and records the new
+/// paths anyway. Folders with the same free space, as the last sync stored it, count as one
+/// volume, where a move is a rename. That is evidence, not proof, hence a question.
 pub(super) async fn guard_capacity(
     state: &AppState,
     scope: CapacityScope<'_>,
     move_files: bool,
     confirmed: &Confirmed,
 ) -> AppResult<()> {
-    // With the files left where they are no byte moves, and a question with
-    // no stake teaches people to answer yes to the ones that have one.
+    // No byte moves with the files in place, and a question with no stake teaches a blind yes.
     if !move_files || confirmed.has(confirm::CAPACITY) {
         return Ok(());
     }
-    let Some(Weighed { rows, to, from }) = scope.weighed() else {
+    let Some(Weighed { rows, binds, to, from }) = scope.weighed() else {
         return Ok(());
     };
     let sql = format!(
@@ -339,19 +297,12 @@ pub(super) async fn guard_capacity(
     );
     let mut query =
         sqlx::query_as::<_, (String, String, i64, Option<i64>, i64)>(AssertSqlSafe(sql.as_str()));
-    match scope {
-        CapacityScope::Decisions(ids) | CapacityScope::Reverting(ids) => {
-            for id in ids {
-                query = query.bind(id);
-            }
-        }
-        CapacityScope::Simulation(id) => query = query.bind(id),
+    for bind in &binds {
+        query = query.bind(bind);
     }
 
     let rows = query.fetch_all(&state.pool).await?;
-    // Folders of one instance reporting the same free space are one volume,
-    // on the evidence the same-filesystem test above reads: what they receive
-    // together has to fit.
+    // Folders of one instance with the same free space are one volume: together, they must fit.
     let mut volumes: Vec<((&str, i64), Vec<&str>, i64)> = Vec::new();
     for (instance, path, incoming, free, _) in &rows {
         let Some(free) = *free else { continue };
@@ -365,12 +316,7 @@ pub(super) async fn guard_capacity(
     }
     for &(_, ref path, incoming, free, declared) in &rows {
         let Some(free) = free else {
-            // Nothing to weigh. A folder an Arr reports has simply not
-            // published a figure, and asking about that on every apply would
-            // make the question meaningless. A *declared* one with no figure is
-            // a different case: it sits under no known root, so nothing
-            // upstream will catch a full disk either, and silence there is the
-            // guard failing quietly rather than passing.
+            // Only a declared folder is asked about a missing figure: no Arr watches its disk.
             if declared == 1 && incoming > 0 {
                 let localizer = state.localizer().await;
                 return Err(AppError::ConfirmationRequired {
@@ -429,13 +375,9 @@ mod tests {
     use crate::localization::Localizer;
     use crate::localization::human_bytes;
 
-    /// The two halves of the application name a size the same way.
-    ///
-    /// The interface's `formatBytes` prints the reader's own symbols (`2.2 TB`
-    /// in English, `2,2 To` in French) off a division by 1024. A capacity
-    /// refusal and the root-folders table name the same figure, so a label that
-    /// differs describes one figure in two vocabularies. `byte_cases.json` holds
-    /// both sides to the same names, spaces read as plain ones.
+    /// The server names a size as the interface's `formatBytes` does, since a capacity refusal
+    /// and the root-folders table show one figure. `byte_cases.json` holds both sides to the
+    /// same names, spaces read as plain ones.
     #[test]
     fn a_size_is_named_as_the_interface_names_it() {
         let cases: Vec<(i64, String, String)> =
@@ -453,11 +395,8 @@ mod tests {
         assert!(parted.is_empty(), "the server names sizes otherwise:\n{}", parted.join("\n"));
     }
 
-    /// Every guardrail name reaches `confirm::ALL`.
-    ///
-    /// Read out of this file rather than listed again: a name added to the
-    /// module and forgotten in the slice refuses a caller that answered every
-    /// question, and nothing else in the build says so.
+    /// Every guardrail name reaches `confirm::ALL`, read out of this file: one forgotten in the
+    /// slice refuses a caller that answered every question, and nothing else says so.
     #[test]
     fn every_guardrail_name_is_in_the_list() {
         const SOURCE: &str = include_str!("guards.rs");
@@ -477,12 +416,10 @@ mod tests {
             .filter(|name| *name != "ALL")
             .collect();
 
-        // The count is the guard on the parser: stop matching and every
-        // assertion below passes having read nothing.
+        // The guard on the parser: matching nothing, every assertion below would pass.
         assert!(names.len() >= 4, "only {} name(s) parsed: {names:?}", names.len());
 
-        // Compared whole: a name inside a listed one, as `REACH` inside
-        // `UNREACHABLE`, is not listed.
+        // Compared whole: `REACH` inside `UNREACHABLE` is not listed.
         let listed: Vec<&str> = module
             .split_once("pub const ALL: &[&str] = &[")
             .expect("the list")

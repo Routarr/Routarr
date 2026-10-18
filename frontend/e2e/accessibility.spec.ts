@@ -389,6 +389,7 @@ test.describe('the keyboard reaches every control', () => {
 
         // Focused on the first control, since after a blur each browser starts somewhere else.
         const reached = new Set<number>([0]);
+        let last = 0;
         await page.locator('[data-keyboard-sweep="0"]').focus();
         for (let press = 0; press < expected.length * 2 + 20; press += 1) {
           await page.keyboard.press('Tab');
@@ -417,8 +418,11 @@ test.describe('the keyboard reaches every control', () => {
           if (!focused.seen) problems.push(`${path}: ${focused.name} takes the focus out of sight`);
           if (focused.tag === undefined) continue;
           const index = Number(focused.tag);
+          // A date field keeps the focus through its day, month and year: the walk goes on.
+          if (index === last) continue;
           if (reached.has(index)) break;
           reached.add(index);
+          last = index;
         }
         expected.forEach((name, index) => {
           if (!reached.has(index)) problems.push(`${path}: ${name} cannot be reached`);

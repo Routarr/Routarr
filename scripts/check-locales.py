@@ -9,8 +9,7 @@
 6. Every dictionary keeps the English key order `add-locale.py` writes.
 7. A core term reads one way in each language (`scripts/glossary.json`).
 8. No confirmation button starts with the language's Cancel word.
-9. Every placeholder is a count (`COUNTS` in `backend/src/localization.rs`) or
-   is listed in `NOT_COUNTS` below.
+9. Every placeholder is a count (`COUNTS` in `backend/src/localization.rs`) or in `NOT_COUNTS`.
 10. French puts a no-break space before `? ! : ; % »` and after `«`.
 
 Run from the repository root: `python3 scripts/check-locales.py`
@@ -77,7 +76,7 @@ NOT_COUNTS = {
     "number", "observed", "opened", "origin", "path", "paths", "provider", "query", "reason",
     "reasons", "template", "regions", "route", "rule", "schema", "scope", "scopes", "screen", "second",
     "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
-    "tab", "title", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
+    "tab", "terms", "title", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
 }
 
 

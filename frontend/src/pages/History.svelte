@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Undo2 } from '../lib/icons';
-  import { api } from '../api/client';
-  import { formatTimestamp, statusKey, triggerKey } from '../api/format';
+  import { api, type Following } from '../api/client';
+  import { dayStart, formatTimestamp, setFields, statusKey, triggerKey } from '../api/format';
   import { handFocus } from '../lib/focus';
-  import type { Decision } from '../api/types';
+  import type { Decision, DecisionFilter, SimulationResult } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { answering } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -18,6 +18,11 @@
   import TableRegion from '../components/TableRegion.svelte';
   import Pager from '../components/Pager.svelte';
   import SearchField from '../components/SearchField.svelte';
+  import DecisionFilterFields, {
+    NO_TITLE_FILTER,
+    type TitleFilter,
+  } from '../components/DecisionFilterFields.svelte';
+  import { reportMoves } from '../lib/moves';
 
   const STATUS_TONE: Record<string, string> = {
     applied: 'badge-success',
@@ -30,61 +35,141 @@
   let status = $state('');
   let search = $state('');
   let includeSuperseded = $state(false);
+  let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
+  let run = $state('');
+  let from = $state('');
+  let to = $state('');
   let page = $state(1);
 
-  const history = createAsync(
-    (signal) =>
-      api.getDecisions(
-        {
-          status: status || undefined,
-          search: search || undefined,
-          include_superseded: includeSuperseded,
-          page,
-          per_page: 50,
-        },
-        signal,
-      ),
-    () => [status, search, includeSuperseded, page],
+  // What a revert of many takes too: the titles, the simulation and the days.
+  const filter = $derived<DecisionFilter>(setFields({ ...titles, search }));
+  const scope = $derived({
+    filter,
+    simulation_id: run || undefined,
+    since: dayStart(from),
+    until: dayStart(to, true),
+  });
+  const narrowed = $derived(
+    Object.keys(filter).length > 0 || run !== '' || from !== '' || to !== '',
   );
+  const query = $derived({
+    ...filter,
+    simulation_id: scope.simulation_id,
+    since: scope.since,
+    until: scope.until,
+    status: status || undefined,
+    include_superseded: includeSuperseded,
+  });
+
+  const history = createAsync(
+    (signal) => api.getDecisions({ ...query, page, per_page: 50 }, signal),
+    () => [JSON.stringify(query), page],
+  );
+  /** How many of the moves listed a revert may still undo, which Revert all takes. */
+  const revertible = createAsync(
+    (signal) => api.countDecisions({ ...query, revertible: true }, signal),
+    () => JSON.stringify(query),
+  );
+  /** The recent simulations, by the time each ran. */
+  const runs = createAsync(async (signal) => {
+    const jobs = await api.getJobs({ kind: 'simulate', status: 'success', per_page: 20 }, signal);
+    return jobs.data.flatMap((job) => {
+      const ran = job.result as SimulationResult | null;
+      return ran ? [{ id: ran.simulation_id, when: job.started_at }] : [];
+    });
+  });
   const outcome = createOutcome();
+
+  function clearFilters() {
+    search = '';
+    status = '';
+    includeSuperseded = false;
+    titles = { ...NO_TITLE_FILTER };
+    run = '';
+    from = '';
+    to = '';
+    page = 1;
+  }
 
   const decisions = $derived(history.data?.data ?? []);
   const pagination = $derived(history.data?.pagination);
 
-  // One dialog asks both questions. Chaining two ("revert?", then "move the
-  // files too?") gives the second no context, and cancelling it would mean
-  // "revert without moving files" rather than "stop": a Cancel button that does
-  // not cancel. Here Cancel means cancel.
+  // One dialog asks both questions: a second one's Cancel would revert without the files.
   let reverting = $state<Decision | null>(null);
   let revertFiles = $state(false);
 
-  // A reverted row stays and loses its Revert: the focus goes to the Revert of
-  // the row after it, else the one before, else the table.
+  // A reverted row loses its Revert, so the focus goes to a neighbour's, else the table.
   const revertId = (index: number) => `history-revert-${index}`;
 
-  // Stops following a revert when the screen closes. The revert goes on, and
-  // the screen opened again reads where it went.
+  // Stops following, not the revert, whose result the screen opened again reads.
   const leaving = new AbortController();
   $effect(() => () => leaving.abort());
+
+  let revertAllFiles = $state(false);
+  let revertingAll = $state(false);
+  /** The task of the revert of many being followed, which Stop cancels. */
+  let task = $state<string | null>(null);
+  const following: Following = { signal: leaving.signal, onProgress: (job) => (task = job.id) };
+
+  /** Undo every move the filters match, asked by the server, which alone counts them. */
+  async function revertAll() {
+    revertingAll = true;
+    try {
+      const report = await answering(
+        (answered) => api.revertAllDecisions(scope, revertAllFiles, answered, following),
+        'RevertConfirm',
+      );
+      if (!report) return;
+      reportMoves(
+        outcome,
+        report.stopped_early && !report.stopped
+          ? t('BatchRevertStopped', {
+              applied: report.applied,
+              candidates: report.candidates,
+              run: report.batches_run,
+              planned: report.batches_planned,
+            })
+          : t('BatchRevertReport', {
+              applied: report.applied,
+              candidates: report.candidates,
+              batches: report.batches_run,
+            }),
+        report,
+        report.stopped_early || report.failed > 0,
+      );
+      await Promise.all([history.reload(), revertible.reload()]);
+    } catch (err) {
+      outcome.fail(err);
+    } finally {
+      revertingAll = false;
+      task = null;
+    }
+  }
+
+  async function stopRevertAll() {
+    if (!task) return;
+    try {
+      await api.cancelJob(task);
+    } catch (err) {
+      outcome.fail(err);
+    }
+  }
 
   async function revert(decision: Decision, moveFiles: boolean) {
     const index = decisions.findIndex((row) => row.id === decision.id);
     reverting = null;
     try {
-      // A revert writes into the folder the move came from, and the backend
-      // asks there what it asks before an apply.
-      // `RevertConfirm`, not `Revert`: a button beside Cancel, which several
-      // languages would otherwise start with their Cancel verb.
+      // The backend asks before a revert what it asks before an apply.
+      // `RevertConfirm`, not `Revert`, which several languages write with their Cancel verb.
       const report = await answering(
         (answered) =>
           api.revertDecisions([decision.id], moveFiles, answered, { signal: leaving.signal }),
         'RevertConfirm',
       );
       if (!report) return;
-      await history.reload();
+      await Promise.all([history.reload(), revertible.reload()]);
       void handFocus(revertId(index), revertId(index + 1), revertId(index - 1), 'history-table');
-      // A revert that restored nothing did not do what was asked: under the
-      // success banner its reason would read as good news.
+      // Nothing restored is a failure: its reason would read as good news in a success banner.
       if (report.applied > 0) outcome.succeed(t('RevertResult', { count: report.applied }));
       else
         outcome.fail(
@@ -137,6 +222,50 @@
       <option value="failed">{t('StatusFailed')}</option>
       <option value="skipped">{t('StatusSkipped')}</option>
     </select>
+    <DecisionFilterFields
+      bind:filter={titles}
+      fields={['instance', 'category', 'rule']}
+      onchange={() => (page = 1)}
+    />
+    <ErrorBanner message={runs.error} onDismiss={() => (runs.error = null)} />
+    <select
+      class="form-select"
+      aria-label={t('FilterByRun')}
+      value={run}
+      onchange={(event) => {
+        page = 1;
+        run = event.currentTarget.value;
+      }}
+    >
+      <option value="">{t('AllRuns')}</option>
+      {#each runs.data ?? [] as ran (ran.id)}
+        <option value={ran.id}>
+          {t('SimulationOf', { when: formatTimestamp(ran.when, i18n.language) })}
+        </option>
+      {/each}
+    </select>
+    <input
+      type="date"
+      class="form-input"
+      aria-label={t('DecidedFrom')}
+      title={t('DecidedFrom')}
+      value={from}
+      onchange={(event) => {
+        page = 1;
+        from = event.currentTarget.value;
+      }}
+    />
+    <input
+      type="date"
+      class="form-input"
+      aria-label={t('DecidedUntil')}
+      title={t('DecidedUntil')}
+      value={to}
+      onchange={(event) => {
+        page = 1;
+        to = event.currentTarget.value;
+      }}
+    />
     <label class="flex items-center gap-2 text-md">
       <input
         type="checkbox"
@@ -148,19 +277,40 @@
       />
       {t('IncludeSuperseded')}
     </label>
-    {#if search || status || includeSuperseded}
-      <button
-        type="button"
-        class="btn btn-ghost"
-        onclick={() => {
-          search = '';
-          status = '';
-          includeSuperseded = false;
-          page = 1;
-        }}>{t('ClearFilters')}</button
+    {#if narrowed || status || includeSuperseded}
+      <button type="button" class="btn btn-ghost" onclick={clearFilters}>{t('ClearFilters')}</button
       >
     {/if}
   </div>
+
+  <ErrorBanner message={revertible.error} onDismiss={() => (revertible.error = null)} />
+  {#if revertible.data}
+    <div class="card">
+      <div class="flex items-center justify-between">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" bind:checked={revertAllFiles} />
+          <span>{t('MoveFilesLabel')}</span>
+        </label>
+        <div class="flex gap-2">
+          <button
+            class="btn btn-secondary"
+            onclick={() => void revertAll()}
+            disabled={revertingAll}
+            aria-describedby="revert-all-hint"
+          >
+            <Undo2 size={16} />
+            {t(narrowed ? 'RevertMatching' : 'RevertAll', { count: revertible.data })}
+          </button>
+          {#if revertingAll && task}
+            <button class="btn btn-ghost" onclick={() => void stopRevertAll()}>
+              {t('StopTask')}
+            </button>
+          {/if}
+        </div>
+      </div>
+      <p id="revert-all-hint" class="form-hint">{t('RevertAllHint')}</p>
+    </div>
+  {/if}
 
   <div class="card">
     <TableRegion label={t('History')} id="history-table">
@@ -188,16 +338,13 @@
               <tr class:row-muted={decision.superseded}>
                 <td class="cell-timestamp" title={decision.decided_at}>
                   {formatTimestamp(decision.decided_at, i18n.language)}
-                  <!-- Null on a row stored without one, and a guess there
-                       would read as a fact. -->
+                  <!-- Null on a row stored without one, where a guess would read as a fact. -->
                   {#if decision.actor}
                     <span class="text-xs" title={t('TriggeredBy')}
                       >{t(triggerKey(decision.actor))}</span
                     >
                   {/if}
-                  <!-- Beside the trigger, not instead of it: "manual" and who
-                       answer different questions, and the scheduler answers
-                       only the first. -->
+                  <!-- Beside the trigger: "manual" and who answer different questions. -->
                   {#if decision.subject}
                     <span class="text-xs text-muted" title={t('PerformedBy')}
                       >{decision.subject}</span
@@ -249,9 +396,7 @@
                       title={t('RevertTooltip', { path: decision.current_root_folder ?? '' })}
                       aria-label="{t('Revert')} – {decision.media_title}"
                     >
-                      <!-- Icon only: one action, on every row, in a table that
-                           already fills a desktop screen. The name travels in
-                           the label rather than in the column. -->
+                      <!-- Icon only in a wide table: the name travels in the label. -->
                       <Undo2 size={14} aria-hidden="true" />
                     </button>
                   {/if}
