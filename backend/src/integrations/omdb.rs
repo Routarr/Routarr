@@ -1,13 +1,6 @@
-//! OMDb.
-//!
-//! Keyed on the **IMDb** identifier, which is the reason to have it: it answers
-//! for an item TMDB does not know, or one the library carries without a TMDB id.
-//! A free key is required: the API rejects an unauthenticated request outright
-//! rather than degrading, so the source declares `needs_key`.
-//!
-//! Its vocabulary is prose: `"Japan, United States"` and `"Japanese, English"`
-//! where the rest of Routarr speaks ISO codes. `integrations::language` does the
-//! conversion, and drops what it cannot map rather than inventing a code.
+//! OMDb, keyed on the IMDb id, for an item TMDB does not know or the library holds with no
+//! TMDB id. It refuses a request with no key, hence `needs_key`. Its prose (`"Japan, United
+//! States"`) goes through `integrations::language`, which drops what it cannot map.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -31,8 +24,7 @@ pub struct OmdbClient {
     daily_requests: i64,
 }
 
-// The key stays out: a client printed in a log line or a failed assertion
-// would carry it.
+// The key stays out: a client printed in a log line or a failed assertion would carry it.
 impl std::fmt::Debug for OmdbClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OmdbClient").field("base_url", &self.base_url).finish_non_exhaustive()
@@ -46,6 +38,17 @@ pub struct OmdbDetails {
     pub origin_countries: Vec<String>,
     pub certification: Option<String>,
     pub overview: Option<String>,
+    /// IMDb's score and votes, Metacritic's and Rotten Tomatoes', by scale.
+    pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
+}
+
+/// One entry of OMDb's `Ratings`, as `{"Source": "Rotten Tomatoes", "Value": "94%"}`.
+#[derive(Debug, Deserialize)]
+struct RawRating {
+    #[serde(rename = "Source")]
+    source: Option<String>,
+    #[serde(rename = "Value")]
+    value: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +69,14 @@ struct RawResponse {
     rated: Option<String>,
     #[serde(rename = "Plot")]
     plot: Option<String>,
+    #[serde(rename = "imdbRating")]
+    imdb_rating: Option<String>,
+    #[serde(rename = "imdbVotes")]
+    imdb_votes: Option<String>,
+    #[serde(rename = "Metascore")]
+    metascore: Option<String>,
+    #[serde(rename = "Ratings", default)]
+    ratings: Vec<RawRating>,
 }
 
 impl OmdbClient {
@@ -139,15 +150,12 @@ fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
     }
     if !is_found(&raw) {
         let said = raw.error.as_deref().unwrap_or_default();
-        // "Movie not found" is an answer. Caching it empty is what stops the
-        // next pass from asking again.
+        // A miss is an answer: cached empty, it is not asked again next pass.
         if MISSES.iter().any(|miss| said.trim().eq_ignore_ascii_case(miss)) {
             debug!("OMDb has nothing for {imdb_id}: {said}");
             return Ok(OmdbDetails::default());
         }
-        // Anything else is OMDb failing on its side ("Error getting data."
-        // for titles it holds): neither cached as a miss for the cache's
-        // lifetime nor counted against the source, asked again next pass.
+        // "Error getting data." and the like: neither cached as a miss nor counted against OMDb.
         return Err(super::upstream(
             SERVICE,
             200,
@@ -156,6 +164,7 @@ fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
         ));
     }
 
+    let ratings = ratings(&raw);
     Ok(OmdbDetails {
         genres: split_list(raw.genre.as_deref()),
         original_language: raw.language.as_deref().and_then(language::first_language),
@@ -163,7 +172,34 @@ fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
         // OMDb writes "N/A" where it has nothing.
         certification: raw.rated.filter(|value| usable(value)),
         overview: raw.plot.filter(|value| usable(value)),
+        ratings,
     })
+}
+
+/// The scores OMDb gives, written as text: `8.1`, `393,000`, `86`, `94%`, or `N/A`.
+fn ratings(raw: &RawResponse) -> std::collections::BTreeMap<String, crate::models::Rating> {
+    let number = |text: Option<&str>| -> Option<f64> {
+        text.filter(|value| usable(value))?
+            .trim()
+            .trim_end_matches('%')
+            .replace(',', "")
+            .parse()
+            .ok()
+    };
+    let critics = raw
+        .ratings
+        .iter()
+        .find(|rating| rating.source.as_deref() == Some("Rotten Tomatoes"))
+        .and_then(|rating| rating.value.as_deref());
+    let votes = number(raw.imdb_votes.as_deref()).map(|votes| votes as i64);
+    [
+        crate::models::rating("imdb", number(raw.imdb_rating.as_deref()), votes),
+        crate::models::rating("metacritic", number(raw.metascore.as_deref()), None),
+        crate::models::rating("rotten_tomatoes", number(critics), None),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// Whether OMDb's `Error` refuses the key ("Invalid API key!", "No API key
@@ -216,8 +252,14 @@ mod tests {
           "Country": "Japan",
           "Awards": "6 wins & 1 nomination",
           "Poster": "https://example.invalid/poster.jpg",
+          "Ratings": [
+            { "Source": "Internet Movie Database", "Value": "8.1/10" },
+            { "Source": "Rotten Tomatoes", "Value": "94%" },
+            { "Source": "Metacritic", "Value": "86/100" }
+          ],
           "Metascore": "86",
           "imdbRating": "8.1",
+          "imdbVotes": "393,000",
           "imdbID": "tt0096283",
           "Type": "movie",
           "Response": "True"
@@ -230,6 +272,9 @@ mod tests {
         assert_eq!(raw.language.as_deref(), Some("Japanese, English"));
         assert_eq!(raw.country.as_deref(), Some("Japan"));
         assert_eq!(raw.rated.as_deref(), Some("G"));
+        let scores = ratings(&raw);
+        assert_eq!((scores["imdb"].value, scores["imdb"].votes), (8.1, Some(393_000)));
+        assert_eq!((scores["metacritic"].value, scores["rotten_tomatoes"].value), (86.0, 94.0));
     }
 
     /// The same endpoint for a series with no rating: OMDb writes the string
@@ -239,19 +284,20 @@ mod tests {
         let json = r#"{
           "Title": "Some Show", "Rated": "N/A", "Genre": "N/A",
           "Language": "N/A", "Country": "N/A", "Plot": "N/A",
+          "imdbRating": "N/A", "imdbVotes": "N/A", "Metascore": "N/A",
+          "Ratings": [{ "Source": "Rotten Tomatoes", "Value": "N/A" }],
           "Type": "series", "Response": "True"
         }"#;
 
         let raw: RawResponse = serde_json::from_str(json).unwrap();
         assert!(is_found(&raw));
-        // Every field read as the client reads it, so none of the "N/A" turns
-        // into a value a rule could match.
         let details = details_of(raw, "tt0000001").unwrap();
         assert!(details.genres.is_empty(), "{:?}", details.genres);
         assert_eq!(details.original_language, None);
         assert!(details.origin_countries.is_empty(), "{:?}", details.origin_countries);
         assert_eq!(details.certification, None);
         assert_eq!(details.overview, None);
+        assert!(details.ratings.is_empty(), "{:?}", details.ratings);
     }
 
     fn answering(error: &str) -> RawResponse {
@@ -263,6 +309,10 @@ mod tests {
             country: None,
             rated: None,
             plot: None,
+            imdb_rating: None,
+            imdb_votes: None,
+            metascore: None,
+            ratings: Vec::new(),
         }
     }
 
@@ -284,8 +334,7 @@ mod tests {
             let outcome = details_of(answering(missed), "tt0000001").expect(missed);
             assert!(outcome.genres.is_empty() && outcome.certification.is_none(), "{missed}");
         }
-        // OMDb failing on its side for a title it holds: an error that is
-        // neither a refusal of the key nor an answer to cache.
+        // OMDb failing on its side: neither a refusal of the key nor an answer to cache.
         for failed in ["Error getting data.", "Something new went wrong."] {
             let outcome = details_of(answering(failed), "tt7241928");
             assert!(

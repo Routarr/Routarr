@@ -24,8 +24,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 
 ## Features
 
-- **Rules**: 34 conditions (genres, keywords, language, country, certification, tags, quality
-  profile, runtime, studio, paths, size…),
+- **Rules**: 35 conditions (genres, keywords, language, country, certification, scores, tags,
+  quality profile, runtime, studio, paths, size…),
   ALL/ANY, exclusions, priorities, manual exceptions, and an impact preview before saving.
 - **Explained decisions**: for every title, what each condition expected and what it found,
   including the rules that matched and lost.

@@ -38,8 +38,6 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
     let instances = state.instances(true).await?;
     info!("Syncing {} enabled instance(s)", instances.len());
 
-    // `buffered`, not `buffer_unordered`: the interface lists the reports in a stable order.
-
     let localizer = &state.localizer().await;
     let reports = futures::stream::iter(instances.into_iter().map(|instance| async move {
         match sync_instance_inner(state, &instance, by).await {
@@ -57,6 +55,7 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
             }
         }
     }))
+    // `buffered`, not `buffer_unordered`: the interface lists the reports in a stable order.
     .buffered(SYNC_CONCURRENCY)
     .collect::<Vec<_>>()
     .await;
@@ -640,9 +639,9 @@ where
          tmdb_id, tvdb_id, imdb_id, current_path, current_root_folder, monitored, has_files,
          status, added_at, series_type, size_on_disk, season_count, tags, genres,
          original_language, certification, quality_profile, runtime, studio, network, collection,
-         collection_tmdb_id, last_synced_at)
+         collection_tmdb_id, ratings, last_synced_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                 ?, ?)
+                 ?, ?, ?)
          ON CONFLICT(instance_id, arr_id) DO UPDATE SET
             title = excluded.title,
             sort_title = excluded.sort_title,
@@ -676,6 +675,7 @@ where
             network = excluded.network,
             collection = excluded.collection,
             collection_tmdb_id = excluded.collection_tmdb_id,
+            ratings = excluded.ratings,
             last_synced_at = excluded.last_synced_at",
     )
     .bind(media_row_id(instance_id, item.arr_id))
@@ -710,6 +710,7 @@ where
     .bind(&item.network)
     .bind(item.collection.as_ref().and_then(|c| c.title.as_deref()))
     .bind(item.collection.as_ref().and_then(|c| c.tmdb_id))
+    .bind(serde_json::to_string(&item.ratings)?)
     .bind(sync_token)
     // Twice, for the guard of each path column, bound after every VALUES placeholder.
     .bind(read_at)

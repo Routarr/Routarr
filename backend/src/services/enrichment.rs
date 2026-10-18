@@ -1,11 +1,6 @@
-//! Metadata enrichment with a bounded-concurrency worker pool.
-//!
-//! The whole backlog is drained in one pass, several requests in flight, with a
-//! back-off when a provider rate-limits. A per-tick cap with sequential calls
-//! would leave a large library hours away from being classifiable.
-//!
-//! Only *fetched* sources come through here: `arr` is enriched by the library
-//! sync itself, which is the point of it.
+//! Metadata enrichment: the whole backlog drained in one pass, several requests in flight and a
+//! back-off when a source rate-limits, so a large library is not hours from being classifiable.
+//! Only *fetched* sources come through here: the library sync enriches `arr` itself.
 
 use futures::stream::{self, StreamExt};
 use sqlx::{AssertSqlSafe, SqlitePool};
@@ -50,10 +45,9 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
     run_pass(state, by).await
 }
 
-/// Ask `source`, or every source, again for each answer it gave, then run a
-/// pass that reads them. Refused before anything is marked while a pass
-/// runs: that pass counted its titles already, and the refresh would wait
-/// for the next.
+/// Ask `source`, or every source, again for each answer it gave, then run a pass reading them.
+/// Refused while a pass runs, before anything is marked: that pass has counted its titles, and
+/// the refresh would wait for the next.
 pub async fn refresh(
     state: &AppState,
     by: &Attribution,
@@ -78,10 +72,7 @@ async fn pass_lock(state: &AppState) -> AppResult<crate::jobs::JobLock> {
 }
 
 async fn run_pass(state: &AppState, by: &Attribution) -> AppResult<EnrichmentReport> {
-    // Built on `metadata_providers`, the sources able to answer today: a source
-    // with no key would fail every request of the pass. Evaluation reads the
-    // whole `metadata_order` instead, so what a source answered before its key
-    // was removed keeps counting.
+    // From `metadata_providers`, not `metadata_order`: a source with no key fails every request.
     let sources = state.metadata_sources().await;
     if sources.is_empty() {
         debug!("No fetched metadata source is enabled, skipping enrichment");
@@ -103,8 +94,7 @@ async fn run_pass(state: &AppState, by: &Attribution) -> AppResult<EnrichmentRep
                 report.skipped += partial.skipped;
                 report.deferred += partial.deferred;
             }
-            // One unreachable source must not cancel the ones below it: that is
-            // exactly the case the ordered list exists to survive.
+            // An unreachable source must not cancel the sources ranked below it.
             Err(e) => {
                 warn!("Source '{}' failed: {e}", source.id());
                 outcome = Err(e);
@@ -135,15 +125,13 @@ async fn run_enrichment(
     source: &FetchingSource,
     job: &JobHandle,
 ) -> AppResult<EnrichmentReport> {
-    // A source that knows none of our identifiers has to find its own first.
-    // A found identifier is kept, and a miss for a month or so
-    // (`metadata::resolved_keys`), so this is a first-pass cost, not a
-    // per-run one.
     let limiter = state.paces.of(source);
     let breaker = Breaker::new();
     let name = metadata::info(source.id()).map_or(source.id(), |info| info.display_name);
 
     let mut searched = 0;
+    // Found identifiers are kept, and misses for about a month (`metadata::resolved_keys`), so
+    // the search costs the first pass, not every run.
     if source.addressing() == Addressing::Search {
         job.stage(Detail::new("JobDetailIdentifying").with("source", name)).await;
         searched = resolve_identifiers(state, source, job, &limiter, &breaker).await?;
@@ -161,9 +149,8 @@ async fn run_enrichment(
     info!("{} item(s) need enrichment from {}", targets.len(), source.id());
     let total = targets.len();
 
-    // A source with a daily quota has the pass's share reserved at once, and
-    // what goes unsent given back after: a count taken inside each request in
-    // flight would wait on the database while this loop writes to it.
+    // The pass reserves its share of a daily quota at once and gives back what goes unsent: a
+    // count per request in flight would wait on the database while this loop writes to it.
     let quota = source.daily_quota();
     let granted = match &quota {
         Some(quota) => quota.reserve(&state.pool, total).await?,
@@ -174,19 +161,8 @@ async fn run_enrichment(
     let closed = Arc::new(AtomicBool::new(false));
     let sent = Arc::new(AtomicUsize::new(0));
 
-    // `buffer_unordered` keeps N requests in flight without spawning a task per
-    // item. The providers tolerate a handful of parallel calls, and this is the
-    // main driver of how fast a cold library becomes classifiable.
-    //
-    // Each future carries its own (external_id, media_type) back out: results
-    // arrive in completion order, not input order, so pairing them with the
-    // input list positionally would file a movie's metadata under a series and
-    // lose both.
-    //
-    // Each answer is stored as it arrives, not once the pass ends: a pass over
-    // a large library takes hours, and a restart or one failed write before
-    // its end would otherwise throw away everything fetched, a day of a keyed
-    // source's quota included.
+    // Each future carries its own (external_id, media_type) out, since results arrive in
+    // completion order: paired by position, a movie's answer would be filed under a series.
     let mut results = stream::iter(targets)
         .map(|(external_id, media_type)| {
             let source = source.clone();
@@ -194,9 +170,8 @@ async fn run_enrichment(
             let limiter = limiter.clone();
             let (closed, sent) = (Arc::clone(&closed), Arc::clone(&sent));
             async move {
-                // `buffer_unordered` has already been handed every item, so the
-                // breaker is checked here, as each future starts: the ones still
-                // queued turn into no-ops instead of requests.
+                // Checked as each future starts, `buffer_unordered` holding every item already,
+                // so the ones still queued send nothing.
                 if breaker.is_open() {
                     return (external_id, media_type, Err(NotAsked::Skipped));
                 }
@@ -204,8 +179,7 @@ async fn run_enrichment(
                     return (external_id, media_type, Err(NotAsked::Deferred));
                 }
 
-                // Paced before the request, not after a refusal: the point is
-                // for the 429 never to be earned.
+                // Paced before the request, so a 429 is never earned.
                 limiter.acquire().await;
                 sent.fetch_add(1, Ordering::Relaxed);
                 let outcome = source.answer(&external_id, &media_type).await;
@@ -229,6 +203,8 @@ async fn run_enrichment(
     let mut rate_limited = false;
     let mut index = 0;
 
+    // Stored as each answer arrives: a pass over a large library takes hours, and a restart
+    // before its end would lose everything fetched, a day of a keyed source's quota included.
     while let Some((external_id, media_type, asked)) = results.next().await {
         index += 1;
         let result = match asked {
@@ -265,8 +241,7 @@ async fn run_enrichment(
             }
         }
 
-        // Progress is only interesting at a coarse grain: one UPDATE per item
-        // would cost more than the work it reports on.
+        // Coarse steps: an UPDATE per item would cost more than the work it reports on.
         if index % 25 == 1 {
             job.progress(index, total).await;
         }
@@ -317,21 +292,15 @@ async fn run_enrichment(
     Ok(report)
 }
 
-/// Stops a pass from hammering a source that is plainly down.
-///
-/// One per source and pass, shared by both stages that issue requests
-/// (resolution and fetching), because a search storm against an unavailable
-/// source costs exactly as much as a fetch storm, and for a searching source it
-/// is the one that happens first. A source that tripped it while searching is
-/// asked for no record after.
+/// Stops a pass from hammering a source that is plainly down. One per source and pass, shared
+/// by the search and the fetch, so a source that trips it while searching is asked for no record.
 #[derive(Clone)]
 struct Breaker {
     failures: Arc<AtomicUsize>,
 }
 
 impl Breaker {
-    /// A source that has refused this many times in a row is down, not
-    /// unlucky.
+    /// A source that has refused this many times in a row is down, not unlucky.
     const LIMIT: usize = 5;
 
     fn new() -> Self {
@@ -342,10 +311,9 @@ impl Breaker {
         self.failures.load(Ordering::Relaxed) >= Self::LIMIT
     }
 
-    /// Record an outcome, counting only the failures that say something about
-    /// the *source* rather than about one item, and only in a row: one answer
-    /// starts the count again, or scattered errors over hours would abandon a
-    /// source that answers nearly every request.
+    /// Count only the failures that say something about the *source*, and only in a row: one
+    /// answer starts the count again, or scattered errors over hours would abandon a source that
+    /// answers nearly every request.
     fn record<T>(&self, outcome: &AppResult<T>) {
         if is_source_level_failure(outcome) {
             self.failures.fetch_add(1, Ordering::Relaxed);
@@ -355,14 +323,9 @@ impl Breaker {
     }
 }
 
-/// Whether a failure is the *source* being unavailable rather than one item
-/// being unknown to it.
-///
-/// A 404 means "this source does not have that item" and says nothing about the
-/// next one, and neither does one answer that does not decode. A 429, a 5xx or
-/// a transport failure means asking again right now is pointless, and a 401 or
-/// a 403 (a refused key, a spent quota) is answered to every item alike: those
-/// are the ones that trip the breaker.
+/// Whether a failure is the *source* being unavailable rather than one item unknown to it. A 404
+/// or an answer that does not decode says nothing of the next item, while a 429, a 5xx, a
+/// transport failure, a 401 or a 403 (a refused key, a spent quota) meets every item alike.
 fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
     use crate::error::Upstream;
     matches!(
@@ -386,12 +349,9 @@ struct Candidate {
     series_type: Option<String>,
 }
 
-/// Find this source's identifier for every item it has never been asked about.
-///
-/// Both outcomes are written down. Remembering that AniList has nothing for
-/// *The Matrix* is what stops the next passes from searching for it again,
-/// until the miss is old enough to be worth asking about once more. Answers
-/// how many titles it looked for.
+/// Find this source's identifier for every item never asked about, and answer how many it looked
+/// for. A miss is written down too, so the next passes search for it again only once it is old
+/// enough.
 async fn resolve_identifiers(
     state: &AppState,
     source: &FetchingSource,
@@ -409,8 +369,7 @@ async fn resolve_identifiers(
     .await?;
     let scope = state.setting::<String>("anime_search").await;
 
-    // Deduplicated by local key: the same film in two Radarr instances is one
-    // search, not two.
+    // Deduplicated by local key: the same film in two Radarr instances is one search.
     let mut pending: Vec<(String, String, String, Option<i64>)> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -448,9 +407,7 @@ async fn resolve_identifiers(
             let breaker = breaker.clone();
             let limiter = limiter.clone();
             async move {
-                // The stage where an unavailable source hurts most: one search
-                // per *unresolved item*, and nothing is written down, so the
-                // whole storm repeats on the next pass.
+                // A failed search is not written down, so the storm would repeat every pass.
                 if breaker.is_open() {
                     return (key, media_type, None);
                 }
@@ -487,9 +444,8 @@ async fn resolve_identifiers(
                     warn!("Could not record what {key} is on {}: {e}", source.id());
                 }
             }
-            // A failed search is *not* written down: the source or the
-            // network failed, which says nothing of the title, and the
-            // difference decides whether the next pass ever tries again.
+            // Not written down: a failure says nothing of the title, and a miss on record would
+            // keep the next passes from trying again.
             Err(e) => warn!("Could not identify {key} on {}: {e}", source.id()),
         }
 
@@ -497,8 +453,7 @@ async fn resolve_identifiers(
             job.progress(index, total).await;
         }
     }
-    // The coarse steps above stop short of the end, and a pass left with
-    // nothing to fetch ends here: without this its task finishes at "1/47".
+    // The coarse steps stop short of the end, and a pass with nothing to fetch ends here.
     job.progress(total, total).await;
 
     if abandoned > 0 {
@@ -511,17 +466,10 @@ async fn resolve_identifiers(
     Ok(total)
 }
 
-/// Distinct identifiers, in this source's own namespace, whose cache entry is
-/// missing or due: the ones never asked first, then the ones someone asked
-/// for again, then the stalest, and a tie by identifier, so every pass hands
-/// out one library in one order. An answer is due once older than `lifetime`
-/// days, read now rather than written beside it, so a lifetime lowered
-/// applies to every answer at once. A pass
-/// that stops short, at a daily quota, would otherwise refresh the same
-/// titles each day and never reach the rest.
-///
-/// Deduplicating here matters: the same film present in two Radarr instances
-/// would otherwise be fetched twice.
+/// Distinct identifiers in this source's namespace whose answer is missing or due, never asked
+/// first, then asked again, then the stalest, then by id: a pass a daily quota cuts short reaches
+/// the rest next time. Due is older than `lifetime` days, read now so a lowered one applies at
+/// once. Distinct, or a film in two Radarr instances is fetched twice.
 async fn pending_targets(
     pool: &SqlitePool,
     source: &FetchingSource,
@@ -539,8 +487,7 @@ async fn pending_targets(
         // Not fetched at all.
         Addressing::Local => Ok(Vec::new()),
 
-        // `column` and the media types are literals from `services::metadata`,
-        // never user input.
+        // `column` and the media types are literals of `services::metadata`, never user input.
         Addressing::Column(column) => Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT DISTINCT CAST(m.{column} AS TEXT), m.media_type FROM media m
              LEFT JOIN metadata_cache c
@@ -558,9 +505,7 @@ async fn pending_targets(
         .fetch_all(pool)
         .await?),
 
-        // The identifiers were resolved just before this. A row whose
-        // `external_id` is NULL means the source was asked and had nothing, so
-        // it is not asked again.
+        // A NULL `external_id` is a source that was asked and had nothing: it is not asked again.
         Addressing::Search => Ok(sqlx::query_as(
             "SELECT DISTINCT s.external_id, s.media_type FROM source_identifiers s
              LEFT JOIN metadata_cache c
@@ -584,14 +529,9 @@ async fn pending_targets(
 /// reached is left to the next full pass.
 pub const WEBHOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// What each source able to answer says now about `media`, where the cache
-/// holds no answer: the webhook stores it, the placement only reads it.
-///
-/// Each source is asked by the id it is addressed with, from the row or from
-/// a recorded search, or found by a search of its own, at its own pace, until
-/// `deadline`. A search that finds nothing is an answer, and so is a refusal
-/// about the title alone (`FetchingSource::answer`). A source that fails is
-/// left out and the next is asked.
+/// What each source able to answer says now about `media` where the cache holds none, each at
+/// its own pace until `deadline`: the webhook stores it, the placement only reads it. A failing
+/// source is skipped, and a search finding nothing or a refusal of the title alone is an answer.
 pub async fn ask_now(
     state: &AppState,
     media: &Media,
@@ -682,10 +622,9 @@ pub async fn ask_now(
     fresh
 }
 
-/// Enrich one title now, as the webhook does before its rules run, so the
-/// right root folder is known while the folder is still empty: every source
-/// the row can address, within [`WEBHOOK_BUDGET`]. What a source answered is
-/// stored as a full pass would store it.
+/// Enrich one title now, before the webhook's rules run, so the right root folder is known while
+/// the folder is still empty: every source the row can address, within [`WEBHOOK_BUDGET`], stored
+/// as a full pass stores it.
 pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
     let deadline = tokio::time::Instant::now() + WEBHOOK_BUDGET;
     store_fresh(state, &ask_now(state, media, Some(deadline)).await).await.map(|_| ())
@@ -698,11 +637,9 @@ pub struct TitleRefresh {
     pub answered: usize,
 }
 
-/// Ask the sources again about `media`, or `source` alone: its answers are
-/// marked stale and its search match forgotten, so a wrong AniList or
-/// MyAnimeList match is searched for anew, then each source is asked what
-/// the title lacks. An answer a source does not give stays stale for the
-/// next pass.
+/// Ask the sources again about `media`, or `source` alone: its answers are marked stale and its
+/// search match forgotten, so a wrong AniList or MyAnimeList match is searched anew. An answer a
+/// source does not give stays stale for the next pass.
 pub async fn refresh_title(
     state: &AppState,
     by: &Attribution,
@@ -804,8 +741,8 @@ async fn store_metadata(
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
          original_language, origin_countries, certification, certification_scale,
-         certifications, status, overview, cached_at, stale)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
+         certifications, status, overview, ratings, cached_at, stale)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
          ON CONFLICT(source, external_id, media_type) DO UPDATE SET
             genres = excluded.genres,
             keywords = excluded.keywords,
@@ -816,6 +753,7 @@ async fn store_metadata(
             certifications = excluded.certifications,
             status = excluded.status,
             overview = excluded.overview,
+            ratings = excluded.ratings,
             cached_at = excluded.cached_at,
             stale = 0",
     )
@@ -831,19 +769,16 @@ async fn store_metadata(
     .bind(serde_json::to_string(&data.certifications)?)
     .bind(&data.status)
     .bind(&data.overview)
+    .bind(serde_json::to_string(&data.ratings)?)
     .execute(pool)
     .await?;
 
     Ok(())
 }
 
-/// Everything known about one item, every enabled source collapsed in priority
-/// order: what a single media page needs, without loading the whole cache.
-///
-/// Merged by the simulation's own merge over the configured order, *not* the
-/// usable subset: a key that has been removed stops new fetches, it does not
-/// un-know what is already cached. Read any other way, the media page and a
-/// pinned rule case would describe the item otherwise than the engine sees it.
+/// Everything the sources say about one item, merged as the simulation merges it over the
+/// configured order, not the usable subset: a removed key stops new fetches but un-knows nothing,
+/// or the media page and a pinned rule case would not see the item as the engine does.
 pub async fn resolve_for_media(
     state: &AppState,
     media: &crate::models::Media,

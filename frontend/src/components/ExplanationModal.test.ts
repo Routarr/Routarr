@@ -16,6 +16,13 @@ function show(data: Explanation, strings?: Record<string, string>, onChanged = v
   if (!vi.isMockFunction(api.getMetadataProviders)) {
     vi.spyOn(api, 'getMetadataProviders').mockReturnValue(new Promise(() => {}));
   }
+  if (!vi.isMockFunction(api.getConditionCatalog)) {
+    vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
+      match_modes: ['all', 'any'],
+      conditions: [],
+      score_scales: [{ id: 'imdb', name: 'IMDb', max: 10, votes: true }],
+    });
+  }
   if (!vi.isMockFunction(api.getCategories)) {
     const names = ['anime', 'kids', 'standard'];
     vi.spyOn(api, 'getCategories').mockResolvedValue(names.map((name) => category({ name })));
@@ -55,7 +62,6 @@ describe('ExplanationModal', () => {
     );
   });
 
-  /** What each action does is said beside it, not in a title only a mouse shows. */
   it('lists what the Arr reports that a rule can read, and leaves out what it does not', () => {
     const media = explainedMedia({ quality_profile: 'Ultra-HD', runtime: 86, studio: 'Ghibli' });
     show(explanation({ media }));
@@ -65,6 +71,7 @@ describe('ExplanationModal', () => {
     expect(text('definition')).toEqual(['Ultra-HD', '86 min', 'Ghibli']);
   });
 
+  /** What each action does is said beside it, not in a title only a mouse shows. */
   it('says beside each action what it does', () => {
     show(explanation());
 
@@ -291,6 +298,32 @@ describe('ExplanationModal', () => {
     expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
   });
 
+  it('lists each score in the catalogue order, its votes beside it, in the reader number form', async () => {
+    show(
+      explanation({
+        metadata: {
+          genres: ['Animation'],
+          keywords: [],
+          original_language: 'ja',
+          origin_countries: [],
+          certification: null,
+          ratings: { metacritic: { value: 86, votes: null }, imdb: { value: 8, votes: 393000 } },
+          field_sources: {},
+          sources: ['arr'],
+        } as unknown as Explanation['metadata'],
+      }),
+    );
+
+    // A scale the catalogue does not name keeps its id and comes last, and a score out of 10
+    // keeps its tenth.
+    const terms = () => screen.getAllByRole('term').map((term) => term.textContent);
+    await waitFor(() => expect(terms()).toEqual(['IMDb', 'metacritic']));
+    expect(screen.getAllByRole('definition').map((value) => value.textContent)).toEqual([
+      '8.0 (393,000)',
+      '86',
+    ]);
+  });
+
   /** Named as the rule editor and the rules table name them, the code beside the name. */
   it('names the language and the countries, not only their codes', () => {
     show(
@@ -338,6 +371,7 @@ describe('ExplanationModal', () => {
           certification_scale: null,
           status: 'released',
           overview: 'Two sisters move to the country.',
+          ratings: {},
           field_sources: { genres: 'arr', status: 'tmdb', overview: 'anilist' },
           sources: ['arr', 'tmdb', 'anilist'],
         },

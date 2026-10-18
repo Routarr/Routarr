@@ -52,6 +52,8 @@ pub struct ArrMedia {
     pub network: Option<String>,
     /// Radarr's collection, its title and TMDB id.
     pub collection: Option<super::ArrCollection>,
+    /// Radarr's scores by scale. Sonarr's name no scale, so none is read.
+    pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
 }
 
 /// A tag as defined in an Arr.
@@ -321,6 +323,7 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
         studio: m.studio,
         network: None,
         collection: m.collection,
+        ratings: m.ratings,
     }
 }
 
@@ -357,6 +360,7 @@ fn series_to_media(s: crate::integrations::sonarr::SonarrSeries) -> ArrMedia {
         studio: None,
         network: s.network,
         collection: None,
+        ratings: Default::default(),
     }
 }
 
@@ -471,6 +475,8 @@ mod tests {
         assert_eq!(movie.certification.as_deref(), Some("G"));
         assert_eq!((movie.quality_profile_id, movie.runtime), (Some(4), Some(86)));
         assert_eq!(movie.studio.as_deref(), Some("Studio Ghibli"));
+        let scales: Vec<&String> = movie.ratings.keys().collect();
+        assert_eq!(scales, ["imdb", "rotten_tomatoes", "tmdb"]);
         let collection = movie.collection.expect("the collection");
         assert_eq!(collection.title.as_deref(), Some("Studio Ghibli Collection"));
         assert_eq!(collection.tmdb_id, Some(1000));

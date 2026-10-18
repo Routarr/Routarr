@@ -156,6 +156,18 @@ pub enum Condition {
     #[serde(rename = "collection_in")]
     CollectionIn(Vec<String>),
 
+    /// A score on one scale within this range, with at least `min_votes` votes where given.
+    /// The scales are `imdb`, `tmdb` and `mal` out of 10, with votes, `metacritic`,
+    /// `rotten_tomatoes` and `anilist` out of 100.
+    #[serde(rename = "score_range")]
+    ScoreRange {
+        scale: String,
+        min: Option<f64>,
+        max: Option<f64>,
+        #[serde(default)]
+        min_votes: Option<i64>,
+    },
+
     /// On-disk size, in GB of 1024³ bytes as the interface counts them,
     /// strictly above this value.
     #[serde(rename = "size_on_disk_over_gb")]
@@ -243,6 +255,7 @@ impl Condition {
             Condition::StudioIn(_) => "studio_in",
             Condition::NetworkIn(_) => "network_in",
             Condition::CollectionIn(_) => "collection_in",
+            Condition::ScoreRange { .. } => "score_range",
             Condition::SizeOnDiskOverGb(_) => "size_on_disk_over_gb",
             Condition::SeasonCountOver(_) => "season_count_over",
             Condition::CertificationIn(_) => "certification_in",
@@ -285,6 +298,9 @@ impl Condition {
             Condition::YearRange { min, max } | Condition::RuntimeRange { min, max } => {
                 min.is_none() && max.is_none()
             }
+            Condition::ScoreRange { min, max, min_votes, .. } => {
+                min.is_none() && max.is_none() && min_votes.is_none()
+            }
             Condition::TagIn(v)
             | Condition::TagInAll(v)
             | Condition::SeriesTypeIs(v)
@@ -320,6 +336,7 @@ impl Condition {
                 MetadataField::OriginCountries
             }
             Condition::CertificationIn(_) => MetadataField::Certification,
+            Condition::ScoreRange { .. } => MetadataField::Ratings,
             // No wildcard, so the compiler asks a new condition which field it reads.
             Condition::YearRange { .. }
             | Condition::TagIn(_)

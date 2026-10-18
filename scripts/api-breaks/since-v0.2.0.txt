@@ -2,15 +2,15 @@
 # reports it. Each is named in that release's notes.
 GET /media/{id} removed the optional property `metadata/oneOf[#/components/schemas/MediaMetadata]/poster_path` from the response with the `200` status
 GET /media/{id}/explain removed the optional property `metadata/oneOf[#/components/schemas/MediaMetadata]/poster_path` from the response with the `200` status
-GET /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `items/conditions/items/` response property `oneOf` list for the response status `200`
-GET /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `items/exclusions/items/` response property `oneOf` list for the response status `200`
-POST /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `conditions/items/` response property `oneOf` list for the response status `201`
-POST /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `exclusions/items/` response property `oneOf` list for the response status `201`
-GET /rules/export added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `rules/items/conditions/items/` response property `oneOf` list for the response status `200`
-GET /rules/export added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `rules/items/exclusions/items/` response property `oneOf` list for the response status `200`
-GET /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `conditions/items/` response property `oneOf` list for the response status `200`
-GET /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `exclusions/items/` response property `oneOf` list for the response status `200`
-PUT /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `conditions/items/` response property `oneOf` list for the response status `200`
-PUT /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `exclusions/items/` response property `oneOf` list for the response status `200`
-POST /rules/{id}/duplicate added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `conditions/items/` response property `oneOf` list for the response status `201`
-POST /rules/{id}/duplicate added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20` to the `exclusions/items/` response property `oneOf` list for the response status `201`
+GET /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `items/conditions/items/` response property `oneOf` list for the response status `200`
+GET /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `items/exclusions/items/` response property `oneOf` list for the response status `200`
+POST /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `conditions/items/` response property `oneOf` list for the response status `201`
+POST /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `exclusions/items/` response property `oneOf` list for the response status `201`
+GET /rules/export added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `rules/items/conditions/items/` response property `oneOf` list for the response status `200`
+GET /rules/export added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `rules/items/exclusions/items/` response property `oneOf` list for the response status `200`
+GET /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `conditions/items/` response property `oneOf` list for the response status `200`
+GET /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `exclusions/items/` response property `oneOf` list for the response status `200`
+PUT /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `conditions/items/` response property `oneOf` list for the response status `200`
+PUT /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `exclusions/items/` response property `oneOf` list for the response status `200`
+POST /rules/{id}/duplicate added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `conditions/items/` response property `oneOf` list for the response status `201`
+POST /rules/{id}/duplicate added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `exclusions/items/` response property `oneOf` list for the response status `201`

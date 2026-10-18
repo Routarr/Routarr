@@ -27,9 +27,10 @@ It works in four steps, and only the last one writes to the library:
    is done. Every applied move can be reverted.
 
 A rule combines conditions with ALL or ANY, can carry explicit exclusions, has a priority, and
-routes to a category. The 34 conditions include genre, keywords, language, country,
-certification, age, size, paths, tags, the quality profile, runtime, studio, network and
-collection, Sonarr's series type and season count. The impact of a
+routes to a category. The 35 conditions include genre, keywords, language, country,
+certification, a score on IMDb, TMDB, Metacritic, Rotten Tomatoes, MyAnimeList or AniList, age,
+size, paths, tags, the quality profile, runtime, studio, network and collection, Sonarr's
+series type and season count. The impact of a
 rule can be previewed before it is saved. An exception forces a title's category and outranks
 every rule. For every title, the explanation shows what each condition expected and what it
 observed, for the winning rule and for every rule that did not win.

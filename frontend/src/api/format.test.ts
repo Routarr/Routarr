@@ -2,6 +2,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { readBackend } from '../test/backend';
 import {
   dayStart,
+  formatDecimal,
   setFields,
   describeCondition,
   failureDetail,
@@ -110,6 +111,29 @@ describe('describeCondition', () => {
     expect(describeCondition({ type: 'genre_contains', value: [] }, words)).toBe(
       'ConditionPhraseGenreContains values=none',
     );
+  });
+
+  it('names a score scale, writes its numbers as the language does and adds its votes', () => {
+    const scored = {
+      ...words,
+      scale: (id: string) => id.toUpperCase(),
+      number: (n: number) => `<${n}>`,
+    };
+    const score = (value: Record<string, unknown>) =>
+      describeCondition({ type: 'score_range', value }, scored);
+    expect(score({ scale: 'imdb', min: 7.5, max: 10, min_votes: null })).toBe(
+      'ConditionPhraseScoreRange scale=IMDB min=<7.5> max=<10>',
+    );
+    expect(score({ scale: 'imdb', min: 7.5, max: null, min_votes: 1000 })).toBe(
+      'ConditionPhraseScoreRangeFrom scale=IMDB min=<7.5>, ScoreVotesAtLeast votes=1000',
+    );
+    expect(score({ scale: 'anilist', min: null, max: 40 })).toBe(
+      'ConditionPhraseScoreRangeTo scale=ANILIST max=<40>',
+    );
+    // Without the catalogue's names nor the language's numbers, the stored ones stand in.
+    expect(
+      describeCondition({ type: 'score_range', value: { scale: 'mal', min: 8, max: null } }, words),
+    ).toBe('ConditionPhraseScoreRangeFrom scale=mal min=8');
   });
 
   it('says a year range open at one end in a sentence of its own', () => {
@@ -340,5 +364,14 @@ describe('dayStart', () => {
   it('gives nothing for no day', () => {
     expect(dayStart('')).toBeUndefined();
     expect(dayStart('not a day')).toBeUndefined();
+  });
+});
+
+describe('formatDecimal', () => {
+  it('writes a fraction as the language does, a whole one with the digits asked', () => {
+    expect(formatDecimal(7.5, 'fr')).toBe('7,5');
+    expect(formatDecimal(7.5, 'en')).toBe('7.5');
+    expect(formatDecimal(86, 'en')).toBe('86');
+    expect(formatDecimal(8, 'fr', 1)).toBe('8,0');
   });
 });

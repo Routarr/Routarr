@@ -225,6 +225,7 @@ export function explainedMedia(over: Partial<ExplainedMedia> = {}): ExplainedMed
     network: null,
     collection: null,
     collection_tmdb_id: null,
+    ratings: null,
     last_synced_at: '2026-08-27 10:00:00',
     tag_list: [],
     genre_list: [],

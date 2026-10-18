@@ -1,11 +1,6 @@
-//! Which rating a rule reads when several sources rate one title, and how the
-//! interface names the ratings and the countries a library holds.
-//!
-//! Each rating belongs to a country's system: TMDB and TheTVDB rate for many
-//! countries, of which the certification regions pick one, OMDb rates for the
-//! United States, a Radarr for the country its metadata settings name, a
-//! Sonarr for the United States, and MyAnimeList has a system of its own. The
-//! regions decide among them.
+//! Which rating a rule reads when several sources rate one title, and how the interface names
+//! the ratings and countries a library holds. TMDB and TheTVDB rate for many countries, OMDb and
+//! a Sonarr for the US, a Radarr for its metadata country, and MyAnimeList in its own system.
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
@@ -67,8 +62,7 @@ async fn the_arrs_rating_stands_when_it_alone_rates_the_title() {
 
 #[tokio::test]
 async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
-    // The Arr rates for the US and MyAnimeList in its own system, both
-    // outside France, and TMDB rates for no region.
+    // The Arr and MyAnimeList both rate outside France, and TMDB for no region.
     let app = rated_by_myanimelist("R+", "PG").await;
     app.execute(&[
         "UPDATE media SET certification = 'PG-13' WHERE id = 'm-1'",
@@ -143,10 +137,9 @@ async fn changed(app: &TestApp) -> bool {
     warnings.iter().any(|warning| warning["code"] == "certification_country_changed")
 }
 
-/// Radarr picks a film's rating when it reads the film's metadata, and reads
-/// an old film again only every 180 days. After its country changes, the films
-/// it rated before keep the previous country's ratings: the operator is told
-/// to refresh them, until a sync they ask for after doing so.
+/// Radarr rates a film when it reads its metadata, an old film only every 180 days, so after its
+/// country changes the films it rated before keep the old ratings: the operator is told to
+/// refresh them until a sync they ask for afterwards.
 #[tokio::test]
 async fn a_changed_rating_country_asks_for_every_film_to_be_refreshed() {
     use crate::jobs::{Attribution, TRIGGER_SCHEDULE};
@@ -279,10 +272,9 @@ async fn an_r_is_named_once_every_system_giving_it_agrees_on_its_age() {
     assert_eq!(facet["group"], "17 and over", "{facet}");
 }
 
-/// An upgrade from 0.1.5 keeps a cached rating under the system its source
-/// settles (MyAnimeList's own, OMDb's American), and has TMDB and TheTVDB
-/// asked again for theirs, rated for a region they did not name. OMDb and
-/// TheTVDB answers are asked again once anyway, for their full vocabularies.
+/// An upgrade from 0.1.5 keeps a cached rating under the system its source settles
+/// (MyAnimeList's own, OMDb's American) and has TMDB and TheTVDB asked again for theirs. Every
+/// answer here is asked again anyway, for the full vocabularies or for a score.
 #[tokio::test]
 async fn an_upgrade_keeps_the_ratings_it_can_place_and_asks_again_for_the_rest() {
     let pool = super::database_of_0_1_5().await;
@@ -314,9 +306,9 @@ async fn an_upgrade_keeps_the_ratings_it_can_place_and_asks_again_for_the_rest()
     };
     let (mal, us) = (rated("R+", "MAL"), rated("PG-13", "US"));
     let expected: Vec<Row> = vec![
-        ("jikan:5".into(), "{}".into(), mal.0, mal.1, false),
+        ("jikan:5".into(), "{}".into(), mal.0, mal.1, true),
         ("omdb:tt1".into(), "{}".into(), us.0, us.1, true),
-        ("tmdb:4".into(), "{}".into(), None, None, false),
+        ("tmdb:4".into(), "{}".into(), None, None, true),
         ("tmdb:8".into(), "{}".into(), None, None, true),
         ("tvdb:9".into(), "{}".into(), None, None, true),
     ];

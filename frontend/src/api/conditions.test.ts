@@ -6,6 +6,7 @@ import {
   parseNumberList,
   rejectedNumbers,
   parseStringList,
+  parseScoreBound,
   parseWholeBound,
   canonicalKey,
   certificationKey,
@@ -176,6 +177,17 @@ describe('parseWholeBound', () => {
     expect(parseWholeBound('2e5')).toBeNull();
     expect(parseWholeBound('1988.5')).toBeNull();
     expect(parseWholeBound(' 1988 ')).toBe(1988);
+  });
+});
+
+describe('parseScoreBound', () => {
+  it('reads a fraction written with a point or a comma, and nothing else', () => {
+    expect(parseScoreBound('7.5')).toBe(7.5);
+    expect(parseScoreBound(' 7,5 ')).toBe(7.5);
+    expect(parseScoreBound('94')).toBe(94);
+    expect(parseScoreBound('')).toBeNull();
+    expect(parseScoreBound('-1')).toBeNull();
+    expect(parseScoreBound('1e2')).toBeNull();
   });
 });
 

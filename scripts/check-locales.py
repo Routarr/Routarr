@@ -37,11 +37,11 @@ BUILT = {
     ),
     "ConditionPhrase+From": (
         "backend/src/api/conditions.rs",
-        r'kind: "([a-z_]+)",\n\s*value_type: "(?:year|number)_range"',
+        r'kind: "([a-z_]+)",\n\s*value_type: "(?:year|number|score)_range"',
     ),
     "ConditionPhrase+To": (
         "backend/src/api/conditions.rs",
-        r'kind: "([a-z_]+)",\n\s*value_type: "(?:year|number)_range"',
+        r'kind: "([a-z_]+)",\n\s*value_type: "(?:year|number|score)_range"',
     ),
     "Job": ("backend/src/jobs/registry.rs", r'JobKind::\w+ => "([a-z_]+)"'),
     "Trigger": ("backend/src/jobs/mod.rs", r'pub const TRIGGER_\w+: &str = "([a-z_]+)";'),
@@ -74,7 +74,7 @@ NOT_COUNTS = {
     "folder", "found", "free", "handle", "host", "id", "index", "instance", "issue", "key", "kind", "label",
     "language", "last", "max", "message", "min", "minimum", "name", "names", "needed", "next",
     "number", "observed", "opened", "origin", "path", "paths", "provider", "query", "reason",
-    "reasons", "template", "regions", "route", "rule", "schema", "scope", "scopes", "screen", "second",
+    "reasons", "template", "regions", "route", "rule", "scale", "schema", "scope", "scopes", "screen", "second",
     "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
     "tab", "terms", "title", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
 }

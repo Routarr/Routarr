@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Plus, Trash2 } from '../lib/icons';
-  import type { Condition, ConditionSpec, LibraryFacets } from '../api/types';
+  import type { Condition, ConditionSpec, LibraryFacets, ScoreScale } from '../api/types';
   import { i18n, t } from '../lib/i18n.svelte';
   import { facetOf, localFacets } from '../api/conditions';
   import { phraseKey } from '../api/format';
@@ -17,6 +17,7 @@
     facets = null,
     facetsLoading = false,
     facetsError = null,
+    scales = [],
     onAdd,
     onRetype,
     onUpdate,
@@ -38,6 +39,8 @@
     facets?: LibraryFacets | null;
     facetsLoading?: boolean;
     facetsError?: string | null;
+    /** The scales a score range names. */
+    scales?: ScoreScale[];
     onAdd: (type: string) => void;
     /** Swap a condition for its counterpart with the other quantifier, keeping its values. */
     onRetype: (index: number, type: string) => void;
@@ -145,6 +148,7 @@
             suggestions={facetOf(named, spec?.suggestions)}
             suggestionsLoading={facetsLoading}
             suggestionsError={facetsError}
+            {scales}
             onChange={(value, unreadable) => onUpdate(index, value, unreadable)}
           />
         </div>

@@ -92,12 +92,14 @@ const LOCAL_KEY: &str = "CASE WHEN m.tmdb_id IS NOT NULL THEN 'tmdb:' || m.tmdb_
                                    THEN 'imdb:' || TRIM(m.imdb_id) END";
 
 /// "This row holds a value for one of these fields", in SQL. A column holds a
-/// JSON list or a plain value, and the merge counts neither when it is blank,
-/// so `''`, `'[]'` and NULL are all empty.
+/// JSON list, a JSON object or a plain value, and the merge counts none when it
+/// is blank, so `''`, `'[]'`, `'{}'` and NULL are all empty.
 fn holds_any(alias: &str, fields: &[MetadataField]) -> String {
     let any: Vec<String> = fields
         .iter()
-        .map(|field| format!("COALESCE(TRIM({alias}.{}), '') NOT IN ('', '[]')", field.as_str()))
+        .map(|field| {
+            format!("COALESCE(TRIM({alias}.{}), '') NOT IN ('', '[]', '{{}}')", field.as_str())
+        })
         .collect();
     format!("({})", any.join(" OR "))
 }
@@ -691,7 +693,7 @@ async fn folder_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
     .collect())
 }
 
-/// The same, for a column holding a JSON array.
+/// Count the distinct values of a column holding a JSON array, commonest first.
 pub(crate) async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
     let sql = format!(
         "SELECT j.value AS value, COUNT(*) AS n

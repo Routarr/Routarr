@@ -48,6 +48,8 @@ pub struct Media {
     pub collection: Option<String>,
     /// The collection's TMDB id.
     pub collection_tmdb_id: Option<i64>,
+    /// The scores Radarr reports, by scale, as a JSON object in a string.
+    pub ratings: Option<String>,
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
@@ -69,6 +71,11 @@ impl Media {
     /// Genres as stored by the sync.
     pub fn genre_list(&self) -> Vec<String> {
         genres_from(self.genres.as_deref())
+    }
+
+    /// The scores Radarr reports. Malformed JSON yields none, as a genre list does.
+    pub fn rating_map(&self) -> std::collections::BTreeMap<String, super::Rating> {
+        self.ratings.as_deref().and_then(|raw| serde_json::from_str(raw).ok()).unwrap_or_default()
     }
 }
 

@@ -48,6 +48,7 @@ mod rule_health;
 mod rule_tests;
 mod scale;
 mod scheduler;
+mod scores;
 mod sealed_backups;
 mod security;
 mod sessions;
@@ -389,8 +390,7 @@ impl TestApp {
         .unwrap();
     }
 
-    /// `arr` as the Radarr `inst-1`, the anime rule and the folder its films
-    /// leave.
+    /// `arr` as the Radarr `inst-1`, the anime rule and the folder its films leave.
     async fn seed_routing_off(&self, arr: &fake_arr::FakeArr) {
         self.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
         self.seed_route_to_anime().await;
@@ -604,8 +604,7 @@ pub struct TestResponse {
 }
 
 impl TestResponse {
-    /// Where a redirect or a creation points, which is the whole content of a
-    /// redirect.
+    /// Where a redirect or a creation points, which is the whole content of a redirect.
     pub fn location(&self) -> Option<String> {
         self.header(axum::http::header::LOCATION.as_str())
     }

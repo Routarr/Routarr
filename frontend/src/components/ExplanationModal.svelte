@@ -3,7 +3,7 @@
   import { api } from '../api/client';
   import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
-  import { DECISION_ACTION_KEY, formatCount, localName } from '../api/format';
+  import { DECISION_ACTION_KEY, formatCount, formatDecimal, localName } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -41,6 +41,8 @@
    * whoever shows their data. Until the catalogue answers, its id stands in.
    */
   const catalogue = createAsync((signal) => api.getMetadataProviders(signal));
+  // The scales' names, which the condition catalogue holds.
+  const conditions = createAsync((signal) => api.getConditionCatalog(signal));
   const providerOf = (id: string) => catalogue.data?.providers.find((p) => p.id === id);
 
   /** A sentence cut where its source goes, so the source is drawn as a link. */
@@ -84,6 +86,31 @@
   let chosen = $state<string | null>(null);
   const expected = $derived(chosen ?? view.rules_category);
   const expectsOther = $derived(expected !== view.rules_category);
+
+  /** Each scale's score, with its votes where it has them, in the reader's number form. */
+  const scores = $derived.by(() => {
+    const scales = conditions.data?.score_scales ?? [];
+    // The catalogue's order, a scale it does not list last.
+    const rank = (id: string) => {
+      const at = scales.findIndex((known) => known.id === id);
+      return at === -1 ? scales.length : at;
+    };
+    return Object.entries(view.metadata?.ratings ?? {})
+      .sort(([a], [b]) => rank(a) - rank(b))
+      .map(([scale, rating]) => {
+        const known = scales.find((each) => each.id === scale);
+        // A score out of 10 keeps its tenth, `8.0` as its site writes it.
+        const value = formatDecimal(rating.value, i18n.language, known?.max === 10 ? 1 : 0);
+        return {
+          scale,
+          name: known?.name ?? scale,
+          shown:
+            rating.votes === null
+              ? value
+              : `${value} (${formatCount(rating.votes, i18n.language)})`,
+        };
+      });
+  });
 
   /** What the Arr reports that a rule can read, each shown only when known. */
   const facts = $derived(
@@ -151,13 +178,13 @@
     }
   }
 
+  const outcome = createOutcome();
+  let refreshing = $state(false);
+
   /**
    * Asks every source again about this title, its AniList and MyAnimeList
    * matches forgotten, then reads the explanation again from what they said.
    */
-  const outcome = createOutcome();
-  let refreshing = $state(false);
-
   async function refresh() {
     refreshing = true;
     try {
@@ -296,6 +323,7 @@
   <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
   <ErrorBanner message={categories.error} onRetry={() => void categories.reload()} />
   <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
+  <ErrorBanner message={conditions.error} onRetry={() => void conditions.reload()} />
   <OutcomeBanner {outcome} />
 
   <div class="card card-inset">
@@ -353,6 +381,16 @@
           <span class="badge badge-info">{genre}</span>
         {/each}
       </div>
+      {#if scores.length > 0}
+        <dl class="fact-list" aria-label={t('FacetRatings')}>
+          {#each scores as score (score.scale)}
+            <div>
+              <dt>{score.name}</dt>
+              <dd>{score.shown}</dd>
+            </div>
+          {/each}
+        </dl>
+      {/if}
       <p class="text-muted text-md mt-2">
         {t('MetadataSummary', {
           language: view.metadata.original_language

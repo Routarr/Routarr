@@ -1,13 +1,6 @@
-//! Jikan, the unofficial MyAnimeList API.
-//!
-//! Also credential-free, and a useful second opinion on anime: its *themes* and
-//! *demographics* ("Shounen", "Iyashikei", "Military") are the vocabulary anime
-//! libraries are actually organised by, and neither TMDB nor AniList expresses
-//! them the same way.
-//!
-//! Two things it is not: official, and generous with its rate limit. It allows a
-//! few requests per second, which is why `ROUTARR_METADATA_CONCURRENCY` bounds every
-//! fetched source and why a 429 backs the whole pass off rather than retrying.
+//! Jikan, the unofficial and credential-free MyAnimeList API. Its themes and demographics
+//! ("Shounen", "Iyashikei") are what anime libraries are organised by. It allows a few requests
+//! per second, so a 429 backs the whole pass off rather than retrying.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -39,6 +32,8 @@ pub struct JikanDetails {
     pub certification: Option<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
+    /// MyAnimeList's score, out of 10, with its votes.
+    pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,8 +44,7 @@ struct Envelope<T> {
 #[derive(Debug, Deserialize)]
 struct RawAnime {
     mal_id: i64,
-    /// The broadcast season's year, null for a film: read through
-    /// [`RawAnime::released`].
+    /// The broadcast season's year, null for a film: read through [`RawAnime::released`].
     year: Option<i64>,
     aired: Option<Aired>,
     title: Option<String>,
@@ -68,6 +62,14 @@ struct RawAnime {
     rating: Option<String>,
     status: Option<String>,
     synopsis: Option<String>,
+    score: Option<f64>,
+    scored_by: Option<i64>,
+}
+
+impl RawAnime {
+    fn ratings(&self) -> std::collections::BTreeMap<String, crate::models::Rating> {
+        crate::models::rating("mal", self.score, self.scored_by).into_iter().collect()
+    }
 }
 
 /// When an entry first aired or came out, a film included.
@@ -87,8 +89,7 @@ struct AiredDate {
 }
 
 impl RawAnime {
-    /// The year the work came out, which the library's own year is checked
-    /// against.
+    /// The year the work came out, which the library's own year is checked against.
     fn released(&self) -> Option<i64> {
         let aired = self.aired.as_ref().and_then(|aired| aired.prop.as_ref());
         aired.and_then(|prop| prop.from.as_ref()).and_then(|from| from.year).or(self.year)
@@ -106,8 +107,7 @@ struct Named {
 }
 
 impl JikanClient {
-    /// Where this client is pointed, so a caller can tell the public API from a
-    /// mirror or a proxy.
+    /// Where this client points, so a caller can tell the public API from a mirror or a proxy.
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -141,10 +141,9 @@ impl JikanClient {
             send_json(SERVICE, self.client.get(format!("{}/anime/{id}/full", self.base_url)))
                 .await?;
         let raw = response.data;
+        let ratings = raw.ratings();
 
-        // Themes and demographics are what an anime library is actually sorted
-        // by. As genres they would collide with TMDB's much coarser list, so
-        // they land in the keywords where a rule can name them precisely.
+        // As genres, themes and demographics would collide with TMDB's coarser list.
         let mut keywords: Vec<String> = raw
             .themes
             .into_iter()
@@ -160,16 +159,13 @@ impl JikanClient {
             certification: raw.rating.map(|rating| shorten_rating(&rating)),
             status: raw.status,
             overview: raw.synopsis,
+            ratings,
         })
     }
 }
 
-/// `"R - 17+ (violence & profanity)"` -> `"R"`, `"PG-13 - Teens 13 or older"`
-/// -> `"PG-13"`.
-///
-/// A `certification_in` rule is written against a code, as the other sources
-/// give theirs, not against MyAnimeList's words for it. The code ends at the
-/// first ` - `, which a code itself never holds.
+/// `"R - 17+ (violence & profanity)"` -> `"R"`: a `certification_in` rule names a code, as the
+/// other sources give theirs. The code ends at the first ` - `, which a code never holds.
 fn shorten_rating(rating: &str) -> String {
     rating.split(" - ").next().unwrap_or(rating).trim().to_string()
 }
@@ -191,11 +187,8 @@ fn titles_of(raw: &RawAnime) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// A captured-shape Jikan `/anime/{id}/full` response through the real
-    /// types. The edges are the ones the live API actually has: `year` is null
-    /// on many entries (the date lives in `aired` instead), `titles[]` is the
-    /// modern field while `title_*` are the deprecated ones still returned, and
-    /// there are far more fields than the client reads.
+    /// A captured-shape `/anime/{id}/full` response: `year` is often null (the date lives in
+    /// `aired`), and the deprecated `title_*` fields still come beside `titles[]`.
     #[test]
     fn a_real_shape_details_payload_deserialises_and_maps() {
         let json = r#"{
@@ -214,6 +207,8 @@ mod tests {
             "status": "Finished Airing",
             "year": null,
             "rating": "G - All Ages",
+            "score": 8.24,
+            "scored_by": 400000,
             "synopsis": "Two sisters move to the country.",
             "genres": [{ "mal_id": 2, "name": "Adventure" }],
             "themes": [{ "mal_id": 63, "name": "Iyashikei" }],
@@ -225,18 +220,18 @@ mod tests {
         let raw = response.data;
 
         assert_eq!(raw.mal_id, 523);
-        // A null year must not break the row. Resolution simply cannot use it.
+        // A null year must not break the row.
         assert_eq!(raw.year, None);
         assert!(titles_of(&raw).contains(&"My Neighbor Totoro".to_string()));
         assert_eq!(raw.genres.len(), 1);
         assert_eq!(shorten_rating(raw.rating.as_deref().unwrap()), "G");
-        // Themes and demographics are the keyword vocabulary.
         assert_eq!(raw.themes[0].name, "Iyashikei");
         assert_eq!(raw.demographics[0].name, "Kids");
+        let mal = raw.ratings()["mal"];
+        assert_eq!((mal.value, mal.votes), (8.24, Some(400_000)));
     }
 
-    /// A captured-shape Jikan `/anime?q=` page through the real mapping: the
-    /// pagination beside the entries, each entry in full, a film dated by
+    /// A captured-shape `/anime?q=` page: the pagination beside the entries, a film dated by
     /// `aired` with a null `year`, and a series dated by both.
     #[test]
     fn a_real_shape_search_page_maps() {
@@ -289,9 +284,6 @@ mod tests {
         assert!(found[1].titles.contains(&"Mushi-Shi".to_string()));
     }
 
-    /// MyAnimeList writes each rating as a code and its words. The code alone
-    /// is kept, the one a `certification_in` rule is written against, as the
-    /// other sources give theirs.
     #[test]
     fn a_rating_keeps_only_the_code_a_rule_names() {
         for (written, code) in [

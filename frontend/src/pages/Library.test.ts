@@ -8,14 +8,14 @@ import { ApiError, api } from '../api/client';
 import type { Explanation, MediaListItem } from '../api/types';
 import Library from './Library.svelte';
 
-/**
- * The one place a user asks why an item lands where it does, so every row has a named button
- * that opens the explanation.
- */
-
 function show(items: MediaListItem[], pages = 1) {
   // The explanation panel offers the categories a rule test may expect.
   vi.spyOn(api, 'getCategories').mockResolvedValue([category()]);
+  vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
+    match_modes: ['all', 'any'],
+    conditions: [],
+    score_scales: [],
+  });
   const getMedia = vi
     .spyOn(api, 'getMedia')
     .mockResolvedValue(paginated(items, { total_pages: pages, total: items.length * pages }));
@@ -89,6 +89,10 @@ describe('Library', () => {
     expect(screen.getByRole('row', { name: /Monster/ })).toHaveTextContent('Series');
   });
 
+  /**
+   * The one place a user asks why an item lands where it does, so every row has a named button
+   * that opens the explanation.
+   */
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi
       .spyOn(api, 'explainMedia')

@@ -1012,6 +1012,55 @@
             "type": "object"
           },
           {
+            "description": "A score on one scale within this range, with at least `min_votes` votes where given.\nThe scales are `imdb`, `tmdb` and `mal` out of 10, with votes, `metacritic`,\n`rotten_tomatoes` and `anilist` out of 100.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "score_range"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "A score on one scale within this range, with at least `min_votes` votes where given.\nThe scales are `imdb`, `tmdb` and `mal` out of 10, with votes, `metacritic`,\n`rotten_tomatoes` and `anilist` out of 100.",
+                "properties": {
+                  "max": {
+                    "format": "double",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "min": {
+                    "format": "double",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "min_votes": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "scale": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scale"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
             "description": "On-disk size, in GB of 1024³ bytes as the interface counts them,\nstrictly above this value.",
             "properties": {
               "type": {
@@ -1331,11 +1380,19 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "score_scales": {
+            "description": "The scales a `score_range` names.",
+            "items": {
+              "$ref": "#/components/schemas/ScoreScale"
+            },
+            "type": "array"
           }
         },
         "required": [
           "match_modes",
-          "conditions"
+          "conditions",
+          "score_scales"
         ],
         "type": "object"
       },
@@ -1441,7 +1498,7 @@
             "type": "string"
           },
           "value_type": {
-            "description": "The shape of `value`: `string_list`, `number_list`, `string`, `number`,\n`boolean`, `year_range` or `number_range`.",
+            "description": "The shape of `value`: `string_list`, `number_list`, `string`, `number`,\n`boolean`, `year_range`, `number_range` or `score_range`.",
             "type": "string"
           }
         },
@@ -2752,6 +2809,13 @@
               "null"
             ]
           },
+          "ratings": {
+            "description": "The scores Radarr reports, by scale, as a JSON object in a string.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "runtime": {
             "description": "Minutes: a film's runtime, a series' episode runtime.",
             "format": "int64",
@@ -3043,6 +3107,16 @@
               "string",
               "null"
             ]
+          },
+          "ratings": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Rating"
+            },
+            "description": "Each scale's score, keyed by `imdb`, `tmdb`, `metacritic`, `rotten_tomatoes`, `mal` or\n`anilist`, from the first source in the order that gives that scale.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "sources": {
             "description": "Sources that supplied at least one field, highest priority first.",
@@ -3587,7 +3661,7 @@
             "type": "string"
           },
           "unanswered_fields": {
-            "description": "The metadata fields a rule tried up to the winner reads that no source\nanswered: `genres`, `keywords`, `original_language`, `origin_countries`\nor `certification`. A source answering one may change the placement.",
+            "description": "The metadata fields a rule tried up to the winner reads that no source\nanswered: `genres`, `keywords`, `original_language`, `origin_countries`,\n`certification` or `ratings`. A source answering one may change the placement.",
             "items": {
               "type": "string"
             },
@@ -3906,6 +3980,26 @@
         "required": [
           "providers",
           "order"
+        ],
+        "type": "object"
+      },
+      "Rating": {
+        "description": "A score on one scale, and how many voted for it where the scale counts votes.",
+        "properties": {
+          "value": {
+            "format": "double",
+            "type": "number"
+          },
+          "votes": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "value"
         ],
         "type": "object"
       },
@@ -4637,6 +4731,34 @@
         "required": [
           "valid",
           "issues"
+        ],
+        "type": "object"
+      },
+      "ScoreScale": {
+        "description": "A scale a score is given on.",
+        "properties": {
+          "id": {
+            "description": "The `scale` a `score_range` is written with.",
+            "type": "string"
+          },
+          "max": {
+            "description": "The highest score: 10 or 100.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "votes": {
+            "description": "Whether its scores say how many voted, which `min_votes` reads.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "max",
+          "votes"
         ],
         "type": "object"
       },

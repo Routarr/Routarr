@@ -10,8 +10,6 @@ import { answerConfirmation } from '../test/confirm';
 import { statusRevision } from '../lib/status.svelte';
 import { instance, rule, template, templatePreview } from '../test/fixtures';
 
-/** First match by priority wins, so the table's order is the routing the server keeps. */
-
 const catalog: ConditionCatalog = {
   match_modes: ['all', 'any'],
   conditions: [
@@ -31,6 +29,7 @@ const catalog: ConditionCatalog = {
       available: true,
     },
   ],
+  score_scales: [{ id: 'imdb', name: 'IMDb', max: 10, votes: true }],
 };
 
 const categories = [

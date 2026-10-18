@@ -49,12 +49,8 @@
     returnFocus?: string;
   } = $props();
 
-  // What the library holds, so each condition can offer its values rather than
-  // ask for an exact spelling. Fetched here rather than by the picker: both
-  // condition lists want the same answer, and one editor is one request at
-  // most. `Rules` already holds the facets for its panel, and the editor asking
-  // again would aggregate the whole library a second time every time it opens,
-  // so it fetches only when the parent has nothing to hand over.
+  // Fetched here, once for both condition lists, and only when the parent hands none over:
+  // `Rules` holds them already, and asking again aggregates the whole library a second time.
   // svelte-ignore state_referenced_locally
   let facets = $state<LibraryFacets | null>(knownFacets);
   // svelte-ignore state_referenced_locally
@@ -73,9 +69,7 @@
     return () => closing.abort();
   });
 
-  // Read once, deliberately: this is the *initial* draft. The editor owns its
-  // copy from then on, and a `$derived` would throw the user's edits away every
-  // time the parent re-rendered.
+  // Read once: the editor owns its copy, and a `$derived` would drop the edits on each render.
   // svelte-ignore state_referenced_locally
   let draft = $state<RuleDraft>({ ...initial });
   // The draft as it opened, as text: whether closing drops any work.
@@ -96,25 +90,13 @@
   let busy = $state<'save' | 'preview' | null>(null);
   let error = $state<string | null>(null);
 
-  // What the server would say about the draft as it stands, asked a moment
-  // after the last edit. Advisory: a failed request here is not worth a banner,
-  // since saving asks the same question and reports its answer.
+  // The server's verdict on the draft, asked a moment after the last edit. A failure shows no
+  // banner: saving asks the same question and reports its answer.
   let issues = $state<ValidationIssue[]>([]);
   /**
-   * Nothing is said about a form nobody has touched.
-   *
-   * Both complaints a new rule draws on open (no name, no condition) are
-   * about a form that is merely empty, and the empty fields say so already.
-   * From the first edit onwards it speaks, which is what this validation is
-   * for: a value that cannot match, a condition its media type does not allow,
-   * are worth knowing while the rule is being built.
-   *
-   * A rule that already exists speaks on open instead: it was saved once, so an
-   * issue on it is news about something that changed underneath.
-   *
-   * A latch, not a comparison against the opening draft: adding a condition and
-   * removing it again would otherwise make the form untouched a second time,
-   * and the verdict would vanish with Save lit on an unsaveable rule.
+   * Nothing is said about a new form nobody has touched, whose empty fields speak already. A
+   * saved rule speaks on open, where an issue is news. A latch, since adding and removing a
+   * condition would make the form untouched again and hide the verdict with Save lit.
    */
   // Read once, like the draft itself.
   // svelte-ignore state_referenced_locally
@@ -139,18 +121,15 @@
     };
   });
   /**
-   * A condition just added has no value yet. Said before the reader had a
-   * chance to pick one, it reads as a mistake they did not make and holds Save
-   * for a reason that is only the order of their clicks, so it waits for a
-   * Save press, which asks the question outright.
+   * A condition just added has no value yet. Said before the reader could pick one, it reads as
+   * a mistake they did not make and holds Save, so it waits for a Save press.
    */
   const EMPTY_CONDITION = 'ValidationConditionEmpty';
   let submitted = $state(false);
   const shown = $derived(
     edited ? issues.filter((issue) => submitted || issue.key !== EMPTY_CONDITION) : [],
   );
-  // Gated on the same flag as the list: a button disabled by a reason nobody is
-  // shown is a dead control, which is worse than the premature complaint.
+  // Gated as the list is: a button disabled for a reason nobody is shown is a dead control.
   const blocking = $derived(shown.some((issue) => issue.severity === 'error'));
   // Checked here: a fraction never reaches the live validation, since the
   // server refuses the draft before reading it, and Save would stay lit.
@@ -158,10 +137,7 @@
 
   const specs = $derived(new Map(catalog.conditions.map((spec) => [spec.type, spec])));
 
-  // Narrowed by the rule's own media type, and recomputed when it changes: an
-  // unnarrowed picker would offer `season_count_over` on a movie rule, a
-  // condition that cannot match, on a screen whose whole job is to say what
-  // will.
+  // Narrowed by media type, or a movie rule offers `season_count_over`, which cannot match.
   const addable = $derived(
     catalog.conditions.filter((spec) => conditionAppliesTo(spec, draft.media_type)),
   );
@@ -174,11 +150,9 @@
   }
 
   /**
-   * Beside each condition of the draft, in step with it: a key that stays with
-   * the condition when one above it is removed, so a field's typed text and
-   * its error stay with it too, and whether the field holds text it could not
-   * read. The draft keeps only what a field could read, so saving would drop
-   * the rest unseen: Save waits for every such field.
+   * Beside each condition, in step with it: a key that keeps its typed text and error with it
+   * when one above is removed, and whether its field holds text it could not read. The draft
+   * keeps only what a field could read, so Save waits for every such field.
    */
   let nextRow = 0;
   const row = () => ({ key: nextRow++, unreadable: false });
@@ -199,9 +173,7 @@
     touched();
   }
 
-  // The values survive the swap: the question is the same one, asked with the
-  // other quantifier, and losing a selection to a turn of the selector would be
-  // the surest way to stop anyone using it.
+  // The values survive the swap: the question is the same, asked with the other quantifier.
   function retypeCondition(list: 'conditions' | 'exclusions', index: number, type: string) {
     draft[list] = draft[list].map((condition, i) =>
       i === index ? { ...condition, type } : condition,
@@ -253,12 +225,8 @@
   async function save(event: SubmitEvent) {
     event.preventDefault();
     const pressed = document.activeElement as HTMLElement | null;
-    // Pressing Save on an untouched form is also asking. The answer is fetched
-    // rather than read from `issues`, which is empty for the first few hundred
-    // milliseconds after mount and stays empty if the debounced call failed,
-    // and falling through then would send a draft the server only refuses.
-    // An empty condition held back until now is asked about again: the value
-    // may have been picked within the last debounce.
+    // Fetched, not read from `issues`, which is empty just after mount and when the debounced
+    // call failed. An empty condition held back is asked again, its value maybe just picked.
     submitted = true;
     if (!edited || issues.some((issue) => issue.key === EMPTY_CONDITION)) {
       edited = true;
@@ -310,11 +278,8 @@
 
   <ErrorBanner message={error} onDismiss={() => (error = null)} />
 
-  <!-- `novalidate` because the browser's own bubble renders in the *browser's*
-       language whatever `ui_language` says, and fires before the submit
-       handler, so it speaks over the editor's translated verdict rather than
-       instead of it. `required` stays: it is the semantics, not the bubble.
-       The same reasoning keeps `window.confirm` out of this codebase. -->
+  <!-- `novalidate`: the browser's bubble speaks the browser's language and fires before the
+       submit handler, over the translated verdict. `required` stays, for its semantics. -->
   <form novalidate onsubmit={save}>
     <div class="form-group">
       <label class="form-label" for="rules-rule-name">{t('RuleName')}</label>
@@ -456,6 +421,7 @@
       {facets}
       {facetsLoading}
       {facetsError}
+      scales={catalog.score_scales ?? []}
       onAdd={(type) => addCondition('conditions', type)}
       onRetype={(index, type) => retypeCondition('conditions', index, type)}
       onUpdate={(index, value, unreadableText) =>
@@ -473,6 +439,7 @@
       {facets}
       {facetsLoading}
       {facetsError}
+      scales={catalog.score_scales ?? []}
       onAdd={(type) => addCondition('exclusions', type)}
       onRetype={(index, type) => retypeCondition('exclusions', index, type)}
       onUpdate={(index, value, unreadableText) =>
@@ -484,10 +451,8 @@
       <PreviewPanel {preview} />
     {/if}
 
-    <!-- The region is always here so that filling it is a *change* a live
-         region reports. Added at the same time as its content, it announces
-         nothing. That matters on the Save press, whose only other visible
-         effect is the button going quiet. -->
+    <!-- Always here: a live region added with its content announces nothing, and on a Save
+         press the button going quiet is the only other visible effect. -->
     <div aria-live="polite">
       {#if shown.length}
         <ul class="validation-issues" aria-label={t('ValidationIssues')}>

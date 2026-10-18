@@ -36,7 +36,6 @@ pub struct RuleDraft<'a> {
 /// The surrounding configuration a rule is validated against.
 #[derive(Debug, Clone, Copy)]
 pub struct ValidationEnv<'a> {
-    /// Every category that exists.
     pub known_categories: &'a [String],
     /// Categories mapped onto a folder of an instance the rule can route: in
     /// its scope, and of the kind that holds its media type.
@@ -182,7 +181,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 &at(&[("min", min.to_string()), ("max", max.to_string())]),
             ));
         }
-        // A year outside these bounds is a typing mistake, refused for the same reason.
+        // A year outside these bounds is a typing mistake.
         if let Condition::YearRange { min, max } = condition {
             let ceiling = current_year + MAX_YEARS_AHEAD;
             for year in [min, max].into_iter().flatten() {
@@ -208,7 +207,6 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 &at(&[("min", min.to_string()), ("max", max.to_string())]),
             ));
         }
-        // A day's worth of minutes holds the longest film released, so past it is a typo.
         if let Condition::RuntimeRange { min, max } = condition {
             for minutes in [min, max].into_iter().flatten() {
                 if !(0..=MAX_RUNTIME).contains(minutes) {
@@ -218,6 +216,11 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                         &at(&[("value", minutes.to_string()), ("max", MAX_RUNTIME.to_string())]),
                     ));
                 }
+            }
+        }
+        if let Condition::ScoreRange { scale, min, max, min_votes } = condition {
+            for (key, params) in score_issues(scale, *min, *max, *min_votes) {
+                issues.push(ValidationIssue::error(section, key, &at(&params)));
             }
         }
         // A count below one is a mistake: no title was added within the last zero days.
@@ -292,6 +295,14 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         | (OriginalLanguageNot(y), OriginalLanguage(x)) => {
             !x.is_empty() && x.iter().all(|v| y.iter().any(|w| w.eq_ignore_ascii_case(v)))
         }
+        (
+            ScoreRange { scale: ascale, min: amin, max: amax, .. },
+            ScoreRange { scale: bscale, min: bmin, max: bmax, .. },
+        ) if ascale == bscale => {
+            let lo = [*amin, *bmin].into_iter().flatten().reduce(f64::max);
+            let hi = [*amax, *bmax].into_iter().flatten().reduce(f64::min);
+            matches!((lo, hi), (Some(l), Some(h)) if l > h)
+        }
         (YearRange { min: amin, max: amax }, YearRange { min: bmin, max: bmax })
         | (RuntimeRange { min: amin, max: amax }, RuntimeRange { min: bmin, max: bmax }) => {
             // A missing bound is infinite, where `Option` would order `None` as the smallest.
@@ -302,6 +313,45 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         (CurrentRootFolder(x), CurrentRootFolder(y)) => !crate::paths::same(x, y),
         _ => false,
     }
+}
+
+/// A dictionary key and the values its sentence names.
+type Issue = (&'static str, Vec<(&'static str, String)>);
+
+/// What is wrong with a score range: a scale nobody gives, a bound off its scale or inverted, a
+/// vote count on a scale that counts none, or below one.
+fn score_issues(
+    scale: &str,
+    min: Option<f64>,
+    max: Option<f64>,
+    min_votes: Option<i64>,
+) -> Vec<Issue> {
+    let Some(known) = crate::models::scale(scale) else {
+        return vec![("ValidationScoreScale", vec![("value", scale.to_string())])];
+    };
+    let mut issues = Vec::new();
+    for bound in [min, max].into_iter().flatten() {
+        if !(0.0..=known.max as f64).contains(&bound) {
+            let range = vec![("value", bound.to_string()), ("max", known.max.to_string())];
+            issues.push(("ValidationScoreImplausible", range));
+        }
+    }
+    if let (Some(min), Some(max)) = (min, max)
+        && min > max
+    {
+        let range = vec![("min", min.to_string()), ("max", max.to_string())];
+        issues.push(("ValidationScoreRangeInverted", range));
+    }
+    match min_votes {
+        Some(_) if !known.votes => {
+            issues.push(("ValidationScoreNoVotes", vec![("scale", known.name.to_string())]));
+        }
+        Some(votes) if votes < 1 => {
+            issues.push(("ValidationValueBelowOne", vec![("value", votes.to_string())]));
+        }
+        _ => {}
+    }
+    issues
 }
 
 /// Combine two optional bounds, where `None` means "unbounded".
@@ -383,15 +433,6 @@ mod tests {
         }
     }
 
-    /// Every field covered, i.e. the shipped default with a TMDB key set.
-    const ALL_FIELDS: &[MetadataField] = &[
-        MetadataField::Genres,
-        MetadataField::Keywords,
-        MetadataField::OriginalLanguage,
-        MetadataField::OriginCountries,
-        MetadataField::Certification,
-    ];
-
     fn env<'a>(
         known: &'a [String],
         mapped: &'a [String],
@@ -411,7 +452,7 @@ mod tests {
         let mapped = ["anime".to_string()];
         validate_rule(
             draft("both", MatchMode::All, &conditions, &exclusions, "anime"),
-            env(&known, &mapped, ALL_FIELDS),
+            env(&known, &mapped, &MetadataField::ALL),
         )
     }
 
@@ -427,7 +468,7 @@ mod tests {
         let known = ["standard".to_string()];
         let issues = validate_rule(
             draft("both", MatchMode::All, &[Condition::HasFiles(true)], &[], "does-not-exist"),
-            env(&known, &known, ALL_FIELDS),
+            env(&known, &known, &MetadataField::ALL),
         );
         assert!(issues.iter().any(|i| i.is_error() && i.field == "target_category"));
     }
@@ -437,7 +478,7 @@ mod tests {
         let known = ["anime".to_string()];
         let issues = validate_rule(
             draft("both", MatchMode::All, &[Condition::HasFiles(true)], &[], "anime"),
-            env(&known, &[], ALL_FIELDS),
+            env(&known, &[], &MetadataField::ALL),
         );
         assert!(issues.iter().any(|i| !i.is_error() && i.key == "ValidationCategoryUnmapped"));
     }
@@ -458,7 +499,7 @@ mod tests {
                 exclusions: &[],
                 target_category: target,
             };
-            let issues = validate_rule(draft, env(&known, &known, ALL_FIELDS));
+            let issues = validate_rule(draft, env(&known, &known, &MetadataField::ALL));
             issues.into_iter().filter(|i| i.is_error()).map(|i| i.key).collect::<Vec<_>>()
         };
 
@@ -638,6 +679,39 @@ mod tests {
     }
 
     #[test]
+    fn a_score_range_off_its_scale_or_asking_votes_of_a_scale_without_them_is_an_error() {
+        let score = |scale: &str, min, max, min_votes| Condition::ScoreRange {
+            scale: scale.into(),
+            min,
+            max,
+            min_votes,
+        };
+        let has = |conditions: Vec<Condition>, key: &str| {
+            validate(conditions, vec![]).iter().any(|issue| issue.is_error() && issue.key == key)
+        };
+        assert!(has(vec![score("trakt", Some(7.0), None, None)], "ValidationScoreScale"));
+        assert!(has(vec![score("imdb", Some(11.0), None, None)], "ValidationScoreImplausible"));
+        assert!(has(vec![score("anilist", None, Some(101.0), None)], "ValidationScoreImplausible"));
+        assert!(has(
+            vec![score("imdb", Some(8.0), Some(6.0), None)],
+            "ValidationScoreRangeInverted"
+        ));
+        assert!(has(
+            vec![score("metacritic", Some(60.0), None, Some(10))],
+            "ValidationScoreNoVotes"
+        ));
+        assert!(has(vec![score("imdb", None, None, Some(0))], "ValidationValueBelowOne"));
+        let apart =
+            vec![score("imdb", Some(8.0), None, None), score("imdb", None, Some(6.0), None)];
+        assert!(has(apart, "ValidationContradiction"));
+        let scales =
+            vec![score("imdb", Some(8.0), None, None), score("tmdb", None, Some(6.0), None)];
+        assert!(!has(scales, "ValidationContradiction"), "two scales never contradict");
+        let fine = validate(vec![score("mal", Some(7.5), Some(10.0), Some(1000))], vec![]);
+        assert!(fine.iter().all(|issue| !issue.is_error()), "{fine:?}");
+    }
+
+    #[test]
     fn an_inverted_or_implausible_runtime_range_is_an_error_and_two_apart_contradict() {
         let runtime = |min, max| Condition::RuntimeRange { min, max };
         let has = |issues: &[ValidationIssue], key: &str| {
@@ -740,7 +814,7 @@ mod tests {
                 description: Some(description),
                 ..draft("both", MatchMode::All, conditions, exclusions, "anime")
             };
-            validate_rule(draft, env(&known, &known, ALL_FIELDS))
+            validate_rule(draft, env(&known, &known, &MetadataField::ALL))
                 .into_iter()
                 .filter(|issue| issue.is_error())
                 .map(|issue| issue.key)
@@ -812,7 +886,7 @@ mod tests {
         let known = ["anime".to_string()];
         let issues = validate_rule(
             draft("audiobook", MatchMode::All, &[Condition::HasFiles(true)], &[], "anime"),
-            env(&known, &known, ALL_FIELDS),
+            env(&known, &known, &MetadataField::ALL),
         );
         assert!(issues.iter().any(|i| i.is_error() && i.field == "media_type"));
     }
@@ -823,7 +897,7 @@ mod tests {
         let conditions = [Condition::HasFiles(true), Condition::HasFiles(false)];
         let issues = validate_rule(
             draft("both", MatchMode::Any, &conditions, &[], "anime"),
-            env(&known, &known, ALL_FIELDS),
+            env(&known, &known, &MetadataField::ALL),
         );
         assert!(!issues.iter().any(|i| i.key == "ValidationContradiction"));
     }
