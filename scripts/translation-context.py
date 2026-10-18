@@ -4,15 +4,10 @@
     python3 scripts/translation-context.py batch.json fr de > brief.md
     python3 scripts/translation-context.py batch.json fr --notes notes.md
 
-`batch.json` maps the keys to translate to their English. For each language
-the brief holds the batch, the words that language already uses for the
-batch's terms (one short existing translation per term and per pair of
-terms), the glossary concepts the batch says, the file's punctuation habits,
-and the rules `check-locales.py` holds a dictionary to.
-
-A translator reads this instead of the whole dictionary: a tenth of the text
-for the same terms, so the words a file already uses are kept. The
-translations go back through `add-locale.py`.
+`batch.json` maps the keys to translate to their English. Each brief holds the batch, the
+current text of a key whose English changed, the words the file already uses for its terms,
+the glossary concepts, the punctuation habits and the rules `check-locales.py` holds a
+dictionary to. The translations go back through `add-locale.py`.
 """
 from __future__ import annotations
 
@@ -91,6 +86,16 @@ def glossary(batch: dict[str, str], english: dict[str, str], translated: dict[st
     return lines
 
 
+def current(batch: dict[str, str], english: dict[str, str], translated: dict[str, str]) -> list[str]:
+    """The batch's keys the file already translates: their English changed, and a
+    translation keeps what still holds rather than starting again."""
+    return [
+        f"- `{key}`: {translated[key]}"
+        for key in batch
+        if translated.get(key, english[key]) != english[key]
+    ]
+
+
 def habits(translated: dict[str, str]) -> list[str]:
     """How the file writes quotes and spaces, which a translation has to follow."""
     text = "\n".join(translated.values())
@@ -133,6 +138,11 @@ def brief(code: str, batch: dict[str, str], english: dict[str, str], notes: str 
     if notes:
         parts += [notes.strip(), ""]
     parts += ["## The batch", "", "```json", json.dumps(batch, ensure_ascii=False, indent=2), "```", ""]
+    changed = current(batch, english, translated)
+    if changed:
+        parts += [f"## What {code}.json says now, for keys whose English changed", ""]
+        parts += changed
+        parts.append("")
     shown = examples(batch, english, translated)
     if shown:
         parts += [f"## The words {code}.json already uses", ""]
