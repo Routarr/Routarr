@@ -78,6 +78,8 @@ struct RoutingContext {
     overrides: HashMap<String, String>,
     /// (instance_id, category) -> root folder path
     root_folders: HashMap<(String, String), String>,
+    /// (instance_id, `paths::key` of a root folder) -> the category it leads to
+    folder_categories: HashMap<(String, String), String>,
     /// (instance_id, normalised path) -> free bytes the Arr last reported, or
     /// `None`. Normalised, or a trailing slash makes every move cross filesystems.
     free_space: HashMap<(String, String), Option<i64>>,
@@ -184,10 +186,8 @@ pub async fn run_simulation(
     simulate_loaded(pool, &library, options).await
 }
 
-/// Evaluate a loaded library under these options, and persist when asked.
-///
-/// Reaches the database only to persist: everything the evaluation reads is
-/// in `library`, so a second evaluation over the same load costs no query.
+/// Evaluate a loaded library under these options, and persist when asked. Only the persist
+/// reaches the database, so a second evaluation over the same load costs no query.
 pub async fn simulate_loaded(
     pool: &SqlitePool,
     library: &Arc<LoadedLibrary>,
@@ -502,6 +502,10 @@ fn decide(
         instance_id: media.instance_id.clone(),
         instance_name: ctx.instance_names.get(&media.instance_id).cloned(),
         current_root_folder: media.current_root_folder.clone(),
+        current_category: media.current_root_folder.as_deref().and_then(|folder| {
+            let key = (media.instance_id.clone(), crate::paths::key(folder));
+            ctx.folder_categories.get(&key).cloned()
+        }),
         target_root_folder: target,
         target_category: category,
         matched_rule_id,
@@ -999,17 +1003,23 @@ async fn load_context(
         }
     };
 
-    let root_folders: HashMap<(String, String), String> =
-        sqlx::query_as::<_, (String, String, String)>(
-            // Reachable or not, or a folder on a sleeping NAS reads as unmapped.
-            "SELECT instance_id, category, path FROM root_folders
-             WHERE category IS NOT NULL AND category != ''
-               AND (? IS NULL OR instance_id = ?)",
-        )
-        .bind(instance_id)
-        .bind(instance_id)
-        .fetch_all(&mut *snapshot)
-        .await?
+    let mapped: Vec<(String, String, String)> = sqlx::query_as(
+        // Reachable or not, or a folder on a sleeping NAS reads as unmapped.
+        "SELECT instance_id, category, path FROM root_folders
+         WHERE category IS NOT NULL AND category != ''
+           AND (? IS NULL OR instance_id = ?)",
+    )
+    .bind(instance_id)
+    .bind(instance_id)
+    .fetch_all(&mut *snapshot)
+    .await?;
+    let folder_categories: HashMap<(String, String), String> = mapped
+        .iter()
+        .map(|(instance_id, category, path)| {
+            ((instance_id.clone(), crate::paths::key(path)), category.clone())
+        })
+        .collect();
+    let root_folders: HashMap<(String, String), String> = mapped
         .into_iter()
         .map(|(instance_id, category, path)| ((instance_id, category), path))
         .collect();
@@ -1072,6 +1082,7 @@ async fn load_context(
         rules,
         overrides,
         root_folders,
+        folder_categories,
         free_space,
         instance_names,
         instance_countries,
@@ -1380,8 +1391,8 @@ pub async fn supersede_decisions(
     retire_pending(tx, "id", decision_ids).await
 }
 
-/// Retire a deleted instance's pending proposals, which would move titles that
-/// no longer exist. What was applied stays.
+/// Retire a deleted instance's pending proposals, which would move titles that are gone.
+/// What was applied stays.
 pub async fn supersede_instance_decisions(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     instance_id: &str,

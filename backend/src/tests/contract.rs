@@ -235,6 +235,7 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
         ("POST", "/decisions/apply-all", "/decisions/apply-all", json!({ "simulation_id": "s" })),
         ("POST", "/decisions/revert", "/decisions/revert", json!({ "decision_ids": ["d-1"] })),
         ("POST", "/overrides", "/overrides", json!({ "media_id": "m", "target_category": "a" })),
+        ("POST", "/media/{id}/keep", "/media/m/keep", json!({})),
         (
             "PUT",
             "/overrides/external",
@@ -425,6 +426,8 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     let exception = set.json["id"].as_str().unwrap();
     let removed = app.delete(&format!("/api/v1/overrides/{exception}")).await;
     checker.check("DELETE", "/overrides/{id}", 200, &removed);
+    let kept = app.post("/api/v1/media/m-1/keep", json!({ "reason": "a test" })).await;
+    checker.check("POST", "/media/{id}/keep", kept.status.as_u16(), &kept);
     let external = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
     let pin = json!({ "target_category": "anime" });
     checker.check("PUT", "/overrides/external", 200, &app.put(external, pin).await);

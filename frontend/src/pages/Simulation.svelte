@@ -34,19 +34,12 @@
   const outcome = createOutcome();
 
   /**
-   * Decisions a previous pass left pending.
-   *
-   * The top bar counts them, so this screen has to show them. Showing only the
-   * result of a run made in this browser session lands a user following
-   * "12 decisions awaiting review" on "run a simulation", for the same twelve,
-   * already persisted.
+   * Decisions a previous pass left pending, which the top bar counts: showing only a run made in
+   * this browser would send a reader following that count to "run a simulation".
    */
-  // The server's page ceiling. Past it the top bar's count and this list
-  // disagree, and the banner below says which one is short.
+  // The server's page ceiling. Past it, the banner below says why the list is short.
   const PENDING_PAGE = 200;
-  // A failure is a banner, not the empty state: the navigation sent the user
-  // here with a count of decisions to review, and "run a simulation" over a
-  // failed request contradicts it without a word about why.
+  // A failure is a banner: the empty state would contradict the count the user followed.
   const pendingLoad = createAsync((signal) =>
     api.getDecisions({ status: 'pending', per_page: PENDING_PAGE }, signal),
   );
@@ -57,9 +50,7 @@
    * alone, and `/decisions` lists what it stored by its id.
    */
   let runPage = $state(1);
-  // Each page arrives with its moves selected, in the same update as its
-  // rows: selected a render later, the select-all box would turn clickable
-  // while still unticked.
+  // Selected in the same update as the rows, or select-all turns clickable while unticked.
   const runLoad = createAsync(
     async (signal) => {
       if (!result) return null;
@@ -108,11 +99,8 @@
   }
 
   /**
-   * Evaluate the library again.
-   *
-   * After an apply it runs as a refresh. The moves were made whatever the
-   * refresh ends in, so its failure is shown beside the apply's outcome and
-   * never in its place, or the user would not learn what the apply did.
+   * Evaluate the library again. After an apply it runs as a refresh, whose failure shows beside
+   * the apply's outcome, never in its place: the moves were made either way.
    */
   async function run({ refresh = false }: { refresh?: boolean } = {}) {
     await follow(() => api.runSimulation({ persist: true }, following), refresh);
@@ -134,10 +122,7 @@
       if (refresh) refreshError = describeError(err);
       else outcome.fail(err);
     } finally {
-      // The shell counts the pending and failed decisions, and the guide it
-      // draws reads its simulation step from them. After an apply they moved
-      // whatever the refresh ends in. Without the revision, the counts wait
-      // for the next poll and the step for the next navigation.
+      // The shell's counts and its guide read these decisions, whatever the refresh ends in.
       invalidateStatus();
       busy = null;
       progress = null;
@@ -160,11 +145,8 @@
   };
 
   /**
-   * The outcome of an apply: what it says beside its counts first, then the
-   * moves it could not make. A move the Arr is still making, a proposal
-   * replaced or a run stopped leaves it unfinished. Nothing made while it is
-   * unfinished is a failure, some made is a partial result, and only
-   * everything made is a success.
+   * The outcome of an apply: what it says beside its counts, then the moves it could not make.
+   * Anything left unfinished is a failure with nothing made, and a partial result with some.
    */
   function reportApply(
     message: string,
@@ -197,13 +179,8 @@
   const c_key = (c: { instance_id: string; path: string }) => `${c.instance_id}:${c.path}`;
 
   /**
-   * Apply everything this run proposed, not just what is on screen.
-   *
-   * The list is capped for the payload's sake, so on a large library the
-   * selection can only ever cover part of it. Scoping by simulation id rather
-   * than by selected rows is what makes "apply all" mean all of them. The
-   * question is the server's alone: it names the count, and a destination
-   * that is not answering or short of room, which only the server knows.
+   * Apply everything this run proposed, by simulation id: the capped list covers only part of a
+   * large library. The server asks the question, as it alone knows a destination is down or full.
    */
   async function applyAll() {
     if (!result) return;
@@ -217,8 +194,7 @@
         'ApplyLabel',
       );
       if (!batch) return;
-      // A run cut short by a refused slice is unfinished too: the slices after
-      // it were never tried. One stopped says why on its own.
+      // A run cut short by a refused slice is unfinished. One stopped says why on its own.
       reportApply(
         batch.stopped_early && !batch.stopped
           ? t('BatchApplyStopped', {
@@ -286,11 +262,22 @@
     if (!selected.delete(id)) selected.add(id);
   }
 
-  // This run if there was one, otherwise what was already waiting. A fresh run
-  // replaces them, and supersedes them server-side too.
+  // An exception to the folder's category: the proposal goes, and the run's counts stay as run.
+  async function keep(decision: Decision) {
+    try {
+      await api.keepTitle(decision.media_id);
+      selected.delete(decision.id);
+      outcome.succeed(t('KeptHereOutcome', { category: decision.current_category ?? '' }));
+      invalidateStatus();
+      await Promise.all([pendingLoad.reload(), ...(result ? [runLoad.reload()] : [])]);
+    } catch (err) {
+      outcome.fail(err);
+    }
+  }
+
+  // This run's page if there is one, else what was already waiting, which a run supersedes.
   const shown = $derived<Decision[]>(result ? (runLoad.data?.data ?? []) : (pending ?? []));
-  // The list on screen has not answered yet: the run's page, or the pending
-  // decisions no run has replaced.
+  // True until the list on screen answers, the run's page or the pending decisions.
   const loading = $derived(
     result ? runLoad.data === null && !runLoad.error : pending === null && !pendingLoad.error,
   );
@@ -364,10 +351,8 @@
       />
     {/if}
 
-    <!-- What the plan weighs, before anything is written. `free_space` is
-           synced on every pass and `size_on_disk` sits on every row, and the
-           plan compares the two: a batch that overruns its destination fails
-           partway at the Arr and leaves the library half-moved. -->
+    <!-- What the plan weighs before anything is written: a batch that overruns its destination
+           fails partway at the Arr and leaves the library half-moved. -->
     {#if result.capacity.length > 0}
       {#each result.capacity.filter((c) => !c.fits) as short (c_key(short))}
         <WarningBanner
@@ -406,9 +391,8 @@
                   <td>{folder.items}</td>
                   <td>
                     {formatBytes(folder.incoming_bytes, i18n.language)}
-                    <!-- Shown rather than dropped: a move between folders on
-                           one volume is a rename and costs nothing, and a
-                           figure the user cannot see is one they cannot check. -->
+                    <!-- A move within one volume is a rename that costs nothing, shown
+                           so the user can check the figure. -->
                     {#if folder.same_filesystem_bytes > 0}
                       <span class="text-muted ms-2">
                         {t('CapacitySameVolume', {
@@ -451,9 +435,8 @@
             {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
           </button>
 
-          <!-- Reaches past the page on screen: selecting every visible row is
-               not everything. It targets one identified simulation, so it only
-               exists once a run has produced one. -->
+          <!-- Reaches past the page on screen, so it needs the simulation a run produced
+               and shows only once there is one. -->
           {#if result}
             <button
               class="btn btn-secondary"
@@ -507,9 +490,8 @@
           {#if loading}
             <TableSkeleton columns={8} />
           {:else if shown.length === 0}
-            <!-- Nothing pending and nothing run says to run, a run that
-                   proposed nothing says so. A list that failed to load says
-                   neither: its banner above does. -->
+            <!-- An empty list says to run, or that the run proposed nothing. A failed load
+                   leaves it to the banner above. -->
             {#if !(result ? runLoad.error : pendingLoad.error)}
               <tr>
                 <td colspan="8">
@@ -525,6 +507,7 @@
                 {decision}
                 selected={selected.has(decision.id)}
                 onToggle={() => toggle(decision.id)}
+                onKeep={() => void keep(decision)}
               />
             {/each}
           {/if}

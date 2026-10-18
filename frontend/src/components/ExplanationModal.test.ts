@@ -2,43 +2,28 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { explainedMedia } from '../test/fixtures';
+import { answerConfirmation } from '../test/confirm';
+import { category, explanation } from '../test/fixtures';
 import type { Explanation, MetadataProvider } from '../api/types';
 import { ApiError, api } from '../api/client';
 import ExplanationModal from './ExplanationModal.svelte';
 
 /**
- * The explainability contract, made visible. Every condition reports what was
- * expected and what was observed *even when it failed*. That is the whole
- * point, and it is what `/media/{id}/explain` exists to serve.
- */
-
-function explanation(over: Partial<Explanation> = {}): Explanation {
-  return {
-    media: explainedMedia({ current_path: '/data/films/Akira' }),
-    metadata: null,
-    override_category: null,
-    target_category: 'anime',
-    rules_category: 'anime',
-    target_root_folder: '/data/anime',
-    action: 'move',
-    confidence: 0.7,
-    winning_rule: 'Japanese animation',
-    rule_traces: [],
-    instance_enabled: true,
-    ...over,
-  };
-}
-
-/**
  * The panel, the source catalogue left unanswered unless a test answers it:
  * until it does, each source is named by its id.
  */
-function show(data: Explanation, strings?: Record<string, string>) {
+function show(data: Explanation, strings?: Record<string, string>, onChanged = vi.fn()) {
   if (!vi.isMockFunction(api.getMetadataProviders)) {
     vi.spyOn(api, 'getMetadataProviders').mockReturnValue(new Promise(() => {}));
   }
-  return renderWithI18n(ExplanationModal, { props: { data, onClose: vi.fn() }, strings });
+  if (!vi.isMockFunction(api.getCategories)) {
+    const names = ['anime', 'kids', 'standard'];
+    vi.spyOn(api, 'getCategories').mockResolvedValue(names.map((name) => category({ name })));
+  }
+  return renderWithI18n(ExplanationModal, {
+    props: { data, onClose: vi.fn(), onChanged },
+    strings,
+  });
 }
 
 function source(id: string, display_name: string, website: string | null): MetadataProvider {
@@ -80,26 +65,80 @@ describe('ExplanationModal', () => {
       'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.',
     );
     expect(screen.getByRole('button', { name: 'Pin as test' })).toHaveAccessibleDescription(
-      'Require this title to keep landing in this category, and report it if a rule change moves it.',
+      'Require this title to keep landing in this category, and report it if a rule change moves it. While a test fails, automatic application waits.',
     );
     expect(
       screen.getByText(
         'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.',
       ),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'Require this title to keep landing in this category, and report it if a rule change moves it.',
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Keep here' })).toHaveAccessibleDescription(
+      'Pins the title to "standard", the category of the folder it is in, so no run proposes to move it.',
+    );
   });
 
-  /**
-   * A refused pin has to be announced. Drawn as a red box with no role, it is
-   * seen by sighted users, heard by no screen reader, and the button simply
-   * comes back.
-   */
-  /** A rule test replays the rules alone: under an exception it pins what they decide, and says so. */
+  it("keeps the title in its folder's category, and reloads what is behind", async () => {
+    const kept = vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
+    const read = vi
+      .spyOn(api, 'explainMedia')
+      .mockResolvedValue(explanation({ override_category: 'standard', action: 'none' }));
+    const onChanged = vi.fn();
+    show(explanation(), undefined, onChanged);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep here' }));
+
+    expect(
+      await screen.findByText('Kept in "standard": an exception holds the title there.'),
+    ).toBeInTheDocument();
+    expect(kept).toHaveBeenCalledWith('m1');
+    expect(read).toHaveBeenCalledWith('m1');
+    expect(onChanged).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Keep here' })).toBeDisabled();
+    expect(screen.getByText('Kept in "standard" by an exception.')).toBeInTheDocument();
+  });
+
+  it('offers no keep when the folder leads to no category, and says where to map it', () => {
+    show(explanation({ current_category: null }));
+
+    expect(screen.getByRole('button', { name: 'Keep here' })).toBeDisabled();
+    expect(screen.getByText(/leads to no category/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open categories and folders' })).toHaveAttribute(
+      'href',
+      '/categories',
+    );
+  });
+
+  it('asks before replacing an exception that sends the title elsewhere', async () => {
+    const kept = vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
+    vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation());
+    show(explanation({ override_category: 'kids', target_category: 'kids' }));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep here' }));
+    expect(kept).not.toHaveBeenCalled();
+    expect(await answerConfirmation()).toBe(
+      'An exception already sends this title to "kids". Replace it with one that keeps the title where it is?',
+    );
+
+    await waitFor(() => expect(kept).toHaveBeenCalledWith('m1'));
+  });
+
+  /** A test may expect what the rules do not give yet: it fails until a rule does. */
+  it('pins a test expecting another category, named and explained as such', async () => {
+    const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
+    show(explanation());
+    const select = await screen.findByLabelText('Expected category');
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3));
+
+    await fireEvent.change(select, { target: { value: 'kids' } });
+
+    expect(screen.getByRole('button', { name: 'Pin as test' })).toHaveAccessibleDescription(
+      'Fails until a rule sends the title to "kids". While it fails, automatic application waits.',
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Pin as test' }));
+    expect(pin).toHaveBeenCalledWith('Akira belongs in kids', 'm1', 'kids');
+  });
+
+  /** A rule test replays the rules alone, so under an exception it pins what they decide. */
   it('pins what the rules decide when an exception forces the title elsewhere', async () => {
     const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
     show(
@@ -124,6 +163,7 @@ describe('ExplanationModal', () => {
     expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
   });
 
+  /** A refusal drawn as a red box with no role would reach no screen reader. */
   it('announces a pin that was refused', async () => {
     vi.spyOn(api, 'pinRuleTest').mockRejectedValue(new ApiError('already a case', 409, 'conflict'));
     show(explanation());
@@ -133,11 +173,7 @@ describe('ExplanationModal', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('already a case');
   });
 
-  /**
-   * A refresh shows what the sources say now: the explanation is read again
-   * once they have answered, and how many did is said, a refresh none of them
-   * answered included.
-   */
+  /** A refresh reads the explanation again once the sources answered, and says how many did. */
   it('reads the explanation again once the sources were asked again', async () => {
     const asked = vi.spyOn(api, 'refreshTitleMetadata').mockResolvedValue({ answered: 2 });
     vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation({ target_category: 'kids' }));
@@ -146,7 +182,7 @@ describe('ExplanationModal', () => {
     await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
 
     expect(await screen.findByText('Sources that answered: 2')).toBeTruthy();
-    expect(screen.getByText('kids')).toBeTruthy();
+    expect(screen.getByText('kids', { selector: '.badge' })).toBeTruthy();
     expect(asked).toHaveBeenCalledWith(explanation().media.id);
   });
 
@@ -222,9 +258,8 @@ describe('ExplanationModal', () => {
   });
 
   /**
-   * Which sources contributed, in priority order. With one source this is
-   * obvious. With several it is the only way to know whether a genre came from
-   * the library or from TMDB.
+   * With several sources, only this line tells whether a genre came from the library or from
+   * TMDB, so it names them in priority order.
    */
   it('names the sources that contributed, in order', () => {
     show(
@@ -239,8 +274,7 @@ describe('ExplanationModal', () => {
           sources: ['arr', 'tmdb'],
         } as Explanation['metadata'],
       }),
-      // French spacing, which the English shares with a colon written in the
-      // markup: only a sentence of its own tells the two apart.
+      // French spacing, so a colon written in the markup could not pass for the sentence.
       { MetadataSourcesLine: 'Sources : {sources}' },
     );
 
@@ -262,8 +296,7 @@ describe('ExplanationModal', () => {
           sources: ['arr'],
         } as unknown as Explanation['metadata'],
       }),
-      // The English separator is a comma, which a comma written in the markup
-      // would produce as well.
+      // Not a comma, which a comma written in the markup would produce as well.
       { ListSeparator: ' ; ' },
     );
 
@@ -325,9 +358,8 @@ describe('ExplanationModal', () => {
   });
 
   /**
-   * A condition reports what was expected *and* what was observed even when it
-   * failed. Reporting only the matches makes a surprising outcome impossible to
-   * argue with.
+   * A failed condition reports what it expected and what it observed: matches alone leave a
+   * surprising outcome impossible to argue with.
    */
   it('shows a failed condition with what was observed, not only that it failed', () => {
     show(
@@ -357,8 +389,7 @@ describe('ExplanationModal', () => {
       }),
     );
 
-    // Scoped to the condition's own row: "en" is two letters and matches half
-    // the prose on the panel.
+    // Scoped to the row: "en" is two letters and matches half the prose on the panel.
     const row = screen
       .getByText('Original language in [ja]')
       .closest('.explain-row') as HTMLElement;

@@ -12,13 +12,8 @@ import { dropFocus } from '../test/focus';
 import { statusRevision } from '../lib/status.svelte';
 
 /**
- * The screen that writes.
- *
- * Everything the executor guards against (applying nothing, applying past the
- * confirmation threshold, applying a proposal the user never looked at) is
- * enforced again here, in the browser, before a request is made at all. The
- * end-to-end journeys drive the happy path, which is the one case where a
- * missing guard cannot be seen.
+ * The screen that writes. It enforces the executor's guards again before any request, and the
+ * end-to-end journeys drive only the happy path, where a missing guard cannot be seen.
  */
 
 /** What each run stored, as `/decisions` lists it under the run's id. */
@@ -96,9 +91,8 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('what the screen shows', () => {
   /**
-   * The dashboard sends the reader here with a count of decisions to review.
-   * The empty state ("run a simulation") would contradict it without a word
-   * about why, so a failed request renders a banner.
+   * The dashboard sends the reader here with a count to review, which the empty state would
+   * contradict, so a failed request renders a banner.
    */
   it('says the pending list could not be loaded rather than pretending it is empty', async () => {
     vi.spyOn(api, 'getDecisions').mockRejectedValue(new ApiError('later', 503, 'unavailable'));
@@ -136,9 +130,8 @@ describe('what the screen shows', () => {
   });
 
   /**
-   * Decisions a previous pass left are persisted, so the screen shows them, not
-   * only what this browser session ran: a count of them on the dashboard would
-   * otherwise land on an empty state telling the reader to run a simulation.
+   * Decisions a previous pass left are stored, so the screen shows them before any run, or the
+   * dashboard's count would land on an empty state.
    */
   it('shows the decisions a previous pass left pending, before any run', async () => {
     await show([decision({ media_title: 'Akira' })]);
@@ -170,9 +163,8 @@ describe('what the screen shows', () => {
   });
 
   /**
-   * A run pre-selects what it proposes so the common case is one click. It must
-   * pre-select only what is actionable: a skip has no target folder, and
-   * checking it would send the executor a decision it can only refuse.
+   * A run pre-selects its moves so the common case is one click, and never a skip, which has no
+   * target folder and which the executor can only refuse.
    */
   it('pre-selects the moves and leaves the skips alone', async () => {
     await show([]);
@@ -184,24 +176,45 @@ describe('what the screen shows', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await waitFor(() => expect(screen.getByText('Akira')).toBeTruthy());
 
-    // One move proposed, so one row is checkable and it is checked.
     const boxes = screen.getAllByRole('checkbox', { name: /select the move for/i });
     expect(boxes).toHaveLength(1);
     expect((boxes[0] as HTMLInputElement).checked).toBe(true);
 
-    // And the ids that leave for the executor are that one alone. Asserted on
-    // the request rather than on the checkboxes: a skip renders none, so a
-    // pre-selection that wrongly included it would be invisible on screen and
-    // arrive at the server all the same.
+    // Asserted on the request: a skip has no checkbox to show a wrong pre-selection.
     await fireEvent.click(screen.getByRole('button', { name: /apply selected/i }));
     await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
     expect(nthCall(apply)[0]).toEqual([moving.id]);
   });
 });
 
+describe('keeping a title where it is', () => {
+  it('pins a pending proposal to its folder category, and reloads the list', async () => {
+    const kept = vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
+    await show([decision({ media_id: 'm7', media_title: 'Akira', current_category: 'standard' })]);
+    const before = statusRevision();
+    const loads = vi.mocked(api.getDecisions).mock.calls.length;
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Keep here – Akira' }));
+
+    expect(kept).toHaveBeenCalledWith('m7');
+    expect(
+      await screen.findByText('Kept in "standard": an exception holds the title there.'),
+    ).toBeTruthy();
+    expect(statusRevision()).toBeGreaterThan(before);
+    expect(vi.mocked(api.getDecisions).mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('offers no keep for a title whose folder leads to no category', async () => {
+    await show([decision({ media_title: 'Akira', current_category: null })]);
+
+    await screen.findByText('Akira');
+    expect(screen.queryByRole('button', { name: 'Keep here – Akira' })).toBeNull();
+  });
+});
+
 /**
- * Whether the Arr moves the files on disk is the one choice an apply cannot
- * take back, and it travels as a flag no other part of the screen shows.
+ * Moving the files on disk is the one choice an apply cannot take back, and it travels as a
+ * flag nothing else on screen shows.
  */
 describe('the file move', () => {
   it('is left off unless ticked', async () => {
@@ -254,8 +267,7 @@ describe('what the screen refuses to do', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
 
-    // Settled, then asserted: a `waitFor` around a negative passes on its
-    // first look, before the handler has had a turn to make the call.
+    // Settled first: a `waitFor` around a negative passes before the handler has run.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(apply).not.toHaveBeenCalled();
   });
@@ -276,9 +288,8 @@ describe('what the screen refuses to do', () => {
   });
 
   /**
-   * Past the configured threshold the backend refuses and asks for an explicit
-   * second pass. That is a question, not a failure: showing it as a red banner
-   * would tell the user their moves had gone wrong when nothing had happened.
+   * Past the configured threshold the backend asks for a second pass. A red banner would say the
+   * moves went wrong when nothing happened, so it is a question.
    */
   it('turns the threshold refusal into a question, not an error', async () => {
     await show([]);
@@ -298,22 +309,18 @@ describe('what the screen refuses to do', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
 
-    // The refusal's own message is carried into the question rather than
-    // discarded: it is the only place the threshold is named.
+    // The refusal's own message is the only place the threshold is named.
     expect(await answerConfirmation()).toContain('Above the threshold');
 
-    // Asked once, then applied again naming the guardrail that was answered,
-    // and only that one, so a second refusal still gets its own question.
+    // Applied again naming only the guardrail answered, so a second refusal is asked too.
     await waitFor(() => expect(apply).toHaveBeenCalledTimes(2));
     expect(nthCall(apply)[2]).toEqual([]);
     expect(nthCall(apply, 1)[2]).toEqual(['threshold']);
   });
 
   /**
-   * The batch question is the server's, because only the server knows that a
-   * destination is not answering or short of room. Answered in advance, those
-   * facts never reach the reader, and a sleeping NAS gets the batches after
-   * one generic yes.
+   * Only the server knows a destination is not answering or short of room, so it asks. Answered
+   * in advance, one generic yes would send the batches to a sleeping NAS.
    */
   it('lets the server ask its own question before Apply all writes', async () => {
     await show([]);
@@ -414,10 +421,8 @@ describe('what the screen refuses to do', () => {
 });
 
 /**
- * One outcome of applying on screen, the latest. A report stays until something
- * replaces it, and this is the screen that moves files: a report of moves that
- * worked, left above the reason the next apply was refused, reads as the result
- * of that apply.
+ * Only the latest outcome of an apply stays on screen: a report of moves that worked, left above
+ * the next refusal, reads as the result of that apply.
  */
 describe('what the screen says after applying', () => {
   it('takes the previous report off screen when the next apply is refused', async () => {

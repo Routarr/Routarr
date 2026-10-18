@@ -13,6 +13,7 @@
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
+  import { invalidateStatus } from '../lib/status.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
@@ -36,8 +37,7 @@
   const overrides = $derived(bundle.data?.overrides.data ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
 
-  // A removed exception takes its row and the pressed Delete with it: the one
-  // now in its place takes the focus, else the one before, else the table.
+  // A removal takes the pressed Delete with it, so the focus goes to the nearest row left.
   const deleteId = (index: number) => `overrides-delete-${index}`;
 
   async function remove(id: string, title: string, index: number) {
@@ -45,6 +45,7 @@
     try {
       await api.deleteOverride(id);
       outcome.succeed(t('OverrideRemoved'));
+      invalidateStatus();
       await bundle.reload();
       // The last exception of the last page leaves the page before it to show.
       if (overrides.length === 0 && page > 1) page -= 1;
@@ -54,17 +55,14 @@
     }
   }
 
-  // ---------------------------------------------------------------- creation
   let search = $state('');
   let results = $state<MediaListItem[]>([]);
   /** How many titles matched: the search answers fifteen at most. */
   let matched = $state(0);
   let selected = $state<MediaListItem | null>(null);
   /**
-   * Derived, not captured. Reading `categories[0]` when the button is clicked
-   * races the request that fills them: open the modal before the list lands and
-   * the override is created against an empty category, which the backend then
-   * refuses for a field the user never touched.
+   * Derived, since the categories may land after the modal opens, and an empty category is
+   * refused for a field the user never touched.
    */
   let chosenCategory = $state<string | null>(null);
   const category = $derived(chosenCategory ?? categories[0]?.name ?? '');
@@ -82,11 +80,9 @@
     creating = true;
   }
 
-  // Inside the dialog, for the same reason `Instances` keeps its own: the page
-  // banner is under the modal, dimmed and inert.
+  // Inside the dialog: the page banner lies under the modal, dimmed and inert.
   let dialogError = $state<string | null>(null);
-  // A search that found nothing says so: an empty answer and a click that did
-  // nothing look the same otherwise.
+  // An empty answer says so, or it looks like a click that did nothing.
   let searched = $state(false);
 
   // Only the last search answers, and one the screen closed on is abandoned.
@@ -122,6 +118,7 @@
       });
       creating = false;
       outcome.succeed(t('OverrideCreated', { title: selected.title, category }));
+      invalidateStatus();
       await bundle.reload();
     } catch (err) {
       dialogError = describeError(err);
@@ -274,11 +271,8 @@
             <tbody>
               {#each results as media (media.id)}
                 <tr class:row-selected={selected?.id === media.id}>
-                  <!-- A button, not a clickable row: a row has no tab stop, no
-                       role and no key, and Svelte warns about that on a div but
-                       not on a tr. Named `action – subject` with an en dash, the
-                       convention the accessibility sweep enforces on row
-                       actions. -->
+                  <!-- A button: a row has no tab stop, no role and no key. Named
+                       `action – subject`, as the accessibility sweep wants. -->
                   <td>
                     <button
                       type="button"

@@ -376,6 +376,9 @@ pub struct Explanation {
     /// this title expects. Equal to `target_category` when no exception is in force.
     pub rules_category: String,
     pub target_root_folder: Option<String>,
+    /// The category the title's current root folder leads to, null when it leads to none: what
+    /// `POST /media/{id}/keep` pins it to.
+    pub current_category: Option<String>,
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
     pub action: DecisionAction,
     pub confidence: f32,
@@ -482,7 +485,14 @@ pub async fn explain(
         });
     }
 
+    let current_category = match media.current_root_folder.as_deref() {
+        Some(folder) => {
+            crate::api::overrides::folder_category(&state.pool, &media.instance_id, folder).await?
+        }
+        None => None,
+    };
     Ok(Json(Explanation {
+        current_category,
         media: media.into(),
         metadata,
         override_category,
@@ -860,7 +870,7 @@ fn facet_rows(
                 binds.push(source.id);
             }
             metadata::Addressing::Search => {
-                // One branch per kind of key, each on an index of `media`, in `local_key_of` order.
+                // A branch per kind of key, each on an index of `media`, in `local_key_of` order.
                 for (on, guard) in [
                     (
                         "m.tmdb_id = CAST(substr(si.local_key, 6) AS INTEGER)",

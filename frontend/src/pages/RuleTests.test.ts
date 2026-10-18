@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -17,6 +17,9 @@ const CASE: RuleTest = {
   source_media_title: 'Akira',
   evaluated_at: '2026-09-01 10:00:00',
   created_at: '2026-09-01 10:00:00',
+  last_passed: null,
+  last_checked_at: null,
+  subject: null,
 };
 
 const PASSED: RuleTestRun = {
@@ -42,6 +45,19 @@ const OTHER_CASE: RuleTest = { ...CASE, id: 't3', name: 'Paprika stays anime' };
 afterEach(() => vi.restoreAllMocks());
 
 describe('RuleTests', () => {
+  /** A case run after a sync or at its pin shows that verdict before anyone presses Run. */
+  it('shows the verdict the last run kept, and when it ran', async () => {
+    const failing = { ...CASE, last_passed: false, last_checked_at: '2026-10-18 09:00:00' };
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([failing, OTHER_CASE]));
+    renderWithI18n(RuleTests);
+
+    const row = await screen.findByRole('row', { name: /Akira stays anime/ });
+    expect(within(row).getByText('Fails')).toBeTruthy();
+    expect(within(row).getByText(/^Checked /)).toBeTruthy();
+    const other = screen.getByRole('row', { name: /Paprika stays anime/ });
+    expect(within(other).getByText('not run yet')).toBeTruthy();
+  });
+
   /** A run takes the whole library: the button says it is running, not only spins. */
   it('says the tests are running while they run', async () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE]));
@@ -162,9 +178,8 @@ describe('a suite longer than a page', () => {
 });
 
 /**
- * A deleted case takes its row away. Swapped for a skeleton while the list
- * reloads, the other rows would take the focus with them, so the list stays,
- * and what takes the deleted row's place takes the focus.
+ * The list stays on screen while it reloads, since a skeleton would take the focus with the
+ * rows, and the case in the deleted one's place takes the focus.
  */
 describe('deleting a case', () => {
   const OTHER: RuleTest = { ...CASE, id: 't2', name: 'Perfect Blue stays anime' };

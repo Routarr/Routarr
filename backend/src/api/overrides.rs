@@ -46,8 +46,7 @@ pub async fn list(
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
-    // Counted as listed: an exception whose title went with a sync is in
-    // neither.
+    // Counted as listed: an exception whose title went with a sync is in neither.
     let total: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM overrides o
          JOIN media m ON o.media_id = m.id
@@ -96,6 +95,122 @@ pub async fn create(
     Ok(super::Created::at(&state, format!("/overrides/{}", pinned.id), pinned))
 }
 
+/// What keeping a title where it is takes.
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KeepRequest {
+    pub reason: Option<String>,
+}
+
+/// The category the root folder `folder` leads to on `instance_id`, if one does.
+pub(crate) async fn folder_category<'e, E>(
+    executor: E,
+    instance_id: &str,
+    folder: &str,
+) -> AppResult<Option<String>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    Ok(sqlx::query_scalar(
+        "SELECT category FROM root_folders
+          WHERE instance_id = ? AND path = ? COLLATE path
+            AND category IS NOT NULL AND category != ''",
+    )
+    .bind(instance_id)
+    .bind(folder)
+    .fetch_optional(executor)
+    .await?)
+}
+
+/// Pin a title to the category of the root folder it is in, so no run proposes to move it, and
+/// decide it again at once.
+pub async fn keep(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    Path(id): Path<String>,
+    Json(req): Json<KeepRequest>,
+) -> AppResult<super::Created<OverrideEntry>> {
+    let localizer = state.localizer().await;
+    let refused = |reason: &'static str, key: &str, params: &[(&str, &str)]| AppError::Conflict {
+        reason,
+        message: localizer.translate(key, params),
+    };
+    // Read under the pin's lock: a mapping changed meanwhile would pin a category that moves it.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    let held: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT instance_id, current_root_folder FROM media WHERE id = ?")
+            .bind(&id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((instance_id, folder)) = held else {
+        return Err(AppError::NotFound(format!("Media {id} not found")));
+    };
+    let Some(folder) = folder.filter(|folder| !folder.trim().is_empty()) else {
+        return Err(refused("no_current_folder", "ErrorKeepNoFolder", &[]));
+    };
+    let Some(category) = folder_category(&mut *tx, &instance_id, &folder).await? else {
+        return Err(refused("folder_unmapped", "ErrorKeepFolderUnmapped", &[("folder", &folder)]));
+    };
+    // A second folder of the instance leading to the category is where the pin could send it.
+    let folders: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM root_folders WHERE instance_id = ? AND category = ?",
+    )
+    .bind(&instance_id)
+    .bind(&category)
+    .fetch_one(&mut *tx)
+    .await?;
+    if folders > 1 {
+        return Err(refused(
+            "category_ambiguous",
+            "ErrorKeepCategoryAmbiguous",
+            &[("category", &category)],
+        ));
+    }
+    crate::race::checked("overrides::keep", &id).await;
+    let by = identity.attribution();
+    pin_in(&mut tx, std::slice::from_ref(&id), &category, req.reason.as_deref(), &by, &localizer)
+        .await?;
+    let row: (String, String, String, Option<String>, String, Option<String>) = sqlx::query_as(
+        "SELECT id, media_id, target_category, reason, created_at, subject
+           FROM overrides WHERE media_id = ?",
+    )
+    .bind(&id)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    // The webhook's one-title pass, with no library permit. The pin stands whatever it answers.
+    let decided = crate::services::routing::run_simulation(
+        &state.pool,
+        &state.library_passes,
+        crate::services::routing::SimulationOptions {
+            trigger: by.trigger.clone(),
+            subject: by.subject.clone(),
+            subject_key: by.key.clone(),
+            instance_ids: vec![instance_id],
+            media_ids: Some(vec![id.clone()]),
+            persist: true,
+            max_returned: Some(1),
+            language: state.language().await,
+            ..Default::default()
+        },
+    )
+    .await;
+    if let Err(e) = decided {
+        tracing::warn!(media = %id, "A title kept where it is was not decided again: {e}");
+    }
+
+    let entry = OverrideEntry {
+        id: row.0,
+        media_id: row.1,
+        target_category: row.2,
+        reason: row.3,
+        created_at: row.4,
+        subject: row.5,
+    };
+    Ok(super::Created::at(&state, format!("/overrides/{}", entry.id), entry))
+}
+
 /// The category to force on a title, and why.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -126,8 +241,7 @@ pub async fn unpin_external(
 ) -> AppResult<Json<Deleted>> {
     let copies = copies_of(&state, &title).await?;
     let mut tx = state.pool.begin().await?;
-    // Only a copy whose pin went loses its proposals: a copy that had none
-    // keeps the ones somebody may be reviewing.
+    // Only a copy whose pin went loses its proposals: one with none keeps those under review.
     let mut unpinned = Vec::new();
     for media_id in &copies {
         let removed = sqlx::query("DELETE FROM overrides WHERE media_id = ?")
@@ -165,8 +279,7 @@ async fn copies_of(state: &AppState, title: &ExternalTitle) -> AppResult<Vec<Str
 /// the body limit alone would let one hold two megabytes.
 const REASON_MAX: usize = 500;
 
-/// Pin each title to `category`, as `by` asked, and answer the pins as they
-/// stand.
+/// Pin each title to `category`, as `asker` asked, and answer the pins as they stand.
 async fn pin(
     state: &AppState,
     media_ids: &[String],
@@ -174,18 +287,15 @@ async fn pin(
     reason: Option<&str>,
     asker: &crate::api::auth::Identity,
 ) -> AppResult<Vec<OverrideEntry>> {
-    let category = category.trim().to_lowercase();
-    // Checked under the write lock the pins are written with: a category
-    // removed between a check and the write would leave pins naming nothing.
     let localizer = state.localizer().await;
+    let category = super::categories::normalise(category, &localizer)?;
+    // Checked under the pins' write lock, so the category cannot be removed before they land.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     super::categories::ensure_exists(&mut tx, &category, &localizer).await?;
     crate::race::checked("overrides::pin", &category).await;
     pin_in(&mut tx, media_ids, &category, reason, &asker.attribution(), &localizer).await?;
 
-    // Read back so the answer carries the rows that exist: on an upsert the
-    // stored id is the original one, not the one just generated. Inside the
-    // transaction, so a pin made meanwhile is not read as this one.
+    // Read back before committing: an upsert keeps the stored id, and no later pin can slip in.
     let mut pinned = Vec::with_capacity(media_ids.len());
     for media_id in media_ids {
         let row: (String, String, String, Option<String>, String, Option<String>) = sqlx::query_as(
@@ -208,12 +318,9 @@ async fn pin(
     Ok(pinned)
 }
 
-/// Pin each title to `category`, an existing one, in `tx`, replacing the pin
-/// it has and naming `by` as who set it, and withdraw the pending proposals
-/// of each whose category changed, which the pin now decides. A pin repeating
-/// a title's category keeps what it produced. Every writer of a pin goes
-/// through here: `POST /overrides`, `PUT /overrides/external` and
-/// `POST /config/import`.
+/// Pin each title to `category`, an existing one, as `by`, and withdraw the pending proposals of
+/// each whose category changed: a pin repeating a category keeps what it produced. Every writer
+/// of a pin goes through here.
 pub(crate) async fn pin_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     media_ids: &[String],
@@ -229,8 +336,7 @@ pub(crate) async fn pin_in(
     }
     let mut changed = Vec::new();
     for media_id in media_ids {
-        // Under the lock the pin is written with: a title removed by a sync
-        // since it was named has nothing left to pin.
+        // Under the pin's lock: a title a sync removed since it was named has nothing to pin.
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE id = ?)")
             .bind(media_id)
             .fetch_one(&mut **tx)

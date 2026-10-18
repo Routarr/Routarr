@@ -60,6 +60,7 @@
   "api.ref.op.metrics": "Prometheus-Metriken",
   "api.ref.op.list_exceptions": "Die Ausnahmen",
   "api.ref.op.set_exception": "Die Kategorie eines Titels erzwingen",
+  "api.ref.op.keep_title": "Einen Titel lassen, wo er ist",
   "api.ref.op.unpin_by_external_id": "Die Ausnahme eines Titels über die Kennung entfernen, die ein anderer Dienst ihm gibt",
   "api.ref.op.pin_by_external_id": "Die Kategorie eines Titels über die Kennung erzwingen, die ein anderer Dienst ihm gibt",
   "api.ref.op.remove_exception": "Eine Ausnahme entfernen",

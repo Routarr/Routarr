@@ -1,7 +1,4 @@
 //! The guardrails around writing to an Arr with nobody watching.
-//!
-//! Every test here is a claim about something auto-apply must *refuse* to do,
-//! except the ones that prove it does the one thing it exists for.
 
 use crate::services::auto_apply::{self, AutoApplyOutcome};
 
@@ -64,8 +61,7 @@ async fn a_media_that_already_has_files_is_left_to_a_human() {
     .await
     .unwrap();
 
-    // The move is still proposed. It is just not applied unattended, because
-    // applying it would strand the file or start a real disk move.
+    // Still proposed, and left to a person: a move would strand the file or move its bytes.
     assert!(matches!(outcome, AutoApplyOutcome::NothingToApply));
     assert!(arr.recorded().writes.is_empty());
 
@@ -104,8 +100,7 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
     assert_eq!(recorded.writes.len(), 1, "{:?}", recorded.writes);
     assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
 
-    // And never asks the Arr to move files: there are none, and auto-apply is
-    // defined as the case where no bytes move.
+    // Never a disk move: auto-apply is the case where no bytes move.
     assert_eq!(recorded.query_strings, ["moveFiles=false"], "auto-apply requested a disk move");
 }
 
@@ -162,13 +157,8 @@ async fn a_film_that_cannot_be_read_again_is_not_moved_unattended() {
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 1);
 }
 
-/// A destination that is not answering is left for the person who can answer.
-///
-/// The routing map keeps a folder the Arr reports unreachable, since a NAS that
-/// spins down is unknown rather than gone, and the manual path asks about it at
-/// apply time. There is nobody to ask at three in the morning, so the
-/// unattended pass holds those decisions back rather than writing into a
-/// destination that is not there.
+/// A destination that is not answering is left for the person who can answer: the manual
+/// path asks about a sleeping NAS, and nobody is there to ask at three in the morning.
 #[tokio::test]
 async fn an_unattended_pass_leaves_a_sleeping_destination_alone() {
     let arr = FakeArr::with_unimported_movie().await;
@@ -217,8 +207,7 @@ async fn an_auto_applied_move_is_auditable_and_revertible() {
     .await
     .unwrap();
 
-    // The job records that the automation wrote it, so the Tasks screen and
-    // the move log tell it apart from a write somebody asked for.
+    // Recorded as the automation's, so the Tasks screen and the move log tell it apart.
     let trigger: String = sqlx::query_scalar(
         "SELECT trigger FROM jobs WHERE kind = 'apply' ORDER BY started_at DESC",
     )
@@ -325,8 +314,7 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
     );
     assert!(arr.recorded().writes.is_empty(), "not one of them may be applied");
 
-    // At the cap exactly, the run goes ahead. The fake holds Totoro alone, so
-    // the two others are left to a person when they are read again.
+    // At the cap it goes ahead: the fake holds Totoro alone, so the two others are left.
     app.store_setting("batch_limit", "3").await;
     let outcome = auto_apply::apply_simulation(
         &app.state,
@@ -352,9 +340,7 @@ async fn a_proposal_from_an_earlier_run_is_out_of_scope() {
     let later = app.simulate().await;
     assert_ne!(earlier, later);
 
-    // Asking for the earlier run must apply nothing: its decision has been
-    // superseded by the later one, and an unattended pass only ever writes what
-    // its own run just proposed.
+    // Superseded by the later run: a pass writes only what its own run just proposed.
     let outcome = auto_apply::apply_simulation(
         &app.state,
         &earlier,
@@ -452,8 +438,7 @@ async fn a_newly_added_film_is_routed_before_its_file_arrives() {
     assert_eq!(body["moves_required"], 1);
     assert_eq!(body["auto_applied"], 1, "the film must be routed on the spot");
 
-    // Radarr was told to move it, and told not to move any files. Scoped so the
-    // recording lock is released before the query below awaits.
+    // Scoped so the recording lock is released before the query below awaits.
     {
         let recorded = arr.recorded();
         assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
@@ -492,10 +477,8 @@ async fn the_same_event_only_proposes_when_auto_apply_is_off() {
     assert!(arr.recorded().writes.is_empty(), "nothing may be written while auto-apply is off");
 }
 
-/// An Arr that refuses a title's move refuses it again at the next pass. An
-/// unattended pass leaves a title whose move failed within the day to a
-/// person, rather than retry it, fail and notify every quarter of an hour,
-/// and tries it again the day after.
+/// A title whose move failed within the day is left to a person rather than retried, failed
+/// and notified every quarter of an hour, and is tried again the day after.
 #[tokio::test]
 async fn a_title_whose_move_failed_is_not_retried_unattended_within_the_day() {
     let arr = FakeArr::refusing_unimported_movie(500).await;
@@ -517,4 +500,35 @@ async fn a_title_whose_move_failed_is_not_retried_unattended_within_the_day() {
                    WHERE status = 'failed'"])
         .await;
     assert!(pass().await > tried, "a day later the move is not tried again");
+}
+
+/// A failing rule test says a rule change broke a routing someone pinned, and a case that
+/// cannot be read fails: nothing moves unattended until the suite passes. Removed, the same
+/// delivery routes the film.
+#[tokio::test]
+async fn a_failing_rule_test_holds_every_unattended_move() {
+    let arr = FakeArr::with_unimported_movie().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_route_to_anime().await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    sqlx::query(
+        "INSERT INTO rule_tests (id, name, media_type, media_json, evaluated_at, expected_category)
+         VALUES ('t-1', 'Unreadable', 'movie', '{}', '2026-01-01 00:00:00', 'anime')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let added = serde_json::json!({ "eventType": "MovieAdded", "movie": { "id": 10 } });
+
+    let held = app.post("/api/v1/webhook/inst-1/tok", added.clone()).await;
+
+    assert_eq!(held.assert_ok()["moves_required"], 1);
+    assert_eq!(held.json["auto_applied"], 0, "a failing case holds the move");
+    assert!(arr.recorded().writes.is_empty());
+
+    app.delete("/api/v1/rule-tests/t-1").await.assert_ok();
+    let routed = app.post("/api/v1/webhook/inst-1/tok", added).await;
+    assert_eq!(routed.assert_ok()["auto_applied"], 1, "the positive control");
 }

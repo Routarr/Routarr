@@ -131,10 +131,8 @@ async fn an_application_reads_the_instances_without_their_webhook_or_key() {
     }
 }
 
-/// What a key holding no scope beyond `read` is refused, written by hand
-/// rather than read from `GRANTS`: a grant lowered to `read` in the table
-/// leaves this list behind, and the walk above, which reads the table, would
-/// follow it.
+/// What a key holding only `read` is refused, written by hand: a grant lowered to `read` in
+/// `GRANTS` moves the walk above with it, and leaves this list behind.
 const BEYOND_READ: &[(&str, &str)] = &[
     ("GET", "/api/v1/health"),
     ("POST", "/api/v1/instances/sync"),
@@ -307,8 +305,7 @@ async fn a_revoked_or_unknown_key_is_refused_even_where_nothing_is_asked() {
     send(&app, "GET", "/api/v1/status", None, None).await.assert_ok();
 }
 
-/// In an open mode a request without a key keeps what it has always had, and
-/// one presenting a key is held to it.
+/// In an open mode a request without a key is let in, and one presenting a key is held to it.
 #[tokio::test]
 async fn in_an_open_mode_a_presented_key_is_held_to_its_scopes() {
     let app = TestApp::new().await;
@@ -395,10 +392,9 @@ async fn an_application_leaves_its_name_on_the_tasks_and_decisions_it_starts() {
     }
 }
 
-/// The three routes that move files, each over two films a simulation
-/// proposes, with the body a caller sends and the guardrail it is asked first.
-/// The revert's films are applied by the owner beforehand. The threshold is
-/// set at one, so moving both asks it.
+/// The three routes that move files, each over two films a simulation proposes, with the
+/// guardrail each asks first. The revert's films are applied beforehand, and a threshold of
+/// one makes moving both ask it.
 const MOVING: [(&str, &str); 3] =
     [("apply", "threshold"), ("apply-all", "batch"), ("revert", "threshold")];
 
@@ -425,9 +421,8 @@ async fn ready_to_move(arr: &FakeArr, route: &str) -> (TestApp, Value) {
     (app, body)
 }
 
-/// A key not given a guardrail sees the question with `answerable: false` on
-/// every route that moves files, and sending the name back does not lift it.
-/// The owner sees the same question marked answerable, and a key given the
+/// A key not given a guardrail sees its question with `answerable: false` on every route that
+/// moves files, even sending the name back. The owner sees it answerable, and a key given the
 /// name moves.
 #[tokio::test]
 async fn every_route_that_moves_refers_a_guardrail_the_key_was_not_given() {
@@ -564,10 +559,8 @@ async fn asleep(app: &TestApp, path: &str) {
     .unwrap();
 }
 
-/// The batch question states a sleeping destination rather than asking it
-/// apart. Answering it answers that fact too, so a key given the batch
-/// question alone meets it marked for a person, and a key given both answers
-/// the whole question.
+/// The batch question states a sleeping destination rather than asking it apart. A key given
+/// the batch question alone meets it marked for a person, and a key given both answers it.
 #[tokio::test]
 async fn the_batch_question_does_not_answer_a_guardrail_it_states() {
     let arr = FakeArr::start().await;
@@ -592,8 +585,7 @@ async fn the_batch_question_does_not_answer_a_guardrail_it_states() {
     assert_eq!(referred["answerable"], false);
     assert!(arr.recorded().writes.is_empty(), "a key moved titles into a sleeping folder");
 
-    // The owner is asked the one question, and the names it states go back
-    // with it.
+    // The owner is asked the one question, and the names it states go back with it.
     let asked = apply_all(json!([]));
     let asked = send(&app, "POST", "/api/v1/decisions/apply-all", None, Some(asked)).await;
     let asked = asked.assert_status(StatusCode::CONFLICT);
@@ -729,6 +721,19 @@ async fn a_pin_names_the_application_that_set_it() {
     assert_eq!(set.assert_ok()["subject"], "request-bot");
     let listed = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
     assert_eq!(listed.assert_ok()["data"][0]["subject"], "request-bot");
+}
+
+#[tokio::test]
+async fn a_rule_test_names_the_application_that_pinned_it() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let token = mint(&app, None, json!({ "name": "ci", "scopes": ["configure"] })).await;
+
+    let case = json!({ "name": "Totoro", "media_id": "m-1" });
+    let pinned = send(&app, "POST", "/api/v1/rule-tests", Some(&token), Some(case)).await;
+    assert_eq!(pinned.assert_ok()["subject"], "ci");
+    let listed = send(&app, "GET", "/api/v1/rule-tests", Some(&token), None).await;
+    assert_eq!(listed.assert_ok()["data"][0]["subject"], "ci");
 }
 
 /// A key names who made it: the master key is `apikey`, and an open mode,
@@ -881,10 +886,8 @@ async fn a_preview_result_names_no_other_subject() {
     assert!(decisions.iter().all(|d| d["subject"].is_null()), "{decisions:?}");
 }
 
-/// An application asks at most ten times a second past a burst of fifty: a
-/// dashboard and a request bot stay far below, and a loop does not run the
-/// owner's Arrs and sources hot. Past it, the key waits, and another key does
-/// not.
+/// An application asks at most ten times a second past a burst of fifty, so a loop does not
+/// run the owner's Arrs and sources hot. Past it the key waits, and another key does not.
 #[tokio::test]
 async fn a_key_past_its_rate_answers_429_with_retry_after() {
     let app = TestApp::new().await;
@@ -949,10 +952,9 @@ async fn a_reason_or_a_rule_past_its_limit_is_refused() {
     assert_eq!(app.count("SELECT COUNT(*) FROM rules").await, 1000);
 }
 
-/// A key that may operate takes a backup, and a backup prunes the oldest
-/// archives past the retention count. Its archives are counted apart and
-/// taken ten minutes apart at most, so taking them in a loop removes none of
-/// the owner's, and does not hold off the schedule.
+/// A key that may operate takes a backup, which prunes past the retention count. Its archives
+/// are counted apart and ten minutes apart at most, so a loop removes none of the owner's and
+/// does not hold off the schedule.
 #[tokio::test]
 async fn an_operating_key_cannot_push_the_owners_backups_out() {
     let (app, _dir) = super::backup::app_with_files("key-backups").await;

@@ -1,8 +1,5 @@
-//! Pinned expectations, and the guarantee that they keep protecting something.
-//!
-//! The point of the feature is that editing one rule cannot silently change
-//! what another rule routes. So the tests here are mostly about a case
-//! *failing* when it should. A suite that only ever goes green proves nothing.
+//! Pinned expectations, and the guarantee that they keep protecting something. A suite that
+//! only ever goes green proves nothing, so most tests here prove a case fails when it should.
 
 use super::TestApp;
 
@@ -35,8 +32,7 @@ async fn a_pinned_decision_defaults_to_what_the_engine_says_today() {
     assert_eq!(outcome["results"][0]["expected_category"], "anime");
 }
 
-/// The whole reason the feature exists: a rule change that moves a routing
-/// nobody was watching has to be reported.
+/// A rule change that moves a routing nobody was watching is reported.
 #[tokio::test]
 async fn deleting_the_rule_a_case_depends_on_fails_that_case() {
     let app = TestApp::new().await;
@@ -51,16 +47,14 @@ async fn deleting_the_rule_a_case_depends_on_fails_that_case() {
     assert_eq!(outcome["failed"], 1, "the case went green with no rules left: {outcome}");
     let result = &outcome["results"][0];
     assert_eq!(result["expected_category"], "anime");
-    // It reports where the item lands now rather than a bare failure, because
-    // the useful question is "so where does it go instead".
+    // Where the item lands now, since the useful question is where it goes instead.
     assert!(result["actual_category"].is_string(), "no actual category reported: {result}");
     assert_ne!(result["actual_category"], "anime");
 }
 
-/// A case is judged at the instant it was pinned. `added_within_days` answers
-/// differently from one day to the next, and a case read against the wall
-/// clock would fail alone one morning, with nothing changed. Here the case is
-/// moved back to the day after the film arrived, when the rule held.
+/// A case is judged at the instant it was pinned, or an `added_within_days` case read
+/// against the wall clock would fail alone one morning. Here the case is moved back to the
+/// day after the film arrived, when the rule held.
 #[tokio::test]
 async fn a_case_is_judged_at_the_instant_it_was_pinned() {
     let app = TestApp::new().await;
@@ -115,7 +109,7 @@ async fn a_case_written_by_the_first_release_still_runs() {
     let app = TestApp::new().await;
     app.seed_library().await;
     app.seed_anime_rule().await;
-    // `Media` and `MediaMetadata` as v0.1.0 serialised them.
+    // `Media` and `MediaMetadata` as the first release serialised them.
     let media = r#"{"id":"m-1","instance_id":"inst-1","arr_id":10,"media_type":"movie",
         "title":"My Neighbor Totoro","sort_title":null,"year":1988,"tmdb_id":8392,
         "tvdb_id":null,"imdb_id":null,"current_path":"/movies/standard/Totoro",
@@ -144,10 +138,8 @@ async fn a_case_written_by_the_first_release_still_runs() {
     assert_eq!(outcome["passed"], 1, "{outcome}");
 }
 
-/// An override is a human decision about one item and short-circuits the
-/// engine. Folding it into a case would let a pinned exception hide a rule that
-/// had stopped working: here the exception says what the case expects, so
-/// only the rules, gone, can fail it.
+/// An override short-circuits the engine, so folding it into a case would hide a broken rule.
+/// Here the exception says what the case expects, so only the rules, gone, can fail it.
 #[tokio::test]
 async fn an_override_does_not_mask_what_the_rules_decide() {
     let app = TestApp::new().await;
@@ -263,4 +255,35 @@ async fn a_category_a_case_expects_is_not_deleted() {
 
     refused.assert_status(axum::http::StatusCode::CONFLICT);
     assert!(refused.message().contains("rule tests: 1"), "{}", refused.message());
+}
+
+/// A pin is judged at once and each run keeps its verdicts, which the warning and the gauges
+/// read: a failing case shows without anyone pressing Run.
+#[tokio::test]
+async fn a_failing_case_is_kept_failing_warned_of_and_counted() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let codes = |body: &serde_json::Value| -> Vec<String> {
+        body["warnings"].as_array().unwrap().iter().map(|w| w["code"].to_string()).collect()
+    };
+
+    let failing = pin(&app, "Totoro in anime", "m-1", Some("anime")).await;
+
+    let listed = app.get("/api/v1/rule-tests").await;
+    let case = &listed.assert_ok()["data"][0];
+    assert_eq!(case["last_passed"], false);
+    assert!(case["last_checked_at"].is_string(), "{case}");
+    let status = app.get("/api/v1/status").await;
+    assert!(codes(status.assert_ok()).contains(&"\"rule_tests_failing\"".to_string()));
+    let metrics = app.text("/api/v1/metrics").await;
+    assert!(metrics.contains("routarr_rule_tests 1"), "{metrics}");
+    assert!(metrics.contains("routarr_rule_tests_failing 1"), "{metrics}");
+
+    app.delete(&format!("/api/v1/rule-tests/{failing}")).await.assert_ok();
+    pin(&app, "Totoro stays", "m-1", None).await;
+
+    let status = app.get("/api/v1/status").await;
+    assert!(!codes(status.assert_ok()).contains(&"\"rule_tests_failing\"".to_string()));
+    let listed = app.get("/api/v1/rule-tests").await;
+    assert_eq!(listed.assert_ok()["data"][0]["last_passed"], true);
 }

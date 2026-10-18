@@ -1483,6 +1483,13 @@
             "format": "float",
             "type": "number"
           },
+          "current_category": {
+            "description": "The category the current root folder leads to on the title's instance, null when it\nleads to none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "current_root_folder": {
             "type": [
               "string",
@@ -1729,6 +1736,13 @@
           "confidence": {
             "format": "float",
             "type": "number"
+          },
+          "current_category": {
+            "description": "The category the title's current root folder leads to, null when it leads to none: what\n`POST /media/{id}/keep` pins it to.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "instance_enabled": {
             "description": "False when the title's instance is switched off: no run reads it, and\nthe move shown is only what the rules would do.",
@@ -2161,6 +2175,19 @@
           "progress_total",
           "started_at"
         ],
+        "type": "object"
+      },
+      "KeepRequest": {
+        "additionalProperties": false,
+        "description": "What keeping a title where it is takes.",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "LibraryFacets": {
@@ -2930,7 +2957,7 @@
             "type": "object"
           },
           "event": {
-            "description": "What happened, in snake case: `instance_unreachable`,\n`instance_recovered`, `auto_apply_failed`, `auto_apply_held`,\n`sync_failed`, `backup_failed`, `simulation_completed`,\n`apply_completed`, `revert_completed`, or `test` when sent from\nSettings. The list may grow.",
+            "description": "What happened, in snake case: `instance_unreachable`,\n`instance_recovered`, `auto_apply_failed`, `auto_apply_held`, `rule_tests_failing`,\n`sync_failed`, `backup_failed`, `simulation_completed`,\n`apply_completed`, `revert_completed`, or `test` when sent from\nSettings. The list may grow.",
             "type": "string"
           },
           "message": {
@@ -4113,6 +4140,21 @@
           "id": {
             "type": "string"
           },
+          "last_checked_at": {
+            "description": "When the case last ran.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_passed": {
+            "description": "Whether the last run found the case passing. Null until a run reads it.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "media_type": {
             "type": "string"
           },
@@ -4120,6 +4162,13 @@
             "type": "string"
           },
           "source_media_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "description": "Who pinned it, as `Decision.subject` reads.",
             "type": [
               "string",
               "null"
@@ -4863,7 +4912,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone` or `backup_passphrase_unreadable`. The list may grow.",
+            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone`, `backup_passphrase_unreadable` or `rule_tests_failing`. The list may\ngrow.",
             "type": "string"
           },
           "guide_step": {
@@ -6520,6 +6569,77 @@
           "library"
         ],
         "x-routarr-scope": "read"
+      }
+    },
+    "/media/{id}/keep": {
+      "post": {
+        "description": "Pins the title to the category of the root folder it is in, so no run proposes to move it,\nand decides it again at once.",
+        "operationId": "keep_title",
+        "parameters": [
+          {
+            "description": "The title's media id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideEntry"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the exception is found.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`reason` is `no_current_folder`, `folder_unmapped` when the folder leads to no category, or `category_ambiguous` when another folder of the instance leads to the same one."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Keep a title where it is",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
       }
     },
     "/metadata/providers": {

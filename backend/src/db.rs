@@ -13,6 +13,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("001_release_0_1_5", include_str!("../migrations/001_release_0_1_5.sql")),
     ("002_release_0_2_0", include_str!("../migrations/002_release_0_2_0.sql")),
     ("003_rule_template", include_str!("../migrations/003_rule_template.sql")),
+    ("004_rule_test_verdicts", include_str!("../migrations/004_rule_test_verdicts.sql")),
 ];
 
 /// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5`
@@ -910,7 +911,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        // A second connection, as an operator's `sqlite3` holds, so only the checkpoint folds the log.
+        // A second connection, as an operator's `sqlite3`, so only the checkpoint folds the log.
         let bystander =
             SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
         sqlx::query("SELECT 1").execute(&bystander).await.unwrap();

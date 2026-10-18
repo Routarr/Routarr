@@ -60,6 +60,7 @@
   "api.ref.op.metrics": "Métriques Prometheus",
   "api.ref.op.list_exceptions": "Les exceptions",
   "api.ref.op.set_exception": "Forcer la catégorie d'un titre",
+  "api.ref.op.keep_title": "Garder un titre là où il est",
   "api.ref.op.unpin_by_external_id": "Retirer l'exception d'un titre par l'identifiant qu'un autre service lui donne",
   "api.ref.op.pin_by_external_id": "Forcer la catégorie d'un titre par l'identifiant qu'un autre service lui donne",
   "api.ref.op.remove_exception": "Retirer une exception",

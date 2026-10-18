@@ -15,6 +15,7 @@ import type {
   Decision,
   ErrorBody,
   Explanation,
+  KeepRequest,
   Health,
   Instance,
   InstanceProbe,
@@ -528,6 +529,13 @@ export const api = {
     request<Paginated<MediaListItem>>(`/media${query(params)}`, { signal }),
   explainMedia: (id: string, signal?: AbortSignal) =>
     request<Explanation>(`/media/${id}/explain`, { signal }),
+
+  /** Pin a title to the category of the folder it is in, so no run proposes to move it. */
+  keepTitle: (id: string, body: KeepRequest = {}) =>
+    request<OverrideEntry>(`/media/${encodeURIComponent(id)}/keep`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   /**
    * Followed, so no library is cut at the request bound. A stored run's report keeps its counts

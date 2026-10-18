@@ -656,5 +656,67 @@
       "zh_CN": "模板",
       "zh_TW": "範本"
     }
+  },
+  "rule test": {
+    "en": "\\brule[- ]tests?\\b",
+    "except": [],
+    "words": {
+      "ar": "اختبار\\S* (ال)?(قاعد|قواعد)",
+      "ca": "prov\\w* de regl",
+      "cs": "test\\w* pravid",
+      "da": "regeltest",
+      "de": "regeltest",
+      "el": "[εέ]λ[εέ]γχ\\w* καν[οό]ν",
+      "es": "prueba\\w* de regla",
+      "fi": "sääntötest",
+      "fr": "test\\w* de règle",
+      "hu": "szabályteszt",
+      "it": "\\btest\\b.{0,12}regol",
+      "ja": "ルールテスト",
+      "ko": "규칙 ?테스트",
+      "nb_NO": "regeltest",
+      "nl": "regeltest",
+      "pl": "test\\w* reguł",
+      "pt": "test\\w* de regra",
+      "ro": "test\\w* de reguli",
+      "ru": "тест\\w* правил",
+      "sk": "test\\w* pravid",
+      "sv": "regeltest",
+      "tr": "kural test",
+      "uk": "тест\\w* правил",
+      "zh_CN": "规则测试",
+      "zh_TW": "規則測試"
+    }
+  },
+  "automatic application": {
+    "en": "\\bautomatic application\\b",
+    "except": [],
+    "words": {
+      "ar": "تطبيق ?ال?تلقائي",
+      "ca": "aplicació automàtica",
+      "cs": "automatick\\w* použit",
+      "da": "automatisk anvendelse",
+      "de": "automatische\\w* anwendung",
+      "el": "αυτόματ\\w* εφαρμογ",
+      "es": "aplicación automática",
+      "fi": "automaatti\\w* toteut",
+      "fr": "application automatique",
+      "hu": "automatikus alkalmaz",
+      "it": "applicazione automatica",
+      "ja": "自動適用",
+      "ko": "자동 ?적용",
+      "nb_NO": "automatisk utføring",
+      "nl": "automatisch toepassen",
+      "pl": "automatyczn\\w* stosowani",
+      "pt": "aplicação automática",
+      "ro": "aplicar\\w* automat",
+      "ru": "автоматическ\\w* применени",
+      "sk": "automatick\\w* použit",
+      "sv": "automatisk tillämpning",
+      "tr": "otomatik uygula",
+      "uk": "автоматичн\\w* застосуванн",
+      "zh_CN": "自动应用",
+      "zh_TW": "自動套用"
+    }
   }
 }

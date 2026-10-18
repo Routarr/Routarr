@@ -53,6 +53,10 @@ pub struct Decision {
     pub instance_id: String,
     pub instance_name: Option<String>,
     pub current_root_folder: Option<String>,
+    /// The category the current root folder leads to on the title's instance, null when it
+    /// leads to none.
+    #[serde(default)]
+    pub current_category: Option<String>,
     pub target_root_folder: Option<String>,
     pub target_category: String,
     pub matched_rule_id: Option<String>,
@@ -64,9 +68,7 @@ pub struct Decision {
     /// The same lines, each with whether it states what decided.
     pub reason_lines: Vec<ReasonLine>,
     pub alternatives: Vec<AlternativeDecision>,
-    // Published as a string and its values, which a client may not read as
-    // all there will ever be: a retype from the first release's string would
-    // break its clients (`scripts/check-api-breaks.sh`).
+    // An extensible string: a retype breaks clients (`scripts/check-api-breaks.sh`).
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
     pub action: DecisionAction,
     #[schema(
@@ -99,8 +101,7 @@ pub struct Decision {
     pub reverted_at: Option<String>,
     /// What set the decision off: `manual`, `schedule`, `webhook`, `api`, or
     /// `auto` for the simulation the automation runs after a sync.
-    // Every writer sets it. The column is nullable, and a guess at a missing
-    // one would read as a fact.
+    // Every writer sets it, and a guess at a missing one would read as a fact.
     #[serde(default)]
     pub actor: Option<String>,
     /// Who asked: an application's name, or the person a sign-in mode names.
@@ -118,8 +119,7 @@ pub struct Decision {
     // `executor::REVERTIBLE` decides it.
     #[serde(default)]
     pub revertible: bool,
-    // The reasons and the alternatives as a run stores them, to be said in
-    // the language of whoever reads them (`routing::stored_reasons`).
+    // As a run stores them, said in the reader's language (`routing::stored_reasons`).
     #[serde(skip)]
     pub stored_reasons: String,
     #[serde(skip)]
@@ -206,8 +206,7 @@ pub struct CapacityForecast {
     /// Bytes arriving from a folder that reports the same free space, and so
     /// almost certainly sits on the same filesystem. A move there is a rename
     /// and costs nothing.
-    // Counted separately rather than dropped, because a figure the user cannot
-    // see is a figure they cannot check.
+    // Counted rather than dropped, since a figure the user cannot see cannot be checked.
     pub same_filesystem_bytes: i64,
     pub free_bytes: i64,
     pub items: usize,

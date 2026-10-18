@@ -4,7 +4,9 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
-  import { t } from '../lib/i18n.svelte';
+  import { i18n, t } from '../lib/i18n.svelte';
+  import { formatTimestamp } from '../api/format';
+  import { invalidateStatus } from '../lib/status.svelte';
   import { Play, Trash2 } from '../lib/icons';
   import type { RuleTestResult, RuleTestRun } from '../api/types';
   import NoValue from '../components/NoValue.svelte';
@@ -16,12 +18,8 @@
   import Pager from '../components/Pager.svelte';
 
   /**
-   * Pinned expectations, replayed against the rules as they stand.
-   *
-   * The rule preview answers "what would this change", and this answers what it
-   * must *not* change. Rules are first-match-by-priority, so inserting one rebalances
-   * every rule below it, and the routing that quietly moves is the one nobody
-   * was watching.
+   * Pinned expectations, replayed against the rules as they stand: the first match by priority
+   * wins, so one new rule can quietly move what every rule below it routed.
    */
   let page = $state(1);
   const cases = createAsync(
@@ -35,21 +33,20 @@
   let busy = $state(false);
   const outcome = createOutcome();
 
-  // Merged by id rather than replacing the list: the run reports on the cases
-  // that exist, and the table has to keep showing a case the run never reached.
+  // Merged by id, so the table keeps showing a case the run never reached.
   const verdicts = $derived(new Map((run?.results ?? []).map((r) => [r.id, r])));
 
   async function runAll() {
     const pressed = document.activeElement as HTMLElement | null;
     busy = true;
-    // Nothing of the run before stays: its verdicts would read as the answer
-    // to this one, whatever this one ends in.
+    // Cleared first: the last run's verdicts would read as the answer to this one.
     run = null;
     outcome.clear();
     try {
       run = await api.runRuleTests();
-      // The count is the whole answer on a good day, and a case that moved is
-      // a failure, read before the table.
+      invalidateStatus();
+      void cases.reload();
+      // A case that moved is a failure, and the count says so before the table.
       if (run.failed > 0) {
         outcome.fail(t('RuleTestsFailed', { failed: run.failed, total: run.total }));
       } else {
@@ -65,13 +62,13 @@
 
   const deleteId = (index: number) => `rule-tests-delete-${index}`;
 
-  // The deleted case takes its row and the pressed Delete with it: the case
-  // now in its place takes the focus, else the one before, else the table.
+  // A deletion takes the pressed Delete with it, so the focus goes to the nearest row left.
   async function remove(id: string, name: string, index: number) {
     if (!(await askConfirmation(t('ConfirmDeleteRuleTest', { name }), 'Delete'))) return;
     try {
       await api.deleteRuleTest(id);
       run = null;
+      invalidateStatus();
       outcome.succeed(t('RuleTestDeleted'));
       await cases.reload();
       // The last case of the last page leaves the page before it to show.
@@ -143,8 +140,20 @@
                 </td>
                 <td><span class="badge badge-value">{testCase.expected_category}</span></td>
                 <td>
-                  {#if !verdict}
+                  {#if !verdict && testCase.last_passed === null}
                     <span class="text-muted">{t('NotRunYet')}</span>
+                  {:else if !verdict}
+                    <!-- The last run's verdict, kept by the server: after a sync or a pin. -->
+                    <span class="badge {testCase.last_passed ? 'badge-success' : 'badge-danger'}">
+                      {t(testCase.last_passed ? 'Passed' : 'Failed')}
+                    </span>
+                    {#if testCase.last_checked_at}
+                      <span class="text-muted ms-2">
+                        {t('RuleTestCheckedAt', {
+                          when: formatTimestamp(testCase.last_checked_at, i18n.language),
+                        })}
+                      </span>
+                    {/if}
                   {:else if verdict.error}
                     <span class="badge badge-danger">{verdict.error}</span>
                   {:else if verdict.passed}
@@ -153,8 +162,7 @@
                       <span class="text-muted ms-2">{verdict.matched_rule}</span>
                     {/if}
                   {:else}
-                    <!-- Where it lands instead, not just that it moved: that is
-                         the question a failure actually raises. -->
+                    <!-- Where it lands instead: the question a failure raises. -->
                     <span class="badge badge-danger">{t('Failed')}</span>
                     <span class="text-muted ms-2">
                       {t('RuleTestNowGoesTo', {
