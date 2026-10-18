@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { instance as fixtureInstance } from '../test/fixtures';
+import { category, instance as fixtureInstance } from '../test/fixtures';
 import { statusRevision } from '../lib/status.svelte';
 import { api, ApiError } from '../api/client';
 import type { Category, MappingConflict, RootFolder } from '../api/types';
@@ -13,26 +13,9 @@ import { navigate, router } from '../lib/router.svelte';
 import Categories from './Categories.svelte';
 
 /**
- * Categories are free-form strings joined by name, with no foreign key, so this
- * screen is where the names in four tables are kept in step. Deleting one that
- * is in use is refused by the API precisely because the database would not stop
- * it, and the *default* category cannot be deleted at all, since an unmatched
- * item has to land somewhere.
+ * Categories are strings joined by name with no foreign key, so this screen keeps the names in
+ * step. The API refuses to delete one in use, and the default one cannot be deleted at all.
  */
-
-function category(over: Partial<Category> = {}): Category {
-  return {
-    id: 'c1',
-    name: 'standard',
-    description: null,
-    is_default: false,
-    display_order: 1,
-    created_at: '2026-08-27 10:00:00',
-    rule_count: 0,
-    root_folder_count: 1,
-    ...over,
-  };
-}
 
 function folder(over: Partial<RootFolder> = {}): RootFolder {
   return {
@@ -58,8 +41,7 @@ function show(
   folders: RootFolder[],
   categories: Category[],
   conflicts: MappingConflict[] = [],
-  // The declaration form needs somewhere to send a path. One instance is the
-  // ordinary install, and a second is what makes the choice observable.
+  // One instance is the usual install, and a second makes the form's choice observable.
   instances = [instance('i1', 'Radarr')],
 ) {
   vi.spyOn(api, 'getRootFolders').mockResolvedValue(folders);
@@ -73,11 +55,8 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('Categories', () => {
   /**
-   * The badge and the delete guard both read the `default_category` setting.
-   * An `is_default` column beside it would be kept in step by nothing: the
-   * interface would badge one category while the engine fell back to another,
-   * and the guard would protect the badged one, leaving the real fallback
-   * deletable.
+   * The badge and the delete guard both read the `default_category` setting: a column beside it
+   * would drift, and the guard would leave the real fallback deletable.
    */
   it('marks the default category and refuses to offer its deletion', async () => {
     show(
@@ -88,18 +67,12 @@ describe('Categories', () => {
     await screen.findByText('standard');
     expect(screen.getByText('default')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Delete – standard' })).toBeNull();
-    // Every other category is deletable.
     expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });
 
   /**
-   * Nothing cascades: renaming updates the row, the four `%_category` columns
-   * and the `default_category` setting, in one transaction on the server. The
-   * screen's job is to send the new name and then re-read everything.
-   *
-   * `{@const}` is reactive, so clearing the dialog's state before reading the id
-   * reads it as null and the rename never leaves the browser, which no compiler
-   * sees.
+   * The server renames the row, the `%_category` columns and the setting in one transaction.
+   * `{@const}` is reactive: clearing the dialog before reading the id would send no rename.
    */
   it('renames through the API and re-reads what the rename touched', async () => {
     const rename = vi.spyOn(api, 'renameCategory').mockResolvedValue(undefined as never);
@@ -116,9 +89,8 @@ describe('Categories', () => {
   });
 
   /**
-   * On Windows and Linux an arrow key on a closed select fires `change`, and
-   * writing on `change` would send every category passed on the way to the
-   * server. Choosing is free, Save writes.
+   * An arrow key on a closed select fires `change` on Windows and Linux, so writing on `change`
+   * would send every category passed on the way.
    */
   it('writes the category chosen only when Save is pressed', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
@@ -152,9 +124,8 @@ describe('Categories', () => {
   });
 
   /**
-   * Mapping a category is what clears the "categories mapped to nothing"
-   * warning, and the shell counts that warning in two places. It owns the
-   * request, and this screen's job is to say that the answer changed.
+   * A mapping can clear the "categories mapped to nothing" warning, which the shell counts, so
+   * the screen tells it the answer changed.
    */
   it('tells the shell its counters are out of date', async () => {
     vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
@@ -171,11 +142,8 @@ describe('Categories', () => {
   });
 
   /**
-   * A NAS that spins down is reported unreachable every night, so a folder that
-   * did not answer is stated with *when* it last did rather than as a fault: an
-   * error badge for a disk that is merely asleep is how a diagnostic gets
-   * ignored. No threshold decides which is which: the reader knows their own
-   * hardware, and needs the date to judge.
+   * A NAS that spins down is unreachable every night, so a folder that did not answer says when
+   * it last did, as a warning: an error badge for a sleeping disk teaches the reader to ignore it.
    */
   it('says when a folder last answered rather than calling it broken', async () => {
     show([folder({ accessible: false, last_accessible_at: new Date().toISOString() })], []);
@@ -193,10 +161,8 @@ describe('Categories', () => {
   });
 
   /**
-   * A target need not be a root folder in Radarr or Sonarr already: routing
-   * into `/media/movies/anime` would otherwise mean declaring it there first.
-   * What an operator wants is one root folder per Arr and the targets beneath
-   * it named here.
+   * A target need not be a root folder in the Arr already: an operator keeps one root folder per
+   * Arr and declares the targets beneath it here.
    */
   it('declares a destination the instance does not report', async () => {
     const declare = vi
@@ -239,13 +205,8 @@ describe('Categories', () => {
   });
 
   /**
-   * The instance shown is the instance written to.
-   *
-   * Bound to an empty string, the select would match no option and render
-   * blank while `declare` fell back to whichever instance loaded first. With
-   * one Arr that fallback is always right and the blank reads as a cosmetic
-   * nothing. With two, a destination would land on the wrong one with nothing
-   * on screen to contradict it.
+   * The instance shown is the instance written to. Bound to an empty string, the select would show
+   * blank while `declare` used the first instance, which is wrong as soon as there are two.
    */
   it('declares against the instance the form is showing', async () => {
     const declare = vi
@@ -254,8 +215,7 @@ describe('Categories', () => {
     show([folder()], [], [], [instance('i1', 'Radarr'), instance('i2', 'Sonarr')]);
 
     const picker = (await screen.findByLabelText('Instance')) as HTMLSelectElement;
-    // Seeded once the instances arrive, so the assertion waits for the load
-    // rather than for the element, which the form renders before it.
+    // Seeded once the instances load, after the form first renders.
     await waitFor(() => expect(picker.value).toBe('i1'));
 
     await userEvent.selectOptions(picker, 'i2');
@@ -266,9 +226,8 @@ describe('Categories', () => {
   });
 
   /**
-   * Only what Routarr owns. A folder the instance reports would come back on
-   * the next sync, without the category mapped onto it, so the interface does
-   * not offer to remove it at all.
+   * A folder the instance reports would come back at the next sync without its category, so only
+   * a declared one is offered for removal.
    */
   it('offers to remove only what it declared', async () => {
     show(
@@ -333,8 +292,7 @@ describe('Categories', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
-    // Once the screen has read the folders again, which is when a success
-    // clears the field.
+    // A success clears the field once the folders are read again, so wait for that read.
     await waitFor(() => expect(api.getRootFolders).toHaveBeenCalledTimes(2));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(field.value).toBe('/mnt/typo');
@@ -412,9 +370,8 @@ describe('Categories', () => {
   });
 
   /**
-   * An unmapped category yields `action = 'skip'`, never an error, so the
-   * screen has to make "mapped to nothing" a deliberate, reachable choice
-   * rather than a state you can only fall into.
+   * An unmapped category makes a decision `skip`, never an error, so the screen offers "mapped to
+   * nothing" as a deliberate choice.
    */
   it('sends null, not an empty string, when a folder is unmapped', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);

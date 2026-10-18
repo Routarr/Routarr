@@ -286,6 +286,18 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         )],
     });
 
+    let (failing, tests) = crate::services::rule_tests::failing(pool).await?;
+    families.push(Family {
+        name: "routarr_rule_tests",
+        help: "Rule tests pinned.",
+        samples: vec![(String::new(), tests as f64)],
+    });
+    families.push(Family {
+        name: "routarr_rule_tests_failing",
+        help: "Rule tests the last run found failing. Auto-apply holds while one does.",
+        samples: vec![(String::new(), failing as f64)],
+    });
+
     let mut body = String::new();
     for family in &families {
         family.render(&mut body);

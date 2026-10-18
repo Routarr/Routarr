@@ -57,6 +57,7 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("POST", "/decisions/apply-all", Scope::Operate),
     ("POST", "/decisions/revert", Scope::Operate),
     ("POST", "/overrides", Scope::Write),
+    ("POST", "/media/{id}/keep", Scope::Write),
     ("DELETE", "/overrides/{id}", Scope::Write),
     ("PUT", "/overrides/external", Scope::Write),
     ("DELETE", "/overrides/external", Scope::Write),

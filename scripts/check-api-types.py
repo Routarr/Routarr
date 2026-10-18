@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
-"""Check that the frontend's view of a response matches the backend's.
-
-For each pair in `PAIRS`, a `Serialize` struct in `backend/src/` and its interface
-in `frontend/src/api/types.ts` must carry the same field names. Types are not
-compared, and a payload built with `serde_json::json!` escapes the check.
-
-Run from anywhere: it resolves its own paths. Exits non-zero on a mismatch.
-"""
+"""Check that the frontend's view of a response matches the backend's: each `PAIRS` struct and
+its interface in `frontend/src/api/types.ts` carry the same field names. Types are not compared,
+and a payload built with `serde_json::json!` escapes the check."""
 
 from __future__ import annotations
 
@@ -96,6 +91,7 @@ PAIRS: dict[str, str] = {
 UNPAIRED: dict[str, str] = {
     "InstanceProbe": "a request body",
     "TemplateRequest": "a request body",
+    "KeepRequest": "a request body",
     "NewApplication": "a request body",
     "Proof": "a request body",
     "PasswordChanged": "built with json! in api::account::change_password",

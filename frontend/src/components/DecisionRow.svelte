@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, ArrowRight, Ban, Check } from '../lib/icons';
+  import { AlertTriangle, ArrowRight, Ban, Check, Lock } from '../lib/icons';
   import type { Decision } from '../api/types';
   import { mediaTypeKey } from '../api/format';
   import { t } from '../lib/i18n.svelte';
@@ -10,7 +10,21 @@
     decision,
     selected,
     onToggle,
-  }: { decision: Decision; selected: boolean; onToggle: () => void } = $props();
+    onKeep,
+  }: {
+    decision: Decision;
+    selected: boolean;
+    onToggle: () => void;
+    /** Keeps the title where it is, offered on a pending proposal whose folder has a category. */
+    onKeep?: () => void;
+  } = $props();
+
+  const keepable = $derived(
+    onKeep !== undefined &&
+      decision.status === 'pending' &&
+      decision.action !== 'none' &&
+      decision.current_category !== null,
+  );
 
   // A clamped justification needs its button: the title shows the rest to a mouse alone.
   let reasons = $state<HTMLElement>();
@@ -58,6 +72,16 @@
         </span>
       {/if}
     </div>
+    {#if keepable}
+      <button
+        class="btn btn-ghost btn-sm mt-1"
+        onclick={onKeep}
+        aria-label="{t('KeepHere')} – {decision.media_title}"
+      >
+        <Lock size={12} aria-hidden="true" />
+        {t('KeepHere')}
+      </button>
+    {/if}
   </td>
   <td class="mono text-sm">
     <span class="cell-path">

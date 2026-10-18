@@ -3,18 +3,19 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { media, paginated, explainedMedia } from '../test/fixtures';
+import { category, media, paginated, explainedMedia, explanation } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { Explanation, MediaListItem } from '../api/types';
 import Library from './Library.svelte';
 
 /**
- * The library, and the one place a user can ask *why* an item lands where it
- * does. The explanation is the whole explainability contract made visible, so
- * the button that opens it has to be reachable, and named, on every row.
+ * The one place a user asks why an item lands where it does, so every row has a named button
+ * that opens the explanation.
  */
 
 function show(items: MediaListItem[], pages = 1) {
+  // The explanation panel offers the categories a rule test may expect.
+  vi.spyOn(api, 'getCategories').mockResolvedValue([category()]);
   const getMedia = vi
     .spyOn(api, 'getMedia')
     .mockResolvedValue(paginated(items, { total_pages: pages, total: items.length * pages }));
@@ -36,9 +37,8 @@ describe('Library', () => {
   });
 
   /**
-   * An override short-circuits the engine, so the two are different facts about
-   * the same row and must not read the same. The lock is what says a human
-   * decided this one.
+   * An exception short-circuits the engine, so a forced category must not read like a computed
+   * one: the lock says a human decided.
    */
   it('distinguishes a category a human forced from one the rules computed', async () => {
     show([
@@ -49,14 +49,12 @@ describe('Library', () => {
     await screen.findByText('Akira');
     const forced = screen.getByTitle('Manual exception');
     expect(forced.textContent).toContain('kids');
-    // The computed one carries no such marker.
     expect(screen.getByText('standard').getAttribute('title')).toBeNull();
   });
 
   /**
-   * "Not evaluated" is not the same as "no category": the first means no
-   * simulation has run, the second that no rule matched. Showing an empty cell
-   * for either loses the difference.
+   * "Not evaluated" means no simulation has run, "no category" that no rule matched: a blank
+   * cell for either loses the difference.
    */
   it('says an item has not been evaluated rather than leaving the cell blank', async () => {
     show([media({ computed_category: null, override_category: null })]);
@@ -64,11 +62,7 @@ describe('Library', () => {
     expect(await screen.findByText('not evaluated')).toBeTruthy();
   });
 
-  /**
-   * Missing metadata is a warning because it stops genre and keyword rules from
-   * matching at all: the item will route on nothing and the user will not know
-   * why. Having it is not an achievement and carries no colour.
-   */
+  /** Missing metadata stops genre and keyword rules from matching, so it reads as a warning. */
   it('warns about missing metadata', async () => {
     show([media({ has_metadata: false })]);
 
@@ -96,19 +90,11 @@ describe('Library', () => {
   });
 
   it('asks the server to explain the row that was clicked', async () => {
-    const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
-      media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }),
-      metadata: null,
-      override_category: null,
-      target_category: 'anime',
-      rules_category: 'anime',
-      target_root_folder: '/data/anime',
-      action: 'move',
-      confidence: 0.9,
-      winning_rule: 'Japanese',
-      rule_traces: [],
-      instance_enabled: true,
-    });
+    const explain = vi
+      .spyOn(api, 'explainMedia')
+      .mockResolvedValue(
+        explanation({ media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }) }),
+      );
     show([media({ id: 'm7', title: 'Akira' })]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
@@ -164,8 +150,7 @@ describe('Library', () => {
 
     await userEvent.selectOptions(screen.getByLabelText('Filter by type'), 'movie');
 
-    // Otherwise a narrower filter lands the user on page 7 of 2, which renders
-    // as an empty library.
+    // Else a narrower filter keeps a page past its end, which renders as an empty library.
     await waitFor(() =>
       expect(getMedia).toHaveBeenLastCalledWith(
         expect.objectContaining({ page: 1 }),
@@ -175,9 +160,8 @@ describe('Library', () => {
   });
 
   /**
-   * Filtered as one types, as History and MoveLog are, once the typing stops:
-   * each search is a query against the operator's own server, and the page the
-   * reader was on may not exist in the narrower list.
+   * Filtered once the typing stops, since each search queries the operator's server, and from
+   * the first page, which the narrower list always has.
    */
   it('asks for a typed title once the typing stops, from the first page', async () => {
     const getMedia = show([media()], 2);
@@ -214,27 +198,16 @@ describe('Library', () => {
   it('shows the explanation of the title asked about last', async () => {
     show([media({ id: 'm7', title: 'Akira' }), media({ id: 'm8', title: 'Perfect Blue' })]);
     let first: (value: Explanation) => void = () => {};
-    const explanation = (id: string, title: string): Explanation => ({
-      media: explainedMedia({ id, title }),
-      metadata: null,
-      override_category: null,
-      target_category: 'anime',
-      rules_category: 'anime',
-      target_root_folder: '/data/anime',
-      action: 'move',
-      confidence: 1,
-      winning_rule: null,
-      rule_traces: [],
-      instance_enabled: true,
-    });
+    const explained = (id: string, title: string): Explanation =>
+      explanation({ media: explainedMedia({ id, title }) });
     vi.spyOn(api, 'explainMedia')
       .mockReturnValueOnce(new Promise((resolve) => (first = resolve)))
-      .mockResolvedValueOnce(explanation('m8', 'Perfect Blue'));
+      .mockResolvedValueOnce(explained('m8', 'Perfect Blue'));
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Why? – Perfect Blue' }));
     const dialog = await screen.findByRole('dialog');
-    first(explanation('m7', 'Akira'));
+    first(explained('m7', 'Akira'));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(within(screen.getByRole('dialog')).queryByText(/Akira/)).toBeNull();
@@ -247,19 +220,11 @@ describe('Library', () => {
     vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({ providers: [], order: [] });
     vi.spyOn(api, 'explainMedia')
       .mockRejectedValueOnce(new ApiError('The rules could not be evaluated', 409, 'conflict'))
-      .mockResolvedValueOnce({
-        media: explainedMedia({ id: 'm7', current_path: '/data/films/Perfect Blue' }),
-        metadata: null,
-        override_category: null,
-        target_category: 'anime',
-        rules_category: 'anime',
-        target_root_folder: '/data/anime',
-        action: 'move',
-        confidence: 0.9,
-        winning_rule: 'Japanese',
-        rule_traces: [],
-        instance_enabled: true,
-      });
+      .mockResolvedValueOnce(
+        explanation({
+          media: explainedMedia({ id: 'm7', current_path: '/data/films/Perfect Blue' }),
+        }),
+      );
     const why = await screen.findByRole('button', { name: 'Why? – Perfect Blue' });
     await fireEvent.click(why);
     expect(await screen.findByText('The rules could not be evaluated')).toBeTruthy();

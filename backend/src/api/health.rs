@@ -55,7 +55,8 @@ pub struct Warning {
     /// `backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
-    /// `oidc_open_to_anyone` or `backup_passphrase_unreadable`. The list may grow.
+    /// `oidc_open_to_anyone`, `backup_passphrase_unreadable` or `rule_tests_failing`. The list may
+    /// grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -655,6 +656,16 @@ async fn offline_warnings(
         if let Some(message) = below_version(localizer, &kind, Some(&name), &version) {
             warnings.push(Warning::new("arr_below_version", message));
         }
+    }
+
+    let (failed, total) = crate::services::rule_tests::failing(&state.pool).await?;
+    if failed > 0 {
+        let holding = state.bool_setting("auto_apply_enabled").await
+            && !state.bool_setting("global_dry_run").await;
+        let key = if holding { "WarnRuleTestsFailingHeld" } else { "WarnRuleTestsFailing" };
+        let counts = [("failed", failed.to_string()), ("total", total.to_string())];
+        let counts: Vec<(&str, &str)> = counts.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        warnings.push(Warning::new("rule_tests_failing", localizer.translate(key, &counts)));
     }
 
     let held = *state.auto_apply_held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

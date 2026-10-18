@@ -41,8 +41,7 @@
   const items = $derived(library.data?.data ?? []);
   const pagination = $derived(library.data?.pagination);
 
-  // Only the last title asked about answers: two quick clicks would otherwise
-  // show whichever explanation lands last, under the other title's row.
+  // Only the last title asked about answers: a late answer would open the wrong explanation.
   let asking: AbortController | null = null;
   /** The title whose explanation is on its way, which its row says. */
   let asked = $state<string | null>(null);
@@ -111,9 +110,7 @@
       />
       {t('UnclassifiedOnly')}
     </label>
-    <!-- Offered only while a filter is active: undoing three of them one by
-         one is the friction this removes, and a button that does nothing is
-         noise. -->
+    <!-- Offered only while a filter is active: a button that does nothing is noise. -->
     {#if search || mediaType || unmatched}
       <button
         type="button"
@@ -186,16 +183,14 @@
                   {:else if media.computed_category}
                     <span class="badge badge-value">{media.computed_category}</span>
                   {:else}
-                    <!-- A pill either way. One value as a pill and the next as
-                         grey prose would read as two kinds of data in one
-                         column. -->
+                    <!-- A pill either way: a pill beside grey prose reads as two kinds
+                         of data in one column. -->
                     <span class="badge badge-value muted">{t('NotEvaluated')}</span>
                   {/if}
                 </td>
                 <td>
-                  <!-- Having metadata is not an outcome, so it carries no status
-                       colour. Missing it stops genre and keyword rules from
-                       matching, which is a warning. -->
+                  <!-- Having metadata is not an outcome, so it carries no status colour.
+                       Missing it stops genre and keyword rules matching: a warning. -->
                   <span class="badge {media.has_metadata ? 'badge-value muted' : 'badge-warning'}">
                     {t(media.has_metadata ? 'MetadataCached' : 'MetadataMissing')}
                   </span>
@@ -228,6 +223,10 @@
   </div>
 
   {#if explaining}
-    <ExplanationModal data={explaining} onClose={() => (explaining = null)} />
+    <ExplanationModal
+      data={explaining}
+      onClose={() => (explaining = null)}
+      onChanged={() => void library.reload()}
+    />
   {/if}
 </div>

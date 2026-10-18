@@ -23,7 +23,7 @@ use crate::api::logs::{LogEntry, LogFilter, LogQuery};
 use crate::api::media::LibraryFacets;
 use crate::api::media::{Explanation, ExternalTitle, MediaDetail, MediaListItem, RouteQuery};
 use crate::api::metadata::ProvidersResponse;
-use crate::api::overrides::PinRequest;
+use crate::api::overrides::{KeepRequest, PinRequest};
 use crate::api::root_folders::{Declared, Mapped, MappingConflict};
 use crate::api::rules::{
     PreviewRequest, PreviewResponse, Reordered, RuleImportReport, RuleVerdict,
@@ -122,6 +122,7 @@ kinds of a condition) may appear in any release."
         list_media,
         get_media,
         explain_media,
+        keep_title,
         place_title,
         list_decisions,
         simulate,
@@ -563,6 +564,27 @@ headers(("Location" = String, description = "Where the new exception is found.")
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn set_exception() {}
+
+/// Keep a title where it is
+///
+/// Pins the title to the category of the root folder it is in, so no run proposes to move it,
+/// and decides it again at once.
+#[utoipa::path(
+    post,
+    path = "/media/{id}/keep",
+    tag = "exceptions",
+    params(("id" = String, Path, description = "The title's media id.")),
+    request_body = KeepRequest,
+    responses(
+        (status = 201, body = OverrideEntry,
+headers(("Location" = String, description = "Where the exception is found."))),
+        (status = 409, description = "`reason` is `no_current_folder`, `folder_unmapped` when \
+the folder leads to no category, or `category_ambiguous` when another folder of the instance \
+leads to the same one.", body = ErrorResponse),
+    )
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn keep_title() {}
 
 /// Remove an exception
 #[utoipa::path(

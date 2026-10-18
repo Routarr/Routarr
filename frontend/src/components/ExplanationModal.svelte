@@ -8,6 +8,8 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { askConfirmation } from '../lib/confirm.svelte';
+  import { href } from '../lib/router.svelte';
   import NoValue from './NoValue.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
@@ -16,14 +18,22 @@
   import Modal from './Modal.svelte';
 
   /** Condition-by-condition trace of why a media item lands where it does. */
-  let { data, onClose }: { data: Explanation; onClose: () => void } = $props();
+  let {
+    data,
+    onClose,
+    onChanged,
+  }: {
+    data: Explanation;
+    onClose: () => void;
+    /** Called once the panel changed where the title goes, so the list behind it reloads. */
+    onChanged?: () => void;
+  } = $props();
 
   /** The explanation read again once the sources were asked again, else the one given. */
   let refreshed = $state<Explanation | null>(null);
   const view = $derived(refreshed ?? data);
 
-  // The sources line holds arrows that mirror between its values, so the
-  // summary is cut where the values go and drawn around them.
+  // Cut where the sources go, so the arrows drawn between them mirror.
   const sourcesLine = $derived(t('MetadataSourcesLine', { sources: '\u0000' }).split('\u0000'));
 
   /**
@@ -63,32 +73,66 @@
   const synopsisLine = $derived(around('SynopsisFrom'));
 
   /**
-   * Pinning is one click because the panel already holds the whole answer.
-   *
-   * Everything a regression case needs (the item, the metadata that was
-   * merged, the category the engine chose) is already resolved to render this.
-   * Asking the user to retype any of it is asking them not to bother.
+   * One click pins a case: the panel already holds the item, its merged metadata and the
+   * category the engine chose, and a form asking for them again would go unused.
    */
   let pinning = $state(false);
   let pinned = $state(false);
   let pinError = $state<string | null>(null);
+  const categories = createAsync((signal) => api.getCategories(signal));
+  // Null keeps the rules' category. Another pins a test that fails until a rule sends it there.
+  let chosen = $state<string | null>(null);
+  const expected = $derived(chosen ?? view.rules_category);
+  const expectsOther = $derived(expected !== view.rules_category);
+  const categoryNames = $derived(
+    categories.data?.map((category) => category.name) ?? [view.rules_category],
+  );
 
   async function pin() {
     pinning = true;
     pinError = null;
     try {
-      // What the rules decide, which is what a rule test replays: the
-      // category an exception forces would fail the test it makes.
-      await api.pinRuleTest(
-        t('PinnedCaseName', { title: view.media.title, category: view.rules_category }),
-        view.media.id,
-        view.rules_category,
-      );
+      const name = t(expectsOther ? 'PinnedCaseNameExpected' : 'PinnedCaseName', {
+        title: view.media.title,
+        category: expected,
+      });
+      await api.pinRuleTest(name, view.media.id, expected);
       pinned = true;
+      invalidateStatus();
     } catch (err) {
       pinError = describeError(err);
     } finally {
       pinning = false;
+    }
+  }
+
+  // Keeping pins the title to its current folder's category, which the server reads again.
+  let keeping = $state(false);
+  const kept = $derived(
+    view.current_category !== null && view.override_category === view.current_category,
+  );
+
+  async function keep() {
+    const category = view.current_category;
+    if (category === null) return;
+    const replaced = view.override_category;
+    if (
+      replaced !== null &&
+      !(await askConfirmation(t('KeepReplacesException', { category: replaced }), 'KeepHere'))
+    ) {
+      return;
+    }
+    keeping = true;
+    try {
+      await api.keepTitle(view.media.id);
+      refreshed = await api.explainMedia(view.media.id);
+      invalidateStatus();
+      onChanged?.();
+      outcome.succeed(t('KeptHereOutcome', { category }));
+    } catch (err) {
+      outcome.fail(err);
+    } finally {
+      keeping = false;
     }
   }
 
@@ -175,6 +219,41 @@
       <p id="explain-refresh-hint" class="form-hint">{t('RefreshTitleMetadataHint')}</p>
     </div>
     <div class="explain-action">
+      <button
+        class="btn btn-secondary btn-sm"
+        disabled={keeping || kept || view.current_category === null}
+        onclick={() => void keep()}
+        aria-describedby="explain-keep-hint"
+      >
+        <Lock size={14} />
+        {t('KeepHere')}
+      </button>
+      <p id="explain-keep-hint" class="form-hint">
+        {#if view.current_category === null}
+          {t('KeepHereUnmapped')}
+          <a class="text-link" href={href('/categories')}>{t('GuideCategoriesAction')}</a>
+        {:else if kept}
+          {t('KeptHere', { category: view.current_category })}
+        {:else}
+          {t('KeepHereHint', { category: view.current_category })}
+        {/if}
+      </p>
+    </div>
+    <div class="explain-action">
+      <div class="form-group">
+        <label class="form-label" for="explain-pin-category">{t('PinExpectedCategory')}</label>
+        <select
+          id="explain-pin-category"
+          class="form-select"
+          value={expected}
+          disabled={pinned}
+          onchange={(event) => (chosen = event.currentTarget.value)}
+        >
+          {#each categoryNames as name (name)}
+            <option value={name}>{name}</option>
+          {/each}
+        </select>
+      </div>
       <!-- Disabled once taken rather than hidden: a button that vanishes leaves
            the user unsure whether it worked. -->
       <button
@@ -186,8 +265,12 @@
         <ShieldCheck size={14} />
         {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
       </button>
-      <p id="explain-pin-hint" class="form-hint">{t('PinAsRuleTestHint')}</p>
-      {#if view.override_category}
+      <p id="explain-pin-hint" class="form-hint">
+        {expectsOther
+          ? t('PinAsRuleTestExpectedHint', { category: expected })
+          : t('PinAsRuleTestHint')}
+      </p>
+      {#if view.override_category && !expectsOther}
         <p id="explain-pin-rules" class="form-hint">
           {t('PinRulesUnderException', { category: view.rules_category })}
         </p>
@@ -196,6 +279,7 @@
   </div>
 
   <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
+  <ErrorBanner message={categories.error} onRetry={() => void categories.reload()} />
   <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
   <OutcomeBanner {outcome} />
 
@@ -261,9 +345,8 @@
           <span class="badge badge-plain">{keyword}</span>
         {/each}
       </div>
-      <!-- Which sources actually contributed, in priority order. With one
-           source this is obvious. With several it is the only way to know
-           whether a genre came from the library or from TMDB. -->
+      <!-- Each value's source, in priority order: with several, nothing else tells whether a
+           genre came from the library or from TMDB. -->
       {#if status}
         <p class="text-md mt-2">
           {statusLine[0]}{@render named(view.metadata.field_sources.status ?? '')}{statusLine[1]}

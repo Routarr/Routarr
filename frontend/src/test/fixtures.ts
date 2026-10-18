@@ -1,4 +1,6 @@
 import type {
+  Category,
+  Explanation,
   ExplainedMedia,
   Decision,
   Health,
@@ -25,6 +27,7 @@ export function decision(over: Partial<Decision> = {}): Decision {
     instance_id: 'i1',
     instance_name: 'Radarr',
     current_root_folder: '/films',
+    current_category: 'standard',
     target_root_folder: '/anime',
     target_category: 'anime',
     matched_rule_id: 'r1',
@@ -279,6 +282,40 @@ export function templatePreview(over: Partial<TemplatePreview> = {}): TemplatePr
     reach: { titles: 0, to_move: 0, in_place: 0, unmapped: 0 },
     titles: [],
     taken_by: [],
+    ...over,
+  };
+}
+
+/** An explanation of Akira, a move to anime by the Japanese animation rule. */
+export function explanation(over: Partial<Explanation> = {}): Explanation {
+  return {
+    media: explainedMedia({ current_path: '/data/films/Akira' }),
+    metadata: null,
+    override_category: null,
+    target_category: 'anime',
+    rules_category: 'anime',
+    target_root_folder: '/data/anime',
+    current_category: 'standard',
+    action: 'move',
+    confidence: 0.7,
+    winning_rule: 'Japanese animation',
+    rule_traces: [],
+    instance_enabled: true,
+    ...over,
+  };
+}
+
+/** A category, `standard` unless a test says otherwise. */
+export function category(over: Partial<Category> = {}): Category {
+  return {
+    id: 'c1',
+    name: 'standard',
+    description: null,
+    is_default: false,
+    display_order: 1,
+    created_at: '2026-08-27 10:00:00',
+    rule_count: 0,
+    root_folder_count: 1,
     ...over,
   };
 }

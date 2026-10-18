@@ -16,8 +16,7 @@ use crate::models::*;
 use crate::services::executor;
 use crate::state::AppState;
 
-/// sqlx only implements `FromRow` for tuples up to 16 fields, and a decision has
-/// more columns than that, so the row is a named struct.
+/// A named row, since a tuple `query_as` target stops at 16 fields.
 #[derive(Debug, sqlx::FromRow)]
 struct DecisionRow {
     id: String,
@@ -27,6 +26,7 @@ struct DecisionRow {
     instance_id: String,
     instance_name: Option<String>,
     current_root_folder: Option<String>,
+    current_category: Option<String>,
     target_root_folder: Option<String>,
     target_category: String,
     matched_rule_id: Option<String>,
@@ -95,13 +95,16 @@ pub async fn list(
             &mut binds,
         );
     }
-    // Superseded proposals are noise by default: they can no longer be applied.
+    // Hidden by default: a superseded proposal cannot be applied.
     if !query.include_superseded.unwrap_or(false) {
         filters.push_str(" AND superseded = 0");
     }
 
     let list_sql = format!(
-        "SELECT {DECISION_COLUMNS}, CASE WHEN {} THEN 1 ELSE 0 END AS revertible
+        "SELECT {DECISION_COLUMNS}, CASE WHEN {} THEN 1 ELSE 0 END AS revertible,
+         (SELECT rf.category FROM root_folders rf
+           WHERE rf.instance_id = d.instance_id AND rf.path = d.current_root_folder COLLATE path
+             AND rf.category IS NOT NULL AND rf.category != '') AS current_category
          FROM decisions d WHERE 1=1{filters}
          ORDER BY decided_at DESC, media_title ASC, id ASC LIMIT ? OFFSET ?",
         executor::REVERTIBLE
@@ -158,8 +161,7 @@ pub struct ApplyAllRequest {
     pub move_files: bool,
     /// Always asked: `batch`, whose one question states the count and any
     /// sleeping or full destination, named in the answer's `includes`.
-    // A mass operation by definition, so the confirmation threshold has
-    // nothing to say about it.
+    // A mass operation by definition, so the confirmation threshold does not apply.
     #[serde(default)]
     pub confirm: executor::Confirmed,
 }
@@ -180,8 +182,7 @@ pub struct RevertDecisionsRequest {
 
 pub async fn apply(
     State(state): State<AppState>,
-    // Who is moving files. The middleware puts an identity on every protected
-    // request, so this cannot fail, and this is the write worth attributing.
+    // The middleware sets it on every protected request, so this extractor cannot fail.
     axum::Extension(identity): axum::Extension<Identity>,
     headers: HeaderMap,
     Json(req): Json<ApplyDecisionsRequest>,
@@ -228,10 +229,9 @@ pub async fn revert(
     answer(&state, prefers_async(&headers), work).await
 }
 
-/// An executor call as `identity` may make it: a key that may not move files is
-/// refused before anything runs, the answers it was not given are dropped, and
-/// a question it may not answer comes back marked for a person. One function
-/// for the three routes that move files, so none of them forgets a step.
+/// An executor call as `identity` may make it: refused first when the key may not move files,
+/// with only the answers it may give, and a question it may not answer marked for a person.
+/// The three routes that move files share it, so none forgets a step.
 fn on_behalf_of<T, F>(
     identity: Identity,
     move_files: bool,
@@ -266,6 +266,7 @@ fn decision_from_row(r: DecisionRow, localizer: &crate::localization::Localizer)
         instance_id: r.instance_id,
         instance_name: r.instance_name,
         current_root_folder: r.current_root_folder,
+        current_category: r.current_category,
         target_root_folder: r.target_root_folder,
         target_category: r.target_category,
         matched_rule_id: r.matched_rule_id,

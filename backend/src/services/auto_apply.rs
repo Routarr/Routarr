@@ -1,18 +1,6 @@
-//! Applying a routing decision with nobody watching.
-//!
-//! This is the one place in Routarr that writes to an Arr without a person
-//! having clicked something, so it is deliberately the most restrictive.
-//!
-//! The case it exists for: Radarr fires `MovieAdded` the moment a film enters
-//! the library, before anything has been downloaded. The webhook syncs it,
-//! enriches it and evaluates the rules, so the right root folder is known
-//! while the folder is still empty. Correcting it *then* costs one API call and
-//! moves no bytes. Waiting for a human means the file lands in the wrong place
-//! first and has to be moved afterwards.
-//!
-//! Everything here follows from that: if there is a file to move, the move is
-//! not the cheap pre-download correction, and the decision goes back to the
-//! human queue.
+//! Applying a routing decision with nobody watching, the most restrictive writer in Routarr.
+//! Only a title with no file yet qualifies: right after `MovieAdded` a move costs one API call
+//! and moves no bytes. A title with a file goes back to the human queue.
 
 use tracing::{debug, info, warn};
 
@@ -37,13 +25,9 @@ pub enum AutoApplyOutcome {
     Applied(ApplyReport),
 }
 
-/// Consider the moves a simulation just proposed for unattended application.
-///
-/// `simulation_id` scopes the run: only decisions this very simulation wrote are
-/// eligible, so a background pass can never pick up a proposal the user has been
-/// sitting on. Errors are returned rather than swallowed. Callers on a background
-/// path log them and carry on, since a failed auto-apply must not fail the sync
-/// or the webhook that triggered it.
+/// Consider the moves a simulation just proposed for unattended application. Only decisions
+/// this simulation wrote are eligible, never a proposal the user is sitting on. A background
+/// caller logs the error and carries on, so a failed auto-apply never fails its sync.
 pub async fn apply_simulation(
     state: &AppState,
     simulation_id: &str,
@@ -52,8 +36,7 @@ pub async fn apply_simulation(
     let outcome = decide(state, simulation_id, by).await?;
     let trigger = by.trigger.as_str();
 
-    // Logged here rather than at each call site, so "I turned auto-apply on and
-    // nothing happened" always has an answer in the log.
+    // Logged here, so an auto-apply that did nothing always has an answer in the log.
     match &outcome {
         AutoApplyOutcome::Applied(report) => {
             info!(
@@ -62,11 +45,7 @@ pub async fn apply_simulation(
                 failed = report.failed,
                 "Auto-applied routing decisions"
             );
-            // An unattended write that the Arr refused is exactly what nobody
-            // is watching for. Sent on its own task: the webhook waits for
-            // this apply, and a slow receiver would hold its delivery.
-            // Every failure counted carries its error, so a failed apply
-            // has a first one.
+            // On its own task, or a slow receiver holds back the webhook's delivery.
             if let Some(first) = report.errors.first() {
                 notify::send_later(
                     state,
@@ -90,6 +69,10 @@ pub async fn apply_simulation(
             trigger,
             "Auto-apply held back: another apply kept running past the wait, the moves stay pending"
         ),
+        AutoApplyOutcome::Held(Hold::RuleTestsFailing { failed, total }) => warn!(
+            trigger,
+            failed, total, "Auto-apply held back: rule tests are failing, the moves stay pending"
+        ),
         AutoApplyOutcome::Held(hold) => debug!(trigger, ?hold, "Auto-apply held back"),
         AutoApplyOutcome::NothingToApply => {
             debug!(trigger, "Auto-apply had nothing to do")
@@ -105,6 +88,11 @@ pub async fn apply_simulation(
 pub enum Hold {
     Disabled,
     DryRun,
+    /// A rule test fails: a rule change broke a routing someone pinned.
+    RuleTestsFailing {
+        failed: usize,
+        total: usize,
+    },
     /// An apply kept running past the wait, and the moves stay pending.
     TurnNotReached,
 }
@@ -138,8 +126,7 @@ async fn decide(
         return Ok(AutoApplyOutcome::Held(Hold::Disabled));
     }
 
-    // Checked here as well as in the executor: this one is the master switch,
-    // and it should be impossible to reach the writer with it on.
+    // Checked before the executor too: the writer must be unreachable with dry run on.
     if state.bool_setting("global_dry_run").await {
         return Ok(AutoApplyOutcome::Held(Hold::DryRun));
     }
@@ -149,18 +136,19 @@ async fn decide(
         return Ok(AutoApplyOutcome::NothingToApply);
     }
 
-    // Over the ceiling, apply *nothing*. Silently doing the first 50 of 500 is
-    // worse than doing none: the library ends up half-reorganised with no record
-    // of the intent. A sweep that large is a library reclassification, which is
-    // a deliberate human act.
+    let tests = crate::services::rule_tests::check(state).await?;
+    if tests.failed > 0 {
+        let (failed, total) = (tests.failed, tests.total);
+        return Ok(AutoApplyOutcome::Held(Hold::RuleTestsFailing { failed, total }));
+    }
+
+    // Over the cap, apply nothing, or the library is left half reorganised with no record.
     let cap: usize = state.bounding_setting::<usize>("batch_limit").await?;
     if candidates.len() > cap {
         return Ok(AutoApplyOutcome::OverCap { candidates: candidates.len(), cap });
     }
 
-    // The turn first, then the files: read before a wait, "no file yet" may
-    // be stale by the time the apply runs, and the move would leave the file
-    // the Arr imported meanwhile behind.
+    // The turn first: a "no file yet" read before the wait may be stale when the apply runs.
     let Some(turn) = executor::unattended_turn(state).await else {
         return Ok(AutoApplyOutcome::Held(Hold::TurnNotReached));
     };
@@ -184,14 +172,9 @@ struct Candidate {
     media_title: String,
 }
 
-/// The decisions from one simulation that may be written without asking.
-///
-/// Beyond the usual "pending, current, actionable" filter, the media must have
-/// **no files on disk**. That single condition is what makes the feature safe:
-/// with nothing to move, changing the root folder is a metadata edit that Radarr
-/// applies instantly and that `POST /decisions/revert` undoes just as cheaply.
-/// The moment files exist, the same edit either strands them at the old path or
-/// starts a real disk move, and neither belongs in an unattended pass.
+/// The decisions from one simulation that may be written without asking: pending, current,
+/// actionable and with no file on disk. With a file, the same edit strands it at the old path
+/// or starts a real disk move.
 async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<Vec<Candidate>> {
     let candidates = sqlx::query_as(
         "SELECT d.id AS decision_id, d.instance_id, m.arr_id, d.media_title
@@ -234,12 +217,9 @@ async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<
     Ok(candidates)
 }
 
-/// The candidates the Arr still reports without a file.
-///
-/// `has_files` is what the last sync read, and a film downloaded since has a
-/// file the database does not know about. Moved with `moveFiles: false`, that
-/// file stays in the old folder and the Arr reports the film missing. An item
-/// that cannot be read again is left to a person as well.
+/// The candidates the Arr still reports without a file. A film downloaded since the last sync
+/// has a file the database does not know, which `moveFiles: false` would leave behind. An item
+/// that cannot be read again is left to a person.
 async fn still_without_files(state: &AppState, candidates: Vec<Candidate>) -> Vec<String> {
     let mut kept = Vec::with_capacity(candidates.len());
     for candidate in candidates {

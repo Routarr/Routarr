@@ -1,13 +1,6 @@
-//! Pinned expectations for the rule engine, and the runner that replays them.
-//!
-//! The rule preview answers "what would this change". A pinned case answers
-//! "what must this *not* change". With first-match-by-priority, inserting one
-//! rule rebalances every rule below it, and the routing that quietly moves is
-//! always the one nobody was looking at.
-//!
-//! This is cheap because `rule_engine` is pure: no I/O, no clock of its own,
-//! `now` handed in. A case is the two things `EvalContext` reads plus the
-//! instant, so replaying a hundred of them costs one query and no requests.
+//! Pinned expectations for the rule engine, and the runner that replays them. A pinned case
+//! guards a routing nobody is watching, since a new rule rebalances every rule below it. The
+//! engine is pure, so replaying a hundred cases costs one query and no request.
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -25,11 +18,8 @@ pub struct RuleTest {
     pub id: String,
     pub name: String,
     pub media_type: String,
-    /// The pinned `EvalContext`: the serialised `Media` and the merged
-    /// metadata. Read when a case is *run*, never sent to a client: the list
-    /// endpoint returns every case, and the interface shows a name and a
-    /// category. Skipped rather than trimmed at the handler so the struct stays
-    /// the one thing that decides what a case is.
+    /// The pinned `EvalContext`: the serialised `Media` and the merged metadata. Read when a
+    /// case runs and never sent, skipped here so the struct alone decides what a case is.
     #[serde(skip_serializing)]
     pub media_json: String,
     #[serde(skip_serializing)]
@@ -42,6 +32,16 @@ pub struct RuleTest {
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
     #[schema(format = DateTime)]
     pub created_at: String,
+    /// Whether the last run found the case passing. Null until a run reads it.
+    pub last_passed: Option<bool>,
+    /// When the case last ran.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
+    pub last_checked_at: Option<String>,
+    /// Who pinned it, as `Decision.subject` reads.
+    pub subject: Option<String>,
+    #[serde(skip)]
+    pub subject_key: Option<String>,
 }
 
 /// What one case did on this run.
@@ -77,11 +77,8 @@ pub async fn list(pool: &SqlitePool) -> AppResult<Vec<RuleTest>> {
         .await?)
 }
 
-/// Replay every case against the rules as they stand right now.
-///
-/// One load of the rules for the whole suite, and the default category read
-/// once: a case that matches nothing lands where the engine would actually put
-/// it, not in a `None` the caller has to interpret.
+/// Replay every case against the rules as they stand now. A case that matches nothing gets
+/// the default category, where the engine would put it.
 pub async fn run_all(pool: &SqlitePool, localizer: &Localizer) -> AppResult<RuleTestRun> {
     let cases = list(pool).await?;
     let rules = routing::load_rules(pool).await?;
@@ -94,11 +91,43 @@ pub async fn run_all(pool: &SqlitePool, localizer: &Localizer) -> AppResult<Rule
     Ok(RuleTestRun { total: results.len(), passed, failed: results.len() - passed, results })
 }
 
-/// The category the rules alone give one item, and the rule that won, if any.
-///
-/// No override: a case pins what the *rules* decide. An override is a human
-/// decision about one item, and it short-circuits the engine entirely, so
-/// folding it in here would let a pinned exception mask a broken rule.
+/// Run every case, keep each verdict, and say once when the suite starts failing. Every run
+/// goes through here: Run, a pin, the pass after a sync and the auto-apply check.
+pub async fn check(state: &crate::state::AppState) -> AppResult<RuleTestRun> {
+    let run = run_all(&state.pool, &state.localizer().await).await?;
+    let (was_failing, _) = failing(&state.pool).await?;
+    let checked_at = routing::format_timestamp(chrono::Utc::now());
+    let mut tx = state.pool.begin().await?;
+    for result in &run.results {
+        sqlx::query("UPDATE rule_tests SET last_passed = ?, last_checked_at = ? WHERE id = ?")
+            .bind(result.passed)
+            .bind(&checked_at)
+            .bind(&result.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    if was_failing == 0 && run.failed > 0 {
+        crate::services::notify::send_later(
+            state,
+            crate::services::notify::Event::RuleTestsFailing {
+                failed: run.failed,
+                total: run.total,
+            },
+        );
+    }
+    Ok(run)
+}
+
+/// The cases the last runs found failing, and every case.
+pub async fn failing(pool: &SqlitePool) -> AppResult<(i64, i64)> {
+    Ok(sqlx::query_as("SELECT COALESCE(SUM(last_passed = 0), 0), COUNT(*) FROM rule_tests")
+        .fetch_one(pool)
+        .await?)
+}
+
+/// The category the rules alone give one item, and the rule that won, if any. No override, or
+/// a pinned exception would mask a broken rule.
 pub fn decided_by_rules(
     ctx: EvalContext,
     rules: &[crate::models::rule::Rule],
@@ -116,8 +145,7 @@ fn run_one(
     default_category: &str,
     localizer: &Localizer,
 ) -> RuleTestResult {
-    // The detail goes to the log: a parser's message means nothing on the
-    // screen it would land on.
+    // The detail goes to the log: a parser's message means nothing on the screen.
     let fail = |key: &str, detail: &dyn std::fmt::Display| {
         tracing::warn!(case = %case.id, "The rule test '{}' cannot be replayed: {detail}", case.name);
         RuleTestResult {
@@ -134,8 +162,7 @@ fn run_one(
 
     let media: Media = match serde_json::from_str(&case.media_json) {
         Ok(media) => media,
-        // A fixture that fails to parse is a failure, never a skip: a case
-        // that stops running is a case that stops protecting anything.
+        // A failure, never a skip: a case that stops running stops protecting anything.
         Err(e) => return fail("RuleTestSnapshotUnreadable", &e),
     };
     let metadata: Option<MediaMetadata> = match case.metadata_json.as_deref() {

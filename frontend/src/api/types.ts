@@ -402,6 +402,8 @@ export interface Decision {
   instance_id: string;
   instance_name: string | null;
   current_root_folder: string | null;
+  /** The category the current root folder leads to, null when it leads to none. */
+  current_category: string | null;
   target_root_folder: string | null;
   target_category: string;
   matched_rule_id: string | null;
@@ -572,12 +574,19 @@ export interface Explanation {
   /** What the rules alone decide, the exception left out: what a rule test pins. */
   rules_category: string;
   target_root_folder: string | null;
+  /** The category the current root folder leads to, which keeping the title pins. */
+  current_category: string | null;
   action: DecisionAction;
   confidence: number;
   winning_rule: string | null;
   rule_traces: RuleTrace[];
   /** False when no run reads the title's instance, which is switched off. */
   instance_enabled: boolean;
+}
+
+/** What keeping a title where it is takes. */
+export interface KeepRequest {
+  reason?: string;
 }
 
 export interface OverrideEntry {
@@ -880,6 +889,10 @@ export interface RuleTest {
   source_media_title: string | null;
   evaluated_at: string;
   created_at: string;
+  /** What the last run found. Null until one reads the case. */
+  last_passed: boolean | null;
+  last_checked_at: string | null;
+  subject: string | null;
 }
 
 export interface RuleTestResult {

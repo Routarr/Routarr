@@ -24,6 +24,7 @@ pub mod fake_arr;
 pub mod fake_oidc;
 pub mod fake_sources;
 pub mod fake_tmdb;
+mod keep;
 mod limits;
 mod live_sources;
 mod localization;
@@ -375,7 +376,7 @@ impl TestApp {
 
     /// `/movies/standard` on `inst-1`, where the films `seed_route_to_anime`
     /// moves sit, reported by the Arr as every root folder is. A revert writes
-    /// back into it, and skips a folder its instance no longer has.
+    /// back into it, and skips a folder missing from its instance.
     pub async fn seed_standard_folder(&self) {
         sqlx::query(
             "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible)

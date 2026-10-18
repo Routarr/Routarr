@@ -1,18 +1,6 @@
-//! Telling the operator, or another application, what happened while nobody
-//! was looking.
-//!
-//! Routarr does most of its work on a schedule or on a webhook, and in a
-//! homelab nobody opens the interface daily. A scheduled sync that has been
-//! failing for a week, or an automatic apply that Radarr rejected, is invisible
-//! until someone thinks to look.
-//!
-//! One address, written to in the shape its receiver reads (`Format`): Discord
-//! an embed coloured by the outcome, ntfy a text with its title, priority and
-//! tags in headers, Gotify a message with a priority, Apprise its own fields.
-//! Any other receiver gets Routarr's JSON (`Notification`), which carries the
-//! same text under the names Discord, Gotify and Apprise read, and the ids and
-//! counts a program parses. With a signing secret every shape is signed as
-//! Standard Webhooks specifies, so a receiver can tell it came from Routarr.
+//! Telling the operator, or another application, what happened while nobody was looking. One
+//! address gets the shape its receiver reads (`Format`), Routarr's JSON (`Notification`) when
+//! unknown, signed as Standard Webhooks specifies when a signing secret is set.
 
 use std::time::Duration;
 
@@ -29,22 +17,14 @@ use crate::integrations::send_ok;
 use crate::localization::Localizer;
 use crate::state::AppState;
 
-/// Something worth telling.
-///
-/// The failures are sent whenever a webhook is set: each will not resolve
-/// itself, and the operator has to act on it. What finished well is sent only
-/// to a webhook that asked for it, by its setting: a channel a person reads
-/// must not fill with a message per simulation.
-///
-/// An `error` from an Arr is what a column stores, a key and its values or a
-/// sentence (`localization::said`), so the delivery says it in the language
-/// it says the rest in.
+/// Something worth telling. A failure is sent whenever a webhook is set, a success only when
+/// its setting asks, so a channel a person reads does not fill up. An Arr's `error` is stored
+/// text, said in the delivery's language (`localization::said`).
 #[derive(Debug, Clone)]
 pub enum Event {
     /// A sync could not reach an Arr. Sent on the transition only.
     InstanceUnreachable { instance: String, error: String },
-    /// The same instance answered again. Closes the loop so the operator does
-    /// not have to go and check whether the problem is still there.
+    /// The same instance answered again.
     InstanceRecovered { instance: String },
     /// An unattended apply wrote to an Arr and the Arr refused. `title` and
     /// `error` are the first refusal.
@@ -52,6 +32,8 @@ pub enum Event {
     /// An unattended pass found more moves than one run may make, and made
     /// none. Sent on the transition only.
     AutoApplyHeld { candidates: usize, cap: usize },
+    /// A run found rule tests failing where none did, which holds auto-apply.
+    RuleTestsFailing { failed: usize, total: usize },
     /// A sync failed, every time it does. Asked for by `notify_sync_failed`.
     SyncFailed { instance_id: String, instance: String, error: String },
     /// A simulation stored its proposals. Asked for by
@@ -74,7 +56,7 @@ impl Event {
             | Event::SyncFailed { .. }
             | Event::BackupFailed { .. } => "error",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
-            Event::AutoApplyHeld { .. } => "warning",
+            Event::AutoApplyHeld { .. } | Event::RuleTestsFailing { .. } => "warning",
             _ => "info",
         }
     }
@@ -87,6 +69,7 @@ impl Event {
             Event::InstanceRecovered { .. } => "instance_recovered",
             Event::AutoApplyFailed { .. } => "auto_apply_failed",
             Event::AutoApplyHeld { .. } => "auto_apply_held",
+            Event::RuleTestsFailing { .. } => "rule_tests_failing",
             Event::SyncFailed { .. } => "sync_failed",
             Event::BackupFailed { .. } => "backup_failed",
             Event::SimulationCompleted { .. } => "simulation_completed",
@@ -105,7 +88,7 @@ impl Event {
             | Event::SyncFailed { .. }
             | Event::BackupFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
-            Event::AutoApplyHeld { .. } => "warning",
+            Event::AutoApplyHeld { .. } | Event::RuleTestsFailing { .. } => "warning",
             Event::InstanceRecovered { .. } | Event::MovesCompleted { .. } => "success",
             Event::SimulationCompleted { .. } | Event::Test => "info",
         }
@@ -146,6 +129,10 @@ impl Event {
                 "NotificationMessageAutoApplyHeld",
                 &[("candidates", &count(candidates)), ("cap", &count(cap))],
             ),
+            Event::RuleTestsFailing { failed, total } => localizer.translate(
+                "NotificationMessageRuleTestsFailing",
+                &[("failed", &count(failed)), ("total", &count(total))],
+            ),
             Event::SyncFailed { instance, error, .. } => localizer.translate(
                 "NotificationMessageSyncFailed",
                 &[("instance", instance), ("error", &said(error))],
@@ -185,6 +172,7 @@ impl Event {
             Event::InstanceRecovered { .. } => "NotificationHeadlineInstanceRecovered",
             Event::AutoApplyFailed { .. } => "NotificationHeadlineAutoApplyFailed",
             Event::AutoApplyHeld { .. } => "NotificationHeadlineAutoApplyHeld",
+            Event::RuleTestsFailing { .. } => "NotificationHeadlineRuleTestsFailing",
             Event::SyncFailed { .. } => "NotificationHeadlineSyncFailed",
             Event::BackupFailed { .. } => "NotificationHeadlineBackupFailed",
             Event::SimulationCompleted { .. } => "NotificationHeadlineSimulationCompleted",
@@ -206,6 +194,9 @@ impl Event {
             }
             Event::AutoApplyHeld { candidates, cap } => {
                 serde_json::json!({ "candidates": candidates, "cap": cap })
+            }
+            Event::RuleTestsFailing { failed, total } => {
+                serde_json::json!({ "failed": failed, "total": total })
             }
             Event::SyncFailed { instance_id, instance, .. } => {
                 serde_json::json!({ "instance_id": instance_id, "instance": instance })
@@ -386,7 +377,7 @@ impl Event {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Notification {
     /// What happened, in snake case: `instance_unreachable`,
-    /// `instance_recovered`, `auto_apply_failed`, `auto_apply_held`,
+    /// `instance_recovered`, `auto_apply_failed`, `auto_apply_held`, `rule_tests_failing`,
     /// `sync_failed`, `backup_failed`, `simulation_completed`,
     /// `apply_completed`, `revert_completed`, or `test` when sent from
     /// Settings. The list may grow.
@@ -461,10 +452,8 @@ pub struct Queue {
     /// before an older one still being retried, which would leave a channel
     /// on the wrong state.
     turn: tokio::sync::Mutex<()>,
-    /// Deliveries being sent or waiting their turn. A webhook down for a
-    /// while holds one per event, so the count is bounded, and an event past
-    /// it is logged and dropped rather than queued without end. Lost on
-    /// restart.
+    /// Deliveries being sent or waiting their turn, bounded so a webhook down for a while
+    /// drops and logs the events past it. Lost on restart.
     pending: Semaphore,
 }
 
@@ -474,13 +463,9 @@ impl Default for Queue {
     }
 }
 
-/// Post an event to the configured webhook, if there is one and it asked for
-/// this kind.
-///
-/// Never returns an error and never propagates one: a notification that cannot
-/// be delivered must not fail the sync or the apply that produced it. It
-/// waits its turn behind the deliveries before it, retries included, so a
-/// caller that must not wait sends through [`send_later`].
+/// Post an event to the configured webhook, if there is one and it asked for this kind. Never
+/// fails, so a lost notification never fails the sync or apply behind it. It waits behind the
+/// deliveries before it, retries included, so a caller that must not wait uses [`send_later`].
 pub async fn send(state: &AppState, event: Event) {
     if webhook_url(state, event.kind()).await.is_none() {
         return;
@@ -560,12 +545,8 @@ async fn webhook_url(state: &AppState, kind: &str) -> Option<String> {
     }
 }
 
-/// One message, tried as many times as it takes, under one id.
-///
-/// The address, the format and the secrets are read again at each attempt,
-/// not kept from the first: a retry runs minutes later, and an address
-/// cleared or a secret replaced in between because it leaked must not be used
-/// again.
+/// One message, tried as many times as it takes, under one id. The address, the format and
+/// the secrets are read again at each attempt: one cleared or replaced since must not be used.
 struct Delivery {
     id: String,
     event: Event,
@@ -580,10 +561,8 @@ enum Undelivered {
     /// Sent unsigned, the message would pass a receiver that checks a
     /// signature only when there is one.
     SecretUnreadable,
-    /// The receiver refused or did not answer. `again` holds the wait before
-    /// another attempt, the receiver's own when it named one, and is `None`
-    /// for a 4xx other than 429: the receiver refuses this message and will
-    /// refuse it again.
+    /// The receiver refused or did not answer. `again` holds the wait before another attempt,
+    /// the receiver's own when it named one, and is `None` for a 4xx other than 429.
     Failed { error: AppError, again: Option<Option<Duration>> },
 }
 
@@ -614,9 +593,7 @@ impl Delivery {
         let Some(url) = webhook_url(state, kind).await else {
             return Err(Undelivered::NoAddress);
         };
-        // A read that fails is no answer to whether the owner signs: sent
-        // unsigned, the message would pass a receiver that checks a signature
-        // only when one is there. It is tried again later.
+        // Retried later: sent unsigned, it would pass a receiver checking only present signatures.
         let signing = signing_keys(state)
             .await
             .map_err(|error| Undelivered::Failed { error, again: Some(None) })?;
@@ -635,8 +612,7 @@ impl Delivery {
         let format = state.setting::<String>("notification_format").await;
         let localizer = state.localizer().await;
         let payload = payload(&self.event, &self.at, Format::of(&format, &url), &localizer);
-        // Signed at each attempt: a receiver refuses a timestamp too old, and a
-        // retry five minutes on would carry one.
+        // Signed at each attempt: a receiver refuses a timestamp too old, as a late retry's.
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let mut request = state
             .http
@@ -651,8 +627,7 @@ impl Delivery {
             request = request
                 .header("webhook-signature", sign(&keys, &self.id, &timestamp, &payload.body));
         }
-        // Through `send_ok`, which says why a send failed without the address:
-        // a Discord or Slack webhook URL carries its secret in the path.
+        // Through `send_ok`, whose errors omit the address: a webhook URL carries its secret.
         match send_ok("Notification webhook", request.body(payload.body)).await {
             Ok(()) => {
                 debug!(event = kind, "Notification delivered");
@@ -786,6 +761,7 @@ mod receivers {
                 error: "no".into(),
             },
             Event::AutoApplyHeld { candidates: 60, cap: 50 },
+            Event::RuleTestsFailing { failed: 1, total: 4 },
             Event::SyncFailed {
                 instance_id: "inst-1".into(),
                 instance: "Radarr".into(),
@@ -823,6 +799,7 @@ mod receivers {
             ("instance_recovered", "info", json!({ "instance": "Radarr" })),
             ("auto_apply_failed", "error", json!({ "failed": 1, "applied": 0 })),
             ("auto_apply_held", "warning", json!({ "candidates": 60, "cap": 50 })),
+            ("rule_tests_failing", "warning", json!({ "failed": 1, "total": 4 })),
             ("sync_failed", "error", json!({ "instance_id": "inst-1", "instance": "Radarr" })),
             (
                 "simulation_completed",
@@ -850,16 +827,13 @@ mod receivers {
         }
     }
 
-    /// Apprise API refuses with a 400 a `type` outside info, success, warning
-    /// and failure, a `format` outside text, markdown and html, and a request
-    /// with no `body` (apprise-api `views.py`). Within those four, `type` picks
-    /// the colour and the mark: a failure red, a partial apply amber, a
-    /// recovery and a clean run green.
+    /// Apprise API refuses with a 400 a `type` outside its four outcomes, a `format` outside
+    /// text, markdown and html, and a request with no `body`. `type` picks the colour shown.
     #[test]
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
         let outcomes = [
-            "failure", "success", "failure", "warning", "failure", "info", "warning", "success",
-            "failure", "info",
+            "failure", "success", "failure", "warning", "warning", "failure", "info", "warning",
+            "success", "failure", "info",
         ];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
@@ -984,7 +958,7 @@ mod receivers {
         assert_eq!(header(&sent, "Priority").as_deref(), Some("4"));
         assert_eq!(header(&sent, "Tags").as_deref(), Some("rotating_light"));
 
-        let finished = payload(&every_event()[7], AT, Format::Ntfy, &english());
+        let finished = payload(&every_event()[8], AT, Format::Ntfy, &english());
         assert_eq!(header(&finished, "Priority").as_deref(), Some("2"));
         assert_eq!(header(&finished, "Tags").as_deref(), Some("white_check_mark"));
     }
@@ -1013,7 +987,7 @@ mod receivers {
             .iter()
             .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
             .collect();
-        assert_eq!(priorities, [8, 2, 8, 5, 8, 2, 5, 2, 8, 2]);
+        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 8, 2]);
         for event in every_event() {
             let sent = posted(&event, Format::Gotify);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");

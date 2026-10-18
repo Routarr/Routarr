@@ -170,7 +170,7 @@ fn build_router(state: AppState) -> Router {
     // The unauthenticated liveness probe, which reveals nothing about the library.
     let public = Router::new()
         .route("/ping", get(api::health::ping))
-        // The shell needs its strings before it renders anything, an authentication error included.
+        // The shell needs its strings before anything renders, an authentication error included.
         .route("/localization", get(api::localization::dictionary))
         .route("/localization/languages", get(api::localization::languages))
         // Outside the middleware, since a browser with no session learns here that it needs one.
@@ -248,6 +248,7 @@ fn build_router(state: AppState) -> Router {
         .route("/media", get(api::media::list))
         .route("/media/{id}", get(api::media::get_one))
         .route("/media/{id}/explain", get(api::media::explain))
+        .route("/media/{id}/keep", post(api::overrides::keep))
         // Where a title another service names would go, held or not. Stores nothing.
         .route("/route", get(api::media::place))
         .route("/simulate", post(api::simulation::run))
@@ -336,9 +337,9 @@ where
     S: Clone + Send + Sync + 'static,
 {
     routes
-        // The span carries the request id, set outermost, so a failure in the log matches its click.
+        // The span carries the request id, set outermost, so a logged failure matches its click.
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
-        // Inside the request-id layers, so a panic answers with its `X-Request-Id` instead of a cut.
+        // Inside the request-id layers, so a panic's answer still carries its `X-Request-Id`.
         .layer(CatchPanicLayer::custom(panic_response))
         .layer(tower_http::timeout::RequestBodyDeadlineLayer::new(BODY_DEADLINE))
         .layer(middleware::map_response(not_stored))
