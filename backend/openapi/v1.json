@@ -135,7 +135,11 @@
         "properties": {
           "confirm": {
             "$ref": "#/components/schemas/Confirmed",
-            "description": "Always asked: `batch`, whose one question states the count and any\nsleeping or full destination, named in the answer's `includes`."
+            "description": "Always asked: `batch`, whose one question states the count, the filter and any\nsleeping or full destination, named in the answer's `includes`."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/DecisionFilter",
+            "description": "Only the moves this filter keeps, read on what the simulation proposed. None set\napplies every move."
           },
           "move_files": {
             "description": "Move the files on disk with each title. A key needs to be allowed to.",
@@ -302,9 +306,10 @@
         "type": "object"
       },
       "BatchApplyReport": {
-        "description": "Outcome of applying a whole simulation, slice by slice.",
+        "description": "Outcome of a run in slices: a whole simulation applied, or the moves a filter matches\nreverted.",
         "properties": {
           "applied": {
+            "description": "The moves made, or undone for a revert.",
             "minimum": 0,
             "type": "integer"
           },
@@ -318,7 +323,7 @@
             "type": "integer"
           },
           "candidates": {
-            "description": "Everything the simulation proposed and that was still applicable.",
+            "description": "Everything the run covered that was still applicable, or still revertible.",
             "minimum": 0,
             "type": "integer"
           },
@@ -1621,6 +1626,55 @@
           "status",
           "decided_at"
         ],
+        "type": "object"
+      },
+      "DecisionFilter": {
+        "additionalProperties": false,
+        "description": "Which titles an apply or a revert covers, as the decisions list filters them. Each field\nset narrows the set, and none set leaves it whole.",
+        "properties": {
+          "category": {
+            "description": "Only the decisions sending a title to this category.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_root_folder": {
+            "description": "Only the titles in this root folder when the decision was made.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance_id": {
+            "description": "Only the decisions about this instance's titles.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_type": {
+            "description": "`movie` or `series`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_id": {
+            "description": "Only the decisions this rule made.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "search": {
+            "description": "Part of the title, ASCII letters in any case.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "DeclareRootFolder": {
@@ -3762,6 +3816,48 @@
         ],
         "type": "object"
       },
+      "RevertAllRequest": {
+        "additionalProperties": false,
+        "description": "Undo every applied move a filter matches, in slices.",
+        "properties": {
+          "confirm": {
+            "$ref": "#/components/schemas/Confirmed",
+            "description": "Always asked: `batch`, as for an apply of a whole simulation."
+          },
+          "filter": {
+            "$ref": "#/components/schemas/DecisionFilter",
+            "description": "Only the moves this filter keeps. None set takes every move a revert may still undo."
+          },
+          "move_files": {
+            "description": "Move the files on disk back with each title. A key needs to be allowed to.",
+            "type": "boolean"
+          },
+          "simulation_id": {
+            "description": "Only the moves this simulation proposed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "since": {
+            "description": "Only the moves decided at this time or later, in RFC 3339.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "description": "Only the moves decided before this time, in RFC 3339.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "RevertDecisionsRequest": {
         "additionalProperties": false,
         "description": "Request to roll a previously applied decision back to its original folder.",
@@ -5328,6 +5424,24 @@
             }
           },
           {
+            "description": "Only the titles in this root folder when the decision was made.",
+            "in": "query",
+            "name": "current_root_folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the decisions this rule made.",
+            "in": "query",
+            "name": "rule_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "`move`, `none` or `skip`.",
             "in": "query",
             "name": "action",
@@ -5352,6 +5466,35 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "Only the decisions made at this time or later, in RFC 3339.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the decisions made before this time, in RFC 3339.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the applied moves a revert may still undo, or with `false` every other decision.",
+            "in": "query",
+            "name": "revertible",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -5514,7 +5657,7 @@
     },
     "/decisions/apply-all": {
       "post": {
-        "description": "In slices of the batch limit, stopping at the first that fails. The `batch` guardrail\nalways asks first, its question stating how many titles move.",
+        "description": "Every move, or those a filter keeps, in slices of the batch limit, stopping at the first\nthat fails. The `batch` guardrail always asks first, its question stating how many titles\nmove and the filter that chose them.",
         "operationId": "apply_all",
         "parameters": [
           {
@@ -5702,6 +5845,114 @@
           }
         },
         "summary": "Move titles back",
+        "tags": [
+          "decisions"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/decisions/revert-all": {
+      "post": {
+        "description": "The applied moves a revert may still undo that the filter, the simulation and the times\nkeep, in slices of the batch limit. The `batch` guardrail always asks first, as for an\napply of a whole simulation.",
+        "operationId": "revert_all",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchApplyReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No move the filter matches can be reverted."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The `batch` confirmation is asked, an apply is running, or the global dry run is on."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Move back every title a filter matches",
         "tags": [
           "decisions"
         ],

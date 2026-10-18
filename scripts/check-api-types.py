@@ -92,6 +92,7 @@ UNPAIRED: dict[str, str] = {
     "InstanceProbe": "a request body",
     "TemplateRequest": "a request body",
     "KeepRequest": "a request body",
+    "DecisionFilter": "a request body",
     "NewApplication": "a request body",
     "Proof": "a request body",
     "PasswordChanged": "built with json! in api::account::change_password",

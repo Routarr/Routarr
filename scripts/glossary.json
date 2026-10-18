@@ -718,5 +718,36 @@
       "zh_CN": "自动应用",
       "zh_TW": "自動套用"
     }
+  },
+  "filter": {
+    "en": "\\bfilter(s|ed)?\\b",
+    "except": [],
+    "words": {
+      "ar": "تصفي|ص[ً-ْـ]*ف[ً-ْ]*ّ",
+      "ca": "filtr",
+      "cs": "filtr",
+      "da": "filt",
+      "de": "filter",
+      "el": "φ[ιί]λτρ",
+      "es": "f[ií]ltr",
+      "fi": "suodat",
+      "fr": "filtr",
+      "hu": "szűr",
+      "it": "filtr",
+      "ja": "フィルター|絞り込",
+      "ko": "필터",
+      "nb_NO": "filt",
+      "nl": "filter",
+      "pl": "filtr",
+      "pt": "filtr",
+      "ro": "filtr",
+      "ru": "фильтр",
+      "sk": "filt",
+      "sv": "filt",
+      "tr": "filtre",
+      "uk": "фільтр",
+      "zh_CN": "筛选",
+      "zh_TW": "篩選"
+    }
   }
 }

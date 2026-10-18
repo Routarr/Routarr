@@ -10,10 +10,11 @@ use sqlx::AssertSqlSafe;
 use crate::api::auth::Identity;
 use crate::api::jobs::{answer, prefers_async};
 use crate::api::{Page, paginate};
-use crate::error::AppResult;
+use crate::db::Conditions;
+use crate::error::{AppError, AppResult};
 use crate::jobs::Attribution;
 use crate::models::*;
-use crate::services::executor;
+use crate::services::{executor, routing};
 use crate::state::AppState;
 
 /// A named row, since a tuple `query_as` target stops at 16 fields.
@@ -61,64 +62,44 @@ pub async fn list(
 ) -> AppResult<Json<Page<Decision>>> {
     let (page, per_page, offset) = paginate(query.page, query.per_page);
 
-    let mut filters = String::new();
-    let mut binds: Vec<String> = Vec::new();
-
-    let push = |clause: &str, value: String, filters: &mut String, binds: &mut Vec<String>| {
-        filters.push_str(clause);
-        binds.push(value);
-    };
-
-    if let Some(v) = query.instance_id.clone() {
-        push(" AND instance_id = ?", v, &mut filters, &mut binds);
-    }
-    if let Some(v) = query.media_type.clone() {
-        push(" AND media_type = ?", v, &mut filters, &mut binds);
-    }
-    if let Some(v) = query.status.clone() {
-        push(" AND status = ?", v, &mut filters, &mut binds);
-    }
-    if let Some(v) = query.category.clone() {
-        push(" AND target_category = ?", v, &mut filters, &mut binds);
-    }
-    if let Some(v) = query.action.clone() {
-        push(" AND action = ?", v, &mut filters, &mut binds);
-    }
-    if let Some(v) = query.simulation_id.clone() {
-        push(" AND simulation_id = ?", v, &mut filters, &mut binds);
-    }
-    if let Some(v) = query.search.clone() {
-        push(
-            " AND media_title LIKE ? ESCAPE '\\'",
-            format!("%{}%", crate::db::escape_like(&v)),
-            &mut filters,
-            &mut binds,
-        );
-    }
+    let mut conditions = Conditions::on("d");
+    query.filter().narrow(&mut conditions);
+    conditions
+        .equal("status", query.status.as_deref())
+        .equal("action", query.action.as_deref())
+        .equal("simulation_id", query.simulation_id.as_deref())
+        .from("decided_at", stored_time("since", query.since.as_deref())?.as_deref())
+        .before("decided_at", stored_time("until", query.until.as_deref())?.as_deref());
     // Hidden by default: a superseded proposal cannot be applied.
     if !query.include_superseded.unwrap_or(false) {
-        filters.push_str(" AND superseded = 0");
+        conditions.holds("d.superseded = 0");
     }
+    match query.revertible {
+        Some(true) => conditions.holds(executor::REVERTIBLE),
+        Some(false) => conditions.fails(executor::REVERTIBLE),
+        None => &mut conditions,
+    };
 
     let list_sql = format!(
         "SELECT {DECISION_COLUMNS}, CASE WHEN {} THEN 1 ELSE 0 END AS revertible,
          (SELECT rf.category FROM root_folders rf
            WHERE rf.instance_id = d.instance_id AND rf.path = d.current_root_folder COLLATE path
              AND rf.category IS NOT NULL AND rf.category != '') AS current_category
-         FROM decisions d WHERE 1=1{filters}
+         FROM decisions d WHERE 1=1{}
          ORDER BY decided_at DESC, media_title ASC, id ASC LIMIT ? OFFSET ?",
-        executor::REVERTIBLE
+        executor::REVERTIBLE,
+        conditions.sql()
     );
-    let count_sql = format!("SELECT COUNT(*) FROM decisions WHERE 1=1{filters}");
+    let count_sql = format!("SELECT COUNT(*) FROM decisions d WHERE 1=1{}", conditions.sql());
 
     let mut list_query = sqlx::query_as::<_, DecisionRow>(AssertSqlSafe(list_sql.as_str()));
-    for bind in &binds {
+    for bind in conditions.binds() {
         list_query = list_query.bind(bind);
     }
     let rows = list_query.bind(per_page).bind(offset).fetch_all(&state.pool).await?;
 
     let mut count_query = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql.as_str()));
-    for bind in &binds {
+    for bind in conditions.binds() {
         count_query = count_query.bind(bind);
     }
     let total = count_query.fetch_one(&state.pool).await?;
@@ -133,6 +114,17 @@ pub async fn list(
         })
         .collect();
     Ok(Json(Page::new(decisions, page, per_page, total)))
+}
+
+/// A time a caller sent, in the shape the decisions store theirs. Its refusal stays English,
+/// since a client sends the time and nobody types it.
+fn stored_time(field: &str, raw: Option<&str>) -> AppResult<Option<String>> {
+    raw.map(|raw| {
+        routing::parse_timestamp(raw)
+            .map(routing::format_timestamp)
+            .ok_or_else(|| AppError::BadRequest(format!("{field} is not a time in RFC 3339.")))
+    })
+    .transpose()
 }
 
 /// Request to apply selected decisions.
@@ -156,12 +148,39 @@ pub struct ApplyDecisionsRequest {
 pub struct ApplyAllRequest {
     /// The simulation whose decisions to apply.
     pub simulation_id: String,
+    /// Only the moves this filter keeps, read on what the simulation proposed. None set
+    /// applies every move.
+    #[serde(default)]
+    pub filter: DecisionFilter,
     /// Move the files on disk with each title. A key needs to be allowed to.
     #[serde(default)]
     pub move_files: bool,
-    /// Always asked: `batch`, whose one question states the count and any
+    /// Always asked: `batch`, whose one question states the count, the filter and any
     /// sleeping or full destination, named in the answer's `includes`.
     // A mass operation by definition, so the confirmation threshold does not apply.
+    #[serde(default)]
+    pub confirm: executor::Confirmed,
+}
+
+/// Undo every applied move a filter matches, in slices.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RevertAllRequest {
+    /// Only the moves this filter keeps. None set takes every move a revert may still undo.
+    #[serde(default)]
+    pub filter: DecisionFilter,
+    /// Only the moves this simulation proposed.
+    pub simulation_id: Option<String>,
+    /// Only the moves decided at this time or later, in RFC 3339.
+    #[schema(format = DateTime)]
+    pub since: Option<String>,
+    /// Only the moves decided before this time, in RFC 3339.
+    #[schema(format = DateTime)]
+    pub until: Option<String>,
+    /// Move the files on disk back with each title. A key needs to be allowed to.
+    #[serde(default)]
+    pub move_files: bool,
+    /// Always asked: `batch`, as for an apply of a whole simulation.
     #[serde(default)]
     pub confirm: executor::Confirmed,
 }
@@ -206,9 +225,37 @@ pub async fn apply_all(
     let task = state.clone();
     let work =
         on_behalf_of(identity, req.move_files, &req.confirm, move |confirmed, by| async move {
-            let (simulation, move_files) = (&req.simulation_id, req.move_files);
-            executor::apply_simulation_in_batches(&task, simulation, move_files, &confirmed, &by)
-                .await
+            let (simulation, filter) = (&req.simulation_id, &req.filter);
+            executor::apply_simulation_in_batches(
+                &task,
+                simulation,
+                filter,
+                req.move_files,
+                &confirmed,
+                &by,
+            )
+            .await
+        })?;
+    answer(&state, prefers_async(&headers), work).await
+}
+
+/// Undo every applied move a filter matches, in slices of `batch_limit`.
+pub async fn revert_all(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
+    Json(req): Json<RevertAllRequest>,
+) -> AppResult<Response> {
+    let scope = executor::RevertScope {
+        filter: req.filter,
+        simulation_id: req.simulation_id,
+        since: stored_time("since", req.since.as_deref())?,
+        until: stored_time("until", req.until.as_deref())?,
+    };
+    let task = state.clone();
+    let work =
+        on_behalf_of(identity, req.move_files, &req.confirm, move |confirmed, by| async move {
+            executor::revert_in_batches(&task, &scope, req.move_files, &confirmed, &by).await
         })?;
     answer(&state, prefers_async(&headers), work).await
 }
@@ -231,7 +278,7 @@ pub async fn revert(
 
 /// An executor call as `identity` may make it: refused first when the key may not move files,
 /// with only the answers it may give, and a question it may not answer marked for a person.
-/// The three routes that move files share it, so none forgets a step.
+/// The routes that move files share it, so none forgets a step.
 fn on_behalf_of<T, F>(
     identity: Identity,
     move_files: bool,

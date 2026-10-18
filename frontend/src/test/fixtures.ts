@@ -9,6 +9,7 @@ import type {
   MediaListItem,
   OnboardingStatus,
   OnboardingStep,
+  Rule,
   TemplatePreview,
   TemplateSummary,
   Warning,
@@ -316,6 +317,27 @@ export function category(over: Partial<Category> = {}): Category {
     created_at: '2026-08-27 10:00:00',
     rule_count: 0,
     root_folder_count: 1,
+    ...over,
+  };
+}
+
+/** A rule sending Japanese animation to `anime`, unless a test says otherwise. */
+export function rule(over: Partial<Rule> = {}): Rule {
+  return {
+    id: 'r1',
+    name: 'Japanese animation',
+    description: null,
+    priority: 10,
+    enabled: true,
+    media_type: 'both',
+    conditions: [{ type: 'genre_contains', value: ['Animation'] }],
+    exclusions: [],
+    match_mode: 'all',
+    target_category: 'anime',
+    instance_ids: null,
+    template: null,
+    created_at: '2026-08-27 10:00:00',
+    updated_at: '2026-08-27 10:00:00',
     ...over,
   };
 }

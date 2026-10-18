@@ -141,6 +141,7 @@ const BEYOND_READ: &[(&str, &str)] = &[
     ("POST", "/api/v1/decisions/apply"),
     ("POST", "/api/v1/decisions/apply-all"),
     ("POST", "/api/v1/decisions/revert"),
+    ("POST", "/api/v1/decisions/revert-all"),
     ("POST", "/api/v1/overrides"),
     ("DELETE", "/api/v1/overrides/probe"),
     ("PUT", "/api/v1/overrides/external"),

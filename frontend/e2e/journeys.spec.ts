@@ -186,10 +186,7 @@ test.describe('the routing journey', () => {
     expect(akira?.rootFolderPath).toBe('/movies/anime');
 
     await page.goto('/history');
-    await page
-      .getByRole('button', { name: /revert/i })
-      .first()
-      .click();
+    await page.getByRole('button', { name: 'Revert – Akira' }).click();
 
     // One dialog asks and carries the "move the files too" choice: no second prompt to cancel.
     const confirmRevert = page.getByRole('dialog');

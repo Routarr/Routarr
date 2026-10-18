@@ -13,6 +13,7 @@ import type {
   EnrichmentReport,
   ConditionCatalog,
   Decision,
+  DecisionFilter,
   ErrorBody,
   Explanation,
   KeepRequest,
@@ -102,7 +103,6 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 
-  /** True when the backend is asking for an explicit confirmation. */
   get needsConfirmation(): boolean {
     // Keyed on the stable code: matching the message would break on any rewording.
     return this.kind === 'confirmation_required';
@@ -547,6 +547,14 @@ export const api = {
   followJob: <T>(id: string, following?: Following) => followJob<T>(id, following),
   getDecisions: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Decision>>(`/decisions${query(params)}`, { signal }),
+  /** How many decisions `params` lists, read off a page of one. */
+  countDecisions: async (params: QueryParams, signal?: AbortSignal) => {
+    const page = await request<Paginated<Decision>>(
+      `/decisions${query({ ...params, per_page: 1 })}`,
+      { signal },
+    );
+    return page.pagination.total;
+  },
   /** `confirm` names the guardrails already answered, not a blanket yes. */
   applyDecisions: (
     decision_ids: string[],
@@ -559,16 +567,17 @@ export const api = {
       { method: 'POST', body: body({ decision_ids, move_files, confirm }) },
       following,
     ),
-  /** Apply everything one simulation proposed, in slices of `batch_limit`. */
+  /** Apply what one simulation proposed and `filter` keeps, in slices of `batch_limit`. */
   applyAllDecisions: (
     simulation_id: string,
+    filter: DecisionFilter,
     move_files = false,
     confirm: string[] = [],
     following?: Following,
   ) =>
     followed<BatchApplyReport>(
       '/decisions/apply-all',
-      { method: 'POST', body: body({ simulation_id, move_files, confirm }) },
+      { method: 'POST', body: body({ simulation_id, filter, move_files, confirm }) },
       following,
     ),
 
@@ -581,6 +590,18 @@ export const api = {
     followed<ApplyReport>(
       '/decisions/revert',
       { method: 'POST', body: body({ decision_ids, move_files, confirm }) },
+      following,
+    ),
+  /** Undo every applied move `scope` matches, in slices of `batch_limit`. */
+  revertAllDecisions: (
+    scope: { filter: DecisionFilter; simulation_id?: string; since?: string; until?: string },
+    move_files = false,
+    confirm: string[] = [],
+    following?: Following,
+  ) =>
+    followed<BatchApplyReport>(
+      '/decisions/revert-all',
+      { method: 'POST', body: body({ ...scope, move_files, confirm }) },
       following,
     ),
   /** Stop a running apply or revert before its next move. It answers before it stops. */

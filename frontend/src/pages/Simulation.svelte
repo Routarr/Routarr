@@ -1,11 +1,13 @@
 <script lang="ts">
   import CardTitle from '../components/CardTitle.svelte';
   import { Layers, Play, ShieldCheck } from '../lib/icons';
-  import { formatBytes } from '../api/format';
+  import { formatBytes, setFields } from '../api/format';
   import { api, type Following } from '../api/client';
-  import type { ApplyReport, Decision, SimulationResult, StopReason } from '../api/types';
+  import type { Decision, DecisionFilter, SimulationResult } from '../api/types';
+  import { FIELDS } from '../lib/settings';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { reportMoves } from '../lib/moves';
   import { i18n, t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
   import DecisionRow from '../components/DecisionRow.svelte';
@@ -20,6 +22,11 @@
   import { answering } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
+  import SearchField from '../components/SearchField.svelte';
+  import DecisionFilterFields, {
+    NO_TITLE_FILTER,
+    type TitleFilter,
+  } from '../components/DecisionFilterFields.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { invalidateStatus } from '../lib/status.svelte';
 
@@ -33,46 +40,81 @@
   let refreshError = $state<string | null>(null);
   const outcome = createOutcome();
 
-  /**
-   * Decisions a previous pass left pending, which the top bar counts: showing only a run made in
-   * this browser would send a reader following that count to "run a simulation".
-   */
-  // The server's page ceiling. Past it, the banner below says why the list is short.
-  const PENDING_PAGE = 200;
-  // A failure is a banner: the empty state would contradict the count the user followed.
-  const pendingLoad = createAsync((signal) =>
-    api.getDecisions({ status: 'pending', per_page: PENDING_PAGE }, signal),
-  );
-  const pending = $derived<Decision[] | null>(pendingLoad.data?.data ?? null);
+  // The filters narrow the run's proposals, or every pending decision, and an apply of many.
+  let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
+  let search = $state('');
+  let action = $state('');
+  let page = $state(1);
+  const filter = $derived<DecisionFilter>(setFields({ ...titles, search }));
+  const filtered = $derived(Object.keys(filter).length > 0 || action !== '');
+  const narrowing = () => [result?.simulation_id, JSON.stringify(filter), action];
+
+  function clearFilters() {
+    titles = { ...NO_TITLE_FILTER };
+    search = '';
+    action = '';
+    page = 1;
+  }
+
+  const PAGE = 50;
+  const BATCH_LIMIT = Number(FIELDS.find((field) => field.key === 'batch_limit')?.fallback);
+  // Read once and outside the state the list tracks: a preselection past it is refused whole.
+  let limit: number | undefined;
+  let cap = $state(Infinity);
 
   /**
-   * The run's own proposals, a page at a time. Its report keeps the counts
-   * alone, and `/decisions` lists what it stored by its id.
+   * The run's proposals, else every pending decision, as the top bar counts them. A run's moves
+   * are preselected up to the batch limit in the same update as the rows, or select-all turns
+   * clickable while unticked.
    */
-  let runPage = $state(1);
-  // Selected in the same update as the rows, or select-all turns clickable while unticked.
-  const runLoad = createAsync(
+  const list = createAsync(
     async (signal) => {
-      if (!result) return null;
-      const page = await api.getDecisions(
-        { simulation_id: result.simulation_id, page: runPage, per_page: PENDING_PAGE },
+      limit ??= Number((await api.getSettings(signal)).batch_limit) || BATCH_LIMIT;
+      cap = limit;
+      const scope = result ? { simulation_id: result.simulation_id } : { status: 'pending' };
+      const loaded = await api.getDecisions(
+        { ...scope, ...filter, action, page, per_page: PAGE },
         signal,
       );
-      select(
-        page.data.filter((d) => d.action === 'move' && d.status === 'pending').map((d) => d.id),
-      );
-      return page;
+      const moves = loaded.data.filter((d) => d.action === 'move' && d.status === 'pending');
+      select(result ? moves.slice(0, cap).map((d) => d.id) : []);
+      return loaded;
     },
-    () => [result?.simulation_id, runPage],
+    () => [...narrowing(), page],
   );
+
+  /** How many of the run's moves the filters keep, which Apply all applies. */
+  const matching = createAsync(async (signal) => {
+    if (!result) return 0;
+    if (action !== '' && action !== 'move') return 0;
+    const scope = { simulation_id: result.simulation_id, status: 'pending', action: 'move' };
+    return api.countDecisions({ ...scope, ...filter }, signal);
+  }, narrowing);
+
+  /**
+   * A newer simulation, by the scheduler or another caller, which replaced the run's proposals.
+   * Asked again with each page, so a reader paging a replaced run is told why it emptied.
+   */
+  const newer = createAsync(
+    async (signal) => {
+      if (!result) return null;
+      const jobs = await api.getJobs({ kind: 'simulate', status: 'success', per_page: 1 }, signal);
+      const latest = jobs.data[0]?.result as SimulationResult | null | undefined;
+      return latest && latest.simulation_id !== result.simulation_id ? latest : null;
+    },
+    () => [...narrowing(), page],
+  );
+
+  function showNewer() {
+    if (!newer.data) return;
+    result = newer.data;
+    page = 1;
+  }
 
   /** How far the run being followed has gone, while one is. */
   let progress = $state<{ current: number; total: number } | null>(null);
 
-  /**
-   * Stops following when the screen closes. The run goes on without it, and
-   * the screen opened again finds it running and follows it from there.
-   */
+  /** Stops following, not the run, which the screen opened again finds and follows. */
   const leaving = new AbortController();
   const following: Following = {
     signal: leaving.signal,
@@ -114,7 +156,7 @@
     if (!refresh) outcome.clear();
     try {
       const summary = await started();
-      runPage = 1;
+      page = 1;
       result = summary;
     } catch (err) {
       // The screen closed: nothing is left to tell.
@@ -131,38 +173,11 @@
   }
 
   /**
-   * The apply button turns disabled while it writes, and stays so when the
-   * refresh leaves nothing to apply, so Run takes the focus the button cannot.
+   * The apply button is disabled while it writes, and stays so when the refresh leaves nothing to
+   * apply, so Run takes the focus the button cannot.
    */
   function settleFocus(pressed: HTMLElement | null) {
     if (!leaving.signal.aborted) void handFocus(pressed, 'simulation-run');
-  }
-
-  const STOPPED: Record<StopReason, string> = {
-    dry_run: 'ApplyStoppedByDryRun',
-    cancelled: 'ApplyStoppedOnRequest',
-    shutdown: 'ApplyStoppedForShutdown',
-  };
-
-  /**
-   * The outcome of an apply: what it says beside its counts, then the moves it could not make.
-   * Anything left unfinished is a failure with nothing made, and a partial result with some.
-   */
-  function reportApply(
-    message: string,
-    report: Pick<ApplyReport, 'applied' | 'moving' | 'superseded' | 'stopped' | 'errors'>,
-    unfinished: boolean,
-  ) {
-    const said = [
-      ...(report.stopped ? [t(STOPPED[report.stopped])] : []),
-      ...(report.moving > 0 ? [t('ApplyStillMoving', { count: report.moving })] : []),
-      ...(report.superseded > 0 ? [t('ApplyReplaced', { count: report.superseded })] : []),
-      ...report.errors.map((failure) => `${failure.media_title}: ${failure.message}`),
-    ];
-    const made = report.applied + report.moving;
-    if (!unfinished && said.length === 0) outcome.succeed(message);
-    else if (made === 0) outcome.fail(message, said);
-    else outcome.warn(message, said);
   }
 
   /** Ask the apply being followed to stop before its next move. */
@@ -179,8 +194,8 @@
   const c_key = (c: { instance_id: string; path: string }) => `${c.instance_id}:${c.path}`;
 
   /**
-   * Apply everything this run proposed, by simulation id: the capped list covers only part of a
-   * large library. The server asks the question, as it alone knows a destination is down or full.
+   * Apply what this run proposed and the filters keep, by simulation id: a page covers only part
+   * of a large library. The server asks, as it alone knows a destination is down or full.
    */
   async function applyAll() {
     if (!result) return;
@@ -190,12 +205,14 @@
     busy = 'apply';
     try {
       const batch = await answering(
-        (answered) => api.applyAllDecisions(simulationId, moveFiles, answered, followingApply),
+        (answered) =>
+          api.applyAllDecisions(simulationId, filter, moveFiles, answered, followingApply),
         'ApplyLabel',
       );
       if (!batch) return;
       // A run cut short by a refused slice is unfinished. One stopped says why on its own.
-      reportApply(
+      reportMoves(
+        outcome,
         batch.stopped_early && !batch.stopped
           ? t('BatchApplyStopped', {
               applied: batch.applied,
@@ -234,7 +251,8 @@
         t(moveFiles ? 'ConfirmApplyItemsWithFiles' : 'ConfirmApplyItems', { count: ids.length }),
       );
       if (!done) return;
-      reportApply(
+      reportMoves(
+        outcome,
         t(done.skipped > 0 ? 'ApplyResultWithSkipped' : 'ApplyResult', {
           applied: done.applied,
           requested: done.requested,
@@ -269,20 +287,20 @@
       selected.delete(decision.id);
       outcome.succeed(t('KeptHereOutcome', { category: decision.current_category ?? '' }));
       invalidateStatus();
-      await Promise.all([pendingLoad.reload(), ...(result ? [runLoad.reload()] : [])]);
+      await Promise.all([list.reload(), matching.reload()]);
     } catch (err) {
       outcome.fail(err);
     }
   }
 
-  // This run's page if there is one, else what was already waiting, which a run supersedes.
-  const shown = $derived<Decision[]>(result ? (runLoad.data?.data ?? []) : (pending ?? []));
+  const shown = $derived<Decision[]>(list.data?.data ?? []);
   // True until the list on screen answers, the run's page or the pending decisions.
-  const loading = $derived(
-    result ? runLoad.data === null && !runLoad.error : pending === null && !pendingLoad.error,
-  );
+  const loading = $derived(list.data === null && !list.error);
   const movable = $derived(shown.filter((d) => d.action === 'move'));
-  const allSelected = $derived(movable.length > 0 && movable.every((d) => selected.has(d.id)));
+  const selectable = $derived(movable.slice(0, cap));
+  const allSelected = $derived(
+    selectable.length > 0 && selectable.every((d) => selected.has(d.id)),
+  );
 </script>
 
 <div>
@@ -292,8 +310,7 @@
       <p class="page-subtitle">{t('SimulationSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <!-- The screen's one primary action is its next step: applying, once
-           there are moves to apply, else running. -->
+      <!-- The primary action is the next step: apply once there are moves, else run. -->
       <button
         id="simulation-run"
         class="btn {movable.length > 0 ? 'btn-secondary' : 'btn-primary'}"
@@ -313,23 +330,31 @@
   {/if}
 
   <ErrorBanner
-    message={pendingLoad.error}
-    onDismiss={() => (pendingLoad.error = null)}
-    onRetry={() => void pendingLoad.reload()}
+    message={list.error}
+    onDismiss={() => (list.error = null)}
+    onRetry={() => void list.reload()}
   />
   <ErrorBanner message={refreshError} onDismiss={() => (refreshError = null)} />
   <ErrorBanner
-    message={runLoad.error}
-    onDismiss={() => (runLoad.error = null)}
-    onRetry={() => void runLoad.reload()}
+    message={matching.error ?? newer.error}
+    onDismiss={() => {
+      matching.error = null;
+      newer.error = null;
+    }}
   />
   <OutcomeBanner {outcome} />
   <GuideStepBanner step="simulation" />
 
-  <!-- The counters describe a run. Without one there is nothing to count, but
-       the decisions themselves are still worth showing. -->
-  {#if !result && shown.length > 0}
-    <WarningBanner message={t('DecisionsAwaitingReview', { count: shown.length })} />
+  {#if newer.data}
+    <WarningBanner
+      message={t('SimulationReplaced')}
+      action={{ label: t('ShowLatestProposals'), run: showNewer }}
+    />
+  {/if}
+
+  <!-- The counters describe a run, and the decisions are worth showing without one. -->
+  {#if !result && list.data && list.data.pagination.total > 0 && !filtered}
+    <WarningBanner message={t('DecisionsAwaitingReview', { count: list.data.pagination.total })} />
   {/if}
 
   {#if result}
@@ -351,8 +376,7 @@
       />
     {/if}
 
-    <!-- What the plan weighs before anything is written: a batch that overruns its destination
-           fails partway at the Arr and leaves the library half-moved. -->
+    <!-- A batch past its destination's free space fails partway, the library half-moved. -->
     {#if result.capacity.length > 0}
       {#each result.capacity.filter((c) => !c.fits) as short (c_key(short))}
         <WarningBanner
@@ -391,8 +415,7 @@
                   <td>{folder.items}</td>
                   <td>
                     {formatBytes(folder.incoming_bytes, i18n.language)}
-                    <!-- A move within one volume is a rename that costs nothing, shown
-                           so the user can check the figure. -->
+                    <!-- A same-volume move is a free rename, shown so the figure checks out. -->
                     {#if folder.same_filesystem_bytes > 0}
                       <span class="text-muted ms-2">
                         {t('CapacitySameVolume', {
@@ -413,9 +436,37 @@
     {/if}
   {/if}
 
-  {#if !result && pending && pending.length >= PENDING_PAGE}
-    <WarningBanner message={t('PendingCapped', { count: PENDING_PAGE })} />
-  {/if}
+  <div class="toolbar">
+    <SearchField
+      bind:value={search}
+      placeholder={t('SearchATitle')}
+      label={t('SearchATitle')}
+      oninput={() => (page = 1)}
+      debounce={200}
+    />
+    <DecisionFilterFields
+      bind:filter={titles}
+      fields={['instance', 'type', 'category', 'folder', 'rule']}
+      onchange={() => (page = 1)}
+    />
+    <select
+      class="form-select"
+      aria-label={t('FilterByAction')}
+      value={action}
+      onchange={(event) => {
+        page = 1;
+        action = event.currentTarget.value;
+      }}
+    >
+      <option value="">{t('AllActions')}</option>
+      <option value="move">{t('ActionMove')}</option>
+      <option value="skip">{t('ActionSkip')}</option>
+    </select>
+    {#if filtered}
+      <button type="button" class="btn btn-ghost" onclick={clearFilters}>{t('ClearFilters')}</button
+      >
+    {/if}
+  </div>
 
   {#if movable.length > 0}
     <div class="card">
@@ -435,17 +486,16 @@
             {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
           </button>
 
-          <!-- Reaches past the page on screen, so it needs the simulation a run produced
-               and shows only once there is one. -->
+          <!-- Reaches past the page, so it shows only once a run produced a simulation. -->
           {#if result}
             <button
               class="btn btn-secondary"
               onclick={() => void applyAll()}
-              disabled={result.moves_required === 0 || busy !== null}
+              disabled={!matching.data || busy !== null}
               aria-describedby="apply-all-hint"
             >
               <Layers size={16} />
-              {t('ApplyAll', { count: result.moves_required })}
+              {t(filtered ? 'ApplyMatching' : 'ApplyAll', { count: matching.data ?? 0 })}
             </button>
           {/if}
           {#if busy === 'apply' && applying}
@@ -455,8 +505,13 @@
           {/if}
         </div>
       </div>
+      {#if movable.length > cap}
+        <p class="form-hint">{t('SelectionCapped', { limit: cap })}</p>
+      {/if}
       {#if result}
-        <p id="apply-all-hint" class="form-hint">{t('ApplyAllHint')}</p>
+        <p id="apply-all-hint" class="form-hint">
+          {t(filtered ? 'ApplyMatchingHint' : 'ApplyAllHint')}
+        </p>
       {/if}
     </div>
   {/if}
@@ -472,7 +527,7 @@
                 type="checkbox"
                 checked={allSelected}
                 disabled={movable.length === 0}
-                onchange={() => select(allSelected ? [] : movable.map((d) => d.id))}
+                onchange={() => select(allSelected ? [] : selectable.map((d) => d.id))}
                 title={t('SelectEveryMove')}
                 aria-label={t('SelectEveryMove')}
               />
@@ -490,13 +545,18 @@
           {#if loading}
             <TableSkeleton columns={8} />
           {:else if shown.length === 0}
-            <!-- An empty list says to run, or that the run proposed nothing. A failed load
-                   leaves it to the banner above. -->
-            {#if !(result ? runLoad.error : pendingLoad.error)}
+            <!-- A failed load leaves the word to the banner above. -->
+            {#if !list.error}
               <tr>
                 <td colspan="8">
                   <EmptyState>
-                    {t(result ? 'NoDecisionGenerated' : 'SimulationEmptyState')}
+                    {t(
+                      filtered
+                        ? 'NoDecisionMatchesFilters'
+                        : result
+                          ? 'NoDecisionGenerated'
+                          : 'SimulationEmptyState',
+                    )}
                   </EmptyState>
                 </td>
               </tr>
@@ -514,8 +574,6 @@
         </tbody>
       </table>
     </TableRegion>
-    {#if result}
-      <Pager pagination={runLoad.data?.pagination} bind:page={runPage} countKey="DecisionCount" />
-    {/if}
+    <Pager pagination={list.data?.pagination} bind:page countKey="DecisionCount" />
   </div>
 </div>

@@ -6,7 +6,9 @@ use tracing::{info, warn};
 
 use super::guards::REVERTIBLE;
 use super::{MoveRow, PendingMove};
+use crate::db::Conditions;
 use crate::error::{AppError, AppResult};
+use crate::models::DecisionFilter;
 use crate::services::routing;
 use crate::state::AppState;
 
@@ -16,13 +18,9 @@ pub(super) fn distinct(ids: &[String]) -> Vec<String> {
     ids.iter().filter(|id| seen.insert(id.as_str())).cloned().collect()
 }
 
-/// The proposals to apply for `ids`, and how many were replaced.
-///
-/// A scheduled pass after each sync supersedes every pending proposal and
-/// writes it again, so a proposal a person is reviewing may have a successor
-/// proposing the very same move: that one is applied in its place, and
-/// revalidated as any other. A proposal now replaced by another move, or by
-/// none, is counted and left. Any other id passes as given.
+/// The proposals to apply for `ids`, and how many were replaced. A pass after each sync writes
+/// every proposal again: an identical successor is applied in its place, one replaced by
+/// another move or by none is counted and left, and any other id passes as given.
 pub(super) async fn current_proposals(
     pool: &SqlitePool,
     ids: &[String],
@@ -60,10 +58,9 @@ pub(super) async fn current_proposals(
     Ok((distinct(&current), superseded))
 }
 
-/// Refuse ids that name no decision, before a task starts: a run over nothing
-/// answering success tells a script its call worked. In English, since the
-/// interface sent the ids and no one typed them. After the guardrails, which
-/// ask about the moves that exist.
+/// Refuse ids that name no decision before a task starts: a run over nothing would answer
+/// success. In English, since the interface sent the ids and nobody typed them. Called after
+/// the guardrails, which ask about the moves that exist.
 pub(super) async fn refuse_unknown_decisions(
     state: &AppState,
     decision_ids: &[String],
@@ -88,50 +85,89 @@ pub(super) async fn refuse_unknown_decisions(
     Err(AppError::BadRequest(format!("No decision has the id {}.", unknown.join(", "))))
 }
 
-/// The current proposals standing for a simulation's moves: each move it
-/// proposed and still pending, or the identical move a newer pass proposed in
-/// its place (see [`current_proposals`]). One parameter, the simulation id.
-pub(super) const CURRENT_FOR_RUN: &str = "SELECT cur.id FROM decisions run
-       JOIN decisions cur
-         ON cur.media_id = run.media_id
-        AND cur.status = 'pending' AND cur.superseded = 0 AND cur.action = 'move'
-        AND cur.current_root_folder IS run.current_root_folder COLLATE path
-        AND cur.target_root_folder = run.target_root_folder COLLATE path
-      WHERE run.simulation_id = ? AND run.action = 'move' AND run.status = 'pending'
-        AND run.target_root_folder IS NOT NULL";
+/// The moves a simulation proposed that `filter` keeps, as SQL over `decisions run` and the
+/// values it binds. The filter reads the simulation's own rows, what a person reviewed.
+fn proposed_by_run(simulation_id: &str, filter: &DecisionFilter) -> (String, Vec<String>) {
+    let mut run = Conditions::on("run");
+    filter.narrow(&mut run);
+    let sql = format!(
+        "run.simulation_id = ? AND run.action = 'move' AND run.status = 'pending'
+         AND run.target_root_folder IS NOT NULL{}",
+        run.sql()
+    );
+    (sql, std::iter::once(simulation_id.to_string()).chain(run.binds().iter().cloned()).collect())
+}
 
-/// The moves a simulation proposed that are still worth attempting, and how
-/// many of its proposals were replaced by another move.
+/// The current proposals standing for the moves a simulation proposed and `filter` keeps:
+/// each still pending, or the identical move a newer pass proposed in its place (see
+/// [`current_proposals`]). A newer pass can only take titles out of the set. Its SQL and binds.
+pub(super) fn current_for_run(
+    simulation_id: &str,
+    filter: &DecisionFilter,
+) -> (String, Vec<String>) {
+    let (proposed, binds) = proposed_by_run(simulation_id, filter);
+    let sql = format!(
+        "SELECT cur.id FROM decisions run
+           JOIN decisions cur
+             ON cur.media_id = run.media_id
+            AND cur.status = 'pending' AND cur.superseded = 0 AND cur.action = 'move'
+            AND cur.current_root_folder IS run.current_root_folder COLLATE path
+            AND cur.target_root_folder = run.target_root_folder COLLATE path
+          WHERE {proposed}"
+    );
+    (sql, binds)
+}
+
+/// The moves a simulation proposed and `filter` keeps that are still worth attempting, and
+/// how many of them were replaced by another move.
 pub(super) async fn applicable_from_simulation(
     pool: &SqlitePool,
     simulation_id: &str,
+    filter: &DecisionFilter,
 ) -> AppResult<(Vec<String>, usize)> {
+    let (current, binds) = current_for_run(simulation_id, filter);
     let sql = format!(
-        "SELECT d.id FROM decisions d WHERE d.id IN ({CURRENT_FOR_RUN})
+        "SELECT d.id FROM decisions d WHERE d.id IN ({current})
           ORDER BY d.instance_id, d.target_root_folder, d.media_title"
     );
-    let ids: Vec<String> =
-        sqlx::query_scalar(AssertSqlSafe(sql.as_str())).bind(simulation_id).fetch_all(pool).await?;
-    let proposed: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM decisions
-          WHERE simulation_id = ? AND action = 'move' AND status = 'pending'
-            AND target_root_folder IS NOT NULL",
-    )
-    .bind(simulation_id)
-    .fetch_one(pool)
-    .await?;
+    let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sql.as_str()));
+    for bind in &binds {
+        query = query.bind(bind);
+    }
+    let ids = query.fetch_all(pool).await?;
+
+    let (proposed, binds) = proposed_by_run(simulation_id, filter);
+    let sql = format!("SELECT COUNT(*) FROM decisions run WHERE {proposed}");
+    let mut query = sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql.as_str()));
+    for bind in &binds {
+        query = query.bind(bind);
+    }
+    let proposed = query.fetch_one(pool).await?;
     let superseded = usize::try_from(proposed).unwrap_or_default().saturating_sub(ids.len());
     Ok((ids, superseded))
 }
 
-/// Load decisions that are still safe to apply.
-///
-/// Revalidated at apply time rather than trusted from the simulation: the rules,
-/// the mappings or the library may have changed since, and a superseded proposal
-/// must never be executed. A proposal the current rules no longer send to the
-/// same folder is skipped and retired, since nothing else retires it when a
-/// rule or a mapping changes and it would otherwise stay on screen as pending,
-/// skipped again on every apply.
+/// The applied moves a revert may undo that `matching`, written on `decisions d`, keeps,
+/// instance by instance and the latest first.
+pub(super) async fn revertible_matching(
+    pool: &SqlitePool,
+    matching: &Conditions,
+) -> AppResult<Vec<String>> {
+    let sql = format!(
+        "SELECT d.id FROM decisions d WHERE {REVERTIBLE}{}
+          ORDER BY d.instance_id, d.applied_at DESC, d.media_title, d.id",
+        matching.sql()
+    );
+    let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sql.as_str()));
+    for bind in matching.binds() {
+        query = query.bind(bind);
+    }
+    Ok(query.fetch_all(pool).await?)
+}
+
+/// The decisions still safe to apply, revalidated now since the rules, mappings or library may
+/// have changed. A proposal the rules no longer send to the same folder is skipped and retired,
+/// or it stays pending on screen, skipped again on every apply.
 pub(super) async fn load_pending_moves(
     pool: &SqlitePool,
     ids: &[String],
@@ -153,12 +189,7 @@ pub(super) async fn load_pending_moves(
            AND d.target_root_folder IS NOT NULL
            AND m.current_root_folder IS d.current_root_folder COLLATE path"
     );
-    // The last clause is the revalidation: a decision names the folder the
-    // item was in when it was proposed, and an item moved since (by hand, or
-    // by an apply the row already reflects) is not the item it describes.
-    // `IS`, so two nulls compare equal, and through the path collation, since
-    // an Arr reports a root folder closed by its separator and a title's root
-    // without one.
+    // The last clause drops a title moved since it was proposed. `IS` matches a null to a null.
     let mut query = sqlx::query_as::<_, MoveRow>(AssertSqlSafe(sql.as_str()));
     for id in ids {
         query = query.bind(id);
@@ -176,9 +207,7 @@ pub(super) async fn load_pending_moves(
 
     if !stale.is_empty() {
         let stale_ids: Vec<&str> = stale.iter().map(|row| row.0.as_str()).collect();
-        // The skip is what keeps the library safe, and the retirement only
-        // takes the proposals off the screen. A database busy past its timeout
-        // must not fail the moves that are still current.
+        // Only the skip keeps the library safe, so a failed retirement fails no current move.
         match retire(pool, &stale_ids).await {
             Ok(()) => {
                 info!(retired = stale.len(), "Proposals the rules no longer justify were retired")

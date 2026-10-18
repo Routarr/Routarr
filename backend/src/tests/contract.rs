@@ -234,6 +234,7 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
         ("POST", "/decisions/apply", "/decisions/apply", json!({ "decision_ids": ["d-1"] })),
         ("POST", "/decisions/apply-all", "/decisions/apply-all", json!({ "simulation_id": "s" })),
         ("POST", "/decisions/revert", "/decisions/revert", json!({ "decision_ids": ["d-1"] })),
+        ("POST", "/decisions/revert-all", "/decisions/revert-all", json!({})),
         ("POST", "/overrides", "/overrides", json!({ "media_id": "m", "target_category": "a" })),
         ("POST", "/media/{id}/keep", "/media/m/keep", json!({})),
         (
@@ -428,6 +429,12 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     checker.check("DELETE", "/overrides/{id}", 200, &removed);
     let kept = app.post("/api/v1/media/m-1/keep", json!({ "reason": "a test" })).await;
     checker.check("POST", "/media/{id}/keep", kept.status.as_u16(), &kept);
+    let asked = app.post("/api/v1/decisions/revert-all", json!({})).await;
+    assert_eq!(asked.status, StatusCode::CONFLICT, "{}", asked.json);
+    checker.check("POST", "/decisions/revert-all", 409, &asked);
+    let body = json!({ "confirm": every_guardrail });
+    let reverted = app.post("/api/v1/decisions/revert-all", body).await;
+    checker.check("POST", "/decisions/revert-all", 200, &reverted);
     let external = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
     let pin = json!({ "target_category": "anime" });
     checker.check("PUT", "/overrides/external", 200, &app.put(external, pin).await);
@@ -491,6 +498,10 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     let body = json!({ "simulation_id": again.json["simulation_id"], "confirm": every_guardrail });
     let started = app.send(asynchronously("/decisions/apply-all", body)).await;
     checker.check("POST", "/decisions/apply-all", 202, &started);
+    finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    let body = json!({ "confirm": every_guardrail });
+    let started = app.send(asynchronously("/decisions/revert-all", body)).await;
+    checker.check("POST", "/decisions/revert-all", 202, &started);
     finished(&app, started.json["job_id"].as_str().unwrap()).await;
     // Last: the simulation that follows a sync holds the lock the ones above take.
     let started = app.send(preferring_async("/api/v1/instances/sync", json!({}))).await;

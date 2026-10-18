@@ -8,24 +8,18 @@ use crate::services::sync;
 use super::fake_arr::FakeArr;
 use super::{TestApp, TestResponse, one_move_ready};
 
-/// The client hanging up mid-apply (a browser navigating away, an Arr whose
-/// webhook timed out) must not leave a move done at the Arr and unknown here.
-/// Awaited in the request future, the work would be dropped with the connection
-/// at its next await: the Arr would have moved the item, the decision would
-/// stay `pending`, the row would keep its old path, and the next pass would
-/// propose the move again.
+/// A client hanging up mid-apply must not leave a move done at the Arr and unknown here.
+/// Awaited in the request future, the work would drop with the connection, the decision
+/// would stay `pending` and the next pass would propose the move again.
 #[tokio::test]
 async fn hanging_up_mid_apply_still_records_the_move() {
     use std::time::Duration;
 
-    // Long enough to hang up while the Arr is at work, and well under the
-    // test client's own timeout, or the move fails on its own and proves
-    // nothing about the hang-up.
+    // Under the test client's timeout, or the move fails on its own and proves nothing.
     let arr = FakeArr::holding_edits(Duration::from_millis(100)).await;
     let (app, decision_id) = one_move_ready(&arr).await;
 
-    // Driven until the Arr has the edit in hand, then dropped, which is what a
-    // request future undergoes when its connection goes away.
+    // Dropped once the Arr holds the edit, as a request future is when its connection goes.
     {
         let mut applying = Box::pin(app.post(
             "/api/v1/decisions/apply",
@@ -41,8 +35,7 @@ async fn hanging_up_mid_apply_still_records_the_move() {
         assert!(reached.is_ok(), "the edit never reached the Arr");
     }
 
-    // Bounded, not timed: the work either finishes and records, or it was
-    // dropped with the request and never will.
+    // Bounded: the work either records, or it was dropped with the request and never will.
     let recorded = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let status: String = sqlx::query_scalar("SELECT status FROM decisions WHERE id = ?")
@@ -64,11 +57,7 @@ async fn hanging_up_mid_apply_still_records_the_move() {
         .await
         .unwrap();
     assert_eq!(path, "/movies/anime", "the row was not brought in line with the Arr");
-    // Bounded, not immediate: the lock falls when the detached future ends,
-    // which is after `job.succeed`, itself after the status this test has just
-    // observed. Asserting on it straight away asserts an ordering the executor
-    // never promised, and only holds on a machine fast enough to lose the race
-    // by microseconds, which a busy CI runner is not.
+    // Bounded: the lock falls when the detached future ends, later than the status read above.
     let released = tokio::time::timeout(Duration::from_secs(5), async {
         while app.state.jobs.try_lock("apply").is_none() {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -83,10 +72,9 @@ async fn hanging_up_mid_apply_still_records_the_move() {
     );
 }
 
-/// An apply that cannot load its moves ends its job as failed. A `?` between
-/// `start` and the outcome would leave the row `running` until the next restart
-/// fails it as an orphan, and the Tasks screen would show a job in progress.
-/// The cause, a database error, goes to the log: any key reads the row.
+/// An apply that cannot load its moves ends its job as failed. A `?` between `start` and
+/// the outcome leaves the row `running` until a restart fails it as an orphan. The cause
+/// goes to the log, since any key reads the row.
 #[tokio::test]
 async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     use tracing_subscriber::layer::SubscriberExt;
@@ -102,8 +90,7 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     let capture = super::LogCapture::default();
     let subscriber = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
-    // For the thread, not the future: the job fails on a task of its own,
-    // which the test's single-threaded runtime runs on this same thread.
+    // For the thread: the job's own task runs on it under the single-threaded runtime.
     let _logging = tracing::subscriber::set_default(subscriber);
     let outcome = executor::apply_unattended(
         &app.state,
@@ -130,10 +117,8 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     assert!(app.state.jobs.try_lock("apply").is_some(), "the apply lock was left held");
 }
 
-/// A decision names the folder the item was in when it was proposed. Moved
-/// since, by hand in Radarr or by an earlier apply the row already reflects,
-/// the proposal describes an item that no longer exists, and sending it to the
-/// Arr again is a second write nobody asked for.
+/// A decision names the folder the item was in when proposed. Moved since, by hand or by an
+/// earlier apply, the proposal is stale, and sending it again is a write nobody asked for.
 #[tokio::test]
 async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied() {
     let arr = FakeArr::start().await;
@@ -159,10 +144,8 @@ async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied(
     assert!(arr.recorded().writes.is_empty(), "the Arr was written to for a stale decision");
 }
 
-/// A proposal records what the rules said when the simulation ran. Nothing
-/// retires it when a rule is deleted, edited or reordered, so the plan the
-/// Simulation screen reloads after the edit is still pending, and applied as it
-/// stands it sends the item where no rule sends it any more.
+/// A proposal records what the rules said when it ran, and stays pending after a rule edit.
+/// Applied as it stands, it sends the item where no rule sends it any more.
 #[tokio::test]
 async fn a_proposal_the_rules_no_longer_justify_is_skipped_at_apply_time() {
     let arr = FakeArr::start().await;
@@ -181,8 +164,7 @@ async fn a_proposal_the_rules_no_longer_justify_is_skipped_at_apply_time() {
 
     assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
     assert!(arr.recorded().writes.is_empty(), "the Arr was written to for a stale proposal");
-    // Left pending, it is still counted as awaiting review and offered again,
-    // to be skipped again on every apply.
+    // Left pending, it would be offered again and skipped again on every apply.
     let superseded: bool = sqlx::query_scalar("SELECT superseded FROM decisions WHERE id = ?")
         .bind(&decision_id)
         .fetch_one(&app.state.pool)
@@ -239,6 +221,7 @@ async fn apply_all_skips_a_proposal_the_rules_no_longer_justify() {
     let report = executor::apply_simulation_in_batches(
         &app.state,
         &simulation_id,
+        &Default::default(),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -266,8 +249,7 @@ async fn a_proposal_another_rule_now_justifies_is_still_applied() {
     .execute(&app.state.pool)
     .await
     .unwrap();
-    // The rule that proposed the move is gone, so only the new one can
-    // justify it.
+    // With the proposing rule gone, only the new one can justify the move.
     sqlx::query("DELETE FROM rules WHERE id = 'rule-anime'")
         .execute(&app.state.pool)
         .await
@@ -318,8 +300,7 @@ async fn a_folder_respelt_with_a_trailing_slash_does_not_make_a_proposal_stale()
 async fn only_the_stale_proposal_of_a_selection_is_retired() {
     let arr = FakeArr::start().await;
     let (app, _) = one_move_ready(&arr).await;
-    // A second film, pinned to `anime`, so it keeps its destination when the
-    // rules go.
+    // A second film, pinned to `anime`, keeps its destination when the rules go.
     arr.hold_film(11);
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
@@ -510,10 +491,9 @@ async fn a_declared_destination_on_radarr_is_reached_film_by_film() {
     assert_eq!(recorded.query_strings, ["moveFiles=true", "moveFiles=false"]);
 }
 
-/// A title moved twice can only have its latest move undone. Undoing the older
-/// one would send it back to its first folder and skip the one between, and in
-/// History two buttons would answer to one name. The list says which move a
-/// revert may undo, and the server refuses the other without writing.
+/// A title moved twice can only have its latest move undone: the older one would skip the
+/// folder between, and two History buttons would answer to one name. The list says which
+/// move may be reverted, and the server refuses the other without writing.
 #[tokio::test]
 async fn only_the_latest_move_of_a_title_can_be_reverted() {
     let arr = FakeArr::start().await;
@@ -1312,10 +1292,8 @@ async fn a_revert_into_a_folder_the_instance_no_longer_has_is_skipped() {
     assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote into a folder nobody offers");
 }
 
-/// Reverting is the one operation a user reaches for when something has
-/// already gone wrong, so it goes through the route: a handler that never
-/// receives the ids it is given fails in exactly the moment nobody wants a
-/// surprise.
+/// Reverting is what a user reaches for once something went wrong, so this goes through the
+/// route: a handler that drops the ids it is given fails at the worst moment.
 #[tokio::test]
 async fn reverting_puts_the_media_back() {
     let arr = FakeArr::start().await;
@@ -1517,8 +1495,7 @@ async fn pending_move(app: &TestApp, size: i64, source_free: i64, target_free: i
     .execute(&app.state.pool)
     .await
     .unwrap();
-    // What sends the item to `anime`. An apply decides each item again, and a
-    // decision nothing justifies is skipped before it reaches the Arr.
+    // What sends the item to `anime`: an apply skips a decision nothing justifies.
     sqlx::query(
         "INSERT INTO overrides (id, media_id, target_category) VALUES ('o1', 'm1', 'anime')",
     )
@@ -1540,7 +1517,7 @@ async fn pending_move(app: &TestApp, size: i64, source_free: i64, target_free: i
 
 const SIX_GIB: i64 = 6 << 30;
 
-/// A second 6 GiB film beside `pending_move`'s, moving to `folder` on `i1`.
+/// A second 6 GiB film beside `pending_move`'s, moving to `category` on `i1`.
 async fn second_pending_move(app: &TestApp, category: &'static str) {
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
@@ -1748,9 +1725,7 @@ async fn a_move_larger_than_the_destination_is_refused_with_both_figures() {
     assert_eq!(refused.status, 409, "a plan that cannot fit was applied: {}", refused.json);
     let message = refused.message();
     assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
-    // Both figures, in the interface's own vocabulary: the root folders table
-    // says `GB` off the same division by 1024, and one figure named two ways
-    // on two screens read together contradicts itself.
+    // `GB` off a division by 1024, as the root folders table says, or the two screens disagree.
     assert!(message.contains("93.1 GB"), "the refusal must say what is moving: {message}");
     assert!(message.contains("9.3 GB"), "and what the destination has: {message}");
 }
@@ -1773,11 +1748,9 @@ async fn a_move_that_leaves_its_files_asks_nothing_about_free_space() {
     assert_eq!(response.json["failed"], 1, "the move never reached the Arr: {}", response.json);
 }
 
-/// A destination the Arr cannot reach is asked about, not silently written to.
-///
-/// The routing map keeps a sleeping folder on purpose, so the question of
-/// whether it can be written to has to be asked here, and asked rather than
-/// refused, because a NAS that wakes on access cannot be told from a dead disk.
+/// A destination the Arr cannot reach is asked about, not silently written to. The routing
+/// map keeps a sleeping folder, and this asks rather than refuses, since a NAS that wakes on
+/// access cannot be told from a dead disk.
 #[tokio::test]
 async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     let app = TestApp::new().await;
@@ -1792,9 +1765,7 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     assert_eq!(refused.json["confirm"], "unreachable");
     let message = refused.message();
     assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
-    // How long, not a verdict: twenty minutes reads as a nap and three days as
-    // a fault, and the operator is the one who knows their hardware. A stored
-    // UTC time would leave them to work out the age in their own zone.
+    // An age the operator weighs against their hardware, never a UTC time to convert.
     assert!(message.contains("3 h"), "and say how long it has been quiet: {message}");
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     assert!(!message.contains(&today), "no stored time in the sentence: {message}");
@@ -1820,8 +1791,7 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
 async fn a_destination_that_woke_up_is_not_asked_about() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = one_move_ready(&arr).await;
-    // `anime` mapped to `/movies/kids`, which the fake reports answering,
-    // stored as not answering when it was last listed.
+    // `anime` on `/movies/kids`, which the fake reports answering and the row as asleep.
     app.execute(&[
         "UPDATE root_folders SET path = '/movies/kids', arr_id = 3, accessible = 0
           WHERE id = 'rf-2'",
@@ -1898,10 +1868,7 @@ async fn the_refusal_can_be_confirmed_through() {
     pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
 
     assert_eq!(apply(&app, &[]).await.status, 409);
-    // Past the guard the move reaches the Arr, which is unreachable here: the
-    // apply answers, and reports the one move as failed. Anything else (a
-    // refusal, or a success against a host that does not exist) is not the
-    // guard letting go.
+    // Only a 200 with the move failed at the unreachable Arr proves the guard let go.
     let confirmed = apply(&app, &["capacity"]).await;
     assert_eq!(confirmed.status, 200, "confirming did not get past the guard: {}", confirmed.json);
     assert_eq!(confirmed.json["failed"], 1, "the move never reached the Arr: {}", confirmed.json);
@@ -1925,10 +1892,9 @@ async fn a_move_within_one_filesystem_is_not_weighed() {
     assert_eq!(response.json["failed"], 1, "the move never reached the Arr: {}", response.json);
 }
 
-/// A declared destination sits under no root folder an Arr reports, so no
-/// sync brings it a free-space figure and nothing upstream would notice it
-/// filling. With no figure, a move of files onto it is asked about rather
-/// than waved through as an Arr's silent folder is.
+/// A declared destination sits under no root folder an Arr reports, so no sync brings it a
+/// free-space figure. With none, a move of files onto it is asked about, rather than waved
+/// through as an Arr's silent folder is.
 #[tokio::test]
 async fn a_declared_destination_with_no_figure_is_asked_about_its_space() {
     let app = TestApp::new().await;
@@ -1986,16 +1952,9 @@ async fn the_moving_routes_refuse_an_unknown_decision() {
     assert_eq!(app.count("SELECT COUNT(*) FROM jobs").await, 0, "a task ran over nothing");
 }
 
-/// `apply` and `sync:{instance}` are different job locks, so an application and
-/// a synchronisation of the same instance can run at once, and both write
-/// `current_root_folder`. The losing interleaving is a sync that read the Arr
-/// *before* the move landed and commits *after* it: it puts the old path back,
-/// and the next simulation reproposes a move that already happened.
-///
-/// Made deterministic rather than raced: a sync whose read predates the move is
-/// the same statement as a move stamped after the read. The fake still answers
-/// `/movies/standard`, which is precisely the stale reply a real Arr gives while
-/// the editor call is still in flight.
+/// `apply` and `sync:{instance}` are distinct locks, and a sync that read the Arr before a
+/// move landed must not put the old path back. A move stamped after the read stands in for
+/// the race, and the fake's `/movies/standard` is the stale reply.
 #[tokio::test]
 async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
     let arr = FakeArr::start().await;
@@ -2029,10 +1988,8 @@ async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
     assert_eq!(path, "/movies/anime/My Neighbor Totoro (1988)");
 }
 
-/// The other half, and the one that stops the guard becoming a permanent veto:
-/// once a read is newer than the move, the Arr is authoritative again. Someone
-/// moving a film in Radarr's own interface must still be followed: Routarr
-/// having moved it once is not a claim of ownership over it.
+/// The other half, which keeps the guard from becoming a veto: a read newer than the move
+/// makes the Arr authoritative again, so a film moved back in Radarr is followed.
 #[tokio::test]
 async fn a_sync_that_read_after_the_move_still_follows_the_arr() {
     let arr = FakeArr::start().await;

@@ -1,24 +1,29 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { decision, paginated } from '../test/fixtures';
+import { decision, instance, job, paginated, rule } from '../test/fixtures';
 import { api, ApiError } from '../api/client';
 import { answerConfirmation } from '../test/confirm';
 import History from './History.svelte';
 
 /**
- * The audit trail, and the only screen that can undo a move.
- *
- * Reverting asks once, through one dialog. Chaining two ("revert?", then "move
- * the files too?") gives the second no context, and cancelling it would mean
- * "revert without moving files" rather than "stop": a Cancel button that does
- * not cancel.
+ * The audit trail, and the only screen that can undo a move. A revert asks once, in one dialog,
+ * since a second dialog's Cancel would revert without the files rather than stop.
  */
 
 const show = () => renderWithI18n(History);
+
+// Nothing a revert of many could take, and nothing to filter, unless a test says otherwise.
+beforeEach(() => {
+  vi.spyOn(api, 'countDecisions').mockResolvedValue(0);
+  vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
+  vi.spyOn(api, 'getInstances').mockResolvedValue([]);
+  vi.spyOn(api, 'getCategories').mockResolvedValue([]);
+  vi.spyOn(api, 'getRules').mockResolvedValue([]);
+});
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -49,10 +54,8 @@ describe('History', () => {
   });
 
   /**
-   * Whether a move can still be undone is the server's verdict: one never
-   * applied, one already undone, and one another move has followed since all
-   * arrive with `revertible` false. Offering the button anyway sends the
-   * executor a request it can only refuse.
+   * The server says whether a move can be undone: never applied, undone, or followed since. A
+   * button offered anyway sends the executor a request it can only refuse.
    */
   it('offers no revert where the server says the move cannot be undone', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
@@ -148,9 +151,8 @@ describe('History', () => {
     );
 
   /**
-   * A revert writes into the folder the move came from, and the backend asks
-   * there what it asks before an apply. The question lifts only its own name,
-   * so the second send carries that name and nothing else.
+   * The backend asks before a revert what it asks before an apply. An answer lifts only its own
+   * name, so the second send carries that name and nothing else.
    */
   it('asks the question the backend raises, and reverts once it is answered', async () => {
     const revertDecisions = vi
@@ -197,10 +199,7 @@ describe('History', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  /**
-   * A revert that restored nothing did not do what was asked, and in the success
-   * banner the reason reads as good news under a green tick.
-   */
+  /** A revert that restored nothing failed: in a success banner its reason reads as good news. */
   it('reports a revert that restored nothing as a failure, not a success', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', revertible: true, media_title: 'Akira' })]),
@@ -229,8 +228,7 @@ describe('History', () => {
   });
 
   /**
-   * The banner stays until something replaces it. Left standing, the first
-   * revert's count reads as the outcome of the second, printed above the
+   * Left standing, the first revert's count reads as the outcome of the second, printed above the
    * reason that one was refused.
    */
   it('takes the previous success off screen when the next revert is refused', async () => {
@@ -288,8 +286,7 @@ describe('History', () => {
   });
 
   /**
-   * Every search is a query against the operator's own server, so a title is
-   * asked for once the typing stops, not once per letter, and from the first
+   * A title is asked of the server once the typing stops, not once per letter, and from the first
    * page: the page the reader was on may not exist in the narrower list.
    */
   it('asks for a typed title once the typing stops, from the first page', async () => {
@@ -313,8 +310,8 @@ describe('History', () => {
   });
 
   /**
-   * The row says whether the nightly sweep proposed a move or a person did,
-   * and says nothing, rather than guessing, when the row recorded no cause.
+   * The row says whether the nightly sweep proposed a move or a person did, and says nothing,
+   * rather than guessing, when the row recorded no cause.
    */
   it('names what caused a decision, and stays silent when nothing recorded it', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
@@ -333,9 +330,8 @@ describe('History', () => {
   });
 
   /**
-   * "Manually" is not an answer once several people can sign in, and a key can
-   * be a script rather than any of them. The name sits beside the trigger,
-   * since the scheduler has one and no name.
+   * "Manually" is no answer once several people can sign in, or a key is a script. The name sits
+   * beside the trigger, since the scheduler has a trigger and no name.
    */
   it('names who asked, beside what caused it, and only when a mode named one', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
@@ -356,9 +352,8 @@ describe('History', () => {
   });
 
   /**
-   * The table is read again before a revert is reported. A read that fails
-   * leaves the rows as they were, and the revert's success must not take that
-   * failure off screen, or a stale table sits under a green banner.
+   * The table is read again before a revert is reported, and the revert's success keeps a failed
+   * read on screen, or a stale table sits under a green banner.
    */
   it('keeps a failed reload on screen beside the revert it followed', async () => {
     vi.spyOn(api, 'getDecisions')
@@ -449,4 +444,116 @@ it('hands the focus to the next Revert once a row cannot be reverted again', asy
       screen.getByRole('button', { name: /Revert – Perfect Blue/ }),
     ),
   );
+});
+
+describe('narrowing and reverting many', () => {
+  const report = {
+    candidates: 3,
+    applied: 3,
+    failed: 0,
+    skipped: 0,
+    batches_run: 1,
+    batches_planned: 1,
+    moving: 0,
+    superseded: 0,
+    stopped_early: false,
+    stopped: null,
+    errors: [],
+  };
+
+  it('asks the server for the instance, rule, simulation and days chosen', async () => {
+    vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
+    vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
+    vi.spyOn(api, 'getJobs').mockResolvedValue(
+      paginated([job({ kind: 'simulate', result: { simulation_id: 's9' } })]),
+    );
+    const getDecisions = vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
+    show();
+
+    await screen.findByRole('option', { name: 'Japanese animation' });
+    await userEvent.selectOptions(screen.getByLabelText('Filter by instance'), 'i1');
+    await userEvent.selectOptions(screen.getByLabelText('Filter by rule'), 'r1');
+    await userEvent.selectOptions(screen.getByLabelText('Filter by simulation'), 's9');
+    await fireEvent.change(screen.getByLabelText('Decided from'), {
+      target: { value: '2026-10-17' },
+    });
+    await fireEvent.change(screen.getByLabelText('Decided until'), {
+      target: { value: '2026-10-18' },
+    });
+
+    await waitFor(() =>
+      expect(getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          instance_id: 'i1',
+          rule_id: 'r1',
+          simulation_id: 's9',
+          since: new Date(2026, 9, 17).toISOString(),
+          until: new Date(2026, 9, 19).toISOString(),
+          page: 1,
+        }),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(api.countDecisions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ instance_id: 'i1', revertible: true }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('offers no revert of many while nothing listed can be reverted', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    show();
+
+    await screen.findByText('Akira');
+    expect(screen.queryByRole('button', { name: /Revert all/ })).toBeNull();
+  });
+
+  /** The server counts and asks, so the reader confirms the count it will act on. */
+  it('reverts every move the filters match once the server question is answered', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
+    vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
+    const revertAll = vi
+      .spyOn(api, 'revertAllDecisions')
+      .mockRejectedValueOnce(
+        new ApiError('Moves to revert: 3.', 409, 'confirmation_required', null, 'batch'),
+      )
+      .mockResolvedValue(report);
+    show();
+    expect(await screen.findByRole('button', { name: 'Revert all (3)' })).toBeTruthy();
+
+    await screen.findByRole('option', { name: 'Japanese animation' });
+    await userEvent.selectOptions(screen.getByLabelText('Filter by rule'), 'r1');
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Revert the matching moves (3)' }),
+    );
+    expect(await answerConfirmation()).toContain('Moves to revert: 3.');
+
+    expect(await screen.findByText('Moves reverted: 3 of 3. Batches: 1.')).toBeTruthy();
+    expect(nthCall(revertAll)[0]).toEqual({ filter: { rule_id: 'r1' } });
+    expect(nthCall(revertAll, 1)[2]).toEqual(['batch']);
+  });
+
+  it('says a revert of many stopped by a refused slice left the rest applied', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
+    vi.spyOn(api, 'revertAllDecisions').mockResolvedValue({
+      ...report,
+      applied: 1,
+      failed: 2,
+      batches_planned: 2,
+      stopped_early: true,
+      errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'refused' }],
+    });
+    show();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Revert all (3)' }));
+
+    expect(
+      await screen.findByText(
+        'Stopped after a failure. Reverted: 1 of 3. Batches run: 1 of 2. The rest stays applied.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('Akira: refused')).toBeTruthy();
+  });
 });

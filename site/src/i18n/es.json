@@ -49,6 +49,7 @@
   "api.ref.op.apply": "Aplicar las decisiones elegidas",
   "api.ref.op.apply_all": "Aplicar todo lo que propuso una simulación",
   "api.ref.op.revert": "Devolver títulos a su sitio",
+  "api.ref.op.revert_all": "Devolver a su sitio cada título que coincide con un filtro",
   "api.ref.op.health": "Contactar con cada Arr y cada fuente, e informar",
   "api.ref.op.sync_all": "Volver a leer cada Arr activado",
   "api.ref.op.sync_instance": "Volver a leer un Arr",

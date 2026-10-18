@@ -256,6 +256,7 @@ fn build_router(state: AppState) -> Router {
         .route("/decisions/apply", post(api::decisions::apply))
         .route("/decisions/apply-all", post(api::decisions::apply_all))
         .route("/decisions/revert", post(api::decisions::revert))
+        .route("/decisions/revert-all", post(api::decisions::revert_all))
         .route("/overrides", get(api::overrides::list).post(api::overrides::create))
         // Pins by the TMDB, TheTVDB or IMDb id another service gives a title.
         .route(
