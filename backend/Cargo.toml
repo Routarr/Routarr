@@ -69,7 +69,7 @@ subtle = "2"
 sha2 = "0.11"
 # Signs the outgoing notification, as Standard Webhooks specifies.
 hmac = "0.13"
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.2", default-features = false, features = ["deflate"] }
 # Archives sealed with the backup passphrase, a stream of AES-256-GCM chunks:
 # an archive is the whole database, never held in memory to be sealed.
 aead-stream = { version = "0.6", features = ["alloc"] }

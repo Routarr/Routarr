@@ -1,20 +1,6 @@
-//! Scheduled, restorable backups.
-//!
-//! The database alone is useless: the Arr credentials in it are sealed with a
-//! key that lives in a separate file, which a "copy the database" backup leaves
-//! behind.
-//!
-//! Three properties are load-bearing:
-//!
-//! * **Consistent without stopping the server.** `VACUUM INTO` snapshots a live
-//!   database at one point in time, WAL included.
-//! * **Self-sufficient.** Database, master key and API key travel together,
-//!   which makes the archive as sensitive as the master key itself.
-//! * **A restore never half-applies.** The bundle is validated and *staged*,
-//!   and the swap happens at the next startup, before the pool opens. Replacing a
-//!   database under an open pool is how a restore destroys what it recovers.
-//!   Nothing is marked pending until every file is written and the database
-//!   has been opened and checked, and the start checks it again.
+//! Scheduled, restorable backups. An archive carries the master key and the API key with the
+//! database, so it is as sensitive as the master key. A restore is staged and applied by the
+//! next start before the pool opens, as replacing a database under an open pool destroys it.
 
 mod sealed;
 
@@ -38,14 +24,11 @@ use crate::state::AppState;
 /// Written into every archive so a restore can refuse what it cannot honour.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupManifest {
-    /// The Routarr version that produced it, for diagnosis.
     pub version: String,
-    /// The last migration applied when it was taken. A bundle from a *newer*
-    /// schema is refused rather than restored into an older binary, which would
-    /// leave the database ahead of the code that has to read it.
+    /// The last migration applied. A newer one is refused, since restoring it would leave the
+    /// database ahead of the code that reads it.
     pub schema: String,
     pub created_at: String,
-    /// Whether the master key travelled with it.
     pub includes_master_key: bool,
 }
 
@@ -62,7 +45,7 @@ pub struct BackupFile {
     pub encrypted: bool,
 }
 
-/// Entry names inside the archive. Fixed, so a restore knows what to look for.
+/// Entry names inside the archive. Renamed, every archive already taken stops restoring.
 const DB_ENTRY: &str = "routarr.db";
 const MASTER_KEY_ENTRY: &str = "routarr.key";
 const API_KEY_ENTRY: &str = "routarr.api_key";
@@ -77,12 +60,8 @@ const PRE_RESTORE: &str = ".pre-restore";
 /// has been checked is renamed to the pending suffix.
 const STAGING_SUFFIX: &str = ".restore-staging";
 
-/// Files that exist only until the work writing them succeeds.
-///
-/// Removed on drop unless kept, so every early return takes them away. Left
-/// behind, a half-written archive under a backup name is listed, counted by the
-/// retention and restorable, and a half-written restore is applied at the next
-/// start.
+/// Files removed on drop unless kept, so every early return takes them away. Left behind, a
+/// half-written archive would be listed and restorable, and a half-written restore applied.
 struct Scaffold(Vec<PathBuf>);
 
 impl Scaffold {
@@ -103,7 +82,6 @@ impl Drop for Scaffold {
     }
 }
 
-/// Where archives live: a `backups` directory beside the database.
 pub fn backup_dir(state: &AppState) -> PathBuf {
     backups_in(&state.config.data_dir)
 }
@@ -112,12 +90,8 @@ fn backups_in(data_dir: &Path) -> PathBuf {
     data_dir.join("backups")
 }
 
-/// A name Routarr generated, and nothing else.
-///
-/// The download and delete endpoints take this from the URL, so it is the one
-/// place a caller could try to walk out of the directory. Rejecting anything
-/// but the exact generated shape is simpler to defend than sanitising: no
-/// separators, no `..`, no absolute paths, because none of them can match.
+/// A name Routarr generated, and nothing else. The download and delete routes take it from the
+/// URL, so only the exact generated shape may pass, which no path out of the folder matches.
 pub fn is_valid_backup_name(name: &str) -> bool {
     name.len() <= 64
         && stamp_of(name).is_some()
@@ -131,15 +105,13 @@ fn stamp_of(name: &str) -> Option<&str> {
     rest.strip_suffix(sealed::SUFFIX).unwrap_or(rest).strip_suffix(".zip")
 }
 
-/// What an archive an application key took is named with. Its archives are
-/// kept under a count of their own, so taking backups in a loop removes only
-/// its own, never the owner's or the schedule's.
+/// Marks an archive an application key took. Those are retained under a count of their own,
+/// so a script taking backups in a loop never prunes the owner's or the schedule's.
 const APPLICATION_SUFFIX: &str = "-app";
 
 /// How long after the newest archive an application key may take another.
 const APPLICATION_GAP: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
-/// Take a backup now.
 pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile> {
     let localizer = state.localizer().await;
     let by_application = by.key.is_some();
@@ -190,8 +162,7 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     }
 
     if outcome.is_ok() {
-        // Pruning is not part of the backup's success: a full disk must not
-        // make the archive that was just written look like a failure.
+        // A failed prune must not make the archive just written look like a failure.
         if let Err(e) = prune(state).await {
             warn!("Could not prune old backups: {e}");
         }
@@ -200,15 +171,12 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     outcome
 }
 
-/// Write the backup's own job into its snapshot as the success it is once the
-/// archive exists. Taken while the job runs, the row would come back running
-/// with every restore, and the first start after it would mark it interrupted:
-/// a failed backup shown for the very archive just restored.
+/// Mark the backup's own job a success inside its snapshot. Left running, it would come back
+/// with every restore of the archive, and the next start would mark it interrupted.
 async fn settle_in_snapshot(snapshot: &Path, job: &str, name: &str) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
     let detail = crate::jobs::Detail::new("JobDetailBackedUp").with("file", name);
-    // A rollback journal: the snapshot is zipped alone, and a log beside it
-    // would be left out with this write in it.
+    // A rollback journal: the snapshot is zipped alone, so a log beside it would be lost.
     let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(snapshot)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
@@ -230,8 +198,7 @@ async fn settle_in_snapshot(snapshot: &Path, job: &str, name: &str) -> AppResult
     Ok(())
 }
 
-/// Take a backup of a database the server has not opened yet, before a start
-/// migrates it: the archives kept afterwards would all be of the new schema,
+/// Back up a database before a start migrates it: every later archive is of the new schema,
 /// which the release before cannot open.
 pub async fn before_migrating(
     config: &crate::config::Config,
@@ -241,8 +208,6 @@ pub async fn before_migrating(
     write_archive(config, pool, "", passphrase, None).await
 }
 
-/// Write an archive, sealed for `passphrase` when there is one, for the job
-/// `job` when one runs it.
 async fn write_archive(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
@@ -261,21 +226,13 @@ async fn write_archive(
         None => plain_name.clone(),
     };
     let path = dir.join(&name);
-    // Named to the second: a name already taken is refused before a copy of
-    // the whole database is written for nothing. Checked again at the end,
-    // since the name can be taken meanwhile.
+    // Named to the second: refused here before a whole copy is written, and again at the end.
     if path.exists() || dir.join(&plain_name).exists() {
         return Err(taken_this_second());
     }
 
-    // A consistent snapshot of the live database, WAL included, in the work
-    // directory, which the container can write and nobody else reads.
     let snapshot = work_file(&config.data_dir, "snapshot.db")?;
-    // A copy of the whole database, sealed credentials included, and twice
-    // the space a backup costs: gone on every way out of this function. It
-    // moves into the archive task below, which runs to its end whatever
-    // happens to the future awaiting it, so a cancelled caller does not
-    // remove it under the task that reads it.
+    // The whole database, removed on any exit, by the archive task if the caller cancels.
     let snapshot_scaffold = Scaffold(vec![snapshot.clone()]);
     vacuum_into(pool, &snapshot).await?;
     if let Some(job) = job {
@@ -288,10 +245,7 @@ async fn write_archive(
             .await?
             .unwrap_or_else(|| "unknown".to_string());
 
-    // With the key in `ROUTARR_SECRET_KEY`, a `routarr.key` beside the database
-    // is a stale file, not what anything is sealed with: carried and announced,
-    // it would make a restore elsewhere open a database nothing can read,
-    // without the warning a missing key gets.
+    // With `ROUTARR_SECRET_KEY` set, a `routarr.key` is stale: restored, it opens nothing.
     let master_key =
         Some(config.secret_key_path()).filter(|path| config.secret_key.is_none() && path.exists());
     let manifest = BackupManifest {
@@ -301,9 +255,7 @@ async fn write_archive(
         includes_master_key: master_key.is_some(),
     };
 
-    // Off the runtime, and the whole of it: deflating a library-sized database
-    // holds a worker for as long as it takes. Everything the closure needs is
-    // taken by value first, so nothing is borrowed across the boundary.
+    // Off the runtime: deflating a library-sized database would hold a worker throughout.
     let (archive, snapshot_path) = (path.clone(), snapshot.clone());
     let keys = [master_key, Some(config.api_key_path())];
     let manifest_for_zip = manifest.clone();
@@ -330,8 +282,7 @@ async fn write_archive(
 
 const TAKEN_THIS_SECOND: &str = "backup_just_taken";
 
-/// An archive is named to the second, and the name is taken. Said in English
-/// here, for the log of a start, and in the reader's language by `create`.
+/// This second's archive name is taken. In English for a start's log, translated by `create`.
 fn taken_this_second() -> AppError {
     AppError::InProgress {
         reason: TAKEN_THIS_SECOND,
@@ -339,47 +290,30 @@ fn taken_this_second() -> AppError {
     }
 }
 
-/// `VACUUM INTO` against the live pool.
 async fn vacuum_into(pool: &sqlx::SqlitePool, target: &Path) -> AppResult<()> {
-    // Left over from an interrupted run, it would make VACUUM INTO fail: the
-    // statement refuses to overwrite an existing file.
+    // `VACUUM INTO` refuses to overwrite a file an interrupted run left.
     std::fs::remove_file(target).ok();
 
-    // `VACUUM INTO` takes no bind parameter for its destination, so the path
-    // goes into the statement text. Two things keep that safe and both must
-    // stay true: `target` is composed by `write_archive` from the configured
-    // data directory and a timestamp, reachable by no request, and the single
-    // quote is doubled. A caller passing a name from elsewhere would break the
-    // first without breaking the build.
+    // `VACUUM INTO` binds no path: safe only while `target` never comes from a request.
     let quoted = target.to_string_lossy().replace('\'', "''");
     sqlx::query(AssertSqlSafe(format!("VACUUM INTO '{quoted}'"))).execute(pool).await?;
 
-    // `VACUUM INTO` reports success against an in-memory database and writes
-    // nothing. One stat call turns that into a message that says so.
+    // `VACUUM INTO` succeeds against an in-memory database without writing anything.
     if !target.exists() {
         return Err(AppError::Internal(format!(
             "the database snapshot was not written to {}",
             target.display()
         )));
     }
-    // `VACUUM INTO` creates the file under the umask, and it is the whole
-    // database, sealed credentials included, until the zip is written and
-    // it is removed.
+    // Created under the umask, and it holds the whole database with its sealed credentials.
     crate::crypto::restrict_permissions(target);
 
     Ok(())
 }
 
-/// Write the archive, streaming the database rather than holding it.
-///
-/// Synchronous on purpose: the caller runs it on a blocking thread. Nothing
-/// here may read a file whose size follows the library into memory:
-/// `api/backup.rs` streams the download for exactly that reason, and an
-/// archive is the whole database.
-///
-/// `sealing` is the passphrase to seal it for, and where the zip is written in
-/// the clear before: a zip goes back to write its directory, which a sealed
-/// stream cannot. That file is removed whatever happens.
+/// Write the archive on a blocking thread, streaming the database, never reading it whole.
+/// With `sealing`, the zip is written in the clear at its path first, as a zip seeks back to
+/// write its directory, and that file is removed whatever happens.
 fn build_zip(
     path: &Path,
     snapshot: &Path,
@@ -387,9 +321,7 @@ fn build_zip(
     keys: &[Option<PathBuf>; 2],
     sealing: Option<(&Passphrase, &Path)>,
 ) -> AppResult<()> {
-    // Written under a name `list` does not show, and given its own only once
-    // whole: a zip is readable as soon as it is finished, and `ZipWriter`
-    // finishes it on drop, early return included.
+    // Hidden from `list` until whole: `ZipWriter` finishes a readable zip on drop, on error too.
     let partial = partial_path(path);
     std::fs::remove_file(&partial).ok();
     let mut scaffold = Scaffold(vec![partial.clone()]);
@@ -401,20 +333,16 @@ fn build_zip(
         None => partial.clone(),
     };
 
-    // The zip carries the master key and the API key in clear: private from
-    // its first byte.
+    // The zip carries the master key and the API key in clear: private from its first byte.
     let file = crate::crypto::create_private(&zipped, true)
         .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", zipped.display())))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options: zip::write::FileOptions<'_, ()> =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
-    // A function rather than a closure capturing `zip`: the database entry
-    // below writes into the same writer, and a closure holding it would own
-    // the only mutable borrow.
     fn add(
         zip: &mut zip::ZipWriter<std::fs::File>,
-        options: zip::write::FileOptions<'_, ()>,
+        options: zip::write::SimpleFileOptions,
         name: &str,
         bytes: &[u8],
     ) -> AppResult<()> {
@@ -427,9 +355,7 @@ fn build_zip(
 
     add(&mut zip, options, MANIFEST_ENTRY, serde_json::to_string_pretty(manifest)?.as_bytes())?;
 
-    // Copied through, never materialised: read whole, the database would sit
-    // in memory twice, once as bytes and once in the deflater, and it grows
-    // with somebody's library.
+    // Streamed: read whole, a library-sized database would sit in memory twice.
     zip.start_file(DB_ENTRY, options)
         .map_err(|e| AppError::Internal(format!("cannot add {DB_ENTRY} to the archive: {e}")))?;
     let mut source = std::fs::File::open(snapshot)
@@ -437,11 +363,7 @@ fn build_zip(
     std::io::copy(&mut source, &mut zip)
         .map_err(|e| AppError::Internal(format!("cannot write {DB_ENTRY}: {e}")))?;
 
-    // Without the master key the restored database still opens, but every Arr
-    // credential in it is undecryptable, and a restore that silently loses
-    // them is worse than one that refuses.
-    // These two are a handful of bytes each, so reading them whole is not the
-    // same question as the database above.
+    // Read whole, at a few bytes each. Without the master key no restored credential opens.
     for (entry, source) in [MASTER_KEY_ENTRY, API_KEY_ENTRY].iter().zip(keys) {
         if let Some(Ok(bytes)) = source.as_ref().map(std::fs::read) {
             add(&mut zip, options, entry, &bytes)?;
@@ -450,8 +372,7 @@ fn build_zip(
 
     let file =
         zip.finish().map_err(|e| AppError::Internal(format!("cannot finish the archive: {e}")))?;
-    // On disk before it takes a backup name: renamed first, a power cut can
-    // leave an empty file under that name, listed and counted by the retention.
+    // Synced before the rename, or a power cut can leave an empty file under a backup name.
     file.sync_all()
         .map_err(|e| AppError::Internal(format!("cannot write {}: {e}", zipped.display())))?;
     if let Some((passphrase, _)) = sealing {
@@ -474,12 +395,9 @@ fn partial_path(archive: &Path) -> PathBuf {
     archive.with_file_name(format!(".{name}.partial"))
 }
 
-/// Where a backup, a restore and a conversion write what they hold in the
-/// clear: the snapshot, an archive zipped before it is sealed, a sealed one
-/// opened. Beside the database, which holds the same in the clear, and never
-/// in the backup folder, the one a passphrase protects when it is copied
-/// away. Private to the server's user, so a file another writes under the
-/// umask inside it, as `VACUUM INTO` does, is read by nobody else.
+/// Where the copies in the clear go: snapshots, zips before sealing, opened archives. Beside
+/// the database, never in the backup folder a sync copies away. Mode 0700, so a file created
+/// inside under the umask, as `VACUUM INTO` does, stays private.
 fn work_dir(data_dir: &Path) -> AppResult<PathBuf> {
     let dir = data_dir.join(".backup-work");
     let refused =
@@ -502,22 +420,16 @@ fn work_file(data_dir: &Path, label: &str) -> AppResult<PathBuf> {
     Ok(work_dir(data_dir)?.join(format!("{tag}-{label}")))
 }
 
-/// When the newest archive the owner or the schedule took was taken, as an
-/// instant of this process: what the schedule counts its interval from. An
-/// application key's archives are left out, or one taken every few minutes
-/// would hold the schedule off for good.
-///
-/// Read from the name, which `write_archive` stamps, rather than from the
-/// file's modification time, which a copy or a restore of the folder resets.
+/// The instant the schedule counts its interval from. An application key's archives are left
+/// out, or one taken every few minutes would hold the schedule off for good.
 pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
     let taken = last_taken_at(state)?;
     let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
     tokio::time::Instant::now().checked_sub(age)
 }
 
-/// When the newest archive the schedule or the owner took was written. An
-/// application's archives do not stand for one: a script taking them in a loop
-/// would hide a schedule that stopped.
+/// When the newest archive no application key took was written: a script taking them in a
+/// loop would hide a schedule that stopped.
 pub fn last_taken_at(state: &AppState) -> Option<chrono::DateTime<chrono::Utc>> {
     list(state).iter().find(|file| !taken_by_a_key(file)).and_then(taken_at)
 }
@@ -530,8 +442,7 @@ fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
     stamped_at(&file.name)
 }
 
-/// When the archive `name` was taken, by the UTC stamp in its name, which a
-/// copy of the folder keeps and its file dates do not.
+/// When `name` was taken, by its UTC stamp: a copy of the folder resets file dates.
 fn stamped_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let stamp = stamp_of(name)?;
     let stamp = stamp.strip_suffix(APPLICATION_SUFFIX).unwrap_or(stamp);
@@ -568,8 +479,7 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
         })
         .collect();
 
-    // The name carries a sortable timestamp, so this orders by age without
-    // trusting the filesystem's clock.
+    // The stamp in the name sorts by age without trusting file dates.
     files.sort_by(|a, b| b.name.cmp(&a.name));
     files
 }
@@ -577,9 +487,7 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
 /// Delete everything past the retention count, oldest first: the archives
 /// application keys took counted apart from the others.
 pub async fn prune(state: &AppState) -> AppResult<usize> {
-    // Read as stored, a value above the ceiling included: lowering a retention
-    // count removes archives, so only the operator's own save does (see
-    // `settings::Kind::Retention`).
+    // Read as stored, above the ceiling too: only the operator's own save may lower it.
     let keep: usize = state.bounding_setting::<usize>("backup_retention_count").await?.max(1);
     let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) =
         list(state).into_iter().partition(taken_by_a_key);
@@ -640,24 +548,9 @@ pub(super) fn manifest_unreadable(
     AppError::BadRequest(localizer.translate("ErrorBackupManifestUnreadable", &[]))
 }
 
-/// Validate an archive and stage it for the next startup.
-///
-/// Nothing is swapped here on purpose. Replacing the database file under an
-/// open connection pool is how a restore destroys what it was recovering, so
-/// the files are written beside their targets and `main` moves them into place
-/// before it opens anything. Each is written under a staging name and renamed
-/// to its pending name only once every file is complete and the database has
-/// been opened and checked, the database last: its pending file is what a
-/// start takes for a restore.
-///
-/// One staging at a time, run to its end on a task of its own. The stagings
-/// write the same files, and a request dropped halfway, by a proxy giving up
-/// on a large database, would release its lock while its copy goes on: a
-/// retry beside it would then see its checked files removed or overwritten.
-///
-/// A sealed archive opens with `given`, or else with the passphrase the
-/// settings hold, which an archive sealed before the passphrase changed does
-/// not open.
+/// Validate an archive and stage it beside its targets for the next start to apply. One at a
+/// time, on a task of its own: a request dropped halfway must not free the lock while its copy
+/// goes on. A sealed archive opens with `given`, or else the stored passphrase.
 pub async fn stage_restore(
     state: &AppState,
     name: &str,
@@ -689,13 +582,9 @@ pub async fn stage_restore(
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))?
 }
 
-/// `archive` opened beside itself when it is sealed, with `given` or else
-/// `stored`. Refused with `passphrase_required` when neither opens it, which
-/// says whether a passphrase was given.
-///
-/// An archive named as sealed whose content is not is refused: in a folder
-/// where the archives are sealed, a zip in the clear under a sealed name is
-/// one somebody put there, and restoring it would bring back whatever it holds.
+/// `archive` opened in the work directory when sealed, with `given` or else `stored`. A zip in
+/// the clear under a sealed name is refused: somebody put it there, and restoring it would
+/// bring back whatever it holds.
 async fn opened_if_sealed(
     data_dir: &Path,
     archive: &Path,
@@ -778,24 +667,20 @@ async fn stage(
     let archive = archive.to_path_buf();
     let manifest = read_manifest(&archive, localizer)?;
 
-    // A bundle from a newer schema would leave the database ahead of the binary
-    // that has to read it. Refusing is the only honest answer: migrations only
-    // ever go forward.
+    // Migrations only go forward, so a newer schema would sit ahead of this binary.
     if crate::db::is_newer_schema(&manifest.schema) {
         return Err(AppError::BadRequest(
             localizer.translate("ErrorBackupNewerSchema", &[("schema", &manifest.schema)]),
         ));
     }
-    // And one an older release than 0.1.5 took holds a schema no migration of
-    // this release starts from: restored, the next start would refuse it.
+    // Nor does a schema older than this build's first migration: a start would refuse it.
     if crate::db::is_before_0_1_5(&manifest.schema) {
         return Err(AppError::BadRequest(
             localizer.translate("ErrorBackupBefore015", &[("version", &manifest.version)]),
         ));
     }
 
-    // Off the runtime for the same reason the archive is written there: the
-    // database entry is copied out whole, and its size follows the library.
+    // Off the runtime: the database entry is copied out whole, at the library's size.
     let targets = [
         (DB_ENTRY, config.db_path.clone()),
         (MASTER_KEY_ENTRY, config.secret_key_path()),
@@ -812,8 +697,7 @@ async fn stage(
     .await
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
 
-    // A zero-byte or truncated file opens as a database, and would be moved
-    // over the live one.
+    // A zero-byte or truncated file opens as a database, and would replace the live one.
     let staged_database = staging_path(&config.db_path);
     if let Err(reason) = check_database(&staged_database).await {
         return Err(AppError::BadRequest(
@@ -829,23 +713,16 @@ async fn stage(
     }
     opened_by_the_next_start(config, &staged_database, localizer).await?;
 
-    // A new restore replaces an earlier one entirely, and only once it is
-    // known to be one: a file the new archive does not carry would otherwise
-    // be applied beside it, from the old one, and a refused archive would take
-    // the earlier restore with it.
+    // The earlier restore goes whole, and only once this one has passed every check.
     discard_pending(&paths);
 
-    // The database last: its pending file is what a start takes for the
-    // restore, so a set interrupted before it is rejected whole.
+    // The database last: its pending file is what tells a start the set is complete.
     for target in paths.iter().rev() {
         let staging = staging_path(target);
         if !staged.holds(&staging) {
             continue;
         }
-        // The API key in use stays: whoever restores holds it, and one rotated
-        // because it leaked must not come back with the archive. Nor does one
-        // withdrawn since, or one `ROUTARR_API_KEY` stands in for: unused
-        // today, it would answer again once the variable is lifted.
+        // Never restore an API key over one in use, withdrawn, or set in `ROUTARR_API_KEY`.
         let kept = target.exists() || key_withdrawn || config.api_key.is_some();
         if *target == config.api_key_path() && kept {
             std::fs::remove_file(&staging).ok();
@@ -863,12 +740,8 @@ async fn stage(
     Ok(manifest)
 }
 
-/// Stage an archive with the server stopped, as `routarr restore` does: the
-/// way back when a start refuses the database, since restoring otherwise needs
-/// the server running. `archive` is a name from the backup folder, or a path.
-///
-/// A sealed archive opens with `given`, or else with the passphrase the
-/// database in place holds.
+/// Stage an archive with the server stopped, for `routarr restore`: the way back when a start
+/// refuses the database. A sealed one opens with `given`, or else the stored passphrase.
 pub async fn stage_offline(
     config: &crate::config::Config,
     archive: &str,
@@ -877,8 +750,7 @@ pub async fn stage_offline(
     let path = archive_named(config, archive)?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
-    // What the database in place has withdrawn since is carried over, as an
-    // online restore does.
+    // Withdrawn credentials carry over, as in an online restore.
     let live = database_in_place(config).await?;
     let staged = async {
         let stored = match &live {
@@ -911,9 +783,8 @@ fn archive_named(config: &crate::config::Config, archive: &str) -> AppResult<Pat
     Ok(path)
 }
 
-/// The database a command run with the server stopped reads, when there is
-/// one. Opened as it is, never migrated: it may be the very database a start
-/// refuses.
+/// The database a command run with the server stopped reads. Never migrated: it may be the
+/// very database a start refuses.
 async fn database_in_place(config: &crate::config::Config) -> AppResult<Option<sqlx::SqlitePool>> {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
@@ -924,12 +795,9 @@ async fn database_in_place(config: &crate::config::Config) -> AppResult<Option<s
     Ok(Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?))
 }
 
-/// Write the sealed `archive` opened, as a zip at `out`: `routarr
-/// decrypt-backup`, to read an archive by hand. Opens with `given`, or else
-/// the passphrase the database in place holds. The zip carries the master key
-/// in the clear, so it is written private, never over a file that exists, and
-/// never in the backup folder, where the server would list it, serve it and
-/// a sync would copy it away.
+/// Open the sealed `archive` into a zip at `out`, for `routarr decrypt-backup`. The zip holds
+/// the master key in the clear: written private, never over an existing file, and never into
+/// the backup folder, which the server serves and a sync copies away.
 pub async fn decrypt_offline(
     config: &crate::config::Config,
     archive: &str,
@@ -1003,12 +871,9 @@ pub fn newest_openable(
     })
 }
 
-/// Copy the three known entries beside their targets, under the staging suffix.
-///
-/// Synchronous on purpose: the caller runs it on a blocking thread. The entry
-/// names are literals and the destinations are computed here, so no name out of
-/// the archive ever reaches a path. The files come back as a scaffold, removed
-/// unless the caller keeps them.
+/// Copy the three known entries beside their targets under the staging suffix, on a blocking
+/// thread. No name read from the archive ever reaches a path. The files return as a scaffold,
+/// removed unless the caller keeps them.
 fn extract_staged(
     archive: &Path,
     targets: &[(&str, PathBuf); 3],
@@ -1027,31 +892,21 @@ fn extract_staged(
         let mut source = match zip.by_name(entry) {
             Ok(source) => source,
             Err(zip::result::ZipError::FileNotFound) => {
-                // The keys alone, restored under a database they were not
-                // sealed for, are not a restore.
+                // Keys without their database are no restore.
                 if *entry == DB_ENTRY {
                     return Err(refused("ErrorBackupNoDatabase", &[]));
                 }
-                // The manifest records whether the key was there when the
-                // archive was written, so a key it lists and the archive lacks
-                // has been lost, and the restore would leave every sealed
-                // credential unreadable.
+                // Listed and missing, the key is lost, and no sealed credential would open.
                 if *entry == MASTER_KEY_ENTRY && listed_key {
                     return Err(refused("ErrorBackupKeyMissing", &[]));
                 }
-                // Said out loud. An archive without the master key restores a
-                // database whose every sealed credential this installation
-                // cannot open, and the only other trace is `reseal_secrets`
-                // reporting them one by one at the next start. The manifest
-                // carries the same answer to the caller, which is what the
-                // interface warns on.
+                // Logged, since without its master key no restored credential opens here.
                 warn!(
                     "Backup {name} carries no '{entry}', so the restore leaves the current one in place"
                 );
                 continue;
             }
-            // Present and unreadable is a damaged archive, not a missing entry:
-            // taken for an absent key, the restore would go ahead without it.
+            // Unreadable is damage, which must not pass for an absent key.
             Err(e) => {
                 warn!("{entry} of backup {name} cannot be read: {e}");
                 return Err(refused("ErrorBackupDamaged", &[("entry", entry)]));
@@ -1062,18 +917,15 @@ fn extract_staged(
         let mut out = crate::crypto::create_private(&staging, false)
             .map_err(|e| AppError::Internal(format!("cannot stage {}: {e}", staging.display())))?;
         std::io::copy(&mut source, &mut out).map_err(|e| copy_error(entry, e, localizer))?;
-        // On disk before a rename marks it pending: after a power cut, a
-        // pending file must hold what was checked, not what was cached.
+        // Synced before a rename marks it pending, so the pending file holds what is checked.
         out.sync_all().map_err(|e| AppError::Internal(format!("cannot stage {entry}: {e}")))?;
     }
 
     Ok(scaffold)
 }
 
-/// A read that fails on the archive's side is a damaged archive, which the
-/// operator chose and can replace, so it is said as such rather than as an
-/// internal error. The CRC of an entry is checked only at its end, so this is
-/// found after part of it was copied.
+/// A read failing on the archive's side is damage the operator can mend with another archive.
+/// An entry's CRC is checked at its end, once part of it is copied.
 fn copy_error(entry: &str, e: std::io::Error, localizer: &Localizer) -> AppError {
     use std::io::ErrorKind::{InvalidData, InvalidInput, UnexpectedEof};
     match e.kind() {
@@ -1099,19 +951,15 @@ fn pending_path(target: &Path) -> PathBuf {
     with_suffix(target, PENDING_SUFFIX)
 }
 
-/// Remove every pending file of a restore.
 fn discard_pending(targets: &[PathBuf]) {
     for target in targets {
         std::fs::remove_file(pending_path(target)).ok();
     }
 }
 
-/// Remove what an interrupted backup or staging leaves behind.
-///
-/// Called from `main` before anything runs, the one moment none of these files
-/// can belong to work in progress. A snapshot is a copy of the whole database
-/// and a partial archive holds the master key in clear, and no later pass
-/// takes either away. A staged file is never applied.
+/// Remove what an interrupted backup or staging leaves, the database and the master key in
+/// the clear among it. Called from `main` before anything runs, the one moment none of these
+/// files can belong to work in progress.
 pub fn sweep_leftovers(config: &crate::config::Config) {
     for target in [&config.db_path, &config.secret_key_path(), &config.api_key_path()] {
         std::fs::remove_file(staging_path(target)).ok();
@@ -1132,8 +980,8 @@ pub fn sweep_leftovers(config: &crate::config::Config) {
     }
 }
 
-/// A name only an interrupted run leaves in the backup folder: a partial
-/// archive, or a snapshot an earlier release took there.
+/// A name only an interrupted run leaves in the backup folder: a partial archive, or a
+/// `.<stamp>.db` snapshot an upgraded installation may still hold.
 fn is_leftover(name: &str) -> bool {
     let Some(hidden) = name.strip_prefix('.') else {
         return false;
@@ -1146,18 +994,9 @@ fn is_leftover(name: &str) -> bool {
     partial || snapshot
 }
 
-/// Carry into a staged database what the installation has withdrawn since
-/// the backup was taken.
-///
-/// A restore undoes damage by going back to a day before it, and a key
-/// revoked because it leaked is part of the damage, not of the library: it
-/// stays revoked. The account's password is today's and no session survives.
-/// The signing secrets follow today's too, replaced ones included, so a
-/// receiver already given the new secret keeps accepting, and none comes back
-/// once they were withdrawn (`withdrawn_credentials`). A key the live
-/// database never held, as on a new host, comes back as the backup has it,
-/// and so do the backup's account and secrets when the live database holds
-/// none and withdrew none.
+/// Carry today's credentials into a staged database: revoked keys stay revoked, the password
+/// and signing secrets are today's, no session survives, and nothing withdrawn comes back. The
+/// archive's own count only where the live database holds none and withdrew none.
 async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
@@ -1182,8 +1021,7 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
     let secrets_withdrawn =
         withdrawn.iter().any(|(name, _)| name == Credential::SigningSecret.name());
 
-    // A rollback journal, not a write-ahead log: the staged file is renamed
-    // alone, and a log beside it would be left behind with these writes in it.
+    // A rollback journal: the staged file is renamed alone, so a log beside it would be lost.
     let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(staged)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
@@ -1198,9 +1036,7 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
                 .execute(&mut *tx)
                 .await?;
         }
-        // The password of today, and nobody signed in: a password changed
-        // because it leaked closed every session, and restoring the archive's
-        // would open them again.
+        // Today's password, and no session: a password changed since may have leaked.
         if !accounts.is_empty() {
             sqlx::query("DELETE FROM users").execute(&mut *tx).await?;
             for (id, username, hash, created_at, updated_at) in &accounts {
@@ -1218,9 +1054,7 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
             }
         }
         sqlx::query("DELETE FROM sessions").execute(&mut *tx).await?;
-        // The backup passphrase of today: an archive taken before it was set,
-        // or changed, would otherwise bring back the old one, and every
-        // archive after the restore would be sealed with it, or not at all.
+        // Today's backup passphrase, or later archives would be sealed with an old one, or none.
         if let Some(sealing) = &sealing {
             sqlx::query(
                 "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
@@ -1241,8 +1075,7 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
                     .await?;
             }
         }
-        // Secrets withdrawn since stay withdrawn, and the record goes with the
-        // restored database, so a restore of an older archive still finds it.
+        // Withdrawn secrets stay withdrawn, and the record travels for a later restore.
         if secrets_withdrawn {
             sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
         }
@@ -1267,24 +1100,17 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
     result
 }
 
-/// The table of withdrawn credentials, as `002_release_0_2_0` creates it: a
-/// restore of an archive 0.1.5 took writes into it before that migration runs
-/// on the restored database, and the migration then finds it in place.
+/// The table as migration `002_release_0_2_0` creates it: a restore writes into it before that
+/// migration runs on an older restored database.
 pub(crate) const WITHDRAWN_CREDENTIALS_TABLE: &str =
     "CREATE TABLE IF NOT EXISTS withdrawn_credentials (
     name TEXT PRIMARY KEY CHECK(name IN ('master_api_key', 'signing_secret')),
     withdrawn_at TEXT NOT NULL DEFAULT (datetime('now'))
 );";
 
-/// Refuse a restore whose credentials the next start could not open.
-///
-/// `ROUTARR_SECRET_KEY` wins over any `routarr.key` at start, the one a
-/// restore brings back included. An archive sealed under its key file, staged
-/// on a host that sets the variable, would open with every Arr, source and
-/// signing credential unreadable. Without the variable the next start opens
-/// with the key file the archive brings back, or the one in place when it
-/// brings none, and that file has to be the one its credentials were sealed
-/// with.
+/// Refuse a restore whose credentials the next start could not open. That start uses
+/// `ROUTARR_SECRET_KEY` when set, over any `routarr.key`, or else the key file the archive
+/// brings back, or the one in place.
 async fn opened_by_the_next_start(
     config: &crate::config::Config,
     staged: &Path,
@@ -1302,8 +1128,7 @@ async fn opened_by_the_next_start(
         .read_only(true)
         .connect()
         .await?;
-    // An archive from before the salt holds none, and its passphrase seals
-    // are `enc:v1:`, which need none.
+    // A database with no salt holds only `enc:v1:` seals, which need none.
     let salt: Option<String> = sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1")
         .fetch_optional(&mut connection)
         .await
@@ -1334,9 +1159,8 @@ async fn opened_by_the_next_start(
     }
 }
 
-/// The master key a start would use: `ROUTARR_SECRET_KEY`, or else what
-/// `key_file` holds. Read here rather than by `SecretBox::load`, which writes
-/// a new key where it finds none: whoever asks must leave the files as found.
+/// The master key a start would use: `ROUTARR_SECRET_KEY`, or else `key_file`. Read without
+/// `SecretBox::load`, which writes a new key where it finds none.
 fn key_in_place(config: &crate::config::Config, key_file: &Path) -> Option<String> {
     let from_file = std::fs::read_to_string(key_file)
         .ok()
@@ -1352,13 +1176,9 @@ pub(crate) fn sealed_with(archive: &Path, passphrase: &str) -> bool {
     sealed::opens(archive, &Passphrase::new(passphrase.to_string()), &english).unwrap_or(false)
 }
 
-/// Whether a file is a Routarr database this build can open.
-///
-/// Opened read-only and immutable, so the check writes nothing beside the file.
-/// `integrity_check` finds a truncated or damaged file, and the migrations table
-/// an empty one: SQLite opens a zero-byte file as a valid, empty database. The
-/// last migration it records has to be one this build knows, since migrations
-/// only go forward and a start is not always made by the build that staged it.
+/// Whether a file is a Routarr database this build can open. Read-only and immutable, so the
+/// check writes nothing beside it. A zero-byte file opens as an empty database, and the build
+/// that applies a restore may not be the one that staged it.
 async fn check_database(path: &Path) -> Result<(), String> {
     use sqlx::{ConnectOptions, Connection};
 
@@ -1408,19 +1228,9 @@ async fn check_database(path: &Path) -> Result<(), String> {
     verdict.map_err(|e| e.to_string())?
 }
 
-/// Apply a staged restore, if one is pending.
-///
-/// Called from `main` **before** the pool is opened. Each file is moved into
-/// place with a rename, which is atomic within a filesystem, so an interruption
-/// leaves either the old file or the new one, never half of either. The
-/// database goes last, as it was staged last: a pending database means its keys
-/// are pending or applied, and keys pending without one are an interrupted
-/// staging.
-///
-/// The database is checked again first. A pending set damaged since it was
-/// staged would otherwise replace the live database on the next start, which
-/// is also the start that follows an upgrade or a downgrade. Rejected, it is
-/// removed rather than refused again on every start.
+/// Apply a pending restore, from `main` before the pool opens. Each file is renamed into place,
+/// the database last, so keys pending alone are an interrupted staging. The database is checked
+/// again first, and a rejected set is removed so that no later start refuses it again.
 pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<bool> {
     let targets = [config.db_path.clone(), config.secret_key_path(), config.api_key_path()];
 
@@ -1448,12 +1258,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
             continue;
         }
 
-        // The file replaced is kept one generation, as `<target>.pre-restore`:
-        // the wrong line picked in the list would otherwise lose everything
-        // written since that archive. Its WAL goes with it under the name
-        // SQLite looks for beside the copy, since it holds the latest writes.
-        // Left in place next to the restored file, SQLite would replay it over
-        // the restore. The shared-memory file is rebuilt, and goes.
+        // Set aside with its WAL, which SQLite would otherwise replay over the restored file.
         if target.exists() {
             let kept = with_suffix(&target, PRE_RESTORE);
             std::fs::rename(&target, &kept).map_err(|e| {
@@ -1483,9 +1288,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
 mod tests {
     use super::*;
 
-    /// The restore writes the table of withdrawals into an archive 0.1.5 took,
-    /// and the migration of this release finds it in place: both create it the
-    /// same way.
+    /// The restore and migration `002_release_0_2_0` create the withdrawals table alike.
     #[test]
     fn the_restore_creates_the_withdrawals_table_as_the_migration_does() {
         let migration = include_str!("../../../migrations/002_release_0_2_0.sql");
@@ -1498,8 +1301,7 @@ mod tests {
         assert!(is_valid_backup_name("routarr-backup-20260823-120000-app.zip.enc"));
         assert!(!is_valid_backup_name("routarr-backup-20260823-120000.enc"));
 
-        // The download and delete endpoints take this from the URL: every way
-        // out of the directory has to miss.
+        // Taken from a URL, so every way out of the directory has to miss.
         assert!(!is_valid_backup_name("../routarr.key"));
         assert!(!is_valid_backup_name("routarr-backup-../../etc/passwd.zip"));
         assert!(!is_valid_backup_name("/etc/passwd"));
@@ -1566,8 +1368,7 @@ mod tests {
     fn an_archive_that_fails_midway_is_not_left_under_a_backup_name() {
         let dir = crate::tests::TempDir::new("zip-fails");
 
-        // The snapshot is gone by the time the database entry is copied, so
-        // the archive fails after it was opened.
+        // A missing snapshot fails the archive once it is opened.
         let outcome = build_zip(
             &dir.join("routarr-backup-20260101-000000.zip"),
             &dir.join(".missing.db"),
@@ -1582,29 +1383,16 @@ mod tests {
             .filter_map(Result::ok)
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
-        // A file under a backup name is listed, counted by the retention,
-        // and restorable: an empty database the next start would move in.
+        // Under a backup name it would be listed, kept by the retention, and restorable.
         assert_eq!(left, Vec::<String>::new(), "a failed archive was left behind");
     }
 }
 
 #[cfg(test)]
 mod archive_shape {
-    /// The archive is written off the runtime, and the database is streamed.
-    ///
-    /// Neither property is visible to a behavioural test: a backup of the
-    /// two-page database a test seeds blocks for microseconds and fits in a
-    /// cache line, so the suite is green whichever way this is written. What
-    /// makes it matter is the machine this runs on (the commentary through
-    /// this crate designs for a two-core NAS) and the cadence, since
-    /// `backup_enabled` defaults to true and the scheduler takes one a day.
-    /// So this is a lint over the source. It reads code lines only, since a
-    /// word in a comment must neither satisfy a check nor trip one, and it
-    /// knows the usual spellings of a whole read, not every way to hold a file.
-    ///
-    /// `api/backup.rs` streams the *download*, since reading an archive into
-    /// memory first doubles the process's footprint. The write path is the
-    /// same file, and it is the one nobody asks for.
+    /// A lint over the source, as no test database is big enough to show it: the archive is
+    /// deflated off the runtime and the database streamed. It reads code lines only, so a word in
+    /// a comment neither satisfies a check nor trips one.
     #[test]
     fn the_database_is_never_read_whole_and_never_deflated_on_the_runtime() {
         const SOURCE: &str = include_str!("mod.rs");
@@ -1623,15 +1411,13 @@ mod archive_shape {
         };
 
         let build = code_of("fn build_zip(");
-        // The guard on the parser: stop matching and every assertion below
-        // passes having read nothing.
+        // Guards the parser: matching nothing, every assertion below would pass.
         assert!(build.len() > 30, "only {} lines of build_zip parsed", build.len());
         assert!(
             build.iter().any(|line| line.contains("std::io::copy(")),
             "the database entry must be copied through, not materialised"
         );
-        // Every whole read, however it is spelled, is the one of the two keys,
-        // a handful of bytes each.
+        // The one whole read allowed is the two keys', a few bytes each.
         let whole: Vec<&str> = build
             .iter()
             .copied()
