@@ -15,10 +15,9 @@ use serde::Deserialize;
 
 use crate::error::{AppError, AppResult, Transport, Upstream};
 
-/// The most of an answer read before the request is given up, a library
-/// listing aside (`ROUTARR_MAX_LIBRARY_MIB`): a metadata answer or an Arr's
-/// folder list holds a few megabytes at most, and an address streaming without
-/// end must not fill memory first, once for each request in flight.
+/// The most of an answer read before giving up, a library listing aside
+/// (`ROUTARR_MAX_LIBRARY_MIB`): an address streaming without end must not fill memory, once
+/// for each request in flight.
 pub(crate) const MAX_BODY: usize = if cfg!(test) { TESTED_BODY } else { SHIPPED_BODY };
 const SHIPPED_BODY: usize = 16 << 20;
 /// Small enough for a test to stream past it at once.
@@ -28,9 +27,6 @@ const MAX_ERROR_BODY: usize = 64 << 10;
 
 /// Send a request and decode its JSON body, turning any non-2xx into a typed
 /// `ExternalApi` error carrying the upstream status.
-///
-/// Written once rather than repeated in every client, so a fix to error
-/// reporting or truncation applies everywhere at once.
 pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     service: &'static str,
     request: reqwest::RequestBuilder,
@@ -111,9 +107,7 @@ async fn json_capped<T: serde::de::DeserializeOwned>(
             let size = format!("{} MiB{raise}", cap >> 20);
             return Err(upstream(service, 0, Upstream::TooLarge, size));
         }
-        // A body that stopped coming, timed out or cut, is a transport
-        // failure, and only one that arrived whole and did not decode is
-        // unreadable.
+        // A body cut or timed out is a transport failure, not an unreadable one.
         Err(e) => return Err(transport_failure(service, &e)),
     };
     serde_json::from_slice(&body)
@@ -151,8 +145,7 @@ async fn check_status(
 ) -> AppResult<reqwest::Response> {
     let (client, request) = request.build_split();
     let request = request.map_err(|e| transport_failure(service, &e))?;
-    // A literal address never reaches the resolver that keeps names off the
-    // metadata addresses, so it is checked here, the one way out.
+    // A literal address never reaches the resolver that keeps names off the metadata addresses.
     let literal = request.url().host_str().and_then(|host| {
         host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().ok()
     });
@@ -162,9 +155,7 @@ async fn check_status(
     }
     let (method, sent_to) = (request.method().clone(), request.url().clone());
     let response = client.execute(request).await.map_err(|e| transport_failure(service, &e))?;
-    // A 301, 302 or 303 turns a write into a GET without its body, and the
-    // GET's success is not the write's. The redirect policy follows only
-    // within the origin, so an answer from another address was redirected.
+    // A redirect turns a write into a GET without its body, whose success is not the write's.
     if !method.is_safe() && response.url() != &sent_to {
         return Err(upstream(service, 0, Upstream::WriteRedirected, String::new()));
     }
@@ -174,8 +165,6 @@ async fn check_status(
     }
 
     let status = response.status().as_u16();
-    // Read before the body is consumed: the header is the only place a source
-    // states how long it wants to be left alone.
     let retry_after = parse_retry_after(response.headers());
     let beyond_the_status = redirect_host(&response).map(Upstream::RedirectedTo).or_else(|| {
         (status == 401 && challenged_in_front(&response, service))
@@ -213,10 +202,9 @@ pub(crate) fn is_quota_spent(error: &AppError) -> bool {
     matches!(error, AppError::ExternalApi { kind: Upstream::QuotaSpent, .. })
 }
 
-/// The host a redirect the client stopped leads to, when it is not the host
-/// that answered. The client follows a redirect within the origin, so a 3xx
-/// arriving here leaves it, and on the same host only the port or the scheme
-/// changed.
+/// The host a redirect the client stopped leads to, when it is not the host that answered.
+/// The client follows a redirect within the origin, so on the same host only the port or the
+/// scheme changed.
 fn redirect_host(response: &reqwest::Response) -> Option<String> {
     if !response.status().is_redirection() {
         return None;
@@ -228,11 +216,9 @@ fn redirect_host(response: &reqwest::Response) -> Option<String> {
     (!host.eq_ignore_ascii_case(here)).then(|| host.to_string())
 }
 
-/// Whether a 401 carries a challenge from something in front of `service`.
-///
-/// Radarr and Sonarr answer a wrong key with a bare 401, or with a Basic
-/// challenge whose realm is their own name. A proxy's basic auth or a
-/// sign-in portal names another realm, or asks for another scheme.
+/// Whether a 401 carries a challenge from something in front of `service`. An Arr answers a
+/// wrong key bare or with a Basic challenge in its own realm, a proxy or a sign-in portal
+/// names another realm or scheme.
 fn challenged_in_front(response: &reqwest::Response, service: &str) -> bool {
     let Some(challenge) = response
         .headers()
@@ -244,12 +230,8 @@ fn challenged_in_front(response: &reqwest::Response, service: &str) -> bool {
     !challenge.to_ascii_lowercase().contains(&format!("realm=\"{}\"", service.to_ascii_lowercase()))
 }
 
-/// `Retry-After` as seconds.
-///
-/// Only the delta-seconds form is honoured. The HTTP-date form is legal but
-/// rare, and getting it wrong would mean waiting for a date in the past. No
-/// answer is better than a wrong one, since the caller already has a sane
-/// default to fall back on.
+/// `Retry-After` as seconds. The HTTP-date form is not read: the caller's own default beats
+/// a wait misread from a date.
 fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
     headers
         .get(reqwest::header::RETRY_AFTER)?
@@ -258,19 +240,12 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
         .trim()
         .parse::<u64>()
         .ok()
-        // A source asking for an hour is either broken or telling us to go away
-        // for longer than any pass should last. The caller's own backoff covers
-        // that case better than a sleep nobody can interrupt.
+        // A longer wait is a sleep nobody can interrupt, which the caller's backoff covers.
         .filter(|seconds| *seconds <= 300)
 }
 
-/// Describe a transport failure **without echoing the URL**.
-///
-/// `reqwest::Error`'s `Display` is `"... for url (<the full URL>)"`, query string
-/// included, and the TMDB URL carries `?api_key=`. That message is both logged
-/// and returned to the caller, so using it verbatim would publish the key on an
-/// ordinary network hiccup. The source chain carries the useful part ("dns
-/// error", "connection reset") and never the URL, so report that instead.
+/// Describe a transport failure **without echoing the URL**: `reqwest::Error`'s `Display`
+/// holds it, query string included, and the TMDB URL carries `?api_key=`.
 fn transport_failure(service: &str, e: &reqwest::Error) -> AppError {
     let (transport, cause) = describe_transport_error(e);
     upstream(service, 0, Upstream::Transport(transport), cause)
@@ -287,8 +262,7 @@ fn describe_transport_error(e: &reqwest::Error) -> (Transport, String) {
     if in_chain(e, &|error| error.is::<crate::http::MetadataAddress>()) {
         return named(Transport::MetadataAddress);
     }
-    // The connector resolves the name, opens the socket and runs the TLS
-    // handshake, and all three fail as one kind of error.
+    // The connector's name lookup, socket and TLS handshake fail as one kind of error.
     if e.is_dns() {
         return named(Transport::NameUnresolved);
     }
@@ -341,15 +315,9 @@ fn in_chain(e: &reqwest::Error, test: &dyn Fn(&(dyn std::error::Error + 'static)
     std::error::Error::source(e).is_some_and(|source| visit(source, test))
 }
 
-/// Deserialize a byte count that is only ever displayed.
-///
-/// Radarr and Sonarr document `freeSpace` as an integer, but a proxy, a fork or
-/// a future version returning `9.0e11`, or omitting the field, must not break
-/// the whole synchronization over a number nobody routes on. Anything that is
-/// not a usable integer becomes `None`.
-///
-/// This leniency is deliberately scoped to informational fields: a malformed
-/// `id` or `path` still fails loudly, because routing depends on them.
+/// Deserialize a byte count that is only displayed, `None` unless a usable integer, so an odd
+/// shape never fails a whole sync. For informational fields only: a malformed `id` or `path`
+/// still fails, because routing depends on them.
 pub(crate) fn lenient_bytes<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -364,14 +332,64 @@ where
     })
 }
 
-/// Whether the Arr behind `filesystem`, a request to its `/api/v3/filesystem`,
-/// can see this directory.
-///
-/// Asked of the Arr rather than of Routarr's own filesystem: the two run in
-/// different containers as often as not, and `/media/films` existing here
-/// says nothing about whether the process that will do the writing can
-/// reach it. That mismatch is the commonest homelab fault of all, and it is
-/// otherwise discovered at apply time.
+/// Deserialize a whole number a condition reads, as a profile id or a runtime. One the Arr
+/// sends in another shape is unknown, which no positive condition matches, rather than a
+/// failed listing of the whole library.
+pub(crate) fn lenient_number<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value {
+        Some(serde_json::Value::Number(n)) => {
+            n.as_i64().or_else(|| n.as_f64().filter(|f| f.is_finite()).map(|f| f.round() as i64))
+        }
+        Some(serde_json::Value::String(s)) => s.trim().parse().ok(),
+        _ => None,
+    })
+}
+
+/// Deserialize a name a condition reads, as a studio or a network: blank or of another shape,
+/// it is unknown, as [`lenient_number`] reads a number.
+pub(crate) fn lenient_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        _ => None,
+    })
+}
+
+/// A film's collection as Radarr names it: `title` since its v5 payload, `name` before.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArrCollection {
+    pub title: Option<String>,
+    pub tmdb_id: Option<i64>,
+}
+
+/// Deserialize Radarr's `collection`, unknown in any shape but an object.
+pub(crate) fn lenient_collection<'de, D>(deserializer: D) -> Result<Option<ArrCollection>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(serde_json::Value::Object(fields)) =
+        Option::<serde_json::Value>::deserialize(deserializer)?
+    else {
+        return Ok(None);
+    };
+    let text = |key: &str| {
+        fields.get(key).and_then(|value| value.as_str()).map(str::trim).filter(|s| !s.is_empty())
+    };
+    let title = text("title").or_else(|| text("name")).map(str::to_string);
+    let tmdb_id = fields.get("tmdbId").and_then(serde_json::Value::as_i64).filter(|id| *id > 0);
+    Ok((title.is_some() || tmdb_id.is_some()).then_some(ArrCollection { title, tmdb_id }))
+}
+
+/// Whether the Arr behind `filesystem`, a request to its `/api/v3/filesystem`, can see this
+/// directory. Asked of the Arr, not of Routarr's filesystem: the two often run in different
+/// containers, and the Arr does the writing.
 pub(crate) async fn directory_exists(
     service: &'static str,
     filesystem: reqwest::RequestBuilder,
@@ -397,39 +415,23 @@ struct ListedDirectory {
 }
 
 impl DirectoryListing {
-    /// Whether this listing holds the directory, named in full.
-    ///
-    /// A leaf name alone matches a namesake in another directory, so
-    /// `/movies/standard/kids` would read as seen because `/movies/kids`
-    /// exists. The Arr ends every directory's path with its separator, and an
-    /// Arr on Windows reads a name whatever its case.
+    /// Whether this listing holds the directory, named in full: a leaf name alone matches a
+    /// namesake elsewhere. The Arr ends every path with its separator, and on Windows reads a
+    /// name whatever its case.
     pub(crate) fn holds(&self, path: &str) -> bool {
         self.directories.iter().any(|entry| crate::paths::same(&entry.path, path))
     }
 }
 
-/// The `path` to send to `/api/v3/filesystem` so the answer lists the
-/// directory that holds `path`.
-///
-/// Both Arrs answer through `FileSystemLookupService.LookupContents`, which
-/// cuts the query after its last separator and lists what is left: asked
-/// `/movies/anime` it lists `/movies/`, where the directory has to appear.
-/// Asked for the parent without a trailing separator, it lists the
-/// grandparent. A folder is asked as `root_folders::create` stores it, closing
-/// separators trimmed: `/` on Linux, where a backslash belongs to a name, and
-/// either on Windows, where both separate.
+/// The `path` to send to `/api/v3/filesystem` so the answer lists the directory holding it.
+/// Both Arrs cut the query after its last separator and list what is left, so the folder is
+/// asked as `root_folders::create` stores it, closing separators trimmed.
 pub(crate) fn directory_query(path: &str) -> String {
     crate::paths::trimmed(path)
 }
 
-/// What an upstream's error body says to whoever called Routarr.
-///
-/// Radarr and Sonarr answer `{"message", "description"}`, the description a
-/// .NET stack trace meant for their own operator, and a validation refusal as
-/// a list of fields each with its `errorMessage`. TMDB says it in
-/// `status_message`, a GraphQL service in `errors[0].message`. Anything else
-/// is kept as it came, capped: bodies can be huge HTML error pages, and the
-/// cap keeps the log and the API response readable.
+/// What an upstream's error body says to whoever called Routarr: its sentence, never an Arr's
+/// .NET stack trace, and any other body as it came, capped, since it can be a huge HTML page.
 fn upstream_message(body: &str) -> String {
     use serde_json::Value;
     let said = match serde_json::from_str::<Value>(body) {
@@ -460,9 +462,7 @@ fn truncate(input: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// A release reads a few megabytes of an answer and gives up past that,
-    /// as `MAX_BODY` says: the test builds read a smaller cap, so only this
-    /// sees the shipped one.
+    /// The test builds read a smaller cap, so only this sees the shipped one.
     #[test]
     fn a_release_reads_a_few_megabytes_of_an_answer_and_no_more() {
         assert!((4 << 20..=64 << 20).contains(&SHIPPED_BODY), "{SHIPPED_BODY} bytes");
@@ -470,8 +470,7 @@ mod tests {
 
     use super::*;
 
-    /// What a source states of its limit is read from its headers, and a
-    /// header missing or unreadable states nothing.
+    /// A header missing or unreadable states nothing.
     #[test]
     fn a_stated_limit_is_read_from_the_headers() {
         let mut headers = reqwest::header::HeaderMap::new();
@@ -484,9 +483,7 @@ mod tests {
         );
     }
 
-    /// A wait in seconds, up to five minutes. Longer, or a date, is not
-    /// honoured: a sleep nobody can interrupt is not how a pass should spend
-    /// an hour.
+    /// Longer, or a date, is not honoured: a pass must not sleep where nobody can interrupt it.
     #[test]
     fn a_retry_after_is_read_in_seconds_up_to_five_minutes() {
         let asked = |value: &str| {
@@ -502,8 +499,6 @@ mod tests {
     }
 
     /// `reqwest`'s own message embeds the URL, and the TMDB URL embeds the key.
-    /// Whatever the failure, the description handed to the log and to the API
-    /// must not contain it.
     #[tokio::test]
     async fn a_transport_failure_never_echoes_the_url_or_the_key() {
         let client = reqwest::Client::builder()
@@ -527,9 +522,8 @@ mod tests {
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
     }
 
-    /// A connection the far end closes before answering is none of the named
-    /// failures, and its description is built from the deepest cause: the one
-    /// path where the error's own text, and the key in its URL, could get out.
+    /// A closed connection is described from its deepest cause, the one path where the
+    /// error's own text, and the key in its URL, could get out.
     #[tokio::test]
     async fn a_connection_closed_before_the_answer_never_echoes_the_url_or_the_key() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -553,10 +547,8 @@ mod tests {
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
     }
 
-    /// A 200 that is not the API's JSON, as a captive portal or a cut body
-    /// answers. reqwest puts the URL in a decode error, and a TMDB or OMDb key
-    /// travels in that URL, so the description is built from the error's
-    /// cause alone.
+    /// A 200 that is not the API's JSON, as a captive portal answers: reqwest puts the URL,
+    /// and a TMDB or OMDb key with it, in a decode error.
     #[tokio::test]
     async fn a_body_that_is_not_json_never_echoes_the_url_or_the_key() {
         let portal = axum::Router::new().route(
@@ -581,10 +573,8 @@ mod tests {
         assert!(!message.contains("api_key"), "the query string leaked: {message}");
     }
 
-    /// The listing in the shape `FileSystemResult` serialises to: camelCase,
-    /// every directory's path ending in the Arr's separator. Written from
-    /// Radarr's and Sonarr's `FileSystemLookupService`, not captured from a
-    /// running instance.
+    /// The listing in the shape `FileSystemResult` serialises to, written from the Arrs'
+    /// `FileSystemLookupService`, not captured from a running instance.
     const LISTING_OF_MOVIES: &str = r#"{
         "parent": "/",
         "directories": [
@@ -598,8 +588,7 @@ mod tests {
 
     #[test]
     fn the_query_names_the_directory_itself_so_the_arr_lists_its_parent() {
-        // Cut after its last separator by the Arr, `/movies/anime` lists
-        // `/movies/`. A query naming the parent would list the grandparent.
+        // Cut after its last separator by the Arr, `/movies/anime` lists `/movies/`.
         assert_eq!(directory_query("/movies/anime/"), "/movies/anime");
         assert_eq!(directory_query("/movies/anime\\"), "/movies/anime\\", "a backslash is a name");
     }
@@ -613,6 +602,40 @@ mod tests {
         assert!(!listing.holds("/movies/anmie"), "a misspelt leaf read as seen");
         // `kids` is listed, but under `/movies`, not under `/movies/standard`.
         assert!(!listing.holds("/movies/standard/kids"), "a namesake read as the folder asked");
+    }
+
+    #[test]
+    fn a_field_a_condition_reads_is_unknown_in_a_shape_it_does_not_expect() {
+        #[derive(Deserialize)]
+        struct Probe {
+            #[serde(default, deserialize_with = "lenient_number")]
+            runtime: Option<i64>,
+            #[serde(default, deserialize_with = "lenient_text")]
+            studio: Option<String>,
+            #[serde(default, deserialize_with = "lenient_collection")]
+            collection: Option<ArrCollection>,
+        }
+        let parse = |json: &str| serde_json::from_str::<Probe>(json).unwrap();
+
+        let named = parse(
+            r#"{"runtime": "86", "studio": " Ghibli ", "collection": {"name": "Ghibli", "tmdbId": 9}}"#,
+        );
+        assert_eq!((named.runtime, named.studio.as_deref()), (Some(86), Some("Ghibli")));
+        let collection = ArrCollection { title: Some("Ghibli".into()), tmdb_id: Some(9) };
+        assert_eq!(named.collection, Some(collection));
+        let titled = parse(r#"{"runtime": 85.6, "collection": {"title": "Ghibli", "tmdbId": 0}}"#);
+        assert_eq!(titled.runtime, Some(86));
+        assert_eq!(
+            titled.collection,
+            Some(ArrCollection { title: Some("Ghibli".into()), tmdb_id: None })
+        );
+
+        let odd = parse(r#"{"runtime": [1], "studio": 4, "collection": "Ghibli"}"#);
+        assert_eq!((odd.runtime, odd.studio, odd.collection), (None, None, None));
+        let blank = parse(r#"{"studio": "  ", "collection": {"title": ""}}"#);
+        assert_eq!((blank.studio, blank.collection), (None, None));
+        let absent = parse("{}");
+        assert_eq!((absent.runtime, absent.studio, absent.collection), (None, None, None));
     }
 
     #[test]
@@ -648,8 +671,7 @@ mod tests {
         assert_eq!(upstream_message(body), "Path is already configured Tag does not exist");
     }
 
-    /// TMDB's refusal and a GraphQL error each say their sentence in a field
-    /// of their own, which is all a reader needs of the body.
+    /// TMDB and a GraphQL service each say their sentence in a field of their own.
     #[test]
     fn a_source_error_keeps_its_sentence_rather_than_its_json() {
         let tmdb = r#"{"status_code":7,"status_message":"Invalid API key: You must be granted a valid key.","success":false}"#;

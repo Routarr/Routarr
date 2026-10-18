@@ -84,6 +84,21 @@
   let chosen = $state<string | null>(null);
   const expected = $derived(chosen ?? view.rules_category);
   const expectsOther = $derived(expected !== view.rules_category);
+
+  /** What the Arr reports that a rule can read, each shown only when known. */
+  const facts = $derived(
+    [
+      { label: t('ArrQualityProfile'), value: view.media.quality_profile },
+      {
+        label: t('ArrRuntime'),
+        value:
+          view.media.runtime === null ? null : t('RuntimeMinutes', { count: view.media.runtime }),
+      },
+      { label: t('ArrStudio'), value: view.media.studio },
+      { label: t('ArrNetwork'), value: view.media.network },
+      { label: t('ArrCollection'), value: view.media.collection },
+    ].filter((fact): fact is { label: string; value: string } => fact.value !== null),
+  );
   const categoryNames = $derived(
     categories.data?.map((category) => category.name) ?? [view.rules_category],
   );
@@ -313,6 +328,16 @@
       <span class="dir-aware">→</span>
       <span class="mono">{view.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
+    {#if facts.length > 0}
+      <dl class="fact-list">
+        {#each facts as fact (fact.label)}
+          <div>
+            <dt>{fact.label}</dt>
+            <dd>{fact.value}</dd>
+          </div>
+        {/each}
+      </dl>
+    {/if}
     {#if !view.instance_enabled}
       <p class="text-warning text-md mt-2">{t('ExplainInstanceOff')}</p>
     {/if}

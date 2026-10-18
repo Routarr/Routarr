@@ -8,17 +8,16 @@ import ConditionValue from './ConditionValue.svelte';
 import ConditionValueHarness from '../test/ConditionValueHarness.svelte';
 
 /**
- * One editor per value type, and every one of them named.
- *
- * The caption that identifies a condition is the text to its left, which is not
- * a `<label>` and cannot be: the list renders twice (conditions and
- * exclusions), so a fixed `for` would duplicate an id. The name travels on the control
- * instead, and without it a screen reader announces a bare textbox.
+ * One editor per value type, every one named. The caption beside a condition cannot be a
+ * `<label>`: the list renders twice, so a fixed `for` would repeat an id. The name travels on the
+ * control, or a screen reader announces a bare textbox.
  */
 
 const spec = (over: Partial<ConditionSpec> = {}): ConditionSpec => ({
   type: 'genre_contains',
   label: 'Genre contains',
+  group: 'metadata',
+
   label_key: 'ConditionLabelGenreContains',
   value_type: 'string_list',
   needs_metadata: true,
@@ -73,9 +72,8 @@ describe('ConditionValue', () => {
   });
 
   /**
-   * The field holds what is typed. Rewritten from the parsed list, a list typed
-   * without spaces would come back spaced under the cursor, which would jump to
-   * the end.
+   * The field holds what is typed. Rewritten from the parsed list, a list typed without spaces
+   * would come back spaced under the cursor, which would jump to the end.
    */
   it.each([
     ['number_list', 'Years', '2019,2020', '[2019,2020]'],
@@ -121,8 +119,7 @@ describe('ConditionValue', () => {
   });
 
   /**
-   * Two controls for one condition, so the caption alone would name them
-   * identically, and a screen reader would offer two spin buttons called
+   * Named by the caption alone, a screen reader would offer two spin buttons called
    * "Year between" with no way to tell which end is which.
    */
   it('tells the two ends of a year range apart', async () => {
@@ -142,6 +139,21 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(to, { target: { value: '1999' } });
     expect(onChange).toHaveBeenLastCalledWith({ min: null, max: 1999 }, false);
+  });
+
+  it('bounds a runtime range in minutes, not in years', async () => {
+    const onChange = vi.fn();
+    show({
+      spec: spec({ value_type: 'number_range', label: 'Runtime in minutes between' }),
+      value: { min: null, max: null },
+      onChange,
+    });
+
+    const from = screen.getByLabelText('Runtime in minutes between – from');
+    expect(from).toHaveAttribute('min', '0');
+    expect(from).toHaveAttribute('max', '1440');
+    await fireEvent.input(from, { target: { value: '40' } });
+    expect(onChange).toHaveBeenLastCalledWith({ min: 40, max: null }, false);
   });
 
   /** Dropped without a word, `603, 6O4` saves one id and the second title is never routed. */

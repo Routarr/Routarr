@@ -136,6 +136,26 @@ pub enum Condition {
     #[serde(rename = "series_type_is")]
     SeriesTypeIs(Vec<String>),
 
+    /// The Arr's quality profile is one of these, by name.
+    #[serde(rename = "quality_profile_in")]
+    QualityProfileIn(Vec<String>),
+
+    /// Runtime in minutes within this range: a film's, a series' episode's.
+    #[serde(rename = "runtime_range")]
+    RuntimeRange { min: Option<i64>, max: Option<i64> },
+
+    /// Radarr's studio is one of these.
+    #[serde(rename = "studio_in")]
+    StudioIn(Vec<String>),
+
+    /// Sonarr's network is one of these.
+    #[serde(rename = "network_in")]
+    NetworkIn(Vec<String>),
+
+    /// Radarr's collection is one of these, by its title.
+    #[serde(rename = "collection_in")]
+    CollectionIn(Vec<String>),
+
     /// On-disk size, in GB of 1024³ bytes as the interface counts them,
     /// strictly above this value.
     #[serde(rename = "size_on_disk_over_gb")]
@@ -218,6 +238,11 @@ impl Condition {
             Condition::TagIn(_) => "tag_in",
             Condition::TagInAll(_) => "tag_in_all",
             Condition::SeriesTypeIs(_) => "series_type_is",
+            Condition::QualityProfileIn(_) => "quality_profile_in",
+            Condition::RuntimeRange { .. } => "runtime_range",
+            Condition::StudioIn(_) => "studio_in",
+            Condition::NetworkIn(_) => "network_in",
+            Condition::CollectionIn(_) => "collection_in",
             Condition::SizeOnDiskOverGb(_) => "size_on_disk_over_gb",
             Condition::SeasonCountOver(_) => "season_count_over",
             Condition::CertificationIn(_) => "certification_in",
@@ -257,10 +282,16 @@ impl Condition {
             Condition::CurrentRootFolder(s) | Condition::CurrentRootFolderStartsWith(s) => {
                 s.trim().is_empty()
             }
-            Condition::YearRange { min, max } => min.is_none() && max.is_none(),
-            Condition::TagIn(v) | Condition::TagInAll(v) | Condition::SeriesTypeIs(v) => {
-                v.iter().all(|s| s.trim().is_empty())
+            Condition::YearRange { min, max } | Condition::RuntimeRange { min, max } => {
+                min.is_none() && max.is_none()
             }
+            Condition::TagIn(v)
+            | Condition::TagInAll(v)
+            | Condition::SeriesTypeIs(v)
+            | Condition::QualityProfileIn(v)
+            | Condition::StudioIn(v)
+            | Condition::NetworkIn(v)
+            | Condition::CollectionIn(v) => v.iter().all(|s| s.trim().is_empty()),
             // A count always holds a value, too low a one being another fault.
             Condition::SizeOnDiskOverGb(_)
             | Condition::SeasonCountOver(_)
@@ -294,6 +325,11 @@ impl Condition {
             | Condition::TagIn(_)
             | Condition::TagInAll(_)
             | Condition::SeriesTypeIs(_)
+            | Condition::QualityProfileIn(_)
+            | Condition::RuntimeRange { .. }
+            | Condition::StudioIn(_)
+            | Condition::NetworkIn(_)
+            | Condition::CollectionIn(_)
             | Condition::SizeOnDiskOverGb(_)
             | Condition::SeasonCountOver(_)
             | Condition::StatusIs(_)
@@ -343,7 +379,6 @@ pub struct Rule {
 }
 
 impl Rule {
-    /// Whether this rule may apply to the given media type.
     pub fn covers_media_type(&self, media_type: &str) -> bool {
         match self.media_type {
             RuleMediaType::Both => true,
@@ -352,7 +387,7 @@ impl Rule {
         }
     }
 
-    /// Whether this rule is scoped to the given instance.
+    /// No instance list, or an empty one, covers every instance.
     pub fn covers_instance(&self, instance_id: &str) -> bool {
         match &self.instance_ids {
             None => true,

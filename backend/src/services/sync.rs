@@ -28,14 +28,9 @@ pub struct SyncReport {
     pub error: Option<String>,
 }
 
-/// How many instances are synced at once.
-///
-/// Bounded, and bounded *below* the connection pool's eight. What overlaps
-/// here is the waiting on someone else's network, but each sync still ends by
-/// holding a connection for its write transaction, and a pass that took every
-/// connection would stall the interface polling `/status` behind a 15-second
-/// acquire timeout, on the screen someone is watching precisely because a
-/// sync is running.
+/// How many instances are synced at once, below the connection pool's eight: each sync ends
+/// holding a connection for its write, and a pass taking every one would stall the interface
+/// polling `/status`.
 pub(crate) const SYNC_CONCURRENCY: usize = 4;
 
 /// Synchronize every enabled instance, isolating per-instance failures.
@@ -43,21 +38,14 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
     let instances = state.instances(true).await?;
     info!("Syncing {} enabled instance(s)", instances.len());
 
-    // Concurrently. `do_sync` fetches root folders, media and tags *before* it
-    // opens its transaction, so what overlaps is the network wait and not the
-    // writing: the transactions still land one at a time under SQLite's single
-    // writer. `buffered` rather than `buffer_unordered`: the reports are what
-    // the API returns and what the interface lists, and rows that shuffle
-    // between two runs are a table nobody can read.
+    // `buffered`, not `buffer_unordered`: the interface lists the reports in a stable order.
 
     let localizer = &state.localizer().await;
     let reports = futures::stream::iter(instances.into_iter().map(|instance| async move {
         match sync_instance_inner(state, &instance, by).await {
             Ok(report) => report,
             Err(e) => {
-                // One unreachable Radarr must not stop the Sonarr sync, but the
-                // caller still hears about it: last_sync_status alone only helps
-                // someone already looking at the instance list.
+                // One Arr out of reach must not stop the others, nor go unreported.
                 error!("Failed to sync instance '{}': {e}", instance.name);
                 let said = Said::of(&e, Some(&instance), localizer).said;
                 SyncReport {
@@ -91,8 +79,7 @@ async fn sync_instance_inner(
     instance: &Instance,
     by: &Attribution,
 ) -> AppResult<SyncReport> {
-    // Refuse to pile up concurrent syncs of the same instance: the scheduler and
-    // a user clicking "Sync" would otherwise fight over the same rows.
+    // The scheduler and a click on Sync must not fight over the same rows.
     let localizer = state.localizer().await;
     let Some(_lock) = state.jobs.try_lock(&format!("sync:{}", instance.id)) else {
         let message = localizer.translate("ErrorSyncInProgress", &[("name", &instance.name)]);
@@ -109,10 +96,7 @@ async fn sync_instance_inner(
         )
         .await?;
 
-    // Read before writing: notifications fire on the transition, not on the
-    // state. An Arr that has been down for a week must not produce a message on
-    // every scheduler tick. That is how a useful alert becomes noise the
-    // operator mutes, which is worse than having none.
+    // Read before writing: a notification fires on the transition, never on every failing tick.
     let was_failing =
         instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with(SYNC_FAILED));
 
@@ -124,8 +108,7 @@ async fn sync_instance_inner(
         warn!(instance = %instance.name, "The moves left requested could not be settled: {e}");
     }
 
-    // The notifications go out on their own task: awaited here, a receiver
-    // slow to answer would hold the sync's answer and its lock.
+    // On their own task: awaited here, a slow receiver would hold the sync's answer and lock.
     match &outcome {
         Ok(report) => {
             update_sync_status(&state.pool, &instance.id, "success").await;
@@ -156,9 +139,7 @@ async fn sync_instance_inner(
                 },
             );
             job.fail(e).await;
-            // A database that refused the sync's writes, or a key that cannot
-            // be opened, is no Arr out of reach: said so, the operator checks
-            // an Arr that answers. The failed task and the log say what it is.
+            // A database refusal or a key that cannot be opened is no Arr out of reach.
             let unreachable = matches!(e, AppError::ExternalApi { .. } | AppError::UpstreamDown(_));
             if !was_failing && unreachable {
                 notify::send_later(
@@ -217,14 +198,10 @@ async fn do_sync(
 ) -> AppResult<SyncReport> {
     let adapter = state.adapter(instance)?;
 
-    // Before the first request, not after: everything below describes the Arr as
-    // it was at *this* instant, and an apply that lands while we are reading
-    // makes what we are about to write stale. `upsert_media` compares this
-    // against `moved_at` and declines to put an old path back.
+    // Before the first request: `upsert_media` keeps a path moved after this instant.
     let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
 
-    // The release, which the warnings hold against the oldest supported, kept
-    // as it was when the Arr does not say.
+    // The release the warnings hold against the oldest supported, kept when the Arr is silent.
     let version = match adapter.test_connection().await {
         Ok(status) => Some(status.version),
         Err(e) => {
@@ -249,8 +226,7 @@ async fn do_sync(
     };
     let media = adapter.get_media().await?;
 
-    // Tags are one signal among many: an Arr too old to expose the endpoint, or
-    // one that errors on it, must not take the whole sync down with it.
+    // An Arr that cannot list its tags must not take the whole sync down.
     let fresh_tags = match adapter.get_tags().await {
         Ok(tags) => Some(tags),
         Err(e) => {
@@ -258,12 +234,24 @@ async fn do_sync(
             None
         }
     };
-    let tag_labels = match &fresh_tags {
-        Some(tags) => tags.iter().map(|t| (t.arr_id, t.label.clone())).collect(),
-        None => stored_tag_labels(&state.pool, &instance.id).await?,
+    let fresh_profiles = match adapter.get_quality_profiles().await {
+        Ok(profiles) => Some(profiles),
+        Err(e) => {
+            tracing::warn!(instance = %instance.name, "Could not read the quality profiles: {e}");
+            None
+        }
     };
-    // Which system the Arr's ratings belong to. As with the tags, an Arr that
-    // cannot say keeps what it said last rather than failing the sync.
+    let names = Names {
+        tags: match &fresh_tags {
+            Some(tags) => tags.iter().map(|t| (t.arr_id, t.label.clone())).collect(),
+            None => stored_tag_labels(&state.pool, &instance.id).await?,
+        },
+        profiles: match &fresh_profiles {
+            Some(profiles) => profiles.iter().map(|p| (p.arr_id, p.name.clone())).collect(),
+            None => stored_profile_names(&state.pool, &instance.id).await?,
+        },
+    };
+    // The system the Arr's ratings belong to, kept as last read when the Arr cannot say.
     let certification_country = match adapter.certification_country().await {
         Ok(country) => country,
         Err(e) => {
@@ -279,20 +267,13 @@ async fn do_sync(
         "Fetched from Arr"
     );
 
-    // Every row written by this run is stamped with the same token, so the
-    // orphan cleanup below is exact rather than time-window based: a sync that
-    // takes longer than the window would otherwise delete its own early rows.
+    // One token stamps this run's rows: a time window would let a long sync delete its own.
     let sync_token = crate::services::routing::format_timestamp(chrono::Utc::now());
 
-    // One transaction for the whole instance: a partial sync would make the
-    // orphan cleanup delete rows that were simply not written yet. It may read
-    // first, so it takes the write lock as it opens.
+    // One transaction per instance, or the orphan cleanup deletes rows not written yet.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
 
-    // A country other than the last one read leaves the films the Arr rated
-    // before under the previous country's ratings, until each is refreshed:
-    // its date is kept for the warning, which a sync somebody asks for after
-    // refreshing them clears.
+    // A changed country is dated for the warning, which a sync somebody asks for clears.
     if let Some(country) = &certification_country {
         sqlx::query(
             "UPDATE instances SET
@@ -329,8 +310,7 @@ async fn do_sync(
         Folders::Mounts(mounts) => free_space_of_mounts(&mut tx, &instance.id, mounts).await?,
     }
 
-    // A category is set on a path, and follows the path: through a renumbering,
-    // and never onto another folder given an id a rebuilt Arr hands out again.
+    // A category follows its path, never an id a rebuilt Arr hands out again.
     let mapped: std::collections::HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
         "SELECT path, category FROM root_folders WHERE instance_id = ? AND category IS NOT NULL",
     )
@@ -341,14 +321,9 @@ async fn do_sync(
     .map(|(path, category)| (crate::paths::key(&path), category))
     .collect();
 
-    // Declared and Arr-reported folders share `root_folders`, told apart by
-    // `origin`: a second table would put a `UNION` in `routing::load_context`
-    // and in every executor join. So every statement here that drops what the
-    // Arr stopped reporting stays scoped to `origin = 'arr'`.
+    // Every statement here dropping what the Arr stopped reporting keeps to `origin = 'arr'`.
     for rf in root_folders {
-        // A row holding this id for another path is a folder the Arr no longer
-        // reports under it. Kept, it would take this path's place, or break the
-        // unique id when a declared path is promoted below.
+        // Kept, a row holding this id for another path would take this path's place.
         let freed: Option<(String, Option<String>)> = sqlx::query_as(
             "DELETE FROM root_folders
               WHERE instance_id = ? AND arr_id = ? AND origin = 'arr'
@@ -372,10 +347,7 @@ async fn do_sync(
             );
         }
 
-        // The same path, declared here first and adopted by the Arr since, is
-        // one folder and not two. Promoting it keeps the category mapped onto
-        // it. Without this the upsert below would add a second row for the
-        // path, and no index on the path is there to refuse it.
+        // A declared path the Arr adopted is promoted, keeping one row and its category.
         sqlx::query(
             "UPDATE root_folders
                 SET origin = 'arr', arr_id = ?
@@ -389,10 +361,7 @@ async fn do_sync(
         .await?;
 
         sqlx::query(
-            // `last_accessible_at` moves only when the folder answered.
-            // `last_synced_at` is stamped on every row this pass writes,
-            // including one just reported unreachable, so it says "seen in a
-            // pass": a NAS asleep for three days would read "just now".
+            // Only a folder that answered moves `last_accessible_at`, unlike `last_synced_at`.
             "INSERT INTO root_folders
                 (id, instance_id, arr_id, path, free_space, accessible,
                  last_synced_at, last_accessible_at, origin, category)
@@ -423,8 +392,6 @@ async fn do_sync(
     inherit_declared(&mut tx, &instance.id).await?;
 
     // Replaced wholesale: a tag renamed or deleted upstream must not linger.
-    // Kept when the catalogue could not be read, which is what resolves the
-    // ids until it can.
     if let Some(tags) = &fresh_tags {
         sqlx::query("DELETE FROM arr_tags WHERE instance_id = ?")
             .bind(&instance.id)
@@ -439,6 +406,9 @@ async fn do_sync(
                 .await?;
         }
     }
+    if let Some(profiles) = &fresh_profiles {
+        store_profiles(&mut tx, &instance.id, profiles).await?;
+    }
 
     let reassigned = reassigned(&mut tx, &instance.id, &media).await?;
     if !reassigned.is_empty() {
@@ -450,13 +420,10 @@ async fn do_sync(
         retire_media(&mut tx, &reassigned).await?;
     }
     for item in &media {
-        upsert_media(&mut *tx, &instance.id, item, &tag_labels, &sync_token, &read_at).await?;
+        upsert_media(&mut *tx, &instance.id, item, &names, &sync_token, &read_at).await?;
     }
 
-    // Drop rows removed upstream so the library view and the counters do not
-    // drift. Deleting media cascades to its overrides, so an Arr that answers
-    // with an empty list (misconfiguration, restore in progress) must never be
-    // taken as "the user deleted everything".
+    // An empty answer is never read as everything deleted: a deletion cascades to overrides.
     let (removed, stale_folders) =
         if media.is_empty() || matches!(&folders, Folders::Listed(listed) if listed.is_empty()) {
             tracing::warn!(
@@ -465,9 +432,7 @@ async fn do_sync(
             );
             (0, 0)
         } else {
-            // Only what was last seen before this pass began reading: the webhook
-            // writes a title the Arr added since under its own timestamp, and that
-            // title is absent from what was read here without being gone.
+            // Only rows seen before this read: a title the webhook added since is not gone.
             let gone: Vec<String> = sqlx::query_scalar(
                 "SELECT id FROM media WHERE instance_id = ? AND last_synced_at IS NOT ?
                AND (last_synced_at IS NULL OR last_synced_at < ?)",
@@ -479,9 +444,7 @@ async fn do_sync(
             .await?;
             let removed = retire_media(&mut tx, &gone).await?;
 
-            // Only what the Arr owns. A declared destination is the operator's, and
-            // the first pass after it was typed would otherwise delete it, and the
-            // category mapped onto it with it.
+            // Only what the Arr owns: a declared destination is the operator's.
             let stale_folders = match &folders {
                 Folders::Listed(_) => sqlx::query(
                     "DELETE FROM root_folders
@@ -531,28 +494,43 @@ pub async fn sync_single_media(
     arr_id: i64,
 ) -> AppResult<Option<String>> {
     let adapter: ArrAdapter = state.adapter(instance)?;
-    // Before the first request, as `do_sync` does: what the Arr answers is as
-    // old as the moment it was asked, and a move applied while the read was
-    // in flight has to win over it (see the `moved_at` gate in `upsert_media`).
+    // Before the first request, as `do_sync` reads it: a move applied meanwhile wins.
     let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
     let Some(item) = adapter.get_media_one(arr_id).await? else {
         return Ok(None);
     };
 
-    // The tag catalogue too: a rule on "tag is anime" must be able to match the
-    // moment the item is added, which is the whole point of the webhook path.
-    let tag_labels = match adapter.get_tags().await {
+    // The tags too: a rule on a tag must match the moment the item is added.
+    let tags = match adapter.get_tags().await {
         Ok(tags) => tags.into_iter().map(|t| (t.arr_id, t.label)).collect(),
         Err(e) => {
             tracing::warn!(instance = %instance.name, "Could not read the tag catalogue: {e}");
             stored_tag_labels(&state.pool, &instance.id).await?
         }
     };
+    // The stored profiles, read again only for one they do not name, as a new 4K profile.
+    let mut profiles = stored_profile_names(&state.pool, &instance.id).await?;
+    let mut fresh_profiles = None;
+    if item.quality_profile_id.is_some_and(|id| !profiles.contains_key(&id)) {
+        match adapter.get_quality_profiles().await {
+            Ok(read) => {
+                profiles = read.iter().map(|p| (p.arr_id, p.name.clone())).collect();
+                fresh_profiles = Some(read);
+            }
+            Err(e) => {
+                tracing::warn!(instance = %instance.name, "Could not read the quality profiles: {e}");
+            }
+        }
+    }
+    let names = Names { tags, profiles };
 
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let reassigned = reassigned(&mut tx, &instance.id, std::slice::from_ref(&item)).await?;
     retire_media(&mut tx, &reassigned).await?;
-    upsert_media(&mut *tx, &instance.id, &item, &tag_labels, &read_at, &read_at).await?;
+    if let Some(read) = &fresh_profiles {
+        store_profiles(&mut tx, &instance.id, read).await?;
+    }
+    upsert_media(&mut *tx, &instance.id, &item, &names, &read_at, &read_at).await?;
     tx.commit().await?;
 
     Ok(Some(media_row_id(&instance.id, item.arr_id)))
@@ -563,22 +541,16 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
     format!("m-{instance_id}-{arr_id}")
 }
 
-/// The rows whose Arr id now names another title than the one they describe.
-///
-/// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
-/// again, and the row's exception and proposals were about the title the id
-/// used to name. Told apart by type and by the one external id the Arr holds
-/// unique: Radarr refuses two films of one TMDB id, and Sonarr two series of
-/// one TheTVDB id. Any other id changes when a metadata source corrects it,
-/// and the row takes the correction.
+/// The rows whose Arr id now names another title: a rebuilt Arr hands its ids out again.
+/// Told apart by type and by the one external id the Arr holds unique, TMDB for Radarr and
+/// TheTVDB for Sonarr: any other id changes when a source corrects it.
 async fn reassigned(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     instance_id: &str,
     items: &[crate::integrations::adapter::ArrMedia],
 ) -> AppResult<Vec<String>> {
     type Known = (i64, String, Option<i64>, Option<i64>);
-    // The ids asked about when they fit one statement, as the webhook's one
-    // title does, and the instance read once for a full sync.
+    // The ids asked about when they fit one statement, the whole instance for a full sync.
     let rows = if items.len() > crate::services::routing::BIND_CHUNK {
         sqlx::query_as::<_, Known>(
             "SELECT arr_id, media_type, tmdb_id, tvdb_id FROM media WHERE instance_id = ?",
@@ -625,14 +597,9 @@ fn known_by_arr_id(count: usize) -> String {
     )
 }
 
-/// Remove media rows and retire what pointed at them.
-///
-/// Overrides go with the row (`ON DELETE CASCADE`). Decisions do not reference
-/// it, so a pending proposal for an item the Arr no longer has would stay in
-/// the list for ever: shown, and never applicable, since the executor joins
-/// `media`. Superseded here, which is the state the list already hides. The
-/// one writer for both paths that lose a row: the full sync and a delete
-/// event.
+/// Remove media rows and retire what pointed at them: overrides cascade, and a pending
+/// proposal, which does not reference the row, is superseded or it stays listed and never
+/// applies. The one writer for the full sync and a delete event.
 pub async fn retire_media(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ids: &[String],
@@ -641,8 +608,7 @@ pub async fn retire_media(
     crate::services::routing::supersede_pending(tx, &refs).await?;
 
     let mut removed = 0;
-    // Chunked like the statement above: a full sync can retire a whole
-    // instance's worth of rows in one pass.
+    // Chunked: a full sync can retire a whole instance's rows in one pass.
     for chunk in ids.chunks(crate::services::routing::BIND_CHUNK) {
         let placeholders = crate::db::placeholders(chunk.len());
         let delete = format!("DELETE FROM media WHERE id IN ({placeholders})");
@@ -655,20 +621,15 @@ pub async fn retire_media(
     Ok(removed)
 }
 
-/// Write one media row, creating or updating it.
-///
-/// Shared by the full sync and the single-item webhook path. Two copies of this
-/// column list means adding a column updates one of them, and a rule on an Arr
-/// tag then silently cannot match a freshly added item, the exact case
-/// automatic application exists for. One writer, one list.
+/// Write one media row, creating or updating it. The one writer of its column list, for the
+/// full sync and the webhook alike, so a new column cannot reach only one of them.
 async fn upsert_media<'e, E>(
     executor: E,
     instance_id: &str,
     item: &crate::integrations::adapter::ArrMedia,
-    tag_labels: &std::collections::HashMap<i64, String>,
+    names: &Names,
     sync_token: &str,
-    // When the caller started reading the Arr. Anything moved *after* this
-    // instant is newer than what we are holding, so its path is kept.
+    // When the caller started reading the Arr: a path moved after it is kept.
     read_at: &str,
 ) -> AppResult<()>
 where
@@ -678,8 +639,10 @@ where
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, sort_title, year,
          tmdb_id, tvdb_id, imdb_id, current_path, current_root_folder, monitored, has_files,
          status, added_at, series_type, size_on_disk, season_count, tags, genres,
-         original_language, certification, last_synced_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         original_language, certification, quality_profile, runtime, studio, network, collection,
+         collection_tmdb_id, last_synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 ?, ?)
          ON CONFLICT(instance_id, arr_id) DO UPDATE SET
             title = excluded.title,
             sort_title = excluded.sort_title,
@@ -707,6 +670,12 @@ where
             genres = excluded.genres,
             original_language = excluded.original_language,
             certification = excluded.certification,
+            quality_profile = excluded.quality_profile,
+            runtime = excluded.runtime,
+            studio = excluded.studio,
+            network = excluded.network,
+            collection = excluded.collection,
+            collection_tmdb_id = excluded.collection_tmdb_id,
             last_synced_at = excluded.last_synced_at",
     )
     .bind(media_row_id(instance_id, item.arr_id))
@@ -728,18 +697,21 @@ where
     .bind(&item.series_type)
     .bind(item.size_on_disk)
     .bind(item.season_count)
-    // Labels rather than ids: a rule must be written against "anime", not
-    // against tag 7, and the ids are not stable across instances.
+    // Labels rather than ids: a rule is written against "anime", and ids differ by instance.
     .bind(serde_json::to_string(
-        &item.tag_ids.iter().filter_map(|id| tag_labels.get(id).cloned()).collect::<Vec<_>>(),
+        &item.tag_ids.iter().filter_map(|id| names.tags.get(id).cloned()).collect::<Vec<_>>(),
     )?)
     .bind(serde_json::to_string(&item.genres)?)
     .bind(&item.original_language)
     .bind(&item.certification)
+    .bind(item.quality_profile_id.and_then(|id| names.profiles.get(&id)))
+    .bind(item.runtime)
+    .bind(&item.studio)
+    .bind(&item.network)
+    .bind(item.collection.as_ref().and_then(|c| c.title.as_deref()))
+    .bind(item.collection.as_ref().and_then(|c| c.tmdb_id))
     .bind(sync_token)
-    // Twice, because the guard appears once per path column, and sqlx binds by
-    // the order the placeholders appear in the statement: the two in the
-    // ON CONFLICT clause come after every one in VALUES.
+    // Twice, for the guard of each path column, bound after every VALUES placeholder.
     .bind(read_at)
     .bind(read_at)
     .execute(executor)
@@ -748,14 +720,6 @@ where
     Ok(())
 }
 
-/// Record what this pass did.
-///
-/// The attempt is always stamped, the success only on success. Writing
-/// `last_sync_at` in both branches would let a failure refresh it exactly as a
-/// success does, and the instance list would read "synchronised 2 minutes ago"
-/// beside an error badge, describing data two days old. One column says the
-/// scheduler is running, the other says the library is current, and they are
-/// not the same question.
 /// A date as every stored timestamp is shaped, where the Arr wrote it in its
 /// own, and as it came when it cannot be read.
 fn stored_shape(raw: &str) -> String {
@@ -763,6 +727,8 @@ fn stored_shape(raw: &str) -> String {
         .map_or_else(|| raw.to_string(), crate::services::routing::format_timestamp)
 }
 
+/// Record what this pass did: the attempt always, the success only on success, so a failure
+/// never reads as a library just synchronised.
 async fn update_sync_status(pool: &SqlitePool, instance_id: &str, status: &str) {
     let succeeded = status == "success";
     let _ = sqlx::query(
@@ -780,9 +746,52 @@ async fn update_sync_status(pool: &SqlitePool, instance_id: &str, status: &str) 
     .await;
 }
 
-/// The tag catalogue the last good pass stored, for when the Arr fails to
-/// answer its own. Resolved against nothing instead, every item would lose its
-/// tags, and every `tag_in` rule would stop matching, until a later pass.
+/// What an instance's ids name, which a media row stores by name: ids are not stable across
+/// instances, and a rule is written against "anime" or "Ultra-HD".
+struct Names {
+    tags: std::collections::HashMap<i64, String>,
+    profiles: std::collections::HashMap<i64, String>,
+}
+
+/// The quality profiles the last good read stored, for when the Arr does not answer.
+async fn stored_profile_names(
+    pool: &SqlitePool,
+    instance_id: &str,
+) -> AppResult<std::collections::HashMap<i64, String>> {
+    let stored: Vec<(i64, String)> =
+        sqlx::query_as("SELECT arr_id, name FROM arr_quality_profiles WHERE instance_id = ?")
+            .bind(instance_id)
+            .fetch_all(pool)
+            .await?;
+    Ok(stored.into_iter().collect())
+}
+
+/// Replace an instance's stored quality profiles with a fresh read: one renamed or deleted
+/// upstream must not linger.
+async fn store_profiles(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+    profiles: &[crate::integrations::adapter::ArrQualityProfile],
+) -> AppResult<()> {
+    sqlx::query("DELETE FROM arr_quality_profiles WHERE instance_id = ?")
+        .bind(instance_id)
+        .execute(&mut **tx)
+        .await?;
+    for profile in profiles {
+        sqlx::query(
+            "INSERT INTO arr_quality_profiles (instance_id, arr_id, name) VALUES (?, ?, ?)",
+        )
+        .bind(instance_id)
+        .bind(profile.arr_id)
+        .bind(&profile.name)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// The tag catalogue the last good pass stored, for when the Arr fails to answer its own:
+/// resolved against nothing, every `tag_in` rule would stop matching.
 async fn stored_tag_labels(
     pool: &SqlitePool,
     instance_id: &str,
@@ -795,21 +804,6 @@ async fn stored_tag_labels(
     Ok(stored.into_iter().collect())
 }
 
-/// A declared destination inherits from the folder it sits under.
-///
-/// It is the whole point of allowing one: a path beneath a synced root is on
-/// that root's volume, so its free space and its reachability are known, which
-/// is what keeps the capacity and reachability guards meaningful for a folder
-/// no Arr reports. The deepest matching parent wins, since /media/movies/anime
-/// belongs to /media/movies rather than to /media.
-///
-/// Decided by [`crate::paths::within`], name by name, and on Windows whatever
-/// the case and the separator: SQL has neither, and a prefix or a LIKE would
-/// match a sibling sharing the letters or a `_` in a name.
-///
-/// Run by the sync and again the moment one is declared: waiting for the next
-/// pass would show a new destination with no figures for as long as the
-/// instance's sync interval.
 /// Read whether the Arr's root folders answer, and their free space, for the
 /// folders already known: what an apply asks about a folder stored as asleep.
 /// Adding and removing folders is a full sync's.
@@ -868,6 +862,9 @@ async fn free_space_of_mounts(
     Ok(())
 }
 
+/// A declared destination inherits the free space and reachability of the deepest synced
+/// folder it sits under, matched by [`crate::paths::within`]: a SQL prefix or `LIKE` would
+/// match a sibling. Run by the sync and again the moment one is declared.
 pub(crate) async fn inherit_declared(
     connection: &mut sqlx::SqliteConnection,
     instance_id: &str,
@@ -913,8 +910,7 @@ pub(crate) async fn inherit_declared(
 
 #[cfg(test)]
 mod tests {
-    /// One title's check reads its own row through the unique index, not the
-    /// instance's whole library.
+    /// One title's check reads its own row, not the instance's whole library.
     #[tokio::test]
     async fn one_title_is_checked_through_the_index() {
         let pool = crate::db::test_pool().await;

@@ -251,6 +251,9 @@ pub struct RouteQuery {
     /// Whether a title the Arr does not hold would be added monitored.
     /// Defaults to true, as Radarr and Sonarr add one.
     pub monitored: Option<bool>,
+    /// The name of the quality profile a title the Arr does not hold would be added with, for
+    /// the rules that read it.
+    pub quality_profile: Option<String>,
     /// Ask every source that can answer and has no cached answer now, storing
     /// nothing. Slower, and paced by each source's limits. Defaults to false.
     pub enrich: Option<bool>,
@@ -304,8 +307,14 @@ pub async fn place(
             )));
         }
     };
-    let added =
-        crate::services::placement::AddedWith { tags, series_type, monitored: options.monitored };
+    let quality_profile =
+        options.quality_profile.as_deref().map(str::trim).filter(|name| !name.is_empty());
+    let added = crate::services::placement::AddedWith {
+        tags,
+        series_type,
+        monitored: options.monitored,
+        quality_profile: quality_profile.map(str::to_string),
+    };
     let placement = crate::services::placement::place(
         &state,
         media_type,
@@ -567,14 +576,19 @@ pub struct LibraryFacets {
     pub certifications: Vec<Facet>,
     pub tags: Vec<Facet>,
     pub series_types: Vec<Facet>,
+    /// Every quality profile the Arrs define, unused ones counted 0, so a rule can name a new
+    /// one before any title has it.
+    pub quality_profiles: Vec<Facet>,
+    pub studios: Vec<Facet>,
+    pub networks: Vec<Facet>,
+    pub collections: Vec<Facet>,
     pub root_folders: Vec<Facet>,
     /// The statuses the Arrs give the titles, as they write them.
     pub statuses: Vec<Facet>,
 }
 
-/// A fixed table as the picker consumes it: the value a rule stores, labelled
-/// with the spelling a reader recognises. `count` is 0 throughout: these are
-/// not observations, and the picker renders no figure for them.
+/// A fixed table as the picker consumes it, each code labelled with the spelling a reader
+/// knows. `count` is 0: these are not observations, and the picker shows no figure for them.
 fn vocabulary(table: &[(&str, &[&str])], localizer: &Localizer) -> Vec<Facet> {
     let mut out: Vec<Facet> = table
         .iter()
@@ -644,6 +658,21 @@ async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<F
         .into_iter()
         .map(|(value, count)| Facet { value, label: None, count, group: None })
         .collect())
+}
+
+/// The quality profiles of every instance, by name, with the titles holding each.
+async fn profile_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
+    Ok(sqlx::query_as::<_, (String, i64)>(
+        "SELECT name AS value, (SELECT COUNT(*) FROM media WHERE quality_profile = name) AS n
+           FROM (SELECT DISTINCT name FROM arr_quality_profiles
+                 UNION SELECT quality_profile FROM media WHERE quality_profile IS NOT NULL)
+          ORDER BY n DESC, value",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(value, count)| Facet { value, label: None, count, group: None })
+    .collect())
 }
 
 /// The folders the titles sit in, one entry per folder however its Arr wrote
@@ -939,6 +968,10 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
         origin_countries: metadata_facets(pool, &sources, None, "origin_countries", true).await?,
         certifications: certification_facets(pool, &sources, &regions, &localizer).await?,
         series_types: column_facets(pool, "series_type").await?,
+        quality_profiles: profile_facets(pool).await?,
+        studios: column_facets(pool, "studio").await?,
+        networks: column_facets(pool, "network").await?,
+        collections: column_facets(pool, "collection").await?,
         root_folders: folder_facets(pool).await?,
         statuses: name_statuses(column_facets(pool, "status").await?, &localizer),
     }))

@@ -28,27 +28,34 @@ pub struct Media {
     /// Seasons excluding specials, null for movies.
     pub season_count: Option<i64>,
     /// The Arr's tag labels, as a JSON array in a string.
-    // Denormalised from the Arr, and read in bulk on every rule evaluation and
-    // by the library's tag facet.
+    // Denormalised: read in bulk by every rule evaluation and the library's tag facet.
     pub tags: Option<String>,
     /// The genres Radarr or Sonarr reports, as a JSON array in a string.
-    // The `arr` metadata source reads this column, the language and the
-    // certification, which cost no request and go stale only when the library
-    // does.
+    // Read by the `arr` metadata source, with the language and certification, at no request.
     pub genres: Option<String>,
     /// ISO 639-1, normalised from the Arr's language *name* at sync time.
     pub original_language: Option<String>,
     pub certification: Option<String>,
+    /// The name of the Arr's quality profile for the title.
+    pub quality_profile: Option<String>,
+    /// Minutes: a film's runtime, a series' episode runtime.
+    pub runtime: Option<i64>,
+    /// Radarr's studio, null for series.
+    pub studio: Option<String>,
+    /// Sonarr's network, null for movies.
+    pub network: Option<String>,
+    /// The title of Radarr's collection, null for series.
+    pub collection: Option<String>,
+    /// The collection's TMDB id.
+    pub collection_tmdb_id: Option<i64>,
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
 }
 
 impl Media {
-    /// Tag labels, lowercased for comparison.
-    ///
-    /// A malformed value yields no tags rather than an error: a tag is one
-    /// signal among many and must not be able to break an evaluation.
+    /// Tag labels, lowercased for comparison. A malformed value yields none: a tag must not be
+    /// able to break an evaluation.
     pub fn tag_labels(&self) -> Vec<String> {
         self.tags
             .as_deref()
@@ -134,8 +141,7 @@ pub enum ExternalId {
 impl ExternalId {
     /// The one id among these, or `None` when there is none or more than one.
     pub fn one_of(tmdb: Option<i64>, tvdb: Option<i64>, imdb: Option<&str>) -> Option<Self> {
-        // An empty `imdb=` is no id: a client filling a template sends it beside
-        // the id it has.
+        // An empty `imdb=` is no id: a client filling a template sends it beside the one it has.
         match (tmdb, tvdb, imdb.map(str::trim).filter(|imdb| !imdb.is_empty())) {
             (Some(tmdb), None, None) => Some(Self::Tmdb(tmdb)),
             (None, Some(tvdb), None) => Some(Self::Tvdb(tvdb)),

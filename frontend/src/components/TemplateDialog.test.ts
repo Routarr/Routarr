@@ -6,11 +6,11 @@ import { answerConfirmation } from '../test/confirm';
 import { template, templatePreview } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import TemplateDialog from './TemplateDialog.svelte';
-import type { TemplateSummary, TemplateTitle } from '../api/types';
+import type { Facet, TemplateSummary, TemplateTitle } from '../api/types';
 
 afterEach(() => vi.restoreAllMocks());
 
-function open(shown: TemplateSummary) {
+function open(shown: TemplateSummary, profileOptions: Facet[] = []) {
   const onAdded = vi.fn();
   const onClose = vi.fn();
   renderWithI18n(TemplateDialog, {
@@ -18,6 +18,7 @@ function open(shown: TemplateSummary) {
       template: shown,
       categories: [],
       languageOptions: [],
+      profileOptions,
       onClose,
       onAdded,
     },
@@ -155,7 +156,6 @@ describe('TemplateDialog', () => {
     expect(previewed).not.toHaveBeenCalled();
   });
 
-  /** Replacing sends every person ticked: one left unticked loses their rule. */
   function routed() {
     return template({
       id: 'requesters',
@@ -200,6 +200,7 @@ describe('TemplateDialog', () => {
     expect(imported).toHaveBeenCalledWith('requesters', sent);
   });
 
+  /** Replacing sends every person ticked: one left unticked loses their rule. */
   it('asks before removing the rule of a requester unticked', async () => {
     vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
     const imported = vi
@@ -241,6 +242,47 @@ describe('TemplateDialog', () => {
         expect.anything(),
       ),
     );
+  });
+
+  it('asks for the 4K profiles among those the instances define, and sends the ones chosen', async () => {
+    const previewed = vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    const profiles: Facet[] = [
+      { value: 'Ultra-HD', count: 3 },
+      { value: 'HD-1080p', count: 40 },
+    ];
+    open(
+      template({
+        id: '4k',
+        parameter: 'quality_profiles',
+        category: '4k',
+        quality_profiles: ['Ultra-HD'],
+      }),
+      profiles,
+    );
+
+    const label = screen.getByText('4K quality profiles', { selector: 'label' });
+    expect(label.getAttribute('for')).toBe('template-profiles');
+    await waitFor(() =>
+      expect(previewed).toHaveBeenLastCalledWith(
+        '4k',
+        { category: '4k', quality_profiles: ['Ultra-HD'], replace: false },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it('says to sync first when no quality profile is known, and adds nothing', () => {
+    vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    open(
+      template({ id: '4k', parameter: 'quality_profiles', category: '4k', quality_profiles: [] }),
+    );
+
+    expect(
+      screen.getByText(
+        'No quality profile is known yet. Sync an instance, then come back to choose its 4K profiles.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
   });
 
   it('keeps the dialog open with the refusal when adding fails', async () => {

@@ -7,14 +7,14 @@ import type { Condition, ConditionSpec } from '../api/types';
 import ConditionList from './ConditionList.svelte';
 
 /**
- * The picker offers what the rule can use, and the list renders what the rule
- * already has. Those are two different sets, and conflating them is how a
- * saved condition disappears the next time somebody opens the rule.
+ * The picker offers what the rule can use, the list renders what it already has. Conflating the
+ * two sets is how a saved condition disappears the next time somebody opens the rule.
  */
 
 const spec = (type: string, media_types: string[], label: string): ConditionSpec => ({
   type,
   label,
+  group: type === 'season_count_over' ? 'arr' : 'metadata',
   label_key: `ConditionLabel${type}`,
   value_type: type === 'season_count_over' ? 'number' : 'string_list',
   needs_metadata: false,
@@ -74,10 +74,22 @@ function render(
 }
 
 describe('ConditionList', () => {
+  it('lists the conditions it offers under their family, in the order of the catalogue', () => {
+    render([], [GENRE, SEASONS, LANGUAGE]);
+
+    const families = [...document.querySelectorAll('optgroup')].map((group) => ({
+      label: group.label,
+      options: [...group.querySelectorAll('option')].map((option) => option.textContent?.trim()),
+    }));
+    expect(families).toEqual([
+      { label: 'From the metadata sources', options: ['Genre contains', 'Original language is'] },
+      { label: 'From Radarr and Sonarr', options: ['Season count over'] },
+    ]);
+  });
+
   /**
-   * On Windows and Linux an arrow key on a closed select fires `change`, and
-   * adding on `change` would add a condition at every arrow. Choosing is free,
-   * Add adds.
+   * On Windows and Linux an arrow key on a closed select fires `change`, so adding on `change`
+   * would add a condition at every arrow.
    */
   it('adds the condition chosen only when Add is pressed', async () => {
     const onAdd = vi.fn();
@@ -91,18 +103,15 @@ describe('ConditionList', () => {
   });
 
   it('still renders a condition the rule already carries but could not add today', () => {
-    // A rule saved as `series` and later narrowed to `movie` keeps its season
-    // condition. Hiding it would drop it from the payload on the next save,
-    // and the user would never see what they lost.
+    // A `series` rule narrowed to `movie`: hidden, its condition would drop on the next save.
     render([{ type: 'season_count_over', value: 3 } as unknown as Condition], [GENRE]);
 
     expect(screen.getByText('Season count over')).toBeTruthy();
   });
 
   /**
-   * OR and AND are one selector on the condition, not the difference between
-   * one condition and two. Both halves of the pair are the same question, so
-   * only one of them is offered when adding.
+   * OR and AND are one selector on the condition, not two conditions. Both halves of a pair are
+   * the same question, so only one of them is offered when adding.
    */
   it('offers each quantified condition once', () => {
     render([], [GENRE, GENRE_ALL]);
@@ -140,11 +149,9 @@ describe('ConditionList', () => {
   });
 
   /**
-   * A title has one original language, so several values on this condition can
-   * only be alternatives: the sentence says so where a selector would stand,
-   * and is heard with the field, not only seen beside it. Unsaid, the search
-   * box after the first value reads as an invitation to give a title a second
-   * language.
+   * A title has one original language, so several values can only be alternatives: the sentence
+   * says so, heard with the field. Unsaid, the search box after the first value reads as an
+   * invitation to give a title a second language.
    */
   it('says in a sentence tied to the field that a single-valued axis takes alternatives', () => {
     render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
@@ -173,12 +180,8 @@ describe('ConditionList', () => {
     expect(row?.textContent).not.toContain('…');
   });
   /**
-   * The library counts values, the closed vocabulary names them, and a value in
-   * both needs both.
-   *
-   * Appended rather than merged, the codes actually synced would be the only
-   * ones shown bare (`en` and `fr` above a list of `Afrikaans (af)`), which
-   * reads as the known languages being the ones nobody bothered to name.
+   * Appended rather than merged, the synced codes would be the only ones shown bare (`en` above
+   * `Afrikaans (af)`), which reads as the known languages being the ones nobody bothered to name.
    */
   it('names a value the library holds from the vocabulary that defines it', async () => {
     render([{ type: 'original_language', value: [] } as unknown as Condition], [], () => {}, {
@@ -227,10 +230,8 @@ describe('ConditionList', () => {
 });
 
 /**
- * Delete takes its own row away, and the focus with it, inside the rule
- * editor's dialog. Rows are kept by position, so the condition
- * after it moves up under the focus. The last row takes its button with it,
- * and the picker below is what is left.
+ * Delete takes its own row away, and the focus with it. Rows are kept by position, so the next
+ * condition moves up under the focus. The last row takes its button, and the picker is left.
  */
 describe('deleting a condition', () => {
   function renderLive(conditions: Condition[]) {

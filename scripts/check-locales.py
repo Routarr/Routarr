@@ -29,7 +29,7 @@ LOCALES = ROOT / "backend" / "locales"
 # reads in the file, a capital value as it is. `Prefix+Suffix` ends each key with it.
 BUILT = {
     "ConditionLabel": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
-    # The sentence of each condition, a yes or no one said no, and an open year range.
+    # The sentence of each condition, a yes or no one said no, and an open range.
     "ConditionPhrase": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
     "ConditionPhrase+Not": (
         "backend/src/api/conditions.rs",
@@ -37,11 +37,11 @@ BUILT = {
     ),
     "ConditionPhrase+From": (
         "backend/src/api/conditions.rs",
-        r'kind: "([a-z_]+)",\n\s*value_type: "year_range"',
+        r'kind: "([a-z_]+)",\n\s*value_type: "(?:year|number)_range"',
     ),
     "ConditionPhrase+To": (
         "backend/src/api/conditions.rs",
-        r'kind: "([a-z_]+)",\n\s*value_type: "year_range"',
+        r'kind: "([a-z_]+)",\n\s*value_type: "(?:year|number)_range"',
     ),
     "Job": ("backend/src/jobs/registry.rs", r'JobKind::\w+ => "([a-z_]+)"'),
     "Trigger": ("backend/src/jobs/mod.rs", r'pub const TRIGGER_\w+: &str = "([a-z_]+)";'),

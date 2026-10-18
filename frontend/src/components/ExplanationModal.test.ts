@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
-import { category, explanation } from '../test/fixtures';
+import { category, explainedMedia, explanation } from '../test/fixtures';
 import type { Explanation, MetadataProvider } from '../api/types';
 import { ApiError, api } from '../api/client';
 import ExplanationModal from './ExplanationModal.svelte';
@@ -56,6 +56,15 @@ describe('ExplanationModal', () => {
   });
 
   /** What each action does is said beside it, not in a title only a mouse shows. */
+  it('lists what the Arr reports that a rule can read, and leaves out what it does not', () => {
+    const media = explainedMedia({ quality_profile: 'Ultra-HD', runtime: 86, studio: 'Ghibli' });
+    show(explanation({ media }));
+
+    const text = (role: string) => screen.getAllByRole(role).map((each) => each.textContent);
+    expect(text('term')).toEqual(['Quality profile', 'Runtime', 'Studio']);
+    expect(text('definition')).toEqual(['Ultra-HD', '86 min', 'Ghibli']);
+  });
+
   it('says beside each action what it does', () => {
     show(explanation());
 

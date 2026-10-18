@@ -1,11 +1,6 @@
-//! Where a title another service names would go, on each Arr that holds or
-//! knows it.
-//!
-//! A title the library holds is decided as the simulation decides it. One it
-//! does not hold yet is looked up in the Arr, which answers with the same
-//! fields a sync reads, and decided the same way. Nothing is stored either
-//! way: the question is asked before a request is approved, and a title asked
-//! about is not a title in the library.
+//! Where a title another service names would go, on each Arr that holds or knows it: one the
+//! library holds is decided as the simulation decides it, one it does not is looked up in the
+//! Arr and decided the same way. Nothing is stored: a title asked about is not in the library.
 
 use chrono::Utc;
 use serde::Serialize;
@@ -81,21 +76,19 @@ pub struct InstanceFailure {
 /// this route would otherwise hold them all at once.
 static AT_ONCE: Semaphore = Semaphore::const_new(2);
 
-/// Where the title goes on each enabled Arr of its kind, or on `instance`.
-///
-/// What a title the Arr does not hold yet would be added with, which the rules
-/// read: the lookup answers the Arr's defaults instead, a series not monitored
-/// and of the standard type, never added.
+/// What a title the Arr does not hold yet would be added with, which the rules read in place
+/// of the lookup's defaults, a series not monitored and of the standard type.
 #[derive(Debug, Default)]
 pub struct AddedWith {
     pub tags: Vec<String>,
     pub series_type: Option<String>,
     pub monitored: Option<bool>,
+    /// The quality profile, by name.
+    pub quality_profile: Option<String>,
 }
 
-/// `added` is what a title the Arr does not hold would be added with. With
-/// `enrich`, every source that can answer and has no cached answer is asked
-/// now.
+/// Where the title goes on each enabled Arr of its kind, or on `instance`. With `enrich`,
+/// every source that can answer and has no cached answer is asked now.
 pub async fn place(
     state: &AppState,
     media_type: &str,
@@ -119,8 +112,7 @@ pub async fn place(
     let held = routing::media_by_external_id(&state.pool, media_type, id, instance).await?;
 
     let mut placement = Placement::default();
-    // Asked once per title, whichever instances know it: a source's pace and
-    // quota are spent per request.
+    // Asked once per title, whichever instances know it: a source's quota is spent per request.
     let mut asked: std::collections::HashMap<(String, String), routing::Fresh> =
         std::collections::HashMap::new();
     for instance in instances {
@@ -175,9 +167,8 @@ const MISS_KEPT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// How many titles nobody knows are remembered, the oldest forgotten first.
 const MISSES_KEPT: usize = 4096;
 
-/// The titles each instance's Arr did not know when a placement asked. A key
-/// looping on ids no library holds would otherwise send each one to the Arr,
-/// which sends it to its own metadata service, on the owner's quota.
+/// The titles each instance's Arr did not know when a placement asked, so a key looping on
+/// unknown ids does not spend the owner's metadata quota through the Arr.
 #[derive(Default)]
 pub struct Misses(std::sync::Mutex<HashMap<(String, String), tokio::time::Instant>>);
 
@@ -215,13 +206,9 @@ async fn looked_up(
     Ok(found)
 }
 
-/// The title as the Arr describes it, as a media row that is never written.
-///
-/// Its id names the instance and the title, so no exception, which is keyed by
-/// a real row, can apply to it. A title the Arr already holds keeps the
-/// folder, the files and the state the Arr reports, its tags named through the
-/// instance's tag catalogue: the sync has only not read it yet. One it does not
-/// hold is judged on what adding it sets.
+/// The title as the Arr describes it, as a media row never written, which no exception can
+/// match. One the Arr holds keeps what the Arr reports, tags and profile named through the
+/// instance's catalogues, and one it does not hold is judged on what adding it sets.
 async fn unheld(
     state: &AppState,
     instance: &Instance,
@@ -229,7 +216,7 @@ async fn unheld(
     item: ArrMedia,
     added: &AddedWith,
 ) -> AppResult<Media> {
-    let (tags, monitored, added_at, series_type) = if item.arr_id != 0 {
+    let (tags, monitored, added_at, series_type, quality_profile) = if item.arr_id != 0 {
         let catalogue: HashMap<i64, String> =
             sqlx::query_as("SELECT arr_id, label FROM arr_tags WHERE instance_id = ?")
                 .bind(&instance.id)
@@ -239,13 +226,25 @@ async fn unheld(
                 .collect();
         let labels: Vec<String> =
             item.tag_ids.iter().filter_map(|tag| catalogue.get(tag).cloned()).collect();
-        (labels, item.monitored, item.added, item.series_type)
+        let profile: Option<String> =
+            match item.quality_profile_id {
+                Some(id) => sqlx::query_scalar(
+                    "SELECT name FROM arr_quality_profiles WHERE instance_id = ? AND arr_id = ?",
+                )
+                .bind(&instance.id)
+                .bind(id)
+                .fetch_optional(&state.pool)
+                .await?,
+                None => None,
+            };
+        (labels, item.monitored, item.added, item.series_type, profile)
     } else {
         (
             added.tags.clone(),
             added.monitored.unwrap_or(true),
             Some(routing::format_timestamp(Utc::now())),
             added.series_type.clone().or(item.series_type),
+            added.quality_profile.clone(),
         )
     };
     Ok(Media {
@@ -262,8 +261,7 @@ async fn unheld(
         current_path: item.path,
         current_root_folder: item.root_folder_path,
         monitored,
-        // Radarr's lookup carries no `hasFile`, which reads as a file: a title
-        // the Arr does not hold has none.
+        // Radarr's lookup carries no `hasFile`, which reads as a file: an unheld title has none.
         has_files: item.arr_id != 0 && item.has_files,
         status: item.status,
         added_at,
@@ -274,6 +272,12 @@ async fn unheld(
         genres: serde_json::to_string(&item.genres).ok(),
         original_language: item.original_language,
         certification: item.certification,
+        quality_profile,
+        runtime: item.runtime,
+        studio: item.studio,
+        network: item.network,
+        collection: item.collection.as_ref().and_then(|c| c.title.clone()),
+        collection_tmdb_id: item.collection.and_then(|c| c.tmdb_id),
         last_synced_at: None,
     })
 }

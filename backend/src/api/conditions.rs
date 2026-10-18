@@ -11,6 +11,8 @@ use crate::state::AppState;
 /// One entry of the vocabulary.
 struct Spec {
     kind: &'static str,
+    /// `metadata`, `arr`, `title` or `folder`: the family the builder lists it under.
+    group: &'static str,
     value_type: &'static str,
     /// The metadata field it reads, if any.
     field: Option<MetadataField>,
@@ -40,12 +42,15 @@ pub struct ConditionSpec {
     #[serde(rename = "type")]
     #[schema(rename = "type")]
     pub kind: &'static str,
+    /// The family the builder lists it under: `metadata` (what the sources say), `arr` (what
+    /// Radarr and Sonarr report), `title` (the title and its ids) or `folder`.
+    pub group: &'static str,
     /// The caption, in the interface language.
     pub label: String,
     /// The dictionary key of the caption.
     pub label_key: String,
     /// The shape of `value`: `string_list`, `number_list`, `string`, `number`,
-    /// `boolean` or `year_range`.
+    /// `boolean`, `year_range` or `number_range`.
     pub value_type: &'static str,
     /// Whether it reads metadata a source supplies.
     pub needs_metadata: bool,
@@ -69,15 +74,17 @@ pub struct ConditionSpec {
 pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionCatalog> {
     let localizer = state.localizer().await;
 
-    // Radarr sends no tvdbId, series type or seasons: those conditions never match a film.
+    // Radarr sends no tvdbId, series type, seasons or network, Sonarr no studio or collection.
     const ANY: &[&str] = &["movie", "series"];
     const SERIES_ONLY: &[&str] = &["series"];
+    const MOVIES_ONLY: &[&str] = &["movie"];
 
     // Each label is the dictionary key `ConditionLabel` and the kind in PascalCase.
     const CONDITIONS: &[Spec] = &[
         Spec {
             kind: "genre_contains",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Genres),
             media_types: ANY,
             suggestions: "genres",
@@ -87,6 +94,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "genre_contains_all",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Genres),
             media_types: ANY,
             suggestions: "genres",
@@ -96,6 +104,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "genre_not_contains",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Genres),
             media_types: ANY,
             suggestions: "genres",
@@ -105,6 +114,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "keyword_contains",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Keywords),
             media_types: ANY,
             suggestions: "",
@@ -114,6 +124,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "keyword_contains_all",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Keywords),
             media_types: ANY,
             suggestions: "",
@@ -123,6 +134,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "keyword_not_contains",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Keywords),
             media_types: ANY,
             suggestions: "",
@@ -132,6 +144,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "original_language",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::OriginalLanguage),
             media_types: ANY,
             suggestions: "original_languages",
@@ -141,6 +154,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "original_language_not",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::OriginalLanguage),
             media_types: ANY,
             suggestions: "original_languages",
@@ -150,6 +164,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "original_language_known",
             value_type: "boolean",
+            group: "metadata",
             field: Some(MetadataField::OriginalLanguage),
             media_types: ANY,
             suggestions: "",
@@ -159,6 +174,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "origin_country",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::OriginCountries),
             media_types: ANY,
             suggestions: "origin_countries",
@@ -168,6 +184,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "origin_country_all",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::OriginCountries),
             media_types: ANY,
             suggestions: "origin_countries",
@@ -177,6 +194,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "certification_in",
             value_type: "string_list",
+            group: "metadata",
             field: Some(MetadataField::Certification),
             media_types: ANY,
             suggestions: "certifications",
@@ -186,6 +204,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "year_range",
             value_type: "year_range",
+            group: "title",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -195,6 +214,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "status_is",
             value_type: "string_list",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "statuses",
@@ -204,6 +224,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "current_root_folder",
             value_type: "string",
+            group: "folder",
             field: None,
             media_types: ANY,
             suggestions: "root_folders",
@@ -213,6 +234,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "current_root_folder_starts_with",
             value_type: "string",
+            group: "folder",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -222,6 +244,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "has_files",
             value_type: "boolean",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -231,6 +254,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "monitored",
             value_type: "boolean",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -240,6 +264,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "has_metadata",
             value_type: "boolean",
+            group: "metadata",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -249,6 +274,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "title_contains",
             value_type: "string_list",
+            group: "title",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -258,6 +284,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "tmdb_id_in",
             value_type: "number_list",
+            group: "title",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -267,6 +294,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "tvdb_id_in",
             value_type: "number_list",
+            group: "title",
             field: None,
             media_types: SERIES_ONLY,
             suggestions: "",
@@ -276,6 +304,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "imdb_id_in",
             value_type: "string_list",
+            group: "title",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -285,16 +314,17 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "added_within_days",
             value_type: "number",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "",
             quantifier: "",
             counterpart: "",
         },
-        // Signals the Arr already reports: none of them reads a source.
         Spec {
             kind: "tag_in",
             value_type: "string_list",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "tags",
@@ -304,6 +334,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "tag_in_all",
             value_type: "string_list",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "tags",
@@ -313,6 +344,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "series_type_is",
             value_type: "string_list",
+            group: "arr",
             field: None,
             media_types: SERIES_ONLY,
             suggestions: "series_types",
@@ -320,8 +352,59 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
             counterpart: "",
         },
         Spec {
+            kind: "quality_profile_in",
+            value_type: "string_list",
+            group: "arr",
+            field: None,
+            media_types: ANY,
+            suggestions: "quality_profiles",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
+            kind: "runtime_range",
+            value_type: "number_range",
+            group: "arr",
+            field: None,
+            media_types: ANY,
+            suggestions: "",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
+            kind: "studio_in",
+            value_type: "string_list",
+            group: "arr",
+            field: None,
+            media_types: MOVIES_ONLY,
+            suggestions: "studios",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
+            kind: "network_in",
+            value_type: "string_list",
+            group: "arr",
+            field: None,
+            media_types: SERIES_ONLY,
+            suggestions: "networks",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
+            kind: "collection_in",
+            value_type: "string_list",
+            group: "arr",
+            field: None,
+            media_types: MOVIES_ONLY,
+            suggestions: "collections",
+            quantifier: "",
+            counterpart: "",
+        },
+        Spec {
             kind: "size_on_disk_over_gb",
             value_type: "number",
+            group: "arr",
             field: None,
             media_types: ANY,
             suggestions: "",
@@ -331,6 +414,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
         Spec {
             kind: "season_count_over",
             value_type: "number",
+            group: "arr",
             field: None,
             media_types: SERIES_ONLY,
             suggestions: "",
@@ -348,6 +432,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
             let key = format!("ConditionLabel{}", pascal_case(spec.kind));
             ConditionSpec {
                 kind: spec.kind,
+                group: spec.group,
                 label: localizer.translate(&key, &[]),
                 label_key: key,
                 value_type: spec.value_type,
@@ -418,6 +503,7 @@ mod tests {
             "number" => serde_json::json!(1),
             "boolean" => serde_json::json!(true),
             "year_range" => serde_json::json!({ "min": 2000, "max": 2010 }),
+            "number_range" => serde_json::json!({ "min": 30, "max": 90 }),
             other => panic!("no sample for value_type {other}"),
         }
     }
@@ -503,6 +589,24 @@ mod tests {
         }
         assert!(checked >= 5, "only {checked} spec(s) name an axis at all");
         assert!(missing.is_empty(), "{missing:?}");
+    }
+
+    /// Every entry falls in a family the builder knows: one it does not would list the
+    /// condition under no heading, out of reach in a long list.
+    #[test]
+    fn every_condition_is_in_a_family_the_builder_lists() {
+        let source = include_str!("conditions.rs");
+        let groups: Vec<&str> = source
+            .split("Spec {")
+            .skip(1)
+            .filter_map(|body| {
+                body.split_once("group: \"")?.1.split_once('"').map(|(group, _)| group)
+            })
+            .collect();
+        assert!(groups.len() >= 30, "only {} famil(ies) read", groups.len());
+        for group in &groups {
+            assert!(["metadata", "arr", "title", "folder"].contains(group), "{group}");
+        }
     }
 
     /// Every catalogue entry is a condition the engine accepts, reading the

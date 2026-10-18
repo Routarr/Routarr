@@ -1,8 +1,5 @@
-//! A single façade over Radarr and Sonarr.
-//!
-//! One common model with an adapter per media type. Sync, health and the
-//! executor all talk to this enum, so none of them branches on
-//! `instance_type` and repeats the same code for each Arr.
+//! A single façade over Radarr and Sonarr: sync, health and the executor talk to this enum,
+//! so none of them branches on `instance_type`.
 
 use reqwest::Client;
 
@@ -33,23 +30,28 @@ pub struct ArrMedia {
     pub has_files: bool,
     pub status: Option<String>,
     pub added: Option<String>,
-    /// Sonarr's own classification (`standard` / `anime` / `daily`). `None` for
-    /// movies: Radarr has no equivalent.
+    /// Sonarr's own classification (`standard`, `anime`, `daily`), `None` for movies.
     pub series_type: Option<String>,
     pub size_on_disk: Option<i64>,
-    /// Seasons excluding specials, so "more than five seasons" means what the
-    /// user means. `None` for movies.
+    /// Seasons excluding specials, `None` for movies.
     pub season_count: Option<i64>,
     /// Tag ids as the Arr reports them, resolved to labels at sync time.
     pub tag_ids: Vec<i64>,
-    /// Metadata the Arr already carries. It makes the `arr` source of
-    /// `services::metadata` answer without a single extra request, which is
-    /// what lets Routarr classify a library with no TMDB key at all.
+    /// What the `arr` source of `services::metadata` answers from, with no request nor key.
     pub genres: Vec<String>,
-    /// Normalised to the ISO 639-1 code TMDB would have returned, so both
-    /// sources speak the same vocabulary.
+    /// Normalised to the ISO 639-1 code every source answers in.
     pub original_language: Option<String>,
     pub certification: Option<String>,
+    /// Resolved to a name at sync time, as the tags are.
+    pub quality_profile_id: Option<i64>,
+    /// Minutes: a film's, a series' episode's. `None` where the Arr gives 0.
+    pub runtime: Option<i64>,
+    /// Radarr's studio.
+    pub studio: Option<String>,
+    /// Sonarr's network.
+    pub network: Option<String>,
+    /// Radarr's collection, its title and TMDB id.
+    pub collection: Option<super::ArrCollection>,
 }
 
 /// A tag as defined in an Arr.
@@ -57,6 +59,13 @@ pub struct ArrMedia {
 pub struct ArrTag {
     pub arr_id: i64,
     pub label: String,
+}
+
+/// A quality profile as defined in an Arr.
+#[derive(Debug, Clone)]
+pub struct ArrQualityProfile {
+    pub arr_id: i64,
+    pub name: String,
 }
 
 /// A root folder as seen by either Arr.
@@ -165,11 +174,8 @@ impl ArrAdapter {
         }
     }
 
-    /// One item by its Arr id, `None` when the Arr answers 404 for it.
-    ///
-    /// The webhook path reads one item per event, and an Arr sends one event
-    /// per imported file: listing the whole library there would cost a full
-    /// download per episode of a season.
+    /// One item by its Arr id, `None` on a 404: the webhook gets an event per imported file,
+    /// too many to list the whole library for each.
     pub async fn get_media_one(&self, arr_id: i64) -> AppResult<Option<ArrMedia>> {
         let found = match self {
             Self::Radarr(c) => c.get_movie(arr_id).await.map(movie_to_media),
@@ -208,10 +214,18 @@ impl ArrAdapter {
         Ok(tags.into_iter().map(|t| ArrTag { arr_id: t.id, label: t.label }).collect())
     }
 
-    /// Point one title at another root folder, keeping its folder name, and
-    /// answer the path it now has. With `move_files` the Arr answers once it
-    /// has queued the move, and carries the files in a command of its own
-    /// ([`ArrAdapter::move_commands`]).
+    /// Get the instance's quality profiles, so a media row's id can be named.
+    pub async fn get_quality_profiles(&self) -> AppResult<Vec<ArrQualityProfile>> {
+        let profiles = match self {
+            Self::Radarr(c) => c.get_quality_profiles().await?,
+            Self::Sonarr(c) => c.get_quality_profiles().await?,
+        };
+        Ok(profiles.into_iter().map(|p| ArrQualityProfile { arr_id: p.id, name: p.name }).collect())
+    }
+
+    /// Point one title at another root folder, keeping its folder name, and answer its new
+    /// path. With `move_files` the Arr answers once the move is queued, and carries the files
+    /// in a command of its own ([`ArrAdapter::move_commands`]).
     pub async fn move_item(
         &self,
         arr_id: i64,
@@ -269,9 +283,8 @@ fn known_year(year: Option<i64>) -> Option<i64> {
     year.filter(|year| *year > 0)
 }
 
-/// An id the Arr writes as 0 is one it does not know: Sonarr sends a series
-/// with no TMDB id as `"tmdbId": 0`. Taken for an id, every such title would
-/// share one search key, and with it the one answer found for the first.
+/// An id the Arr writes as 0 is one it does not know: taken for an id, every such title
+/// would share one search key, and with it the one answer found for the first.
 fn known_id(id: Option<i64>) -> Option<i64> {
     id.filter(|id| *id > 0)
 }
@@ -303,6 +316,11 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
             .and_then(|l| l.name)
             .and_then(|name| super::language::normalise(&name)),
         certification: m.certification,
+        quality_profile_id: m.quality_profile_id,
+        runtime: known_id(m.runtime),
+        studio: m.studio,
+        network: None,
+        collection: m.collection,
     }
 }
 
@@ -334,6 +352,11 @@ fn series_to_media(s: crate::integrations::sonarr::SonarrSeries) -> ArrMedia {
             .and_then(|l| l.name)
             .and_then(|name| super::language::normalise(&name)),
         certification: s.certification,
+        quality_profile_id: s.quality_profile_id,
+        runtime: known_id(s.runtime),
+        studio: None,
+        network: s.network,
+        collection: None,
     }
 }
 
@@ -350,9 +373,7 @@ mod tests {
         series_to_media(serde_json::from_value(body).expect("a series")).has_files
     }
 
-    /// Auto-apply moves an item without its files, so it may only do so when
-    /// the Arr said there are none. A payload silent on the question is read as
-    /// an item with files.
+    /// Auto-apply moves an item without its files, so a payload silent on them has files.
     #[test]
     fn an_item_is_without_files_only_when_the_arr_says_so() {
         assert!(!movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": false })));
@@ -372,9 +393,8 @@ mod tests {
         assert!(series_has_files(json!({ "id": 20, "title": "Cowboy Bebop" })));
     }
 
-    /// Sonarr writes a series with no TMDB id as `"tmdbId": 0`, its field being
-    /// a number it cannot leave out. Taken for an id, every such series shares
-    /// the key `tmdb:0` and the one answer a search gave the first of them.
+    /// Sonarr writes a series with no TMDB id as `"tmdbId": 0`. Taken for an id, every such
+    /// series shares the key `tmdb:0` and the one answer a search gave the first.
     #[test]
     fn an_id_the_arr_writes_as_zero_is_no_id() {
         let series = series_to_media(
@@ -392,9 +412,7 @@ mod tests {
         assert_eq!(film.tmdb_id, None);
     }
 
-    /// A Radarr v5 `/api/v3/movie` item in full, through the real types: every
-    /// field the client ignores, the language as an id and a name, the files
-    /// counted in `statistics` beside the older `hasFile`. A change in Radarr's
+    /// A Radarr v5 `/api/v3/movie` item in full, through the real types: a change in Radarr's
     /// shape surfaces here, where a fake written to fit the mapping hides it.
     #[test]
     fn a_real_shape_radarr_movie_maps() {
@@ -451,12 +469,15 @@ mod tests {
         assert_eq!(movie.genres, ["Animation", "Family", "Fantasy"]);
         assert_eq!(movie.original_language.as_deref(), Some("ja"));
         assert_eq!(movie.certification.as_deref(), Some("G"));
+        assert_eq!((movie.quality_profile_id, movie.runtime), (Some(4), Some(86)));
+        assert_eq!(movie.studio.as_deref(), Some("Studio Ghibli"));
+        let collection = movie.collection.expect("the collection");
+        assert_eq!(collection.title.as_deref(), Some("Studio Ghibli Collection"));
+        assert_eq!(collection.tmdb_id, Some(1000));
     }
 
-    /// A Sonarr v4 `/api/v3/series` item in full, for a series TheTVDB maps to
-    /// no TMDB id, which Sonarr writes as 0: the seasons with their own
-    /// statistics, the series' statistics, its ratings and its alternate
-    /// titles, none of which the client reads beyond its counts.
+    /// A Sonarr v4 `/api/v3/series` item in full, for a series TheTVDB maps to no TMDB id,
+    /// which Sonarr writes as 0.
     #[test]
     fn a_real_shape_sonarr_series_maps() {
         let series = series_to_media(
@@ -510,5 +531,7 @@ mod tests {
         assert_eq!(series.status.as_deref(), Some("ended"));
         assert_eq!(series.original_language.as_deref(), Some("ja"));
         assert_eq!(series.certification.as_deref(), Some("TV-14"));
+        assert_eq!((series.quality_profile_id, series.runtime), (Some(6), Some(25)));
+        assert_eq!(series.network.as_deref(), Some("Fuji TV"));
     }
 }

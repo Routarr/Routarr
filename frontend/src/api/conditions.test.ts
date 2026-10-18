@@ -6,7 +6,7 @@ import {
   parseNumberList,
   rejectedNumbers,
   parseStringList,
-  parseYearBound,
+  parseWholeBound,
   canonicalKey,
   certificationKey,
   addValue,
@@ -22,6 +22,8 @@ import { readBackend } from '../test/backend';
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
   type: 'x',
   label: 'X',
+  group: 'metadata',
+
   label_key: 'ConditionLabelX',
   value_type,
   needs_metadata: false,
@@ -111,10 +113,7 @@ describe('parseStringList', () => {
     expect(parseStringList('Animation ,  Family')).toEqual(['Animation', 'Family']);
   });
 
-  /**
-   * A comma separates alternatives and never means "and": the free-text path
-   * has to produce exactly what the picker would.
-   */
+  /** The free-text path has to produce exactly what the picker would. */
   it('drops a value repeated under another spelling', () => {
     expect(parseStringList('Animation, animation , Family')).toEqual(['Animation', 'Family']);
   });
@@ -144,10 +143,7 @@ describe('parseNumberList', () => {
     expect(parseNumberList('')).toEqual([]);
   });
 
-  /**
-   * An identifier is a whole number above zero, listed once. The server
-   * refuses the rest, a fraction with the whole request.
-   */
+  /** The server refuses the rest, a fraction with the whole request. */
   it('keeps whole numbers above zero, once each', () => {
     expect(parseNumberList('8392, 1.5, -3, 0, 8392')).toEqual([8392]);
   });
@@ -160,29 +156,26 @@ describe('parseNumberList', () => {
   });
 });
 
-describe('parseYearBound', () => {
+describe('parseWholeBound', () => {
   it('clears the bound when the field is emptied', () => {
     // Sending 0 instead of null would turn an open range into "year >= 0".
-    expect(parseYearBound('')).toBeNull();
-    expect(parseYearBound('   ')).toBeNull();
+    expect(parseWholeBound('')).toBeNull();
+    expect(parseWholeBound('   ')).toBeNull();
   });
 
   it('parses a year', () => {
-    expect(parseYearBound('1988')).toBe(1988);
+    expect(parseWholeBound('1988')).toBe(1988);
   });
 
   it('rejects nonsense rather than storing NaN', () => {
-    expect(parseYearBound('nineteen')).toBeNull();
+    expect(parseWholeBound('nineteen')).toBeNull();
   });
 
-  /**
-   * `Number` calls both of these finite, and either one stored is a rule that
-   * matches nothing.
-   */
+  /** `Number` calls both finite, and either one stored is a rule that matches nothing. */
   it('takes a whole number or nothing', () => {
-    expect(parseYearBound('2e5')).toBeNull();
-    expect(parseYearBound('1988.5')).toBeNull();
-    expect(parseYearBound(' 1988 ')).toBe(1988);
+    expect(parseWholeBound('2e5')).toBeNull();
+    expect(parseWholeBound('1988.5')).toBeNull();
+    expect(parseWholeBound(' 1988 ')).toBe(1988);
   });
 });
 
@@ -200,9 +193,7 @@ describe('conditionAppliesTo', () => {
   });
 
   it('takes the intersection for a rule that covers both', () => {
-    // A `both` rule is evaluated against films *and* series, so a series-only
-    // condition can never hold for the films it also matches. The union would
-    // offer a condition that silently makes half the rule dead.
+    // The union would offer a condition that silently makes half the rule dead.
     expect(conditionAppliesTo(scoped(['series']), 'both')).toBe(false);
     expect(conditionAppliesTo(scoped(['movie', 'series']), 'both')).toBe(true);
   });
@@ -239,9 +230,8 @@ describe('nextPriority', () => {
 
 describe('the parsers of a typed value', () => {
   /**
-   * Whatever is typed, a parser answers, and its answer typed back reads the
-   * same: an identifier is a whole number a source can hold, and a year one
-   * that reads back as itself.
+   * Whatever is typed, a parser answers, and its answer typed back reads the same: an identifier
+   * is a whole number a source can hold, and a year one that reads back as itself.
    */
   it('read any input, and settle on their own output', () => {
     const whole = fc.bigInt({ min: -(10n ** 30n), max: 10n ** 30n }).map(String);
@@ -259,8 +249,8 @@ describe('the parsers of a typed value', () => {
         expect(ids.every((id) => Number.isSafeInteger(id) && id > 0)).toBe(true);
         expect(parseNumberList(ids.join(', '))).toEqual(ids);
 
-        const year = parseYearBound(input);
-        if (year !== null) expect(parseYearBound(String(year))).toBe(year);
+        const year = parseWholeBound(input);
+        if (year !== null) expect(parseWholeBound(String(year))).toBe(year);
       }),
       // A zero with its sign, and digits past an exact integer.
       { examples: [['-0'], ['123456789012345678901234567890']] },

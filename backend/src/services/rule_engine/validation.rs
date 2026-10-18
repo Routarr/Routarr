@@ -55,6 +55,9 @@ pub const MIN_YEAR: i64 = 1888;
 /// before release, and the ceiling catches a typing mistake such as `20255`.
 pub const MAX_YEARS_AHEAD: i64 = 5;
 
+/// The longest runtime a rule may name, in minutes: a day holds every film released.
+pub const MAX_RUNTIME: i64 = 1440;
+
 /// Longest name a rule may carry. A name is a table cell and a badge, and a
 /// paragraph in either breaks the layout of every screen that lists rules.
 pub const MAX_NAME_LENGTH: usize = 200;
@@ -196,6 +199,27 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 }
             }
         }
+        if let Condition::RuntimeRange { min: Some(min), max: Some(max) } = condition
+            && min > max
+        {
+            issues.push(ValidationIssue::error(
+                section,
+                "ValidationRuntimeRangeInverted",
+                &at(&[("min", min.to_string()), ("max", max.to_string())]),
+            ));
+        }
+        // A day's worth of minutes holds the longest film released, so past it is a typo.
+        if let Condition::RuntimeRange { min, max } = condition {
+            for minutes in [min, max].into_iter().flatten() {
+                if !(0..=MAX_RUNTIME).contains(minutes) {
+                    issues.push(ValidationIssue::error(
+                        section,
+                        "ValidationRuntimeImplausible",
+                        &at(&[("value", minutes.to_string()), ("max", MAX_RUNTIME.to_string())]),
+                    ));
+                }
+            }
+        }
         // A count below one is a mistake: no title was added within the last zero days.
         if let Condition::AddedWithinDays(count)
         | Condition::SizeOnDiskOverGb(count)
@@ -268,7 +292,8 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         | (OriginalLanguageNot(y), OriginalLanguage(x)) => {
             !x.is_empty() && x.iter().all(|v| y.iter().any(|w| w.eq_ignore_ascii_case(v)))
         }
-        (YearRange { min: amin, max: amax }, YearRange { min: bmin, max: bmax }) => {
+        (YearRange { min: amin, max: amax }, YearRange { min: bmin, max: bmax })
+        | (RuntimeRange { min: amin, max: amax }, RuntimeRange { min: bmin, max: bmax }) => {
             // A missing bound is infinite, where `Option` would order `None` as the smallest.
             let lo = tightest(*amin, *bmin, i64::max);
             let hi = tightest(*amax, *bmax, i64::min);
@@ -339,8 +364,6 @@ fn folded(condition: &Condition) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ---------------------------------------------------------- validation
 
     fn draft<'a>(
         media_type: &'a str,
@@ -612,6 +635,32 @@ mod tests {
         let ratings =
             validate(vec![Condition::CertificationIn(vec!["R".into(), "R+".into()])], vec![]);
         assert!(!ratings.iter().any(|i| i.key == "ValidationValueRepeated"), "{ratings:?}");
+    }
+
+    #[test]
+    fn an_inverted_or_implausible_runtime_range_is_an_error_and_two_apart_contradict() {
+        let runtime = |min, max| Condition::RuntimeRange { min, max };
+        let has = |issues: &[ValidationIssue], key: &str| {
+            issues.iter().any(|issue| issue.is_error() && issue.key == key)
+        };
+
+        assert!(has(
+            &validate(vec![runtime(Some(120), Some(60))], vec![]),
+            "ValidationRuntimeRangeInverted"
+        ));
+        assert!(has(
+            &validate(vec![runtime(Some(-1), None)], vec![]),
+            "ValidationRuntimeImplausible"
+        ));
+        assert!(has(
+            &validate(vec![runtime(None, Some(1441))], vec![]),
+            "ValidationRuntimeImplausible"
+        ));
+        let apart = validate(vec![runtime(Some(100), None), runtime(None, Some(40))], vec![]);
+        assert!(has(&apart, "ValidationContradiction"), "{apart:?}");
+
+        let fine = validate(vec![runtime(Some(0), Some(MAX_RUNTIME))], vec![]);
+        assert!(fine.iter().all(|issue| !issue.is_error()), "{fine:?}");
     }
 
     #[test]

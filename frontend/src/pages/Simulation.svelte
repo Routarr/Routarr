@@ -23,6 +23,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import SearchField from '../components/SearchField.svelte';
+  import FilterBar from '../components/FilterBar.svelte';
   import DecisionFilterFields, {
     NO_TITLE_FILTER,
     type TitleFilter,
@@ -42,16 +43,18 @@
 
   // The filters narrow the run's proposals, or every pending decision, and an apply of many.
   let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
-  let search = $state('');
+  let searchText = $state('');
   let action = $state('');
   let page = $state(1);
-  const filter = $derived<DecisionFilter>(setFields({ ...titles, search }));
+  const filter = $derived<DecisionFilter>(setFields({ ...titles, search: searchText }));
+  // What the panel sets, which the Filters button counts: the search is in sight beside it.
+  const panelSet = $derived(Object.keys(setFields({ ...titles })).length + (action === '' ? 0 : 1));
   const filtered = $derived(Object.keys(filter).length > 0 || action !== '');
   const narrowing = () => [result?.simulation_id, JSON.stringify(filter), action];
 
   function clearFilters() {
     titles = { ...NO_TITLE_FILTER };
-    search = '';
+    searchText = '';
     action = '';
     page = 1;
   }
@@ -436,47 +439,48 @@
     {/if}
   {/if}
 
-  <div class="toolbar">
-    <SearchField
-      bind:value={search}
-      placeholder={t('SearchATitle')}
-      label={t('SearchATitle')}
-      oninput={() => (page = 1)}
-      debounce={200}
-    />
+  <FilterBar active={panelSet} clearable={filtered} onClear={clearFilters}>
+    {#snippet search()}
+      <SearchField
+        bind:value={searchText}
+        placeholder={t('SearchATitle')}
+        label={t('SearchATitle')}
+        oninput={() => (page = 1)}
+        debounce={200}
+      />
+    {/snippet}
     <DecisionFilterFields
       bind:filter={titles}
       fields={['instance', 'type', 'category', 'folder', 'rule']}
       onchange={() => (page = 1)}
     />
-    <select
-      class="form-select"
-      aria-label={t('FilterByAction')}
-      value={action}
-      onchange={(event) => {
-        page = 1;
-        action = event.currentTarget.value;
-      }}
-    >
-      <option value="">{t('AllActions')}</option>
-      <option value="move">{t('ActionMove')}</option>
-      <option value="skip">{t('ActionSkip')}</option>
-    </select>
-    {#if filtered}
-      <button type="button" class="btn btn-ghost" onclick={clearFilters}>{t('ClearFilters')}</button
+    <div class="form-group filter-field">
+      <label class="form-label" for="simulation-action">{t('Action')}</label>
+      <select
+        id="simulation-action"
+        class="form-select"
+        value={action}
+        onchange={(event) => {
+          page = 1;
+          action = event.currentTarget.value;
+        }}
       >
-    {/if}
-  </div>
+        <option value="">{t('AllActions')}</option>
+        <option value="move">{t('ActionMove')}</option>
+        <option value="skip">{t('ActionSkip')}</option>
+      </select>
+    </div>
+  </FilterBar>
 
   {#if movable.length > 0}
     <div class="card">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" bind:checked={moveFiles} />
           <span>{t('MoveFilesLabel')}</span>
         </label>
 
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button
             class="btn btn-primary"
             onclick={() => void apply()}

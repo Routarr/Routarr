@@ -28,6 +28,8 @@ ROOT_FOLDERS = initial_root_folders()
 
 TAGS = [{"id": 1, "label": "4k"}, {"id": 2, "label": "rewatch"}]
 
+QUALITY_PROFILES = [{"id": 1, "name": "HD-1080p"}, {"id": 4, "name": "Ultra-HD"}]
+
 
 def movie(
     arr_id,
@@ -56,6 +58,9 @@ def movie(
         "genres": genres if genres is not None else ["Drama"],
         "originalLanguage": {"id": 1, "name": "English"},
         "certification": "PG-13",
+        "qualityProfileId": 1,
+        "runtime": 120,
+        "studio": "A Studio",
     }
 
 
@@ -156,6 +161,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({}, 404)
         if path == "/api/v3/tag":
             return self._send(TAGS)
+        if path == "/api/v3/qualityprofile":
+            return self._send(QUALITY_PROFILES)
         if path == "/api/v3/config/metadata":
             return self._send({"certificationCountry": "us"})
         if path == "/api/v3/filesystem":

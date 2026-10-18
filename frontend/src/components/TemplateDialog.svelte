@@ -27,12 +27,15 @@
     template,
     categories,
     languageOptions,
+    profileOptions,
     onClose,
     onAdded,
   }: {
     template: TemplateSummary;
     categories: Category[];
     languageOptions: Facet[];
+    /** The quality profiles the instances define, for the 4K template. */
+    profileOptions: Facet[];
     onClose: () => void;
     onAdded: (added: TemplateAdded) => void;
   } = $props();
@@ -41,6 +44,7 @@
   const offered = untrack(() => template);
   let category = $state(offered.category ?? '');
   let languages = $state([...offered.languages]);
+  let profiles = $state([...offered.quality_profiles]);
   let requesters = $state(
     offered.requesters.map((each) => ({ ...each, chosen: each.added, target: each.category })),
   );
@@ -60,6 +64,7 @@
   const request = $derived<TemplateRequest>({
     ...(byRequester ? {} : { category: category.trim() }),
     ...(template.parameter === 'languages' ? { languages } : {}),
+    ...(template.parameter === 'quality_profiles' ? { quality_profiles: profiles } : {}),
     ...(byRequester
       ? { requesters: chosen.map((each) => ({ tag: each.tag, category: each.target.trim() })) }
       : {}),
@@ -72,7 +77,9 @@
   const ready = $derived(
     byRequester
       ? chosen.length > 0 && chosen.every((each) => each.target.trim()) && (!updating || changed)
-      : category.trim() !== '' && (template.parameter !== 'languages' || languages.length > 0),
+      : category.trim() !== '' &&
+          (template.parameter !== 'languages' || languages.length > 0) &&
+          (template.parameter !== 'quality_profiles' || profiles.length > 0),
   );
   const action = $derived(
     updating ? 'TemplateUpdate' : replacing ? 'TemplateReplace' : 'TemplateAdd',
@@ -257,6 +264,28 @@
           }}
         />
         <span class="form-hint" id="template-languages-hint">{t('TemplateLanguagesHint')}</span>
+      </div>
+    {/if}
+
+    {#if template.parameter === 'quality_profiles'}
+      <div class="form-group">
+        <label class="form-label" for="template-profiles">{t('TemplateQualityProfiles')}</label>
+        <ValuePicker
+          id="template-profiles"
+          label={t('TemplateQualityProfiles')}
+          values={profiles}
+          options={profileOptions}
+          describedBy="template-profiles-hint"
+          onChange={(values) => {
+            profiles = values;
+            ask();
+          }}
+        />
+        <span class="form-hint" id="template-profiles-hint">
+          {t(
+            profileOptions.length > 0 ? 'TemplateQualityProfilesHint' : 'TemplateNoQualityProfile',
+          )}
+        </span>
       </div>
     {/if}
 

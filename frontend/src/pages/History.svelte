@@ -18,6 +18,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import Pager from '../components/Pager.svelte';
   import SearchField from '../components/SearchField.svelte';
+  import FilterBar from '../components/FilterBar.svelte';
   import DecisionFilterFields, {
     NO_TITLE_FILTER,
     type TitleFilter,
@@ -33,7 +34,7 @@
   };
 
   let status = $state('');
-  let search = $state('');
+  let searchText = $state('');
   let includeSuperseded = $state(false);
   let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
   let run = $state('');
@@ -42,7 +43,7 @@
   let page = $state(1);
 
   // What a revert of many takes too: the titles, the simulation and the days.
-  const filter = $derived<DecisionFilter>(setFields({ ...titles, search }));
+  const filter = $derived<DecisionFilter>(setFields({ ...titles, search: searchText }));
   const scope = $derived({
     filter,
     simulation_id: run || undefined,
@@ -51,6 +52,12 @@
   });
   const narrowed = $derived(
     Object.keys(filter).length > 0 || run !== '' || from !== '' || to !== '',
+  );
+  // What the panel sets, which the Filters button counts: the search is in sight beside it.
+  const panelSet = $derived(
+    Object.keys(setFields({ ...titles })).length +
+      [status, run, from, to].filter((value) => value !== '').length +
+      (includeSuperseded ? 1 : 0),
   );
   const query = $derived({
     ...filter,
@@ -81,7 +88,7 @@
   const outcome = createOutcome();
 
   function clearFilters() {
-    search = '';
+    searchText = '';
     status = '';
     includeSuperseded = false;
     titles = { ...NO_TITLE_FILTER };
@@ -198,75 +205,90 @@
   />
   <OutcomeBanner {outcome} />
 
-  <div class="toolbar">
-    <SearchField
-      bind:value={search}
-      placeholder={t('SearchATitle')}
-      label={t('SearchATitle')}
-      oninput={() => (page = 1)}
-      debounce={200}
-    />
-    <select
-      class="form-select"
-      aria-label={t('FilterByStatus')}
-      value={status}
-      onchange={(event) => {
-        page = 1;
-        status = event.currentTarget.value;
-      }}
-    >
-      <option value="">{t('AllStatuses')}</option>
-      <option value="pending">{t('StatusPending')}</option>
-      <option value="requested">{t('StatusRequested')}</option>
-      <option value="applied">{t('StatusApplied')}</option>
-      <option value="failed">{t('StatusFailed')}</option>
-      <option value="skipped">{t('StatusSkipped')}</option>
-    </select>
+  <FilterBar
+    active={panelSet}
+    clearable={narrowed || status !== '' || includeSuperseded}
+    onClear={clearFilters}
+  >
+    {#snippet search()}
+      <SearchField
+        bind:value={searchText}
+        placeholder={t('SearchATitle')}
+        label={t('SearchATitle')}
+        oninput={() => (page = 1)}
+        debounce={200}
+      />
+    {/snippet}
+    <div class="form-group filter-field">
+      <label class="form-label" for="history-status">{t('Status')}</label>
+      <select
+        id="history-status"
+        class="form-select"
+        value={status}
+        onchange={(event) => {
+          page = 1;
+          status = event.currentTarget.value;
+        }}
+      >
+        <option value="">{t('AllStatuses')}</option>
+        <option value="pending">{t('StatusPending')}</option>
+        <option value="requested">{t('StatusRequested')}</option>
+        <option value="applied">{t('StatusApplied')}</option>
+        <option value="failed">{t('StatusFailed')}</option>
+        <option value="skipped">{t('StatusSkipped')}</option>
+      </select>
+    </div>
     <DecisionFilterFields
       bind:filter={titles}
       fields={['instance', 'category', 'rule']}
       onchange={() => (page = 1)}
     />
-    <ErrorBanner message={runs.error} onDismiss={() => (runs.error = null)} />
-    <select
-      class="form-select"
-      aria-label={t('FilterByRun')}
-      value={run}
-      onchange={(event) => {
-        page = 1;
-        run = event.currentTarget.value;
-      }}
-    >
-      <option value="">{t('AllRuns')}</option>
-      {#each runs.data ?? [] as ran (ran.id)}
-        <option value={ran.id}>
-          {t('SimulationOf', { when: formatTimestamp(ran.when, i18n.language) })}
-        </option>
-      {/each}
-    </select>
-    <input
-      type="date"
-      class="form-input"
-      aria-label={t('DecidedFrom')}
-      title={t('DecidedFrom')}
-      value={from}
-      onchange={(event) => {
-        page = 1;
-        from = event.currentTarget.value;
-      }}
-    />
-    <input
-      type="date"
-      class="form-input"
-      aria-label={t('DecidedUntil')}
-      title={t('DecidedUntil')}
-      value={to}
-      onchange={(event) => {
-        page = 1;
-        to = event.currentTarget.value;
-      }}
-    />
-    <label class="flex items-center gap-2 text-md">
+    <div class="form-group filter-field">
+      <label class="form-label" for="history-run">{t('Simulation')}</label>
+      <select
+        id="history-run"
+        class="form-select"
+        value={run}
+        onchange={(event) => {
+          page = 1;
+          run = event.currentTarget.value;
+        }}
+      >
+        <option value="">{t('AllRuns')}</option>
+        {#each runs.data ?? [] as ran (ran.id)}
+          <option value={ran.id}>
+            {t('SimulationOf', { when: formatTimestamp(ran.when, i18n.language) })}
+          </option>
+        {/each}
+      </select>
+    </div>
+    <div class="form-group filter-field">
+      <label class="form-label" for="history-from">{t('DecidedFrom')}</label>
+      <input
+        id="history-from"
+        type="date"
+        class="form-input"
+        value={from}
+        onchange={(event) => {
+          page = 1;
+          from = event.currentTarget.value;
+        }}
+      />
+    </div>
+    <div class="form-group filter-field">
+      <label class="form-label" for="history-to">{t('DecidedUntil')}</label>
+      <input
+        id="history-to"
+        type="date"
+        class="form-input"
+        value={to}
+        onchange={(event) => {
+          page = 1;
+          to = event.currentTarget.value;
+        }}
+      />
+    </div>
+    <label class="flex items-center gap-2 text-md filter-check">
       <input
         type="checkbox"
         checked={includeSuperseded}
@@ -277,21 +299,18 @@
       />
       {t('IncludeSuperseded')}
     </label>
-    {#if narrowed || status || includeSuperseded}
-      <button type="button" class="btn btn-ghost" onclick={clearFilters}>{t('ClearFilters')}</button
-      >
-    {/if}
-  </div>
+  </FilterBar>
+  <ErrorBanner message={runs.error} onDismiss={() => (runs.error = null)} />
 
   <ErrorBanner message={revertible.error} onDismiss={() => (revertible.error = null)} />
   {#if revertible.data}
     <div class="card">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" bind:checked={revertAllFiles} />
           <span>{t('MoveFilesLabel')}</span>
         </label>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button
             class="btn btn-secondary"
             onclick={() => void revertAll()}

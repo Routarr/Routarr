@@ -117,7 +117,6 @@ pub fn evaluate_rules(
     rules: &[Rule],
     override_category: Option<&str>,
 ) -> Evaluation {
-    // A manual override outranks every rule.
     if let Some(cat) = override_category {
         return Evaluation {
             winner: Some(RuleMatch {
@@ -213,15 +212,12 @@ pub(crate) fn evaluate_conditions(
     (matched, outcomes)
 }
 
-/// Evaluate a single condition against media data.
-///
-/// Returns the key and parameters of the wording, never the wording itself.
+/// Evaluate one condition, returning the key and parameters of its wording, never the wording.
 pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) -> ConditionOutcome {
     let media = ctx.media;
     let metadata = ctx.metadata;
     let kind = condition.kind();
 
-    /// Shorthand for the very common "list of values vs a list of observations".
     fn list(
         kind: &str,
         key: &str,
@@ -456,6 +452,45 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             )
         }
 
+        Condition::QualityProfileIn(values) => {
+            let profile: Vec<String> = media.quality_profile.iter().cloned().collect();
+            let matched = contains_any(&profile, values);
+            list(kind, "ConditionQualityProfileIn", matched, values, &profile)
+        }
+
+        Condition::RuntimeRange { min, max } => {
+            // An unknown runtime must not satisfy an open-ended range, as a year must not.
+            let matched = media.runtime.is_some_and(|minutes| {
+                min.is_none_or(|m| minutes >= m) && max.is_none_or(|m| minutes <= m)
+            });
+            ConditionOutcome::new(
+                kind,
+                matched,
+                "ConditionRuntimeRange",
+                &[
+                    ("min", min.map(|v| v.to_string()).unwrap_or_else(|| "*".into())),
+                    ("max", max.map(|v| v.to_string()).unwrap_or_else(|| "*".into())),
+                ],
+                media.runtime.map(|minutes| minutes.to_string()).unwrap_or_default(),
+            )
+        }
+
+        Condition::StudioIn(values) => {
+            let studio: Vec<String> = media.studio.iter().cloned().collect();
+            list(kind, "ConditionStudioIn", contains_any(&studio, values), values, &studio)
+        }
+
+        Condition::NetworkIn(values) => {
+            let network: Vec<String> = media.network.iter().cloned().collect();
+            list(kind, "ConditionNetworkIn", contains_any(&network, values), values, &network)
+        }
+
+        Condition::CollectionIn(values) => {
+            let collection: Vec<String> = media.collection.iter().cloned().collect();
+            let matched = contains_any(&collection, values);
+            list(kind, "ConditionCollectionIn", matched, values, &collection)
+        }
+
         Condition::SizeOnDiskOverGb(threshold) => {
             const GB: i64 = 1024 * 1024 * 1024;
             ConditionOutcome::new(
@@ -531,7 +566,6 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
         }
     };
 
-    // Which source answered, for the conditions that read one at all.
     if let Some(field) = condition.metadata_field() {
         outcome.source = metadata.and_then(|m| m.source_of(field.as_str())).map(str::to_string);
     }
@@ -594,6 +628,12 @@ mod tests {
             genres: None,
             original_language: None,
             certification: None,
+            quality_profile: None,
+            runtime: None,
+            studio: None,
+            network: None,
+            collection: None,
+            collection_tmdb_id: None,
             last_synced_at: None,
         }
     }
@@ -691,15 +731,13 @@ mod tests {
         let a = rule("aaa", 10, "cat-a", vec![Condition::HasFiles(true)]);
         let b = rule("zzz", 10, "cat-z", vec![Condition::HasFiles(true)]);
 
-        // Same rules, opposite input order, must give the same winner.
         let first = evaluate(&[a.clone(), b.clone()], None).winner.unwrap().category;
         let second = evaluate(&[b, a], None).winner.unwrap().category;
         assert_eq!(first, second);
         assert_eq!(first, "cat-a");
     }
 
-    /// Two rules sharing a name and a priority are still ordered, by id, whatever
-    /// order they arrive in.
+    /// Ties on name and priority go by id, whatever order the rules arrive in.
     #[test]
     fn two_rules_with_the_same_name_and_priority_still_have_an_order() {
         let mut a = rule("same", 10, "cat-a", vec![Condition::HasFiles(true)]);
@@ -1155,6 +1193,47 @@ mod tests {
     }
 
     #[test]
+    fn a_runtime_range_reads_minutes_and_an_unknown_runtime_never_matches() {
+        let holds = |runtime, min, max| {
+            let mut m = media();
+            m.runtime = runtime;
+            let condition = Condition::RuntimeRange { min, max };
+            evaluate_single_condition(
+                &condition,
+                EvalContext { media: &m, metadata: None, now: now() },
+            )
+            .matched
+        };
+        assert!(holds(Some(86), Some(80), Some(90)));
+        assert!(holds(Some(86), None, Some(86)));
+        assert!(!holds(Some(86), Some(87), None));
+        assert!(!holds(None, None, Some(1440)), "an unknown runtime met an open range");
+    }
+
+    #[test]
+    fn a_profile_studio_network_or_collection_is_matched_as_spelled_any_way() {
+        let mut m = media();
+        m.quality_profile = Some("Ultra-HD".into());
+        m.studio = Some("Studio Ghibli".into());
+        m.network = Some("Fuji TV".into());
+        m.collection = Some("Studio Ghibli Collection".into());
+        let holds = |condition: Condition, m: &Media| {
+            evaluate_single_condition(
+                &condition,
+                EvalContext { media: m, metadata: None, now: now() },
+            )
+            .matched
+        };
+        let one = |value: &str| vec![value.to_string()];
+        assert!(holds(Condition::QualityProfileIn(one("ultra hd")), &m));
+        assert!(holds(Condition::StudioIn(one("STUDIO GHIBLI")), &m));
+        assert!(holds(Condition::NetworkIn(one("fuji-tv")), &m));
+        assert!(holds(Condition::CollectionIn(one("studio ghibli collection")), &m));
+        assert!(!holds(Condition::QualityProfileIn(one("HD-1080p")), &m));
+        assert!(!holds(Condition::StudioIn(one("")), &media()), "an unknown studio matched");
+    }
+
+    #[test]
     fn year_range_handles_open_bounds() {
         assert!(matches(Condition::YearRange { min: Some(1980), max: Some(1990) }));
         assert!(matches(Condition::YearRange { min: Some(1980), max: None }));
@@ -1403,7 +1482,12 @@ mod tests {
             Some(YearRange { .. }) => TagIn(list(&["anime"])),
             Some(TagIn(_)) => TagInAll(list(&["anime"])),
             Some(TagInAll(_)) => SeriesTypeIs(list(&["anime"])),
-            Some(SeriesTypeIs(_)) => SizeOnDiskOverGb(1),
+            Some(SeriesTypeIs(_)) => QualityProfileIn(list(&["Ultra-HD"])),
+            Some(QualityProfileIn(_)) => RuntimeRange { min: Some(60), max: Some(120) },
+            Some(RuntimeRange { .. }) => StudioIn(list(&["Studio Ghibli"])),
+            Some(StudioIn(_)) => NetworkIn(list(&["Fuji TV"])),
+            Some(NetworkIn(_)) => CollectionIn(list(&["Studio Ghibli Collection"])),
+            Some(CollectionIn(_)) => SizeOnDiskOverGb(1),
             Some(SizeOnDiskOverGb(_)) => SeasonCountOver(1),
             Some(SeasonCountOver(_)) => CertificationIn(list(&["G"])),
             Some(CertificationIn(_)) => StatusIs(list(&["released"])),
@@ -1448,7 +1532,7 @@ mod tests {
             assert!(seen.insert(current.kind()), "{} is visited twice", current.kind());
             condition = next_kind(Some(&current));
         }
-        assert_eq!(seen.len(), 29, "the walk visited {} kinds", seen.len());
+        assert_eq!(seen.len(), 34, "the walk visited {} kinds", seen.len());
     }
 
     #[test]

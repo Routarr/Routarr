@@ -103,6 +103,13 @@ beforeEach(() => {
   vi.spyOn(api, 'getRules').mockResolvedValue([]);
 });
 
+/** A field of the filter panel, opened first as a reader opens it. */
+function filterField(label: string): HTMLElement {
+  const toggle = screen.getByRole('button', { name: /^Filters/ });
+  if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+  return screen.getByLabelText(label, { selector: 'select, input' });
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('what the screen shows', () => {
@@ -897,7 +904,7 @@ describe('narrowing what is reviewed and applied', () => {
       paginated([job({ kind: 'simulate', result: latest })]),
     );
     RUNS.set(reviewed.simulation_id, []);
-    await userEvent.selectOptions(screen.getByLabelText('Filter by action'), 'move');
+    await userEvent.selectOptions(filterField('Action'), 'move');
 
     expect(await screen.findByText('A newer simulation replaced these proposals.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Show the latest proposals' }));
@@ -918,9 +925,10 @@ describe('narrowing what is reviewed and applied', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     expect(await screen.findByRole('button', { name: 'Apply all (2)' })).toBeTruthy();
 
+    filterField('Rule');
     await screen.findByRole('option', { name: 'Japanese animation' });
-    await userEvent.selectOptions(screen.getByLabelText('Filter by category'), 'anime');
-    await userEvent.selectOptions(screen.getByLabelText('Filter by rule'), 'r1');
+    await userEvent.selectOptions(filterField('Category'), 'anime');
+    await userEvent.selectOptions(filterField('Rule'), 'r1');
 
     await waitFor(() =>
       expect(api.getDecisions).toHaveBeenLastCalledWith(
@@ -946,7 +954,7 @@ describe('narrowing what is reviewed and applied', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await screen.findByRole('button', { name: 'Apply all (1)' });
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by action'), 'skip');
+    await userEvent.selectOptions(filterField('Action'), 'skip');
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull());
     expect(screen.getAllByRole('row')).toHaveLength(2);
