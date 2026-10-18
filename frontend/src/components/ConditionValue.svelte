@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { ConditionSpec, Facet } from '../api/types';
   import {
+    MAX_RUNTIME,
     MIN_YEAR,
     maxYear,
     parseNumberList,
     rejectedNumbers,
     keyOfKind,
     parseStringList,
-    parseYearBound,
+    parseWholeBound,
   } from '../api/conditions';
   import { t } from '../lib/i18n.svelte';
   import ValuePicker from './ValuePicker.svelte';
@@ -24,9 +25,8 @@
     spec?: ConditionSpec;
     value: unknown;
     /**
-     * What the library carries on this condition's axis. Empty for a condition
-     * the catalogue names no axis for, which is what selects the free-text
-     * input below.
+     * What the library carries on this condition's axis. Empty when the catalogue names no axis,
+     * which is what selects the free-text input below.
      */
     suggestions?: Facet[];
     suggestionsLoading?: boolean;
@@ -34,9 +34,8 @@
     /** The element that qualifies a list, as the fixed "any of" beside it. */
     describedBy?: string;
     /**
-     * `unreadable` when the field holds text that `value` could not take in,
-     * an id that is not one or a number that is not one: the editor holds
-     * Save while any field says so.
+     * `unreadable` when the field holds text `value` could not take in, an id or a number that is
+     * not one: the editor holds Save while any field says so.
      */
     onChange: (value: unknown, unreadable: boolean) => void;
   } = $props();
@@ -45,11 +44,9 @@
   const list = $derived(Array.isArray(value) ? (value as string[]) : []);
 
   /**
-   * A free list as the reader typed it, kept while it still reads as the value.
-   * Rewritten from the parsed list at each keystroke, a list typed without
-   * spaces would come back spaced, and the browser would send the cursor to the
-   * end, where the next digits run into the last id. A value that stops
-   * matching the text, as when the condition is reset, replaces it.
+   * The list as typed, kept while it still parses to the value: rewritten at each keystroke, it
+   * would come back spaced with the cursor at the end, where the next digits run into the last
+   * id. A value that stops matching the text, as on a reset, replaces it.
    */
   let typed = $state<string | null>(null);
   const parseList = (text: string): unknown[] =>
@@ -60,8 +57,7 @@
     typed !== null && sameList(parseList(typed), list) ? typed : list.join(', '),
   );
 
-  // Named under the field rather than dropped: `603, 6O4` would otherwise save
-  // one id, and the second title would never be routed.
+  // Named under the field, or `603, 6O4` would save one id and never route the second title.
   const errorId = $props.id();
   const rejected = $derived(
     spec?.value_type === 'number_list' && typed !== null ? rejectedNumbers(typed) : [],
@@ -74,9 +70,8 @@
   }
 
   /**
-   * A number field emptied, or holding what the browser cannot read as one,
-   * keeps the value it had: sent as `0`, it would store a rule asking for
-   * nothing the reader wrote.
+   * A number field emptied or unreadable keeps the value it had: sent as `0`, it would store a
+   * rule asking for nothing the reader wrote.
    */
   let numberUnreadable = $state(false);
   function typeNumber(input: HTMLInputElement) {
@@ -84,13 +79,20 @@
     onChange(numberUnreadable ? value : Number(input.value), numberUnreadable);
   }
 
-  /** A bound that is neither empty, which opens it, nor a whole year. */
+  /** A year range's bounds, or a runtime's in minutes, as the rule engine accepts them. */
+  const bounds = $derived(
+    spec?.value_type === 'number_range'
+      ? { min: 0, max: MAX_RUNTIME }
+      : { min: MIN_YEAR, max: maxYear() },
+  );
+
+  /** A bound that is neither empty, which opens it, nor a whole number. */
   const unreadableBound = (input: HTMLInputElement) =>
-    input.validity.badInput || (input.value.trim() !== '' && parseYearBound(input.value) === null);
+    input.validity.badInput || (input.value.trim() !== '' && parseWholeBound(input.value) === null);
   let boundsUnreadable = $state({ min: false, max: false });
   function typeBound(bound: 'min' | 'max', input: HTMLInputElement) {
     boundsUnreadable[bound] = unreadableBound(input);
-    const next = boundsUnreadable[bound] ? range[bound] : parseYearBound(input.value);
+    const next = boundsUnreadable[bound] ? range[bound] : parseWholeBound(input.value);
     onChange({ ...range, [bound]: next }, boundsUnreadable.min || boundsUnreadable.max);
   }
   const yearUnreadable = $derived(boundsUnreadable.min || boundsUnreadable.max);
@@ -137,18 +139,17 @@
         {t('NotIdentifiers', { values: rejected.join(t('ListSeparator')) })}
       </p>
     {/if}
-  {:else if spec.value_type === 'year_range'}
+  {:else if spec.value_type === 'year_range' || spec.value_type === 'number_range'}
     <div class="flex gap-2">
       <input
         aria-describedby={boundsUnreadable.min ? errorId : undefined}
         aria-invalid={boundsUnreadable.min ? 'true' : undefined}
-        // Two controls for one condition, so the caption alone would name them
-        // identically: the bound is what tells them apart.
+        // Two controls for one condition: the bound is what tells their names apart.
         aria-label="{spec.label} – {t('PlaceholderYearFrom')}"
         type="number"
         class="form-input"
-        min={MIN_YEAR}
-        max={maxYear()}
+        min={bounds.min}
+        max={bounds.max}
         step="1"
         placeholder={t('PlaceholderYearFrom')}
         value={range.min ?? ''}
@@ -160,8 +161,8 @@
         aria-label="{spec.label} – {t('PlaceholderYearTo')}"
         type="number"
         class="form-input"
-        min={MIN_YEAR}
-        max={maxYear()}
+        min={bounds.min}
+        max={bounds.max}
         step="1"
         placeholder={t('PlaceholderYearTo')}
         value={range.max ?? ''}

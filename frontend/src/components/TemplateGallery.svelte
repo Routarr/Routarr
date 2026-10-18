@@ -10,6 +10,7 @@
     Languages,
     LayoutTemplate,
     MicVocal,
+    MonitorPlay,
     Sparkles,
     Telescope,
     UsersRound,
@@ -24,6 +25,7 @@
   }: { templates: TemplateSummary[]; onChoose: (template: TemplateSummary) => void } = $props();
 
   const ICONS: Record<string, Component<{ size?: number }>> = {
+    '4k': MonitorPlay,
     concerts: MicVocal,
     documentaries: Telescope,
     children: Baby,
@@ -75,6 +77,12 @@
           <p class="template-note">
             <Info size={14} aria-hidden="true" />
             <span>{t('TemplateRequestersEmpty')}</span>
+          </p>
+        {/if}
+        {#if template.parameter === 'quality_profiles' && template.quality_profiles.length === 0}
+          <p class="template-note">
+            <Info size={14} aria-hidden="true" />
+            <span>{t('TemplateQualityProfilesEmpty')}</span>
           </p>
         {/if}
         <div class="template-card-foot">

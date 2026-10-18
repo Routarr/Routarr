@@ -1,6 +1,5 @@
-// Coercion between the rule editor's text inputs and the JSON the backend
-// expects. Getting this wrong silently stores a rule that can never match, so
-// it lives here as pure functions rather than inline in the form.
+// Coercion between the rule editor's inputs and the JSON the backend expects. A mistake here
+// stores a rule that never matches, so it stays pure functions, tested apart from the form.
 
 import type {
   Condition,
@@ -22,6 +21,7 @@ export function defaultConditionValue(spec: ConditionSpec): unknown {
     case 'number_list':
       return [];
     case 'year_range':
+    case 'number_range':
       return { min: null, max: null };
     case 'string':
       return '';
@@ -43,15 +43,9 @@ const STROKED: Record<string, string> = { ø: 'o', ł: 'l', đ: 'd', ħ: 'h', ı
 const WORD = /[\p{Alphabetic}\p{N}\p{M}]/u;
 
 /**
- * The form two spellings of one value share: `normalise_value` in the rule
- * engine, character for character, both held to one table of cases. A Latin
- * letter loses its accents, and other scripts keep theirs: `ō` is `o`, and `ガ`
- * stays apart from `カ`.
- *
- * Only used to tell values apart in the interface: to keep a chip from being
- * added twice under `Science-Fiction` and `Science Fiction`, and to filter the
- * list without demanding the exact case or accent. What is stored and sent is
- * always the value as the library spells it.
+ * The form two spellings of one value share: `normalise_value` in the rule engine, both held to
+ * one table of cases. A Latin letter loses its accents, other scripts keep theirs (`ガ` is not
+ * `カ`). It only tells values apart: what is stored and sent is the library's own spelling.
  */
 export function canonicalKey(value: string): string {
   let latin = false;
@@ -131,11 +125,8 @@ export function withoutRepeats(condition: Condition): Condition {
 }
 
 /**
- * Split a comma-separated input, dropping blanks and equivalent repeats.
- *
- * The free-text path, kept for the axes the library cannot enumerate (a
- * keyword, a title fragment). A comma separates values and never means "and":
- * every value in one condition is an alternative to the others.
+ * Split a comma-separated input, dropping blanks and equivalent repeats, for the axes the library
+ * cannot enumerate. A comma never means "and": every value is an alternative to the others.
  */
 export function parseStringList(input: string): string[] {
   return input
@@ -146,15 +137,13 @@ export function parseStringList(input: string): string[] {
 }
 
 /**
- * An external identifier as typed: digits only. `Number` alone reads `0x25B`
- * and `1e3` as numbers, and `6O4` as nothing, which drops a title unseen. Past
- * the integers a number holds exactly, the digits read back as `1e+24`, an id
- * no source has.
+ * Digits only: `Number` alone reads `0x25B` and `1e3` as numbers and `6O4` as nothing, which drops
+ * a title unseen. Past a safe integer the digits read back as `1e+24`, an id no source has.
  */
 const isIdentifier = (part: string) =>
   /^\d+$/.test(part) && Number(part) > 0 && Number.isSafeInteger(Number(part));
 
-/** Same, for external identifiers: whole numbers above zero, once each. */
+/** Split a list of external identifiers: whole numbers above zero, once each. */
 export function parseNumberList(input: string): number[] {
   const ids = input
     .split(',')
@@ -172,10 +161,7 @@ export function rejectedNumbers(input: string): string[] {
     .filter((part) => part !== '' && !isIdentifier(part));
 }
 
-/**
- * Where a new rule goes: after every other, as the server places one it is
- * given no priority for.
- */
+/** Where a new rule goes: after every other, as the server places one given no priority. */
 export function nextPriority(priorities: number[]): number {
   return Math.max(0, ...priorities) + 10;
 }
@@ -188,13 +174,14 @@ export function nextPriority(priorities: number[]): number {
 export const MIN_YEAR = 1888;
 export const maxYear = (now = new Date()) => now.getFullYear() + 5;
 
+/** The longest runtime a rule may name, in minutes: `MAX_RUNTIME` in the rule engine. */
+export const MAX_RUNTIME = 1440;
+
 /**
- * An empty input clears the bound rather than sending 0.
- *
- * A whole number or nothing: `Number` accepts `2e5` and ` 12 ` as finite, and
- * turning either into a year silently stores a rule that matches nothing.
+ * A whole number, or null to clear the bound rather than send 0. `Number` accepts `2e5` and
+ * ` 12 ` as finite, and either stored as a year or a runtime makes a rule that matches nothing.
  */
-export function parseYearBound(input: string): number | null {
+export function parseWholeBound(input: string): number | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
   if (!/^-?\d+$/.test(trimmed)) return null;
@@ -204,12 +191,9 @@ export function parseYearBound(input: string): number | null {
 }
 
 /**
- * Whether a condition can be offered on a rule of this media type.
- *
- * A rule scoped to `both` is evaluated against films *and* series, so a
- * condition that only one of them carries can never hold for the other. The
- * answer there is the intersection, not the union. Scoping the rule to the
- * type the condition needs is what expresses "series only".
+ * Whether a condition can be offered on a rule of this media type. A `both` rule meets films and
+ * series, so it takes the intersection: a condition only one carries never holds for the other.
+ * Scoping the rule to that type is what expresses "series only".
  */
 export function conditionAppliesTo(spec: ConditionSpec, mediaType: string): boolean {
   if (mediaType === 'both') {
@@ -219,17 +203,9 @@ export function conditionAppliesTo(spec: ConditionSpec, mediaType: string): bool
 }
 
 /**
- * Name what the library holds from the vocabulary that defines it.
- *
- * The library counts values and the closed vocabulary names them, and a value
- * in both needs both. Read from the counts alone, the codes the library holds
- * would be the only ones shown bare, `en` and `fr` above a list of
- * `Afrikaans (af)`, which reads as the known ones being the ones nobody
- * bothered to name.
- *
- * Stated here rather than at each call site: two screens read these axes, the
- * rule builder's picker and the panel above the rule table, and a copy in each
- * would let one of them show the codes bare.
+ * Name what the library holds from the vocabulary that defines it, or the held codes would be the
+ * only ones shown bare (`en` above `Afrikaans (af)`). The rule builder's picker and the panel
+ * above the rule table both read it, so neither shows the codes bare.
  */
 export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
   if (!vocabulary.length) return held;
@@ -241,27 +217,15 @@ export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
 }
 
 /**
- * The values a condition on `axis` can hold, each with its name: what the
- * library carries, named from the closed vocabulary, then the rest of that
- * vocabulary. The rule editor offers these, and the rule table names a stored
- * value from them, so the two never call one value by two names.
- *
- * `facets` are read as they come, so a caller naming values in the reader's
- * language hands in `localFacets`. The catalogue names the axis, and this reads
- * it off the payload, so a condition added in Rust needs no change here.
+ * What a condition on `axis` can hold, named: the library's values, then the rest of the closed
+ * vocabulary. The editor offers these and the rule table names stored values from them, so one
+ * value never has two names. Hand in `localFacets` for names in the reader's language.
  */
 export function facetOf(facets: LibraryFacets | null, axis: string | undefined): Facet[] {
   if (!axis || !facets) return [];
-  // Narrowed, not widened: the name arrives from the backend so this is an
-  // assertion either way, but `Record<string, Facet[]>` would erase every
-  // later check as well. A test vouches for the name itself.
+  // Narrowed, not widened to a `Record`, which would erase later checks. A test holds the name.
   const held = facets[axis as FacetAxis] ?? [];
-  // A closed vocabulary is offered whole, the library's own values first so
-  // the common answer stays at the top. Without it a language rule offers only
-  // the codes that happen to be synced, and every other one has to be guessed,
-  // as a code, which nobody would.
-  // Only two axes have a closed vocabulary, so this indexing is partial by
-  // design and the key may legitimately miss.
+  // Only two axes have a closed vocabulary, offered whole so an unsynced code is never guessed.
   const vocabulary = facets.vocabularies[axis as keyof Vocabularies] ?? [];
   if (!vocabulary.length) return held;
 
@@ -273,10 +237,9 @@ export function facetOf(facets: LibraryFacets | null, axis: string | undefined):
 }
 
 /**
- * The library's facets with its languages and regions named in the reader's
- * language (`localName`), in the counts and in the closed vocabularies alike.
- * Every screen naming a value reads them through this, so a language never
- * reads in English on one and in the reader's language on another.
+ * The library's facets with languages and regions named in the reader's language, counts and
+ * vocabularies alike. Every screen naming a value reads them through this, so a language never
+ * reads in English on one screen and in the reader's language on another.
  */
 export function localFacets(facets: LibraryFacets, language: string): LibraryFacets {
   const rename = (type: 'language' | 'region', list: Facet[] = []) =>

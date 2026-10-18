@@ -2426,6 +2426,45 @@ td * {
 .explain-action {
   flex: 1 1 240px;
 }
+/* The fields that narrow a list, folded behind its Filters button. `hidden` has to win over
+   the card's own display. */
+.filter-panel {
+  margin-bottom: var(--space-4);
+}
+.filter-panel[hidden] {
+  display: none;
+}
+.filter-panel .form-group {
+  margin-bottom: 0;
+}
+.filter-field {
+  flex: 1 1 180px;
+  max-width: 280px;
+}
+/* A checkbox among labelled fields sits on their baseline, as tall as a field. */
+.filter-check {
+  min-height: 40px;
+}
+/* What the Arr reports of a title, the values a rule on its profile or runtime reads. */
+.fact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+}
+.fact-list > div {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.fact-list dt {
+  color: var(--text-muted);
+}
+.fact-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 
 /* Two lines, then the rest behind the row's button: a longer one would double its row. */
 .reason-line {

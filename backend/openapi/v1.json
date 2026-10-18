@@ -884,6 +884,134 @@
             "type": "object"
           },
           {
+            "description": "The Arr's quality profile is one of these, by name.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "quality_profile_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "The Arr's quality profile is one of these, by name.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Runtime in minutes within this range: a film's, a series' episode's.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "runtime_range"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Runtime in minutes within this range: a film's, a series' episode's.",
+                "properties": {
+                  "max": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "min": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Radarr's studio is one of these.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "studio_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Radarr's studio is one of these.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Sonarr's network is one of these.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "network_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Sonarr's network is one of these.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Radarr's collection is one of these, by its title.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "collection_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Radarr's collection is one of these, by its title.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
             "description": "On-disk size, in GB of 1024³ bytes as the interface counts them,\nstrictly above this value.",
             "properties": {
               "type": {
@@ -1270,6 +1398,10 @@
             "description": "The condition asking the same question the other way, empty when none.",
             "type": "string"
           },
+          "group": {
+            "description": "The family the builder lists it under: `metadata` (what the sources say), `arr` (what\nRadarr and Sonarr report), `title` (the title and its ids) or `folder`.",
+            "type": "string"
+          },
           "label": {
             "description": "The caption, in the interface language.",
             "type": "string"
@@ -1309,12 +1441,13 @@
             "type": "string"
           },
           "value_type": {
-            "description": "The shape of `value`: `string_list`, `number_list`, `string`, `number`,\n`boolean` or `year_range`.",
+            "description": "The shape of `value`: `string_list`, `number_list`, `string`, `number`,\n`boolean`, `year_range` or `number_range`.",
             "type": "string"
           }
         },
         "required": [
           "type",
+          "group",
           "label",
           "label_key",
           "value_type",
@@ -2253,7 +2386,19 @@
             },
             "type": "array"
           },
+          "collections": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
           "genres": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "networks": {
             "items": {
               "$ref": "#/components/schemas/Facet"
             },
@@ -2267,6 +2412,13 @@
             "type": "array"
           },
           "original_languages": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "quality_profiles": {
+            "description": "Every quality profile the Arrs define, unused ones counted 0, so a rule can name a new\none before any title has it.",
             "items": {
               "$ref": "#/components/schemas/Facet"
             },
@@ -2286,6 +2438,12 @@
           },
           "statuses": {
             "description": "The statuses the Arrs give the titles, as they write them.",
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "studios": {
             "items": {
               "$ref": "#/components/schemas/Facet"
             },
@@ -2321,6 +2479,10 @@
           "certifications",
           "tags",
           "series_types",
+          "quality_profiles",
+          "studios",
+          "networks",
+          "collections",
           "root_folders",
           "statuses"
         ],
@@ -2507,6 +2669,21 @@
               "null"
             ]
           },
+          "collection": {
+            "description": "The title of Radarr's collection, null for series.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "collection_tmdb_id": {
+            "description": "The collection's TMDB id.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "current_path": {
             "type": [
               "string",
@@ -2554,10 +2731,32 @@
           "monitored": {
             "type": "boolean"
           },
+          "network": {
+            "description": "Sonarr's network, null for movies.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "original_language": {
             "description": "ISO 639-1, normalised from the Arr's language *name* at sync time.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "quality_profile": {
+            "description": "The name of the Arr's quality profile for the title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runtime": {
+            "description": "Minutes: a film's runtime, a series' episode runtime.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -2590,6 +2789,13 @@
             ]
           },
           "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "studio": {
+            "description": "Radarr's studio, null for series.",
             "type": [
               "string",
               "null"
@@ -4764,7 +4970,7 @@
       },
       "TemplateRequest": {
         "additionalProperties": false,
-        "description": "What adding a template takes. Each template reads only the fields it\nasks: `category` all but `requesters`, `languages` only `languages`,\n`requesters` only `requesters`.",
+        "description": "What adding a template takes. Each template reads only the fields it\nasks: `category` all but `requesters`, `languages` only `languages`,\n`requesters` only `requesters`, `quality_profiles` only `quality_profiles`.",
         "properties": {
           "category": {
             "description": "The category its rules send titles to, created when missing. Left out,\nthe one it suggests.",
@@ -4775,6 +4981,16 @@
           },
           "languages": {
             "description": "ISO 639-1 codes. Left out, the ones it assumes.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "quality_profiles": {
+            "description": "Quality profile names, as an instance defines them. Left out, those whose name reads as\n4K.",
             "items": {
               "type": "string"
             },
@@ -4842,15 +5058,23 @@
             "type": "array"
           },
           "parameter": {
-            "description": "What it asks beside the category: `languages`, `requesters`, or null.",
+            "description": "What it asks beside the category: `languages`, `requesters`, `quality_profiles`, or\nnull.",
             "type": [
               "string",
               "null"
             ],
             "x-extensible-enum": [
               "languages",
-              "requesters"
+              "requesters",
+              "quality_profiles"
             ]
+          },
+          "quality_profiles": {
+            "description": "For `quality_profiles`: the profiles its rule names, or those whose name reads as 4K.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "requesters": {
             "description": "For `requesters`: the requesters the library's tags name.",
@@ -4879,6 +5103,7 @@
           "description",
           "languages",
           "requesters",
+          "quality_profiles",
           "needs",
           "rule_ids"
         ],
@@ -7596,6 +7821,15 @@
             "required": false,
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "description": "The name of the quality profile a title the Arr does not hold would be added with, for\nthe rules that read it.",
+            "in": "query",
+            "name": "quality_profile",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {

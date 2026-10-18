@@ -22,15 +22,13 @@ pub struct RadarrClient {
     library_cap: usize,
 }
 
-// The key stays out: a client printed in a log line or a failed assertion
-// would carry it.
+// The key stays out: a client printed in a log line or a failed assertion would carry it.
 impl std::fmt::Debug for RadarrClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RadarrClient").field("base_url", &self.base_url).finish_non_exhaustive()
     }
 }
 
-/// Movie data from Radarr API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadarrMovie {
     /// 0 for a movie a lookup found and the library does not hold.
@@ -61,14 +59,22 @@ pub struct RadarrMovie {
     /// Tag ids the user attached in Radarr.
     #[serde(default)]
     pub tags: Vec<i64>,
-    /// Metadata Radarr already holds, so there is no reason to ask TMDB for it
-    /// a second time. Free: it is in this very payload.
+    /// Already in this payload, so TMDB is not asked for it.
     #[serde(default)]
     pub genres: Vec<String>,
     #[serde(rename = "originalLanguage")]
     pub original_language: Option<ArrLanguage>,
     /// The rating for whichever certification country Radarr is set to.
     pub certification: Option<String>,
+    #[serde(rename = "qualityProfileId", default, deserialize_with = "super::lenient_number")]
+    pub quality_profile_id: Option<i64>,
+    /// Minutes.
+    #[serde(default, deserialize_with = "super::lenient_number")]
+    pub runtime: Option<i64>,
+    #[serde(default, deserialize_with = "super::lenient_text")]
+    pub studio: Option<String>,
+    #[serde(default, deserialize_with = "super::lenient_collection", skip_serializing)]
+    pub collection: Option<super::ArrCollection>,
 }
 
 /// What Radarr counts of a movie on disk.
@@ -105,6 +111,13 @@ pub struct ArrLanguage {
 pub struct ArrTagDto {
     pub id: i64,
     pub label: String,
+}
+
+/// A quality profile as either Arr lists it on `/api/v3/qualityprofile`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArrQualityProfileDto {
+    pub id: i64,
+    pub name: String,
 }
 
 /// A root folder as either Arr reports it on `/api/v3/rootfolder`.
@@ -160,8 +173,7 @@ impl RadarrClient {
 
     pub async fn get_movies(&self) -> AppResult<Vec<RadarrMovie>> {
         debug!("Fetching movies from {}", crate::http::masked(&self.base_url));
-        // Without the parameter Radarr looks up and hashes every cover of the
-        // library for an answer Routarr reads no image of.
+        // Without it Radarr hashes every cover of the library, though no image is read.
         let request = self.get("/api/v3/movie").query(&[("excludeLocalCovers", "true")]);
         send_json_within(SERVICE, request.timeout(self.library_timeout), self.library_cap).await
     }
@@ -190,9 +202,7 @@ impl RadarrClient {
         let found: RadarrMovie = match send_json(SERVICE, request).await {
             Ok(movie) => movie,
             Err(AppError::ExternalApi { status: 404, .. }) => return Ok(None),
-            // Radarr answers an id TMDB does not know with a 500 naming its
-            // `MovieNotFoundException`: "Movie with tmdbId 1 was not found, it
-            // may have been removed from TMDB."
+            // Radarr answers an id TMDB does not know with a 500 from `MovieNotFoundException`.
             Err(AppError::ExternalApi { status: 500, ref message, .. })
                 if message.starts_with("Movie with ") && message.contains(" was not found") =>
             {
@@ -200,10 +210,7 @@ impl RadarrClient {
             }
             Err(e) => return Err(e),
         };
-        // The lookup builds the film afresh from TMDB, with no id, folder or
-        // tags even when the library holds it: the library is asked for that,
-        // and its answer held to the id asked, since a proxy or a fork that
-        // ignores the filter answers the whole library.
+        // The lookup carries no id, folder or tags, and a fork ignoring the filter answers all.
         let Some(tmdb) = found.tmdb_id else {
             return Ok(Some(found));
         };
@@ -216,6 +223,11 @@ impl RadarrClient {
     /// Get the tag catalogue: a media row only carries numeric ids.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTagDto>> {
         send_json(SERVICE, self.get("/api/v3/tag")).await
+    }
+
+    /// Get the quality profiles, which a media row names by id.
+    pub async fn get_quality_profiles(&self) -> AppResult<Vec<ArrQualityProfileDto>> {
+        send_json(SERVICE, self.get("/api/v3/qualityprofile")).await
     }
 
     /// The country Radarr's metadata settings rate films for, upper-case, as

@@ -22,15 +22,13 @@ pub struct SonarrClient {
     library_cap: usize,
 }
 
-// The key stays out: a client printed in a log line or a failed assertion
-// would carry it.
+// The key stays out: a client printed in a log line or a failed assertion would carry it.
 impl std::fmt::Debug for SonarrClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SonarrClient").field("base_url", &self.base_url).finish_non_exhaustive()
     }
 }
 
-/// Series data from Sonarr API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SonarrSeries {
     /// 0 for a series a lookup found and the library does not hold.
@@ -69,6 +67,13 @@ pub struct SonarrSeries {
     #[serde(rename = "originalLanguage")]
     pub original_language: Option<ArrLanguage>,
     pub certification: Option<String>,
+    #[serde(rename = "qualityProfileId", default, deserialize_with = "super::lenient_number")]
+    pub quality_profile_id: Option<i64>,
+    /// An episode's minutes.
+    #[serde(default, deserialize_with = "super::lenient_number")]
+    pub runtime: Option<i64>,
+    #[serde(default, deserialize_with = "super::lenient_text")]
+    pub network: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,10 +90,7 @@ impl SonarrSeries {
         self.statistics.as_ref().and_then(|s| s.episode_file_count).is_none_or(|c| c > 0)
     }
 
-    /// Seasons excluding specials.
-    ///
-    /// Season 0 holds bonus material, and counting it would make "more than
-    /// five seasons" true for a five-season show with extras.
+    /// Seasons excluding specials: season 0 holds bonus material, not a season of the show.
     pub fn season_count(&self) -> i64 {
         self.seasons.iter().filter(|s| s.season_number > 0).count() as i64
     }
@@ -102,7 +104,9 @@ pub struct SonarrSeriesStatistics {
     pub size_on_disk: Option<i64>,
 }
 
-pub use super::radarr::{ArrDiskSpaceDto, ArrLanguage, ArrRootFolderDto, ArrStatusDto, ArrTagDto};
+pub use super::radarr::{
+    ArrDiskSpaceDto, ArrLanguage, ArrQualityProfileDto, ArrRootFolderDto, ArrStatusDto, ArrTagDto,
+};
 
 impl SonarrClient {
     pub fn new(client: Client, base_url: &str, api_key: &str) -> Self {
@@ -157,8 +161,7 @@ impl SonarrClient {
         }) else {
             return Ok(None);
         };
-        // The lookup names a series the library holds by its id, with counts
-        // of zero and no root folder: the library is asked for the rest.
+        // The lookup gives a held series counts of zero and no root folder.
         if found.id == 0 {
             return Ok(Some(found));
         }
@@ -181,6 +184,11 @@ impl SonarrClient {
     /// Get the tag catalogue: a media row only carries numeric ids.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTagDto>> {
         send_json(SERVICE, self.get("/api/v3/tag")).await
+    }
+
+    /// Get the quality profiles, which a media row names by id.
+    pub async fn get_quality_profiles(&self) -> AppResult<Vec<ArrQualityProfileDto>> {
+        send_json(SERVICE, self.get("/api/v3/qualityprofile")).await
     }
 
     /// Point one series at `root`, keeping its folder name (`Api::repoint`),

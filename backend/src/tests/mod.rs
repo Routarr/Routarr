@@ -3,6 +3,7 @@
 mod api;
 mod applications;
 mod arr_clients;
+mod arr_payload;
 mod arr_signals;
 mod audit;
 mod auto_apply;

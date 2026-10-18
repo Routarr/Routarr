@@ -42,6 +42,20 @@ describe('TemplateGallery', () => {
     expect(screen.getByText('No Seerr request found in your library yet.')).toBeTruthy();
   });
 
+  it('says on its card that no quality profile reads as 4K yet', () => {
+    const uhd = template({
+      id: '4k',
+      name: '4K',
+      parameter: 'quality_profiles',
+      quality_profiles: [],
+    });
+    renderWithI18n(TemplateGallery, { props: { templates: [uhd], onChoose: vi.fn() } });
+
+    expect(
+      screen.getByText('No quality profile reads as 4K yet: choose yours when adding it.'),
+    ).toBeTruthy();
+  });
+
   it('offers to update the requester template once added, person by person', () => {
     const requesters = template({
       id: 'requesters',

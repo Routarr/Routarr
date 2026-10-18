@@ -14,9 +14,8 @@ import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
 import RuleEditor from './RuleEditor.svelte';
 
 /**
- * The editor asks the server what it thinks of the draft as it is typed, so a
- * condition that can never match is named before Save is pressed rather than
- * discovered as a rule that silently routes nothing.
+ * The editor asks the server about the draft as it is typed, so a condition that can never match
+ * is named before Save is pressed rather than found as a rule that silently routes nothing.
  */
 
 const DRAFT: RuleDraft = {
@@ -46,6 +45,10 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
     certifications: [],
     tags: [],
     series_types: [],
+    quality_profiles: [],
+    studios: [],
+    networks: [],
+    collections: [],
     root_folders: [],
     statuses: [],
   });
@@ -100,11 +103,6 @@ describe('RuleEditor', () => {
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
   });
 
-  /**
-   * A priority is a whole number. Sent to the server, `1.5` is refused in
-   * English inside a 422 the live check swallows, and Save would stay lit on a
-   * rule that cannot be saved.
-   */
   /** Which way the order runs is said under the field, where a keyboard reaches it too. */
   it('says under the priority which rule is evaluated first', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
@@ -117,6 +115,10 @@ describe('RuleEditor', () => {
     expect(screen.getByText('Lower numbers are evaluated first')).toBeInTheDocument();
   });
 
+  /**
+   * Sent to the server, `1.5` is refused in English inside a 422 the live check swallows, and
+   * Save would stay lit on a rule that cannot be saved.
+   */
   it('holds Save on a fractional priority and says why', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     render();
@@ -160,9 +162,7 @@ describe('RuleEditor', () => {
     render();
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(1));
 
-    // Four keystrokes in a row. Without the debounce each one asks, so the
-    // count is what pins it: a test that never types cannot fail for the
-    // reason its name gives.
+    // Four keystrokes in a row: without the debounce each one asks, so the count pins it.
     await userEvent.type(await screen.findByLabelText('Rule name'), 'four');
 
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
@@ -170,11 +170,9 @@ describe('RuleEditor', () => {
   });
 
   /**
-   * The latch does not open again.
-   *
-   * Compared against the opening draft instead, adding a condition and removing
-   * it makes the form untouched a second time: the verdict vanishes and Save
-   * lights up on a rule with no name and no condition.
+   * The latch does not open again. Compared against the opening draft, a condition added then
+   * removed would make the form untouched again: the verdict vanishes and Save lights up on a
+   * rule with no name and no condition.
    */
   it('keeps speaking once an edit has been undone', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
@@ -203,9 +201,8 @@ describe('RuleEditor', () => {
   });
 
   /**
-   * A form nobody has touched is not wrong yet: both complaints a new rule
-   * draws are about a form that is merely empty, and the empty fields say so
-   * already.
+   * A form nobody has touched is not wrong yet: both complaints a new rule draws are about a form
+   * that is merely empty, and the empty fields say so already.
    */
   it('says nothing about a new rule until it is touched', async () => {
     const validate = vi.spyOn(api, 'validateRule').mockResolvedValue({
@@ -225,8 +222,7 @@ describe('RuleEditor', () => {
     // The question is still asked, and the answer is simply not thrown at anyone.
     await waitFor(() => expect(validate).toHaveBeenCalled());
     expect(screen.queryByText('A rule needs a name')).toBeNull();
-    // And Save is not dead: a button disabled by a reason nobody is shown is
-    // worse than the premature complaint.
+    // Nor is Save dead: disabled for a reason nobody is shown is worse than the complaint.
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeEnabled();
 
     await touch();
@@ -234,9 +230,8 @@ describe('RuleEditor', () => {
   });
 
   /**
-   * An existing rule was saved once, so an issue on it is news about something
-   * that changed underneath (a category deleted since, say), and it is said
-   * on open.
+   * An existing rule was saved once, so an issue on it is news about something that changed
+   * underneath (a category deleted since, say), and it is said on open.
    */
   it('speaks immediately about a rule that already exists', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
@@ -263,8 +258,7 @@ describe('RuleEditor', () => {
    */
   it('keeps the name marked required', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
-    // Through the helper, which is the only place `getLibraryFacets` is
-    // stubbed: rendering directly sends a real request from jsdom.
+    // Through the helper, which stubs `getLibraryFacets`: rendering directly sends a real request.
     render();
 
     expect(document.querySelector('#rules-rule-name')?.hasAttribute('required')).toBe(true);
@@ -407,10 +401,6 @@ describe('RuleEditor', () => {
   });
 });
 
-/**
- * `Rules` already holds the facets for its panel, and the editor asking again
- * would aggregate the whole library a second time every time it opens.
- */
 /** No instance ticked is every instance, which is what a rule covers unless told otherwise. */
 describe('the instances a rule is kept to', () => {
   it('sends the instances ticked, and none once every box is cleared', async () => {
@@ -439,6 +429,10 @@ describe('the instances a rule is kept to', () => {
   });
 });
 
+/**
+ * `Rules` already holds the facets for its panel, and the editor asking again would aggregate the
+ * whole library a second time every time it opens.
+ */
 describe('the facets the parent already holds', () => {
   it('are used as they are, without a second request', async () => {
     render(undefined, {
@@ -452,6 +446,10 @@ describe('the facets the parent already holds', () => {
         certifications: [],
         tags: [],
         series_types: [],
+        quality_profiles: [],
+        studios: [],
+        networks: [],
+        collections: [],
         root_folders: [],
         statuses: [],
       },

@@ -1,10 +1,6 @@
-//! An in-process Radarr/Sonarr stand-in.
-//!
-//! Pure helpers cover none of what an integration client does over the wire:
-//! the auth header, the error mapping, the timeouts, the read-patch-write dance
-//! Sonarr needs. Pointing the clients at a real socket exercises all of it
-//! without reaching the network, and lets webhook tests run against a reachable
-//! instance instead of waiting for a connection to time out.
+//! An in-process Radarr/Sonarr stand-in: the clients' auth header, error mapping, timeouts and
+//! Sonarr's read-patch-write run over a real socket without reaching the network, and a webhook
+//! test reaches an instance instead of waiting for a connection to time out.
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -96,29 +92,23 @@ struct FakeState {
     /// Status code to answer mutating calls with, for failure-path tests.
     fail_with: Option<u16>,
     series_path: String,
-    /// A body to answer `GET /api/v3/series/{id}` with, instead of a series.
-    ///
-    /// A reverse proxy, or a base URL pointing at the wrong service, answers
-    /// 2xx with something that is not a series object, and the move path must
-    /// refuse it rather than patch two fields into whatever came back.
+    /// A body to answer `GET /api/v3/series/{id}` with, as a proxy or a wrong base URL answers
+    /// 2xx with something that is not a series, which the move path must refuse to patch.
     series_body: Arc<Mutex<Option<serde_json::Value>>>,
     /// Whether the movie has been downloaded yet. `false` is what Radarr reports
     /// between `MovieAdded` and the first import, the window auto-apply exists
     /// for.
     movie_has_file: bool,
-    /// How long the library listing, a one-movie read and a movie edit are
-    /// held open before answering.
-    ///
-    /// Zero for every ordinary test. A non-zero hold is what makes overlap
-    /// *observable*: sequential callers can never raise `max_in_flight` above
-    /// one however long the hold is, because the second request is not issued
-    /// until the first has returned. So this is not a race the test might
-    /// lose: it only has to outlast the microseconds between two requests.
+    /// How long the library listing, a one-movie read and a movie edit are held open, zero for
+    /// most tests. Sequential callers never raise `max_in_flight` above one however long the
+    /// hold, so it only has to outlast the gap between two requests, a race no test can lose.
     hold: std::time::Duration,
     in_flight: Arc<AtomicUsize>,
     max_in_flight: Arc<AtomicUsize>,
     /// Whether the tag catalogue answers a 500, as an Arr failing on it does.
     tags_broken: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether the quality profiles answer a 500.
+    profiles_broken: Arc<std::sync::atomic::AtomicBool>,
     /// Whether the movie and series listings answer an empty list.
     no_titles: Arc<std::sync::atomic::AtomicBool>,
     /// Whether the root folder listing answers an empty list.
@@ -157,6 +147,7 @@ pub struct FakeArr {
     series_body: Arc<Mutex<Option<serde_json::Value>>>,
     max_in_flight: Arc<AtomicUsize>,
     tags_broken: Arc<std::sync::atomic::AtomicBool>,
+    profiles_broken: Arc<std::sync::atomic::AtomicBool>,
     no_titles: Arc<std::sync::atomic::AtomicBool>,
     no_root_folders: Arc<std::sync::atomic::AtomicBool>,
     refused_series: Arc<Mutex<Vec<i64>>>,
@@ -224,6 +215,11 @@ impl FakeArr {
     /// From now on the tag catalogue answers a 500.
     pub fn break_tag_endpoint(&self) {
         self.tags_broken.store(true, Ordering::SeqCst);
+    }
+
+    /// From now on the quality profiles answer a 500.
+    pub fn break_profile_endpoint(&self) {
+        self.profiles_broken.store(true, Ordering::SeqCst);
     }
 
     /// From now on the movie and series listings answer an empty list, as an
@@ -310,9 +306,7 @@ impl FakeArr {
         *self.certification_country.lock().expect("lock") = country.to_string();
     }
 
-    /// The most requests this fake ever had open at the same moment.
-    ///
-    /// One means the caller was sequential: not slow, sequential.
+    /// The most requests this fake ever had open at once. One means the caller was sequential.
     pub fn max_concurrent(&self) -> usize {
         self.max_in_flight.load(Ordering::SeqCst)
     }
@@ -354,6 +348,7 @@ impl FakeArr {
         let series_body: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
         let max_in_flight = Arc::new(AtomicUsize::new(0));
         let tags_broken = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let profiles_broken = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let no_titles = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let no_root_folders = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let refused_series: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
@@ -377,6 +372,7 @@ impl FakeArr {
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_in_flight: Arc::clone(&max_in_flight),
             tags_broken: Arc::clone(&tags_broken),
+            profiles_broken: Arc::clone(&profiles_broken),
             no_titles: Arc::clone(&no_titles),
             no_root_folders: Arc::clone(&no_root_folders),
             refused_series: Arc::clone(&refused_series),
@@ -399,6 +395,7 @@ impl FakeArr {
             .route("/api/v3/config/metadata", get(metadata_config))
             .route("/api/v3/filesystem", get(filesystem))
             .route("/api/v3/tag", get(tags))
+            .route("/api/v3/qualityprofile", get(quality_profiles))
             .route("/api/v3/movie", get(movies))
             .route("/api/v3/movie/lookup/tmdb", get(movie_lookup_tmdb))
             .route("/api/v3/movie/lookup/imdb", get(movie_lookup_imdb))
@@ -418,6 +415,7 @@ impl FakeArr {
             series_body,
             max_in_flight,
             tags_broken,
+            profiles_broken,
             no_titles,
             no_root_folders,
             refused_series,
@@ -488,13 +486,9 @@ async fn root_folders(
     }
     let mut folders = serde_json::json!([
         { "id": 1, "path": shown_folder(&state, "/movies/standard"), "freeSpace": 1024, "accessible": true },
-        // An Arr reads the free space of a folder it can reach and of no
-        // other, so one not answering reports none.
+        // An Arr reads no free space for a folder it cannot reach.
         { "id": 2, "path": shown_folder(&state, "/movies/anime"), "freeSpace": null, "accessible": false },
-        // A second *usable* destination. Without one, no test can produce a
-        // move at all, since the library sits in the only folder it could go
-        // to, and an assertion that "nothing was written" passes for the wrong
-        // reason.
+        // A second usable destination, or no move can happen and a no-write test proves nothing.
         { "id": 3, "path": shown_folder(&state, "/movies/kids"), "freeSpace": 4096, "accessible": true },
     ]);
     let listed = folders.as_array_mut().expect("a list");
@@ -521,19 +515,9 @@ async fn disk_space(State(state): State<FakeState>, headers: HeaderMap) -> Json<
     ]))
 }
 
-/// The Arr's own view of its filesystem, which is the only one that counts:
-/// Routarr and the Arr run in different containers as often as not.
-///
-/// The folders listed below are all the instance can see, which is enough to
-/// tell a path it can reach from one it cannot.
-///
-/// Answered the way Radarr's and Sonarr's `FileSystemLookupService.LookupContents`
-/// answers when `allowFoldersWithoutTrailingSlashes` is left at its default:
-/// the query is cut after its last separator and what remains is listed, each
-/// directory's path ending in a separator. Asked `/movies/anime`, it lists
-/// `/movies/`, and asked `/movies`, it lists `/`. Listing exactly the path given is
-/// the behaviour a client would wish for and no Arr has, and a fake with it
-/// passes a client that asks every real Arr about the wrong directory.
+/// The Arr's view of its filesystem, as `FileSystemLookupService.LookupContents` answers by
+/// default: the query is cut after its last separator, so `/movies/anime` lists `/movies/`.
+/// A fake listing the exact path would pass a client asking every real Arr the wrong folder.
 async fn filesystem(
     State(state): State<FakeState>,
     headers: HeaderMap,
@@ -542,8 +526,7 @@ async fn filesystem(
     record_key(&state, &headers);
     let asked =
         query.get("path").filter(|path| !path.trim().is_empty()).map_or("/", String::as_str);
-    // Windows compares names without their case, and both Arrs cut at
-    // either separator there.
+    // On Windows both Arrs cut at either separator and compare names without case.
     let separators: &[char] = if state.windows { &['\\', '/'] } else { &['/'] };
     let Some(cut) = asked.rfind(separators) else {
         return Json(serde_json::json!({ "parent": null, "directories": [], "files": [] }));
@@ -608,11 +591,24 @@ async fn tags(
     ])))
 }
 
-/// Count this request as open, hold it, and report the high-water mark.
-///
-/// Only the library listings are instrumented: they are the one call every
-/// sync makes and the one that carries the payload, so they are where an
-/// overlap between two instance syncs shows up.
+async fn quality_profiles(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    record_key(&state, &headers);
+    record_read(&state, "/api/v3/qualityprofile");
+    if state.profiles_broken.load(Ordering::SeqCst) {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    Ok(Json(serde_json::json!([
+        { "id": 1, "name": "HD-1080p" },
+        { "id": 3, "name": "HD-720p" },
+        { "id": 4, "name": "Ultra-HD" },
+    ])))
+}
+
+/// Count this request as open, hold it, and record the high-water mark. Only the library
+/// listings call it: every sync makes them, so an overlap of two instance syncs shows there.
 async fn hold_and_count(state: &FakeState) {
     let now = state.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
     state.max_in_flight.fetch_max(now, Ordering::SeqCst);
@@ -657,8 +653,7 @@ async fn movie_one(
     record_read(&state, &format!("/api/v3/movie/{id}"));
     settle_moves(&state);
     let movie = movie_by_id(&state, id).ok_or(StatusCode::NOT_FOUND)?;
-    // Held like an edit: a webhook's read can be in flight while an apply
-    // lands, and that overlap is what the `moved_at` gate exists for.
+    // Held like an edit: a webhook's read in flight as an apply lands is what `moved_at` gates.
     if !state.hold.is_zero() {
         tokio::time::sleep(state.hold).await;
     }
@@ -704,12 +699,14 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         "added": "2026-08-20T10:00:00Z",
         "sizeOnDisk": 8_589_934_592i64,
         "tags": [1],
-        // Metadata Radarr carries itself. The language arrives as a *name*,
-        // never a code: the sync is what turns it into the `ja` a rule is
-        // written against.
+        // Radarr sends the language as a name, which the sync turns into the `ja` a rule names.
         "genres": ["Animation", "Family"],
         "originalLanguage": { "id": 8, "name": "Japanese" },
-        "certification": "G"
+        "certification": "G",
+        "qualityProfileId": 4,
+        "runtime": 86,
+        "studio": "Studio Ghibli",
+        "collection": { "title": "Studio Ghibli Collection", "tmdbId": 1000 }
     });
     laid_over(&state.movie_edits, 10, &mut movie);
     movie
@@ -733,10 +730,9 @@ fn laid_over(held: &Edits, id: i64, body: &mut serde_json::Value) {
     }
 }
 
-/// A film by its TMDB id, as Radarr's lookup answers: built afresh from TMDB,
-/// so with no id, no folder and no file even when the library holds it.
-/// Holding is what `GET /api/v3/movie?tmdbId=` tells. A miss answers 500
-/// with the exception Radarr throws (`MovieNotFoundException`), not 404.
+/// A film by its TMDB id, as Radarr's lookup answers: rebuilt from TMDB, so with no id, folder
+/// or file even when held, which `GET /api/v3/movie?tmdbId=` tells. A miss answers 500 with
+/// Radarr's `MovieNotFoundException`, not 404.
 async fn movie_lookup_tmdb(
     State(state): State<FakeState>,
     headers: HeaderMap,
@@ -852,8 +848,7 @@ async fn movie_update(
     let Some(held) = movie_by_id(&state, id) else {
         return Err((StatusCode::NOT_FOUND, "Movie not found".to_string()));
     };
-    // Recorded first, then held: a test can see the edit arrive before the
-    // Arr is done with it.
+    // Recorded, then held, so a test sees the edit arrive before the Arr is done with it.
     if !state.hold.is_zero() {
         tokio::time::sleep(state.hold).await;
     }
@@ -996,7 +991,9 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "tags": [1],
         "genres": ["Animation", "Action"],
         "originalLanguage": { "id": 8, "name": "Japanese" },
-        "certification": "TV-14"
+        "certification": "TV-14",
+        "runtime": 25,
+        "network": "TV Tokyo"
     });
     laid_over(&state.series_edits, id, &mut series);
     series

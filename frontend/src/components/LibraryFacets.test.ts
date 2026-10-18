@@ -5,12 +5,8 @@ import { renderWithI18n } from '../test/render';
 import LibraryFacets from './LibraryFacets.svelte';
 
 /**
- * Reference data, on the screen whose subject is something else.
- *
- * The panel answers "what does my library actually hold" while a rule is being
- * written. Open above the rule table, it takes most of a laptop screen and more
- * than a phone's, so the rules screen would open on everything except the
- * rules.
+ * Reference data on a screen whose subject is something else. Open above the rule table, the
+ * panel takes most of a laptop screen and more than a phone's, hiding the rules themselves.
  */
 
 const facets = {
@@ -29,6 +25,10 @@ const facets = {
   certifications: [],
   tags: [],
   series_types: [],
+  quality_profiles: [],
+  studios: [],
+  networks: [],
+  collections: [],
   root_folders: [{ value: '/movies/standard', count: 30 }],
 };
 
@@ -36,11 +36,8 @@ const show = (over: Partial<typeof facets> = {}) =>
   renderWithI18n(LibraryFacets, { props: { facets: { ...facets, ...over } } }).container;
 
 /**
- * Open it the way a browser does.
- *
- * jsdom flips the `open` attribute when the summary is clicked but does not
- * emit the `toggle` event that Svelte binds to, so a bare click changes the
- * DOM and leaves the component's own state behind.
+ * Open it the way a browser does: jsdom flips `open` on a summary click but emits no `toggle`,
+ * which Svelte binds to, so a bare click leaves the component's own state behind.
  */
 async function disclose(container: HTMLElement) {
   const details = container.querySelector('details')!;
@@ -54,8 +51,7 @@ describe('LibraryFacets', () => {
 
     const panel = container.querySelector('details');
     expect(panel?.hasAttribute('open')).toBe(false);
-    // Folded is not hidden: the heading still carries the size of the library,
-    // which is the figure that says whether the panel is worth opening.
+    // Folded is not hidden: the library's size says whether the panel is worth opening.
     expect(screen.getByText('In your library (38)')).toBeInTheDocument();
   });
 
@@ -66,8 +62,7 @@ describe('LibraryFacets', () => {
 
     expect(container.querySelector('details')?.hasAttribute('open')).toBe(true);
     expect(screen.getByText('Genres')).toBeInTheDocument();
-    // Named from the vocabulary: the counts say `ja`, and only the vocabulary
-    // knows that is Japanese.
+    // Named from the vocabulary: the counts say `ja`, and only the vocabulary knows Japanese.
     expect(screen.getByText('Japanese (ja)')).toBeInTheDocument();
     // Only the axes carrying something: an empty card teaches nothing.
     expect(screen.queryByText('Certifications')).toBeNull();

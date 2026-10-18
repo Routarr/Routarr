@@ -500,6 +500,7 @@
       {template}
       {categories}
       languageOptions={facetOf(facets, 'original_languages')}
+      profileOptions={facetOf(facets, 'quality_profiles')}
       onClose={() => (choosing = null)}
       onAdded={(added) => void templateAdded(template, added)}
     />

@@ -56,6 +56,18 @@
 
   // One half of each pair is offered, and the row's selector reaches the other.
   const offerable = $derived(addable.filter((spec) => spec.quantifier !== 'all'));
+  // A long list of conditions is read by family, in the order the catalogue gives them.
+  const FAMILIES: Record<ConditionSpec['group'], string> = {
+    metadata: 'ConditionGroupMetadata',
+    arr: 'ConditionGroupArr',
+    title: 'ConditionGroupTitle',
+    folder: 'ConditionGroupFolder',
+  };
+  const families = $derived(
+    (Object.keys(FAMILIES) as ConditionSpec['group'][])
+      .map((group) => ({ group, specs: offerable.filter((spec) => spec.group === group) }))
+      .filter((family) => family.specs.length > 0),
+  );
 
   /**
    * The condition picked to add. Adding waits for the button: on Windows and Linux an arrow
@@ -159,11 +171,15 @@
       onchange={(event) => (chosen = event.currentTarget.value)}
     >
       <option value="">{t('AddCondition')}</option>
-      {#each offerable as spec (spec.type)}
-        <!-- Flagged only when no enabled source, the Arr included, can answer it. -->
-        <option value={spec.type}>
-          {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
-        </option>
+      {#each families as family (family.group)}
+        <optgroup label={t(FAMILIES[family.group])}>
+          {#each family.specs as spec (spec.type)}
+            <!-- Flagged only when no enabled source, the Arr included, can answer it. -->
+            <option value={spec.type}>
+              {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
+            </option>
+          {/each}
+        </optgroup>
       {/each}
     </select>
     <button

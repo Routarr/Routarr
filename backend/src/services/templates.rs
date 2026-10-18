@@ -18,6 +18,8 @@ pub enum Parameter {
     Languages,
     /// Who asked for each title, by the tag Seerr gives each requester.
     Requesters,
+    /// The quality profiles that make a title 4K, by name.
+    QualityProfiles,
 }
 
 impl Parameter {
@@ -26,6 +28,7 @@ impl Parameter {
             Parameter::None => None,
             Parameter::Languages => Some("languages"),
             Parameter::Requesters => Some("requesters"),
+            Parameter::QualityProfiles => Some("quality_profiles"),
         }
     }
 }
@@ -68,6 +71,7 @@ pub struct Answers {
     pub category: String,
     pub languages: Vec<String>,
     pub requesters: Vec<Requester>,
+    pub quality_profiles: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +92,25 @@ fn nothing() -> Vec<Condition> {
 
 /// In the order their rules go: a title two templates match goes to the first.
 pub const CATALOGUE: &[Template] = &[
+    // First: a 4K copy belongs to the library a 4K player reads, whatever its genre.
+    Template {
+        id: "4k",
+        version: 1,
+        name: "TemplateUhdName",
+        description: "TemplateUhdDescription",
+        category: "TemplateUhdCategory",
+        parameter: Parameter::QualityProfiles,
+        relies_on: &[],
+        rules: &[RuleShape {
+            name: "TemplateRuleUhd",
+            media_type: "both",
+            match_mode: MatchMode::All,
+            conditions: |answers| {
+                vec![Condition::QualityProfileIn(answers.quality_profiles.clone())]
+            },
+            exclusions: nothing,
+        }],
+    },
     Template {
         id: "concerts",
         version: 1,
@@ -494,6 +517,12 @@ fn slot_keys<'a>(rules: impl Iterator<Item = (String, &'a [Condition])>) -> Vec<
         .collect()
 }
 
+/// Whether a quality profile's name reads as 4K, which the 4K template suggests.
+pub fn reads_as_4k(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["4k", "2160", "uhd", "ultra"].iter().any(|mark| name.contains(mark))
+}
+
 /// The languages a household is assumed to watch in: the interface's and
 /// English, as ISO 639-1 codes.
 pub fn household_languages(interface: &str) -> Vec<String> {
@@ -595,9 +624,9 @@ mod tests {
         let ids: Vec<&str> = CATALOGUE.iter().map(|template| template.id).collect();
         assert_eq!(
             ids,
-            ["concerts", "documentaries", "children", "anime", "foreign-films", "requesters"]
+            ["4k", "concerts", "documentaries", "children", "anime", "foreign-films", "requesters"]
         );
-        assert_eq!(rank("children@1"), 2);
+        assert_eq!(rank("children@1"), 3);
         assert_eq!(rank("gone@1"), CATALOGUE.len());
     }
 

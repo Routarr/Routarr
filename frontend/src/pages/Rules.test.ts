@@ -18,6 +18,8 @@ const catalog: ConditionCatalog = {
     {
       type: 'genre_contains',
       label: 'Genre contains',
+      group: 'metadata',
+
       label_key: 'ConditionLabelGenreContains',
       value_type: 'string_list',
       needs_metadata: true,
@@ -57,11 +59,15 @@ const NO_FACETS = {
   certifications: [],
   tags: [],
   series_types: [],
+  quality_profiles: [],
+  studios: [],
+  networks: [],
+  collections: [],
   root_folders: [],
   statuses: [],
 } as unknown as LibraryFacets;
 
-/** The two diagnostics answer unless a test has already said otherwise. */
+/** The diagnostics and the templates answer unless a test has already said otherwise. */
 function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en') {
   vi.spyOn(api, 'getRules').mockResolvedValue(rules);
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
@@ -366,6 +372,10 @@ describe('Rules', () => {
       certifications: [{ value: '12', label: '12 (12 and over)', count: 11 }],
       tags: [],
       series_types: [],
+      quality_profiles: [],
+      studios: [],
+      networks: [],
+      collections: [],
       root_folders: [],
       statuses: [],
     } as unknown as LibraryFacets);
@@ -418,6 +428,10 @@ describe('Rules', () => {
       certifications: [],
       tags: [],
       series_types: [],
+      quality_profiles: [],
+      studios: [],
+      networks: [],
+      collections: [],
       root_folders: [],
       statuses: [],
     } as unknown as LibraryFacets);
@@ -457,6 +471,10 @@ describe('Rules', () => {
       certifications: [],
       tags: [],
       series_types: [],
+      quality_profiles: [],
+      studios: [],
+      networks: [],
+      collections: [],
       root_folders: [],
       statuses: [],
     } as unknown as LibraryFacets);

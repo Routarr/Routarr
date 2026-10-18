@@ -25,6 +25,13 @@ beforeEach(() => {
   vi.spyOn(api, 'getRules').mockResolvedValue([]);
 });
 
+/** A field of the filter panel, opened first as a reader opens it. */
+function filterField(label: string): HTMLElement {
+  const toggle = screen.getByRole('button', { name: /^Filters/ });
+  if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+  return screen.getByLabelText(label, { selector: 'select, input' });
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('History', () => {
@@ -398,7 +405,7 @@ describe('History', () => {
     );
     expect(await screen.findByText('The Arr refused the move')).toBeTruthy();
 
-    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'applied');
+    await userEvent.selectOptions(filterField('Status'), 'applied');
 
     await waitFor(() =>
       expect(api.getDecisions).toHaveBeenLastCalledWith(
@@ -470,14 +477,15 @@ describe('narrowing and reverting many', () => {
     const getDecisions = vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
     show();
 
+    filterField('Rule');
     await screen.findByRole('option', { name: 'Japanese animation' });
-    await userEvent.selectOptions(screen.getByLabelText('Filter by instance'), 'i1');
-    await userEvent.selectOptions(screen.getByLabelText('Filter by rule'), 'r1');
-    await userEvent.selectOptions(screen.getByLabelText('Filter by simulation'), 's9');
-    await fireEvent.change(screen.getByLabelText('Decided from'), {
+    await userEvent.selectOptions(filterField('Instance'), 'i1');
+    await userEvent.selectOptions(filterField('Rule'), 'r1');
+    await userEvent.selectOptions(filterField('Simulation'), 's9');
+    await fireEvent.change(filterField('Decided from'), {
       target: { value: '2026-10-17' },
     });
-    await fireEvent.change(screen.getByLabelText('Decided until'), {
+    await fireEvent.change(filterField('Decided until'), {
       target: { value: '2026-10-18' },
     });
 
@@ -522,8 +530,9 @@ describe('narrowing and reverting many', () => {
     show();
     expect(await screen.findByRole('button', { name: 'Revert all (3)' })).toBeTruthy();
 
+    filterField('Rule');
     await screen.findByRole('option', { name: 'Japanese animation' });
-    await userEvent.selectOptions(screen.getByLabelText('Filter by rule'), 'r1');
+    await userEvent.selectOptions(filterField('Rule'), 'r1');
     await userEvent.click(
       await screen.findByRole('button', { name: 'Revert the matching moves (3)' }),
     );

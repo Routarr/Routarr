@@ -243,9 +243,22 @@ async fn library(language: &str) -> TestApp {
         .await
         .unwrap();
     }
+    sqlx::query(
+        "INSERT INTO arr_quality_profiles (instance_id, arr_id, name)
+         VALUES ('inst-1', 1, 'HD-1080p'), ('inst-1', 4, 'Ultra-HD')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
     app.list_tmdb().await;
     app.store_setting("ui_language", language).await;
     app
+}
+
+/// The gallery's entry for the template `id`.
+fn entry<'a>(gallery: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
+    let templates = gallery.as_array().expect("a list of templates");
+    templates.iter().find(|template| template["id"] == id).unwrap_or_else(|| panic!("no {id}"))
 }
 
 async fn categories_decided(app: &TestApp) -> std::collections::HashMap<String, String> {
@@ -268,21 +281,30 @@ async fn the_gallery_offers_every_template_in_the_readers_language_in_its_order(
     let app = library("fr").await;
 
     let gallery = app.get("/api/v1/rules/templates").await;
-    let gallery = gallery.assert_ok().as_array().unwrap().clone();
+    let gallery = gallery.assert_ok().clone();
 
-    let ids: Vec<&str> = gallery.iter().map(|template| template["id"].as_str().unwrap()).collect();
+    let ids: Vec<&str> = gallery
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|template| template["id"].as_str().unwrap())
+        .collect();
     assert_eq!(
         ids,
-        ["concerts", "documentaries", "children", "anime", "foreign-films", "requesters"]
+        ["4k", "concerts", "documentaries", "children", "anime", "foreign-films", "requesters"]
     );
-    let children = &gallery[2];
+    let children = entry(&gallery, "children");
     assert_eq!(children["name"], "Enfants et famille");
     assert_eq!(children["category"], "enfants");
     assert_eq!(children["added_version"], serde_json::Value::Null);
     assert_eq!(children["rule_ids"], json!([]));
-    assert_eq!(gallery[4]["parameter"], "languages");
-    assert_eq!(gallery[4]["languages"], json!(["fr", "en"]));
-    assert_eq!(gallery[5]["category"], serde_json::Value::Null, "each requester has their own");
+    assert_eq!(entry(&gallery, "foreign-films")["parameter"], "languages");
+    assert_eq!(entry(&gallery, "foreign-films")["languages"], json!(["fr", "en"]));
+    assert_eq!(
+        entry(&gallery, "requesters")["category"],
+        serde_json::Value::Null,
+        "each requester has their own"
+    );
 }
 
 /// A French library already sorting children into `kids` is offered `kids`,
@@ -299,8 +321,12 @@ async fn a_template_suggests_the_category_the_library_already_has() {
     let gallery = gallery.assert_ok();
     let preview = app.post("/api/v1/rules/templates/children/preview", json!({})).await;
 
-    assert_eq!(gallery[2]["category"], "kids");
-    assert_eq!(gallery[1]["category"], "documentaires", "no documentaries category yet");
+    assert_eq!(entry(gallery, "children")["category"], "kids");
+    assert_eq!(
+        entry(gallery, "documentaries")["category"],
+        "documentaires",
+        "no documentaries category yet"
+    );
     assert_eq!(preview.assert_ok()["creates"], json!([]));
 }
 
@@ -318,13 +344,13 @@ async fn the_gallery_offers_a_template_with_the_answers_it_was_added_with() {
     let gallery = app.get("/api/v1/rules/templates").await;
     let gallery = gallery.assert_ok();
 
-    assert_eq!(gallery[1]["category"], "docs");
-    assert_eq!(gallery[1]["added_version"], 1);
-    assert_eq!(gallery[1]["rule_ids"].as_array().unwrap().len(), 1);
-    assert_eq!(gallery[4]["languages"], json!(["en", "fr", "ko"]));
-    assert_eq!(gallery[5]["requesters"][0]["category"], "alice-asks");
-    assert_eq!(gallery[5]["requesters"][0]["added"], true);
-    assert_eq!(gallery[5]["rule_ids"][0], added["rules"][0]["id"]);
+    assert_eq!(entry(gallery, "documentaries")["category"], "docs");
+    assert_eq!(entry(gallery, "documentaries")["added_version"], 1);
+    assert_eq!(entry(gallery, "documentaries")["rule_ids"].as_array().unwrap().len(), 1);
+    assert_eq!(entry(gallery, "foreign-films")["languages"], json!(["en", "fr", "ko"]));
+    assert_eq!(entry(gallery, "requesters")["requesters"][0]["category"], "alice-asks");
+    assert_eq!(entry(gallery, "requesters")["requesters"][0]["added"], true);
+    assert_eq!(entry(gallery, "requesters")["rule_ids"][0], added["rules"][0]["id"]);
 }
 
 #[tokio::test]
@@ -334,18 +360,22 @@ async fn a_template_reading_keywords_names_the_sources_that_answer_them_until_on
     let gallery = app.get("/api/v1/rules/templates").await;
     let gallery = gallery.assert_ok().clone();
     // AniList and Jikan give keywords too, about anime alone.
-    assert_eq!(gallery[0]["needs"], json!([{ "id": "tmdb", "name": "TMDB" }]));
-    assert_eq!(gallery[1]["needs"], json!([]), "a genre is answered by the Arr");
+    assert_eq!(entry(&gallery, "concerts")["needs"], json!([{ "id": "tmdb", "name": "TMDB" }]));
+    assert_eq!(
+        entry(&gallery, "documentaries")["needs"],
+        json!([]),
+        "a genre is answered by the Arr"
+    );
 
     // Listed without a key, TMDB still answers nothing.
     app.list_tmdb().await;
     let gallery = app.get("/api/v1/rules/templates").await;
-    assert_ne!(gallery.assert_ok()[0]["needs"], json!([]));
+    assert_ne!(entry(gallery.assert_ok(), "concerts")["needs"], json!([]));
 
     app.store_setting("tmdb_api_key", &app.state.secrets.seal("tmdb-key-not-a-secret").unwrap())
         .await;
     let gallery = app.get("/api/v1/rules/templates").await;
-    assert_eq!(gallery.assert_ok()[0]["needs"], json!([]));
+    assert_eq!(entry(gallery.assert_ok(), "concerts")["needs"], json!([]));
 }
 
 #[tokio::test]
@@ -358,6 +388,7 @@ async fn every_template_renders_rules_the_validator_accepts_in_every_language() 
                 "requesters" => {
                     json!({ "requesters": [{ "tag": "3-alice", "category": "alice" }] })
                 }
+                "4k" => json!({ "quality_profiles": ["Ultra-HD"] }),
                 _ => json!({}),
             };
             let preview =
@@ -598,7 +629,7 @@ async fn the_requester_template_offers_the_seerr_tags_and_wants_one_chosen() {
     let app = library("en").await;
 
     let gallery = app.get("/api/v1/rules/templates").await;
-    let requesters = &gallery.assert_ok()[5]["requesters"];
+    let requesters = &entry(gallery.assert_ok(), "requesters")["requesters"];
     let alice = json!({ "tag": "3-alice", "name": "alice", "titles": 1, "category": "alice", "added": false });
     assert_eq!(requesters, &json!([alice]));
 
@@ -622,7 +653,7 @@ async fn a_requester_tagged_in_several_forms_is_one_person_routed_by_each() {
     }
 
     let gallery = app.get("/api/v1/rules/templates").await;
-    assert_eq!(gallery.assert_ok()[5]["requesters"].as_array().unwrap().len(), 1);
+    assert_eq!(entry(gallery.assert_ok(), "requesters")["requesters"].as_array().unwrap().len(), 1);
     let alice = json!({ "requesters": [{ "tag": "3-alice", "category": "alice" }] });
     add(&app, "requesters", alice).await;
 
@@ -758,4 +789,45 @@ fn a_requester_category_is_a_name_a_category_may_hold() {
     assert_eq!(accepted("4", "🎬✨"), "seerr-4");
     assert_eq!(accepted("5", &"x".repeat(80)).chars().count(), 64);
     assert_eq!(accepted("6", &format!("{}-b", "a".repeat(63))), "a".repeat(63));
+}
+
+/// The 4K template offers the profiles whose name reads as 4K, sends each title of one to its
+/// category whatever its genre, and refuses a profile no instance defines.
+#[tokio::test]
+async fn the_4k_template_routes_the_titles_of_the_profiles_chosen() {
+    let app = library("en").await;
+    app.execute(&["UPDATE media SET quality_profile = 'Ultra-HD' WHERE id = 'amelie'"]).await;
+
+    let gallery = app.get("/api/v1/rules/templates").await;
+    let uhd = entry(gallery.assert_ok(), "4k");
+    assert_eq!(
+        (&uhd["parameter"], &uhd["quality_profiles"]),
+        (&json!("quality_profiles"), &json!(["Ultra-HD"]))
+    );
+
+    let preview = app.post("/api/v1/rules/templates/4k/preview", json!({})).await;
+    let preview = preview.assert_ok();
+    assert_eq!(preview["reach"]["titles"], 1, "{preview}");
+    assert_eq!(preview["titles"][0]["media_id"], "amelie");
+
+    let unknown = json!({ "quality_profiles": ["Dolby Vision"] });
+    let refused = app.post("/api/v1/rules/templates/4k/import", unknown).await;
+    let message = refused.assert_status(StatusCode::BAD_REQUEST)["message"].as_str().unwrap();
+    assert!(message.contains("Dolby Vision"), "{message}");
+    let none =
+        app.post("/api/v1/rules/templates/4k/import", json!({ "quality_profiles": [] })).await;
+    none.assert_status(StatusCode::BAD_REQUEST);
+    let elsewhere = json!({ "quality_profiles": ["Ultra-HD"] });
+    let unread = app.post("/api/v1/rules/templates/anime/import", elsewhere).await;
+    unread.assert_status(StatusCode::BAD_REQUEST);
+
+    let added = add(&app, "4k", json!({ "quality_profiles": ["ultra-hd"] })).await;
+    let rule = &added["rules"][0];
+    assert_eq!(
+        rule["conditions"],
+        json!([{ "type": "quality_profile_in", "value": ["Ultra-HD"] }])
+    );
+    assert_eq!(rule["target_category"], "4k");
+    let gallery = app.get("/api/v1/rules/templates").await;
+    assert_eq!(entry(gallery.assert_ok(), "4k")["added_version"], 1);
 }

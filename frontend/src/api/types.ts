@@ -116,10 +116,13 @@ export interface RuleDraft {
 
 export interface ConditionSpec {
   type: string;
+  /** The family the builder lists it under. */
+  group: 'metadata' | 'arr' | 'title' | 'folder';
   label: string;
   /** The dictionary key `label` was written from. */
   label_key: string;
-  value_type: 'string' | 'string_list' | 'number' | 'number_list' | 'boolean' | 'year_range';
+  value_type:
+    'string' | 'string_list' | 'number' | 'number_list' | 'boolean' | 'year_range' | 'number_range';
   needs_metadata: boolean;
   /** The metadata field it reads, if any. */
   metadata_field: string | null;
@@ -300,11 +303,13 @@ export interface TemplateSummary {
   description: string;
   /** Where its rules send titles, as added or as suggested. Null for `requesters`. */
   category: string | null;
-  parameter: 'languages' | 'requesters' | null;
+  parameter: 'languages' | 'requesters' | 'quality_profiles' | null;
   /** For `languages`: the languages the household watches in. */
   languages: string[];
   /** For `requesters`: the requesters the library's Seerr tags name. */
   requesters: RequesterTag[];
+  /** For `quality_profiles`: the profiles its rule names, or those that read as 4K. */
+  quality_profiles: string[];
   /** The sources it needs, none of them enabled. */
   needs: NeededSource[];
   /** The version the rules in place came from, null when it is not added. */
@@ -330,6 +335,7 @@ export interface TemplateRequest {
   category?: string;
   languages?: string[];
   requesters?: { tag: string; category: string }[];
+  quality_profiles?: string[];
   replace?: boolean;
 }
 
@@ -569,6 +575,13 @@ export interface ExplainedMedia {
   genres: string | null;
   original_language: string | null;
   certification: string | null;
+  quality_profile: string | null;
+  /** Minutes: a film's, a series' episode's. */
+  runtime: number | null;
+  studio: string | null;
+  network: string | null;
+  collection: string | null;
+  collection_tmdb_id: number | null;
   last_synced_at: string | null;
   /** The Arr's tag labels: `tags` holds the same as a JSON string. */
   tag_list: string[];
@@ -995,6 +1008,11 @@ export interface LibraryFacets {
   certifications: Facet[];
   tags: Facet[];
   series_types: Facet[];
+  /** Every profile the Arrs define, an unused one counted 0. */
+  quality_profiles: Facet[];
+  studios: Facet[];
+  networks: Facet[];
+  collections: Facet[];
   root_folders: Facet[];
   /** The statuses the Arrs give the titles, as they write them. */
   statuses: Facet[];

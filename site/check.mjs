@@ -327,7 +327,7 @@ for (const { code } of LANGUAGES) {
 }
 
 // ---------------------------------------------------- facts from the code
-// A count the site states is read from the code that makes it true: a 29th
+// A count the site states is read from the code that makes it true: one more
 // condition, a 27th language, a sixth format or a gate moved in the executor
 // would otherwise leave the site wrong with every check green. A count is
 // written in digits or in words, as its sentence reads best.
@@ -397,6 +397,11 @@ for (const { code } of LANGUAGES) {
   }
   for (const format of formats) {
     if (!new RegExp(`\\b${format}\\b`, 'i').test(llms ?? '')) fail(`llms.txt names no ${format} among the notification formats`);
+  }
+  // The README a visitor reads first states two of the same counts.
+  const readme = source('README.md');
+  for (const [phrase, count] of [['conditions', conditions], ['languages', languages]]) {
+    if (!new RegExp(`\\b${count} ${phrase}\\b`).test(readme)) fail(`README.md does not state the ${count} ${phrase} the code has`);
   }
 }
 

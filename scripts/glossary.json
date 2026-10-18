@@ -749,5 +749,36 @@
       "zh_CN": "筛选",
       "zh_TW": "篩選"
     }
+  },
+  "quality profile": {
+    "en": "\\bquality profiles?\\b",
+    "except": [],
+    "words": {
+      "ar": "تعريف (ال)?جودة",
+      "ca": "perfil\\w* de qualitat",
+      "cs": "profil\\w* kvality",
+      "da": "kvalitetsprofil",
+      "de": "qualitätsprofil",
+      "el": "προφίλ ποιότητας",
+      "es": "perf\\w* de calidad",
+      "fi": "laatuprofiil",
+      "fr": "profils? de qualité",
+      "hu": "minőségi profil",
+      "it": "profil\\w* di qualità",
+      "ja": "品質プロファイル",
+      "ko": "품질 ?프로필",
+      "nb_NO": "kvalitetsprofil",
+      "nl": "kwaliteitsprofiel",
+      "pl": "profil\\w* jakości",
+      "pt": "perf\\w* de qualidade",
+      "ro": "profil\\w* de calitate",
+      "ru": "профил\\w* качества",
+      "sk": "profil\\w* kvality",
+      "sv": "kvalitetsprofil",
+      "tr": "kalite profil",
+      "uk": "профіл\\w* якості",
+      "zh_CN": "质量配置",
+      "zh_TW": "品質設定檔"
+    }
   }
 }

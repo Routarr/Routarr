@@ -30,14 +30,17 @@ pub struct TemplateSummary {
     /// The category its rules send titles to. Null for `requesters`, whose
     /// categories are each person's.
     pub category: Option<String>,
-    /// What it asks beside the category: `languages`, `requesters`, or null.
-    #[schema(value_type = Option<String>, extensions(("x-extensible-enum" = json!(["languages", "requesters"]))))]
+    /// What it asks beside the category: `languages`, `requesters`, `quality_profiles`, or
+    /// null.
+    #[schema(value_type = Option<String>, extensions(("x-extensible-enum" = json!(["languages", "requesters", "quality_profiles"]))))]
     pub parameter: Option<&'static str>,
     /// For `languages`: the languages the household watches in, ISO 639-1
     /// codes.
     pub languages: Vec<String>,
     /// For `requesters`: the requesters the library's tags name.
     pub requesters: Vec<RequesterTag>,
+    /// For `quality_profiles`: the profiles its rule names, or those whose name reads as 4K.
+    pub quality_profiles: Vec<String>,
     /// The sources it needs, none of them enabled. Empty when it can match.
     pub needs: Vec<NeededSource>,
     /// The version the rules in place were added from. Null when none is.
@@ -69,7 +72,7 @@ pub struct RequesterTag {
 
 /// What adding a template takes. Each template reads only the fields it
 /// asks: `category` all but `requesters`, `languages` only `languages`,
-/// `requesters` only `requesters`.
+/// `requesters` only `requesters`, `quality_profiles` only `quality_profiles`.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TemplateRequest {
@@ -82,6 +85,10 @@ pub struct TemplateRequest {
     pub languages: Option<Vec<String>>,
     #[serde(default)]
     pub requesters: Option<Vec<RequesterChoice>>,
+    /// Quality profile names, as an instance defines them. Left out, those whose name reads as
+    /// 4K.
+    #[serde(default)]
+    pub quality_profiles: Option<Vec<String>>,
     /// Remove the rules an earlier addition of this template left, edited or not, each new
     /// rule taking the place of the one it replaces. For `requesters`, a requester still chosen
     /// keeps their rule, those left out lose theirs, and the others get one.
@@ -175,6 +182,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<TemplateS
     let tags = requester_tags(&state).await?;
     let known: Vec<String> =
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
+    let profiles = quality_profiles(&state.pool).await?;
 
     let summaries = templates::CATALOGUE
         .iter()
@@ -199,10 +207,17 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<TemplateS
                 Parameter::Requesters => routed(&tags.people, &added),
                 _ => Vec::new(),
             };
+            let quality_profiles = match template.parameter {
+                Parameter::QualityProfiles => first
+                    .and_then(|rule| profiles_of(rule))
+                    .unwrap_or_else(|| suggested_profiles(&profiles)),
+                _ => Vec::new(),
+            };
             let answers = Answers {
                 category: category.clone().unwrap_or_default(),
                 languages: languages.clone(),
                 requesters: Vec::new(),
+                quality_profiles: quality_profiles.clone(),
             };
             TemplateSummary {
                 id: template.id.to_string(),
@@ -213,6 +228,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<TemplateS
                 parameter: template.parameter.name(),
                 languages,
                 requesters,
+                quality_profiles,
                 needs: needs(
                     template,
                     &templates::render(template, &answers, &localizer),
@@ -449,6 +465,10 @@ async fn plan(
         ("category", req.category.is_some() && template.parameter == Parameter::Requesters),
         ("languages", req.languages.is_some() && template.parameter != Parameter::Languages),
         ("requesters", req.requesters.is_some() && template.parameter != Parameter::Requesters),
+        (
+            "quality_profiles",
+            req.quality_profiles.is_some() && template.parameter != Parameter::QualityProfiles,
+        ),
     ];
     if let Some((field, _)) = unread.iter().find(|(_, unread)| *unread) {
         return Err(AppError::BadRequest(format!(
@@ -517,6 +537,28 @@ async fn plan(
         }
         answers.languages = languages;
     }
+    if template.parameter == Parameter::QualityProfiles {
+        let defined = quality_profiles(&state.pool).await?;
+        let given = req.quality_profiles.clone().unwrap_or_else(|| suggested_profiles(&defined));
+        for raw in given.iter().map(|raw| raw.trim()).filter(|raw| !raw.is_empty()) {
+            // Named as an instance defines it, since the rule compares the names.
+            let Some(name) =
+                defined.iter().find(|name| normalise_value(name) == normalise_value(raw))
+            else {
+                return Err(AppError::BadRequest(
+                    localizer.translate("ErrorTemplateQualityProfile", &[("value", raw)]),
+                ));
+            };
+            if !answers.quality_profiles.contains(name) {
+                answers.quality_profiles.push(name.clone());
+            }
+        }
+        if answers.quality_profiles.is_empty() {
+            return Err(AppError::BadRequest(
+                localizer.translate("ErrorTemplateNoQualityProfile", &[]),
+            ));
+        }
+    }
 
     let rules = templates::render(template, &answers, localizer);
     let mut creates: Vec<String> = rules
@@ -570,6 +612,24 @@ fn suggested_category(template: &Template, localizer: &Localizer, known: &[Strin
     let own = localizer.translate(template.category, &[]);
     let english = Localizer::new("en").translate(template.category, &[]);
     if known.contains(&english) && !known.contains(&own) { english } else { own }
+}
+
+/// Every quality profile the instances define, by name, each once.
+async fn quality_profiles(pool: &sqlx::SqlitePool) -> AppResult<Vec<String>> {
+    Ok(sqlx::query_scalar("SELECT DISTINCT name FROM arr_quality_profiles ORDER BY name")
+        .fetch_all(pool)
+        .await?)
+}
+
+fn suggested_profiles(defined: &[String]) -> Vec<String> {
+    defined.iter().filter(|name| templates::reads_as_4k(name)).cloned().collect()
+}
+
+fn profiles_of(rule: &Rule) -> Option<Vec<String>> {
+    rule.conditions.iter().find_map(|condition| match condition {
+        Condition::QualityProfileIn(profiles) => Some(profiles.clone()),
+        _ => None,
+    })
 }
 
 /// The languages a rule of the foreign films template leaves alone.
