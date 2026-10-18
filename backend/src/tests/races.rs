@@ -1,15 +1,6 @@
-//! Two writers meeting over one row.
-//!
-//! A category is a name other rows hold, with no foreign key: a rule, a
-//! folder mapping, a pin, a rule test and the default setting. Each writer
-//! checks the name before it writes, and another writer may change the name
-//! in between. Each test holds the first writer at its check
-//! ([`crate::race::checked`]), sends the second, gives it the moment it needs
-//! to finish if nothing stops it, then lets the first write. Whatever wins,
-//! no row may name a category that does not exist.
-//!
-//! A run stores what it decided about a library it read earlier, and a sync
-//! or another run may change a title in between.
+//! Two writers meeting over one row: each test holds the first at its check
+//! ([`crate::race::checked`]), lets the second finish, then lets the first write.
+//! Whatever wins, no row names a missing category and no run stores a stale answer.
 
 use super::{TestApp, TestResponse};
 use crate::services::routing::{SimulationOptions, run_simulation};
@@ -40,10 +31,8 @@ impl Gate {
 /// A check, what it is about, and the thread of the test that armed it.
 type Checked = (&'static str, String, std::thread::ThreadId);
 
-/// Keyed by the test's thread too, so a test holds its own request and none
-/// of those the other tests send meanwhile, whatever subject they share
-/// (`backup::create` has none). Each test runs on a runtime of its own on its
-/// own thread, and every task that runtime spawns runs there.
+/// Keyed by the test's thread too, since each test runs its own runtime on its
+/// own thread, so a test holds only its own requests whatever their subject.
 static GATES: LazyLock<Mutex<HashMap<Checked, Arc<Gate>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -118,8 +107,7 @@ async fn race(
     let first = tokio::spawn(first);
     gate.reached().await;
     let mut second = tokio::spawn(second);
-    // Long enough for the second writer to finish when nothing holds it: it
-    // then writes between the first one's check and its write.
+    // Long enough for an unheld second writer to finish between the first's check and write.
     let early = tokio::time::timeout(Duration::from_millis(300), &mut second).await;
     gate.release();
     let first = first.await.expect("first writer");
@@ -193,6 +181,23 @@ fn putting(
 ) -> impl Future<Output = TestResponse> + 'static {
     let app = Arc::clone(app);
     async move { app.put(&path, body).await }
+}
+
+#[tokio::test]
+async fn a_category_removed_while_a_template_is_added_leaves_no_orphan() {
+    let app = with_category("doomed-template").await;
+    let adding = posting(
+        &app,
+        "/api/v1/rules/templates/documentaries/import",
+        json!({ "category": "doomed-template" }),
+    );
+
+    let (added, removed) =
+        race("templates::import", "documentaries", adding, removing(&app, "doomed-template")).await;
+
+    assert!(added.status.is_success(), "{}", added.json);
+    assert!(removed.status.is_success(), "{}", removed.json);
+    assert_eq!(dangling(&app).await, 0);
 }
 
 #[tokio::test]
@@ -373,9 +378,8 @@ async fn a_run_leaves_alone_a_title_a_later_run_decided() {
     assert_eq!(category, "standard");
 }
 
-/// A reorder checks it was given every rule under the write lock it writes
-/// with: a rule created meanwhile waits for the new order, rather than land
-/// between the list the reorder checked and the priorities it writes.
+/// A rule created during a reorder waits for the new order, since the reorder
+/// checks its list under the lock it writes with.
 #[tokio::test]
 async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() {
     let app = with_category("reordered").await;
@@ -394,10 +398,8 @@ async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() 
     creating.await.unwrap().assert_ok();
 }
 
-/// A pass reads the rules, the mappings and the titles at one moment: a
-/// category renamed while it reads, rules and mappings together, would
-/// otherwise reach it half renamed, and every title bound for that category
-/// would read as having no folder.
+/// A pass reads the rules, the mappings and the titles at one moment, so a
+/// category renamed meanwhile never reaches it half renamed.
 #[tokio::test]
 async fn a_category_renamed_while_a_pass_reads_reaches_it_whole() {
     let (app, _dir) = crate::tests::backup::app_with_files("snapshot").await;

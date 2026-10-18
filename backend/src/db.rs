@@ -7,14 +7,12 @@ use tracing::info;
 use crate::config::Config;
 use crate::crypto;
 
-/// Migrations embedded in the binary, applied in order, exactly once.
-///
-/// Adding a `.sql` file to `migrations/` is not enough: it must be listed here.
-/// Each release's migrations are folded into one file before its tag, so a
-/// database moves from one release's schema to the next in one step.
+/// Migrations embedded in the binary, applied in order, exactly once. A `.sql` file in
+/// `migrations/` runs only once listed here. Each release's files fold into one before its tag.
 const MIGRATIONS: &[(&str, &str)] = &[
     ("001_release_0_1_5", include_str!("../migrations/001_release_0_1_5.sql")),
     ("002_release_0_2_0", include_str!("../migrations/002_release_0_2_0.sql")),
+    ("003_rule_template", include_str!("../migrations/003_rule_template.sql")),
 ];
 
 /// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5`
@@ -39,11 +37,9 @@ pub(crate) const NAMES_OF_0_1_5: [&str; 13] = [
 /// How large the write-ahead log stays once checkpointed, in bytes.
 const JOURNAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
 
-/// Refuse a database that cannot live where it is configured, naming the
-/// path and the remedy: past this point SQLite says "unable to open database
-/// file", naming neither. A database path naming a directory is a misread
-/// `ROUTARR_DB_PATH`, and a folder Docker created for a bind mount belongs to
-/// root while the image runs as uid 1000.
+/// Refuse a database that cannot live where it is configured, naming the path and the
+/// remedy, since SQLite past this point names neither. A folder Docker made for a bind
+/// mount belongs to root while the image runs as uid 1000.
 pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
     use crate::error::AppError;
     if config.db_path == *":memory:" {
@@ -78,30 +74,22 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
 pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     prepare_data_dir(config)?;
 
-    // A path, never a URL: read as one, `%41` would be `A` and a `?` would end
-    // the file name.
+    // A path, never a URL, which would read `%41` as `A` and end the name at a `?`.
     let file = if config.db_path == *":memory:" {
         SqliteConnectOptions::from_str("sqlite::memory:")?
     } else {
         SqliteConnectOptions::new().filename(&config.db_path)
     };
-    // PRAGMAs belong on the connect options: setting them with a one-off query
-    // only configures whichever pooled connection happened to serve it.
+    // PRAGMAs go on the connect options: a one-off query sets only the connection serving it.
     let options = with_paths(file)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        // NORMAL is the documented companion of WAL: durable across app crashes,
-        // and an order of magnitude faster than FULL for the write bursts a
-        // simulation produces. A power cut can roll back the last commits, so
-        // the record of a move the Arr made is written under FULL
-        // (`executor::record::record_outcome`).
+        // A power cut may lose the last commits, so `record_outcome` writes moves under FULL.
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
         .foreign_keys(true)
-        // Without this, concurrent writers surface as "database is locked"
-        // instead of waiting their turn.
+        // Concurrent writers wait their turn instead of failing with "database is locked".
         .busy_timeout(Duration::from_secs(10))
-        // The log grows to the largest transaction, a sync of the whole
-        // library, and is trimmed back to this once checkpointed.
+        // The log grows to the largest transaction and is trimmed back to this once checkpointed.
         .pragma("journal_size_limit", JOURNAL_SIZE_LIMIT.to_string())
         // The planner's statistics, refreshed on what each connection ran.
         .optimize_on_close(true, Some(400));
@@ -119,8 +107,7 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
         info!("Database connected at {}", config.db_path.display());
     }
 
-    // Refused with the way back: the restore that needs no server, of the
-    // newest archive this build can open.
+    // Refused with the way back: an offline restore of the newest archive this build opens.
     if let Some(newer) = opened_ahead(&mut *pool.acquire().await?).await? {
         let passphrase =
             crate::services::backup::stored_passphrase(config, &pool).await.ok().flatten();
@@ -139,16 +126,14 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
                 env!("CARGO_PKG_VERSION"),
                 file.name
             ),
-            // Not a reason to stay on the old schema: the archives taken
-            // before this start are still there.
+            // No reason to stay on the old schema: the archives taken before this start remain.
             Err(e) => tracing::error!("No backup could be taken before migrating: {e}"),
         }
     }
 
     run_migrations(&pool).await?;
 
-    // After the migrations, not before: in WAL mode the sidecars only exist
-    // once something has been written.
+    // After the migrations: in WAL mode the sidecars exist only once something is written.
     if on_disk {
         crypto::restrict_database_permissions(&config.db_path);
     }
@@ -156,15 +141,10 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     Ok(pool)
 }
 
-/// Whether a migration name is ahead of everything this build knows.
-///
-/// A backup taken on a newer Routarr carries a schema this binary has no
-/// migration for. Restoring it would leave the database ahead of the code that
-/// has to read it, and migrations only ever go forward, so there is no way
-/// back. Refusing is the only honest answer.
+/// Whether a migration name is ahead of everything this build knows. Migrations only go
+/// forward, so a database ahead of the code reading it has no way back and is refused.
 pub fn is_newer_schema(name: &str) -> bool {
-    // "unknown" comes from a database with no migration recorded at all, which
-    // is older than anything, not newer.
+    // "unknown" is a database with no migration recorded, older than anything.
     if name.is_empty() || name == "unknown" {
         return false;
     }
@@ -194,15 +174,9 @@ async fn migrates_a_schema(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
     Ok(!applied.is_empty() && MIGRATIONS.iter().any(|(name, _)| !applied.iter().any(|a| a == name)))
 }
 
-/// Fold the write-ahead log back into the database file, then close the pool.
-///
-/// In WAL mode a commit lands in `routarr.db-wal`, and SQLite only checkpoints
-/// when the *last* connection closes, which dropping the pool does not do.
-/// After a clean stop `routarr.db` is complete on its own, so a copy of it
-/// taken without its `-wal` loses nothing.
-///
-/// A failure is logged rather than propagated: the data is still in the WAL and
-/// the next start recovers it.
+/// Fold the write-ahead log back into the database file, then close the pool, since SQLite
+/// checkpoints only when the last connection closes. A failure is only logged: the next
+/// start recovers the log.
 pub async fn checkpoint_and_close(pool: &SqlitePool) {
     if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(pool).await {
         tracing::warn!("Could not checkpoint the write-ahead log: {e}");
@@ -219,13 +193,9 @@ pub async fn run_migrations(pool: &SqlitePool) -> crate::error::AppResult<()> {
     Ok(record_this_release(pool).await?)
 }
 
-/// Record a database 0.1.5 left at `001_release_0_1_5`, which builds the
-/// schema its thirteen names built, so the migrations after it apply on top.
-/// The earliest of its dates stays, the day Routarr was installed.
-///
-/// A database that stops short of the last name was left by an older release,
-/// whose schema no migration here starts from: refused, naming 0.1.5, which
-/// brings it there.
+/// Record a database 0.1.5 left at `001_release_0_1_5`, keeping its earliest date as the
+/// install day, so the migrations after it apply on top. One short of 0.1.5's last name is
+/// refused, naming 0.1.5, since no migration here starts from its schema.
 async fn read_the_names_of_0_1_5(pool: &SqlitePool) -> crate::error::AppResult<()> {
     let migrated: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
@@ -248,9 +218,7 @@ async fn read_the_names_of_0_1_5(pool: &SqlitePool) -> crate::error::AppResult<(
         )));
     }
 
-    // Beside them, a name no release shipped was written by a build between
-    // two releases, whose schema is neither 0.1.5's nor this one's: read as
-    // 0.1.5's, it would be built over and fail half way.
+    // Any other name came from a build between releases: built over, it would fail half way.
     if let Some(other) = applied.iter().find(|name| {
         !NAMES_OF_0_1_5.contains(&name.as_str())
             && !MIGRATIONS.iter().any(|(known, _)| known == name)
@@ -302,12 +270,9 @@ fn ahead_of_this_build(newer: &str) -> String {
     )
 }
 
-/// The newer release that migrated this database further than this build
-/// knows, if one did. Every release records itself and the last migration it
-/// had applied, and one newer than this build that recorded a migration this
-/// build does not list, or recorded none, is ahead of it. Migration names
-/// alone cannot tell: a database a newer release never opened passes whatever
-/// it holds.
+/// The newer release that migrated this database further than this build knows, if one
+/// did: it recorded a migration this build does not list, or none. Names alone cannot tell,
+/// since a database no newer release opened passes whatever it holds.
 pub async fn opened_ahead(
     connection: &mut sqlx::SqliteConnection,
 ) -> Result<Option<String>, sqlx::Error> {
@@ -396,11 +361,7 @@ async fn apply_migrations(
 
         info!("Running migration: {}", name);
 
-        // A table rebuilt through a copy drops the original, and with foreign
-        // keys on that deletes or refuses every row pointing at it. SQLite
-        // takes the switch only outside a transaction, so it is turned off on
-        // the connection that migrates, and `foreign_key_check` stands in for
-        // it before the commit.
+        // Off outside the transaction, or a table rebuilt by copy loses what points at it.
         let mut connection = pool.acquire().await?;
         sqlx::query("PRAGMA foreign_keys = OFF").execute(&mut *connection).await?;
         let applied = apply_migration(&mut connection, name, sql).await;
@@ -424,8 +385,7 @@ async fn apply_migration(
 ) -> Result<(), sqlx::Error> {
     use sqlx::Connection;
     let mut tx = connection.begin_with("BEGIN IMMEDIATE").await?;
-    // SQLite's own parser walks the script, statement after statement, so a
-    // comment, a quoted name or a trigger body is read as SQLite reads it.
+    // SQLite's own parser splits the script, so a quoted `;` or a trigger body stays whole.
     sqlx::raw_sql(AssertSqlSafe(sql)).execute(&mut *tx).await?;
     let orphans: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
         .fetch_all(&mut *tx)
@@ -439,12 +399,8 @@ async fn apply_migration(
     tx.commit().await
 }
 
-/// The `?, ?, ?` an `IN (...)` binds `n` values through.
-///
-/// One spelling for every `IN` list. The bind ceiling behind it is stated only
-/// where a list is chunked, in `routing::BIND_CHUNK`.
-/// Every caller keeps `AssertSqlSafe` at its own site: the fragment is made
-/// of `?` alone, and the values it stands for are bound, never spliced.
+/// The `?, ?, ?` an `IN (...)` binds `n` values through, chunked by `routing::BIND_CHUNK`.
+/// Each caller keeps `AssertSqlSafe` at its own site, the values bound, never spliced.
 pub fn placeholders(n: usize) -> String {
     vec!["?"; n].join(", ")
 }
@@ -463,10 +419,8 @@ pub fn escape_like(input: &str) -> String {
     out
 }
 
-/// A transaction that takes the write lock as it starts, for a check and the
-/// write it guards. Under a plain `BEGIN` the lock comes with the first write,
-/// and another writer can change what was checked in between: a category
-/// removed after a rule naming it was judged valid, say.
+/// A transaction that takes the write lock as it starts, for a check and the write it
+/// guards: under a plain `BEGIN` another writer can change what was checked in between.
 pub async fn write_transaction(
     pool: &SqlitePool,
 ) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Sqlite>> {
@@ -513,11 +467,8 @@ mod tests {
         run_migrations(&pool).await.expect("a database of this schema was refused");
     }
 
-    /// A database a newer release migrated further is refused, naming that
-    /// release, rather than read and written as if its schema were this
-    /// build's. So is one a newer release opened without saying how far it
-    /// had migrated. A name no release lists, with no newer opener, is no
-    /// reason to refuse.
+    /// A database a newer release migrated further, or opened without saying how far, is
+    /// refused naming that release. A name no release lists, with no newer opener, is not.
     #[tokio::test]
     async fn a_newer_release_that_migrated_further_is_refused() {
         let pool = test_pool().await;
@@ -546,9 +497,8 @@ mod tests {
         assert!(release("0.1.10") > release("0.1.9"));
     }
 
-    /// A database 0.1.5 left upgrades on top of the schema its thirteen names
-    /// built, recorded as the one migration that builds it now, and keeps the
-    /// day Routarr was installed, which the overdue-backup warning reads.
+    /// A database 0.1.5 left is recorded at `001_release_0_1_5` and upgrades on top,
+    /// keeping the day Routarr was installed, which the overdue-backup warning reads.
     #[tokio::test]
     async fn a_database_0_1_5_left_upgrades_and_keeps_the_day_it_was_installed() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -632,10 +582,8 @@ mod tests {
         assert!(is_newer_schema("039_job_error_code"), "a name no release shipped is ahead");
     }
 
-    /// The SQLite the binary carries, at least the release that fixes
-    /// CVE-2025-6965, CVE-2025-29087 and CVE-2025-3277. `libsqlite3-sys`
-    /// bundles it, and RustSec does not flag a bundled copy, so nothing else
-    /// would notice the lock falling behind.
+    /// The bundled SQLite fixes CVE-2025-6965, CVE-2025-29087 and CVE-2025-3277. RustSec
+    /// does not flag a bundled copy, so nothing else notices the lock falling behind.
     #[tokio::test]
     async fn the_bundled_sqlite_has_its_known_flaws_fixed() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -941,10 +889,8 @@ mod tests {
         assert_eq!(placeholders(3), "?, ?, ?");
     }
 
-    /// A stopped Routarr must leave a database file that is complete on its own:
-    /// an unfolded `routarr.db-wal` holds the latest writes, and a copy of the
-    /// `.db` alone would lack them. Checked against a real file rather than the
-    /// in-memory pool the rest of the suite uses.
+    /// A stopped Routarr leaves a database file complete without its `-wal`, checked
+    /// against a real file instead of the in-memory pool.
     #[tokio::test]
     async fn a_closed_database_needs_no_sidecar_files_to_be_complete() {
         let dir = crate::tests::TempDir::new("wal");
@@ -964,10 +910,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        // Another connection to the file, as an operator's `sqlite3` shell holds
-        // one. SQLite folds the log back when the *last* connection closes, so
-        // with this one open, closing the pool alone leaves everything in the
-        // WAL, and only the checkpoint moves it into the file.
+        // A second connection, as an operator's `sqlite3` holds, so only the checkpoint folds the log.
         let bystander =
             SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
         sqlx::query("SELECT 1").execute(&bystander).await.unwrap();
@@ -977,13 +920,11 @@ mod tests {
 
         checkpoint_and_close(&pool).await;
 
-        // The WAL must no longer carry anything: truncated to zero, it
-        // contributes exactly as much as a removed one.
+        // Truncated to zero, the WAL contributes exactly as much as a removed one.
         let wal = path.with_extension("db-wal");
         let leftover = std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
         assert_eq!(leftover, 0, "the WAL still holds {leftover} bytes after closing");
 
-        // Copy only the `.db`.
         let copy = dir.join("backup.db");
         std::fs::copy(&path, &copy).unwrap();
         let restored = SqlitePoolOptions::new()

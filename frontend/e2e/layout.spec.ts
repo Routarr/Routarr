@@ -6,15 +6,8 @@ import { SCREENS as ROUTES } from './screens';
 import type { RuleDraft } from '../src/api/types';
 
 /**
- * Layout facts that only a real browser can establish. jsdom computes no
- * geometry, so the component suite can assert that markup exists but never that
- * it fits.
- */
-
-/**
- * How far apart two things can be vertically and still read as one line. Not a
- * cell height: a `td` is as tall as the tallest cell in its row, so measuring it
- * says more about the Actions column than about this one.
+ * How far apart two things can be vertically and still read as one line. Measured on a cell's
+ * children: a `td` is as tall as the tallest cell in its row.
  */
 const SAME_LINE = 12;
 
@@ -31,8 +24,7 @@ async function verticalSpread(cell: Locator): Promise<number> {
 
 test.describe('a long title or path is read whole', () => {
   /**
-   * A path cut short shows a keyboard and a finger only part of it, and
-   * sibling folders differ at their end: `/mnt/storage/media/movies` and
+   * A path cut short hides its end, where siblings differ: `/mnt/storage/media/movies` and
    * `/mnt/storage/media/movies-anime` must not read as one.
    */
   test('a path too long for its cell wraps, and shows all of it', async ({ page }) => {
@@ -52,10 +44,7 @@ test.describe('a long title or path is read whole', () => {
     expect(shown.lines).toBeGreaterThan(1);
   });
 
-  /**
-   * Wrapped at a fixed width instead, a title or a path breaks with half its
-   * column empty beside it.
-   */
+  /** Wrapped at a fixed width, a title or a path would break with half its column empty. */
   test('a title and a path their column has room for stay on one line', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await openScreen(page, '/library');
@@ -75,10 +64,7 @@ test.describe('a long title or path is read whole', () => {
     ).toBe(1);
   });
 
-  /**
-   * A bare title shrinks its column to the longest word and stacks a long one
-   * a word per line, pushing the reasons past the edge of the table.
-   */
+  /** A bare title shrinks its column to its longest word and pushes the reasons off the table. */
   test("a proposal's long title wraps within its column, not a word per line", async ({ page }) => {
     await api('/rules', {
       method: 'POST',
@@ -97,8 +83,7 @@ test.describe('a long title or path is read whole', () => {
 
     const title = page.locator('td .cell-title', { hasText: 'My Neighbor Totoro' });
     await expect(title).toBeVisible();
-    // Polled: the run redraws the table, and a row measured mid-redraw has no
-    // line at all.
+    // Polled: a row measured while the run redraws the table has no line at all.
     await expect
       .poll(() =>
         title.evaluate((node) => {
@@ -111,6 +96,30 @@ test.describe('a long title or path is read whole', () => {
       )
       .toBe(true);
   });
+});
+
+/** The reasons are what a proposal is checked against, and nobody reads past the edge. */
+test('the proposals fit a 1440 pixel screen without scrolling sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await api('/rules', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: 'Japanese animation',
+      target_category: 'anime',
+      media_type: 'movie',
+      priority: 10,
+      enabled: true,
+      conditions: [{ type: 'title_contains', value: ['akira', 'totoro'] }],
+      exclusions: [],
+    } satisfies Partial<RuleDraft>),
+  });
+  await openScreen(page, '/simulation');
+  await page.getByRole('button', { name: /run simulation/i }).click();
+  await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toBeChecked();
+
+  const proposals = page.locator('.table-container').last();
+  const overflow = await proposals.evaluate((box) => box.scrollWidth - box.clientWidth);
+  expect(overflow, `the proposals run ${overflow}px past the edge`).toBeLessThanOrEqual(0);
 });
 
 test.describe('table cells stay on one line', () => {
@@ -144,18 +153,15 @@ test.describe('table cells stay on one line', () => {
 });
 
 /**
- * A phone. Below the drawer breakpoint the navigation leaves the flow, and a
- * table has to scroll inside its own region rather than drag the page with it.
- * Nothing in the unit tests computes layout, so this is where a 375px screen is
- * seen at all.
+ * A phone, below the drawer breakpoint: the navigation leaves the flow and a table scrolls
+ * inside its own region.
  */
 test.describe('on a phone', () => {
   for (const path of ROUTES) {
     test(`${path} fits a 375px screen and its tables scroll inside their region`, async ({
       page,
     }) => {
-      // With a row in every table, once loaded: a heading over an empty table
-      // fits any screen.
+      // A row in every table, once loaded, since a heading over an empty table fits any screen.
       await seedRows();
       await page.setViewportSize({ width: 375, height: 812 });
       await openScreen(page, path);
@@ -167,8 +173,7 @@ test.describe('on a phone', () => {
       );
       expect(overflow, `${path} scrolls the page sideways by ${overflow}px`).toBeLessThanOrEqual(1);
 
-      // A table wider than the screen is expected. The region around it is what
-      // scrolls, and it has to be reachable to do so.
+      // A table may be wider than the screen, so the region that scrolls it must be reachable.
       const regions = await page.evaluate(() =>
         [...document.querySelectorAll('.table-container')].map((el) => ({
           scrolls: el.scrollWidth > el.clientWidth,
@@ -182,14 +187,9 @@ test.describe('on a phone', () => {
   }
 
   /**
-   * A section the sweep above cannot reach.
-   *
-   * `/settings` opens on its first tab, so the source list is drawn narrow
-   * only here. Held in three lanes, the actions keep the width that aligns
-   * their right edges, which squeezes the credential field beside them below
-   * the word it holds and clips a button outside its own row. The document
-   * does not scroll when that happens, so the check above passes, and nothing
-   * but a measurement inside the row shows it.
+   * `/settings` opens on its first tab, so only here is the source list drawn narrow. Held in
+   * three lanes, the actions squeeze the credential field, which the document does not scroll
+   * for, so only a measurement inside the row shows it.
    */
   test('the source list stacks rather than squeezing its own field', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 812 });
@@ -223,12 +223,8 @@ test.describe('on a phone', () => {
   });
 
   /**
-   * The same screens at 360px with every counter set at once.
-   *
-   * The fixture alone never reaches the worst case: the bar's width is a
-   * function of how many counts are non-zero *and* of how long the language
-   * writes them, so the status is forced here. A fixture that cannot produce
-   * the failure is a test that cannot find it.
+   * The bar's width depends on how many counts are non-zero and how long the language writes
+   * them, so every counter is forced on: the fixture alone never reaches the worst case.
    */
   test('every screen fits 360px with every counter at once', async ({ page }) => {
     await page.route('**/api/v1/status', async (route) => {
@@ -254,8 +250,7 @@ test.describe('on a phone', () => {
         const bar = document.querySelector('.topbar');
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          // Nothing in the bar may be taller than the bar: a wrapped label is
-          // what bursts the chrome.
+          // A label that wraps bursts the chrome, so nothing may be taller than the bar.
           tallest: Math.max(
             0,
             ...[...(bar?.querySelectorAll('*') ?? [])].map(
@@ -301,7 +296,7 @@ test.describe('on a phone', () => {
     for (const key of keys) await api(`/applications/${key.id}`, { method: 'DELETE' });
   });
 
-  /** An empty table spans past the screen, and its message, centred across it, starts out of view. */
+  /** An empty table spans past the screen, so a message centred across it starts out of view. */
   test("an empty table's message sits inside the visible part of its region", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await openScreen(page, '/exceptions');
@@ -316,7 +311,7 @@ test.describe('on a phone', () => {
     expect(placed).toBe(true);
   });
 
-  /** A caption held at 190px beside the picker pushes the picker and Delete past a phone's dialog. */
+  /** A caption held at 190px pushes the picker and Delete past a phone's dialog. */
   test('a condition in the rule editor fits the dialog', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await openScreen(page, '/rules');
@@ -327,8 +322,7 @@ test.describe('on a phone', () => {
 
     const row = page.locator('.condition-row').first();
     await expect(row).toBeVisible();
-    // Room for the value as well: squeezed to nothing beside the caption, the
-    // picker fits the dialog and cannot be used.
+    // Room for the value too: squeezed beside the caption, the picker fits and cannot be used.
     const fits = await row.evaluate((node) => {
       const dialog = node.closest('dialog')!;
       const remove = node.querySelector('button[id$="-delete"]')!.getBoundingClientRect();
@@ -349,26 +343,22 @@ test.describe('on a phone', () => {
     const sidebar = page.locator('.sidebar');
     await expect(sidebar).not.toHaveClass(/is-open/);
 
-    // In the viewport rather than visible: a closed drawer is only translated
-    // off the screen, which still counts as visible.
+    // In the viewport, since a closed drawer is only translated off screen and still visible.
     const link = sidebar.locator('a[href="/library"]');
     await expect(link).not.toBeInViewport();
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await expect(sidebar).toHaveClass(/is-open/);
     await expect(link).toBeInViewport();
 
-    // Following a link closes it, so the page is not left under a scrim. By
-    // href rather than by name: the label is translated and renameable, the
-    // destination is not.
+    // Following a link closes the drawer. Found by href, which no translation renames.
     await link.click();
     await expect(sidebar).not.toHaveClass(/is-open/);
     await expect(page).toHaveURL(/\/library/);
   });
 
   /**
-   * The open drawer makes the page inert, its toggle included, and a screen
-   * reader's swipe sends no Escape: the drawer carries its own way out, which
-   * hands the focus back to the toggle.
+   * The open drawer makes the page inert, its toggle included, and a screen reader's swipe
+   * sends no Escape, so the drawer carries its own way out.
    */
   test('the open drawer closes from a button of its own', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
@@ -427,10 +417,8 @@ test.describe('spacing the reset takes away', () => {
 
 test.describe('buttons are one size', () => {
   /**
-   * Without a fixed height the same `btn btn-primary` renders at three sizes:
-   * a flex row stretches buttons to their tallest sibling, `<label class="btn">`
-   * inherits a line-height `<button>` resets, and a text label makes a taller
-   * line box than an icon. All three are invisible to a unit test.
+   * Without a fixed height one `btn` renders at three sizes: stretched in a flex row, as a
+   * `<label>` keeping its line-height, or with a text label's taller line box.
    */
   test('every button on every page shares its size', async ({ page }) => {
     const regular = new Map<number, string>();
@@ -467,8 +455,7 @@ test.describe('buttons are one size', () => {
       `small buttons differ: ${[...small].map(([h, w]) => `${h}px (${w})`).join(', ')}`,
     ).toBe(1);
 
-    // And the two sizes are actually distinct, so this cannot pass by making
-    // everything the same size by accident.
+    // The two sizes stay distinct, so this cannot pass by making everything one size.
     const [regularHeight = 0] = regular.keys();
     const [smallHeight = Infinity] = small.keys();
     expect(regularHeight).toBeGreaterThan(smallHeight);
@@ -476,9 +463,8 @@ test.describe('buttons are one size', () => {
 });
 
 /**
- * `select.form-select` draws its arrow over its end padding. A rule that sets
- * the padding in one shorthand, as a compact row does, draws the arrow over
- * the text, and "all of" reads as a glyph sitting on its last letter.
+ * `select.form-select` draws its arrow over its end padding, so a padding shorthand, as in a
+ * compact row, puts the arrow over the text.
  */
 test('every select keeps the room its arrow is drawn in', async ({ page }) => {
   // Every screen in one test: a cold browser on a CI runner needs more than the default.
@@ -499,8 +485,7 @@ test('every select keeps the room its arrow is drawn in', async ({ page }) => {
     await measure(path);
   }
 
-  // The compact selects live in the rule editor, one per condition that has a
-  // quantifier to choose.
+  // The compact selects live in the rule editor, one per condition with a quantifier.
   await page.goto('/rules?new=1');
   const dialog = page.getByRole('dialog');
   await dialog
@@ -515,11 +500,8 @@ test('every select keeps the room its arrow is drawn in', async ({ page }) => {
 
 test.describe('the chrome draws one line', () => {
   /**
-   * The sidebar header and the top bar sit side by side and each ends in a
-   * rule, so together they read as one line across the window, unless their
-   * heights differ, which puts a step in the middle of it. Both take
-   * `--chrome-height`, and only a browser can measure where a border actually
-   * lands.
+   * The sidebar header and the top bar each end in a rule, read as one line across the window
+   * unless their heights differ. Both take `--chrome-height`.
    */
   test('the sidebar header and the top bar end at the same height', async ({ page }) => {
     await openScreen(page, '/library');
@@ -538,10 +520,8 @@ test.describe('the chrome draws one line', () => {
   });
 
   /**
-   * A dot inside a framed chip is read against the frame, not against the
-   * letters beside it, so it sits on the frame's middle. The kind badge draws
-   * its dot as `::before`, which no query can measure, so what is checked
-   * there is whatever could still move it once the row has centred it.
+   * A dot in a framed chip is read against the frame, so it sits on the frame's middle. The
+   * kind badge's `::before` dot cannot be measured, so what could still move it is checked.
    */
   test('a dot sits on the middle of the chip that frames it', async ({ page }) => {
     await openScreen(page, '/instances');
@@ -566,19 +546,11 @@ test.describe('the chrome draws one line', () => {
 });
 
 /**
- * Ticking a box may not move the page under the pointer.
- *
- * The checkbox is an `inline-grid`, and its tick only exists when it is
- * checked: with no in-flow child the box synthesises its baseline from the
- * bottom of its margin box, so the two states would make line boxes of
- * different heights, and selecting all would lift every row below the head
- * under the very pointer that had just clicked. Only a head shows it, a body
- * row being as tall as its text, and no DOM query can see it at all.
+ * The checkbox is an `inline-grid` whose tick exists only when checked, so its synthesised
+ * baseline moves the head's line box, and selecting all would lift the rows under the pointer.
  */
 test('selecting rows does not move the rows', async ({ page }) => {
-  // A rule this library actually matches: without one the run proposes nothing
-  // and the table has no rows to select, so the check would pass by measuring
-  // an empty page.
+  // A rule this library matches, or the run proposes no rows and the check measures nothing.
   await api('/rules', {
     method: 'POST',
     body: JSON.stringify({
@@ -594,16 +566,13 @@ test('selecting rows does not move the rows', async ({ page }) => {
 
   await page.goto('/simulation');
   await page.getByRole('button', { name: /run simulation/i }).click();
-  // The run is over once its moves arrive ticked. The rows the screen opened
-  // on, left pending by an earlier run, are visible before it.
+  // Over once its moves arrive ticked: rows pending from an earlier run show before it.
   await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toBeChecked();
 
   const selectAll = page.getByRole('checkbox', { name: 'Select every proposed move' });
   const firstRow = page.locator('tbody tr').first();
 
-  // The cell holding the box and nothing else. Measuring the whole head hides
-  // the defect wherever a longer heading is the taller thing in that row,
-  // which is most languages, and this fixture.
+  // The box's own cell: across the whole head, a longer heading hides the defect.
   const cell = () =>
     page.evaluate(() => {
       const box = document.querySelector('thead input[type="checkbox"]');
@@ -625,22 +594,11 @@ test('selecting rows does not move the rows', async ({ page }) => {
 });
 
 /**
- * A table that does not scroll shows no scroll shadow.
- *
- * The shadows are painted as four background layers on the scroll container:
- * two "covers" pinned to the content (`background-attachment: local`) and two
- * shadows pinned to the frame (`scroll`), so each shadow is hidden until there
- * is something in that direction. It only works if the cover is *opaque* across
- * the width of the shadow it hides: a cover fading from its first pixel lets
- * the shadow through, and every table with nothing to scroll carries a dark
- * band down both edges.
- *
- * Measured rather than eyeballed: nothing about this is visible to a DOM
- * query, and it reads as a design choice until you sample the pixels.
+ * The scroll shadows hide under covers that must be opaque across a shadow's width, or
+ * every table with nothing to scroll carries a dark band down both edges.
  */
 test('a table with nothing to scroll has no shadow down its edges', async ({ page }) => {
-  // In the light theme: on the dark card a shadow darkens the edge by a unit,
-  // which one engine's rounding also does, and on the light one by tens.
+  // In the light theme, where a shadow darkens the edge by tens and not by a rounding's unit.
   await api('/settings', {
     method: 'PUT',
     body: JSON.stringify({ settings: { ui_theme: 'light' } }),
@@ -652,21 +610,16 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
 
   const overflows = await container.evaluate((el) => el.scrollWidth > el.clientWidth);
   expect(overflows, 'the viewport is too narrow for this test to mean anything').toBe(false);
-  // A pointer left over a row by an earlier test paints that row's hover fill
-  // into the sampled strip, whatever the cover does.
+  // A pointer left over a row paints its hover fill into the sampled strip.
   await page.mouse.move(0, 0);
 
-  // Across the middle of the first data row, wherever it falls: not the
-  // header, whose `th` paints its own opaque background and would hide the
-  // container's regardless, and not below the last row, where the strip meets
-  // the table's corner rather than a row.
+  // Across the first data row, since a `th` paints its own opaque background.
   const row = container.locator('tbody tr').first();
   await expect(row).toBeVisible();
   const [rowBox, containerBox] = [await row.boundingBox(), await container.boundingBox()];
   if (rowBox === null || containerBox === null) throw new Error('the table is not laid out');
   const middle = rowBox.y + rowBox.height / 2 - containerBox.y;
-  // Within the cells' own padding, where a row paints nothing of its content:
-  // further in, a badge in the first cell reads as a gradient.
+  // Within the cells' padding: further in, a badge in the first cell reads as a gradient.
   const padding = await row.evaluate((tr) => {
     const cells = tr.querySelectorAll('td');
     const first = cells[0];
@@ -695,8 +648,7 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
   );
   expect(edges.left.length / 4, 'the cells leave no padding to sample').toBeGreaterThanOrEqual(8);
 
-  // Each strip must be one flat colour: a gradient means a shadow, three
-  // units deep at least here. One unit per channel is an engine's rounding.
+  // A strip must be one flat colour: three units deep is a shadow, one per channel a rounding.
   for (const [side, pixels] of [
     ['left', edges.left],
     ['right', edges.right],
@@ -713,15 +665,11 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
   }
 });
 
-/**
- * One look for one thing, measured where only a browser can: while a screen
- * loads, on a phone, and across every screen of the route table.
- */
+/** One look for one thing, measured while a screen loads, on a phone and on every screen. */
 test.describe('every screen draws a shared thing the same way', () => {
   /** A screen whose title waits for its data reads as a broken page. */
   test('every screen keeps its title while its data loads', async ({ page }) => {
-    // Held rather than failed, so each screen stays in its loading state. The
-    // dictionary and the sign-in mode are what any screen needs to draw at all.
+    // Held, so each screen stays loading. The dictionary and sign-in mode let any screen draw.
     await page.route('**/api/v1/**', async (route) => {
       if (/\/api\/v1\/(localization|auth\/mode)/.test(route.request().url())) {
         await route.continue();
@@ -782,11 +730,7 @@ test.describe('every screen draws a shared thing the same way', () => {
     expect(Math.abs(gap), `the action ends ${gap}px before the footer`).toBeLessThanOrEqual(1);
   });
 
-  /**
-   * A value Save waits on is marked on its field, in words under it and on its
-   * tab, since from another tab the field is out of sight. The border and the
-   * mark are what only a stylesheet draws.
-   */
+  /** A value Save waits on is marked on its field and on its tab, for a reader on another tab. */
   test('marks a value outside its bounds on its field and on its tab', async ({ page }) => {
     await page.goto('/settings#guardrails');
     const field = page.getByLabel('Batch limit', { exact: true });
@@ -813,9 +757,8 @@ test.describe('every screen draws a shared thing the same way', () => {
 });
 
 /**
- * The library card's "?" lies over its summary, which cannot hold a button,
- * and the summary ends on the chevron that folds the card. Drawn over each
- * other, the two read as one glyph that is neither.
+ * The library card's "?" lies over its summary, which ends on the chevron that folds the card.
+ * Drawn over each other, the two read as one glyph.
  */
 test("the library card's help stays clear of its chevron", async ({ page }) => {
   await openScreen(page, '/rules');
@@ -825,8 +768,7 @@ test("the library card's help stays clear of its chevron", async ({ page }) => {
   const [helpEnd, chevronStart] = await page.evaluate(() => {
     const summary = document.querySelector('.facet-panel > summary')!;
     const chevron = getComputedStyle(summary, '::after');
-    // The chevron is a bordered square turned 45 degrees: its diagonal is
-    // what it takes on the line.
+    // A bordered square turned 45 degrees takes its diagonal on the line.
     const side = parseFloat(chevron.width) + 2 * parseFloat(chevron.borderRightWidth);
     const end =
       summary.getBoundingClientRect().right - parseFloat(getComputedStyle(summary).paddingRight);

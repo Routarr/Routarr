@@ -27,7 +27,7 @@ It works in four steps, and only the last one writes to the library:
    is done. Every applied move can be reverted.
 
 A rule combines conditions with ALL or ANY, can carry explicit exclusions, has a priority, and
-routes to a category. The 28 conditions include genre, keywords, language, country,
+routes to a category. The 29 conditions include genre, keywords, language, country,
 certification, age, size, paths, tags, Sonarr's series type and season count. The impact of a
 rule can be previewed before it is saved. An exception forces a title's category and outranks
 every rule. For every title, the explanation shows what each condition expected and what it

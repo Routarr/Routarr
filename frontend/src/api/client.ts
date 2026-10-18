@@ -1,8 +1,4 @@
-// REST client for the Routarr backend. Every request goes through `api` below.
-//
-// Nothing in `frontend/src/api/` imports Svelte or `frontend/src/lib/`. `lib/`
-// builds on these modules, and they stay plain TypeScript that a test runs
-// without rendering anything.
+// Every request goes through `api` below. Nothing here imports Svelte or `frontend/src/lib/`.
 
 import { basePath } from './basePath';
 import type { OpenApiDocument } from './openapi';
@@ -45,6 +41,10 @@ import type {
   SecurityEvent,
   Session,
   RestoreResult,
+  TemplateAdded,
+  TemplatePreview,
+  TemplateRequest,
+  TemplateSummary,
   RulePreview,
   Settings,
   StoredSettings,
@@ -61,45 +61,27 @@ import type {
   RuleTestRun,
 } from './types';
 
-// Resolved once: the mount point cannot change while the page is loaded, and
-// recomputing it per request would parse a URL on every call.
+// Resolved once: the mount point cannot change while the page is loaded.
 const API_BASE = `${basePath()}/api/v1`;
 
 /**
- * Where this browser's storage holds a key, which any script on the page can
- * read. Found there, it is exchanged once for a session cookie, which no
- * script can, and removed.
+ * Where a key may sit in storage, readable by any script on the page. Found there, it is
+ * exchanged once for a session cookie, which no script can read, and removed.
  */
 const STORED_KEY = 'routarr.apiKey';
 
 /** Thrown for any non-2xx response, carrying the backend's message. */
 export class ApiError extends Error {
-  // Declared and assigned rather than written as constructor parameter
-  // properties: those cannot be erased, since they compile to assignments.
-  // Vite strips types per file and emits nothing else, so `erasableSyntaxOnly`
-  // holds the source to what that pipeline can actually honour.
   readonly status: number;
   readonly kind: string;
-  /**
-   * The `X-Request-Id` the server answered with, so a failure on screen can be
-   * matched to the line it left in the log. Null for a request that never
-   * reached it.
-   */
+  /** The server's `X-Request-Id`, to find a failure in the log. Null if it never answered. */
   readonly requestId: string | null;
   /**
-   * Which guardrail is asking, for a refusal that can be answered.
-   *
-   * Three of them ask, and the caller sends this name back to say what it
-   * looked at. A bare "yes" would answer all three at once, and confirming a
-   * capacity shortfall would lift the batch threshold the operator was never
-   * shown.
+   * Which guardrail is asking, sent back to say what was looked at. A bare yes would answer all
+   * three, and lift a batch threshold the operator was never shown.
    */
   readonly confirm: string | null;
-  /**
-   * The other guardrails the question states, as the batch question states a
-   * sleeping or full destination. Answering the question sends them back with
-   * `confirm`, or the server asks again.
-   */
+  /** The other guardrails the question states, sent back with `confirm` or asked again. */
   readonly includes: string[];
 
   constructor(
@@ -121,8 +103,7 @@ export class ApiError extends Error {
 
   /** True when the backend is asking for an explicit confirmation. */
   get needsConfirmation(): boolean {
-    // Keyed on the stable code, not on the message text: matching prose would
-    // break on any rewording.
+    // Keyed on the stable code: matching the message would break on any rewording.
     return this.kind === 'confirmation_required';
   }
 }
@@ -131,9 +112,8 @@ let storedKeyRead = false;
 let exchanging: Promise<void> | null = null;
 
 /**
- * The exchange of a key found in storage, started by the first request and
- * awaited by every request made while it runs. `null` once there is nothing to
- * wait for, so a request with nothing stored leaves at once.
+ * The exchange of a stored key, which every request made while it runs awaits. `null` once
+ * there is nothing to wait for.
  */
 function storedKeyExchange(): Promise<void> | null {
   if (!storedKeyRead) {
@@ -170,18 +150,10 @@ function storedKeyExchange(): Promise<void> | null {
   return exchanging;
 }
 
-/**
- * Long enough for any call answered at once, short enough to be a signal. Work
- * that may run longer, a simulation or an apply over a whole library, is
- * followed through its job (`followed`) and never meets it.
- */
+/** Short enough to be a signal. Work that may run longer is `followed` and never meets it. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-/**
- * Told of every 401, whichever screen asked: a session that ended or a key
- * refused. The shell listens, and shows its gate at once rather than at its
- * next poll.
- */
+/** Told of every 401 from any screen, so the shell shows its gate at once. */
 let refused: (() => void) | null = null;
 
 /** Listen for refusals until the returned function is called. */
@@ -203,32 +175,16 @@ async function request<T>(
 ): Promise<T> {
   const pending = storedKeyExchange();
   if (pending) await pending;
-  // `Accept` asks a proxy in front for a 401 rather than a redirect to its
-  // sign-in page, which several of them only answer to a browser's navigation.
+  // `Accept` asks a proxy in front for a 401 rather than a redirect to its sign-in page.
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   };
 
-  // A server that never answers must not leave a spinner running forever. The
-  // Arr calls the backend makes are bounded on its side. This bounds the one
-  // the browser makes to the backend. The kind is what `describeError` reads,
-  // so the wording stays with the other translated messages.
-  //
-  // Composed with the caller's signal, never replaced by it: replaced, the
-  // request most likely to be waiting on a host that never answers would lose
-  // its bound the moment it became cancellable. Whichever signal fires first
-  // lends its reason, so a timeout still arrives as `TimeoutError` and a
-  // cancellation as `AbortError`.
-  //
-  // The `instanceof` is not belt and braces over a typed parameter: the
-  // endpoint sweep in `client.test.ts` calls every method on this object with
-  // positional placeholders, so a signal parameter receives a string there.
-  // `AbortSignal.any` throws on one, and the method would then answer without
-  // issuing the request the sweep exists to inspect, leaving a whole class of
-  // URL faults unchecked to spare one line here.
+  // Composed with the caller's signal, so a cancellable request keeps its bound.
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  // The sweep in `client.test.ts` passes a string here, which `AbortSignal.any` throws on.
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
   const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
   try {
@@ -237,18 +193,15 @@ async function request<T>(
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
     }
-    // A failed connection, from `fetch` or a body read. Its message is the
-    // browser's, in the browser's language whatever the interface speaks.
+    // A failed connection: its message is in the browser's language, not the interface's.
     if (cause instanceof TypeError) throw new ApiError('', 0, 'unreachable');
     throw cause;
   }
 }
 
 /**
- * The request and the reading of its body, which the timeout covers as one.
- * A large page can send its headers at once and its body past the bound, and
- * mapped around `fetch` alone that timeout would reach the banner as the
- * browser's own untranslated sentence.
+ * The request and the reading of its body, under one timeout: a body arriving past the bound
+ * would otherwise reach the banner as the browser's untranslated sentence.
  */
 async function exchange<T>(
   path: string,
@@ -260,9 +213,7 @@ async function exchange<T>(
 
   if (!res.ok) {
     const body = await res.text();
-    // The envelope alone carries a message worth showing. A proxy's error page
-    // is HTML, and an empty body has nothing to say: both leave the message
-    // empty, and `describeError` words the status instead.
+    // Only the envelope carries a message. Without it `describeError` words the status.
     let message = '';
     let kind = 'http_error';
     let confirm: string | null = null;
@@ -280,9 +231,7 @@ async function exchange<T>(
     throw new ApiError(message, res.status, kind, requestId, confirm, includes);
   }
 
-  // A proxy whose session ran out answers with its sign-in page: followed as a
-  // redirect, or served as a 200 in place of the answer. Read as JSON, that
-  // page surfaces as the browser's own parse error.
+  // A proxy whose session ran out answers its sign-in page, redirected or as a 200.
   const page = read !== readBlob && (res.headers?.get?.('content-type') ?? '').includes('html');
   if (res.redirected || page) throw new ApiError('', res.status, 'unexpected_answer', requestId);
 
@@ -290,38 +239,22 @@ async function exchange<T>(
   return read(res);
 }
 
-/**
- * A file the API serves, fetched rather than linked: a refusal reaches the
- * screen as any other does, where a link would save the error's body as the
- * file. It has the bound and the error reading of every other request.
- */
+/** Fetched rather than linked, so a refusal reaches the screen instead of saving as the file. */
 const download = (path: string) => request<Blob>(path, {}, readBlob);
 
-/**
- * How long a followed job is left between two looks at it: soon at first, as
- * most finish in a moment, then no more than once a second.
- */
+/** Between two looks at a job: soon at first, as most finish at once, then once a second. */
 const FOLLOW_FIRST_MS = 200;
 const FOLLOW_EVERY_MS = 1000;
 
 /**
- * Looks that may fail in a row, a proxy's hiccup or a stall, before the follow
- * gives up: the job runs on regardless, and a failure reported after one
- * missed look would read as the apply failing while its moves complete.
+ * Failed looks in a row before the follow gives up. The job runs on regardless, and one missed
+ * look reported as a failure would read as the apply failing while its moves complete.
  */
 const FOLLOW_RETRIES = 3;
 
 /**
- * A write that can run past the request bound: an apply over a whole library,
- * a sync of a large one. Waited for, it would be cut at the bound and read as
- * a server that never answered, while the server carries on and the result is
- * never shown.
- *
- * Asked not to wait (`Prefer: respond-async`), the server answers once the
- * work has started its job, and the job is followed to the report it keeps.
- * A refusal made before the job starts, as a guardrail's question, still
- * answers the first request, so `answering` sees it as before. A server that
- * did the work at once answers the report itself.
+ * A write that can run past the request bound, sent with `Prefer: respond-async` and followed
+ * through its job. A refusal before the job starts, or work done at once, answers directly.
  */
 async function followed<T>(path: string, init: RequestInit, following: Following = {}): Promise<T> {
   const signal = following.signal instanceof AbortSignal ? following.signal : undefined;
@@ -346,10 +279,7 @@ async function followed<T>(path: string, init: RequestInit, following: Following
 export interface Following {
   /** Each look at the job while it runs, for a screen showing how far it has gone. */
   onProgress?: (job: Job) => void;
-  /**
-   * Stops the looking, not the work: the job runs on, and a screen opened
-   * again finds it under `/jobs` and follows it from there.
-   */
+  /** Stops the looking, not the job, which a screen opened again finds under `/jobs`. */
   signal?: AbortSignal;
 }
 
@@ -374,10 +304,7 @@ const transient = (cause: unknown) =>
   cause instanceof ApiError &&
   (cause.kind === 'timeout' || cause.kind === 'unreachable' || cause.status >= 500);
 
-/**
- * Until the tab is in front again: a job followed in a hidden tab is looked
- * at by nobody, and the server is left alone meanwhile.
- */
+/** Resolves once the tab is in front: following in a hidden tab loads the server for nobody. */
 function inFront(signal?: AbortSignal): Promise<void> {
   if (document.visibilityState !== 'hidden') return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -420,8 +347,7 @@ async function followJob<T>(id: string, following: Following = {}): Promise<T> {
       await pause(wait, signal);
       continue;
     }
-    // Every move of an apply refused fails the job and still keeps its report,
-    // which says why move by move.
+    // An apply whose every move was refused fails, and its report still says why, move by move.
     if (job.result !== null && job.result !== undefined) return job.result as T;
     throw new ApiError(job.error_message ?? '', 0, 'job_failed');
   }
@@ -438,7 +364,6 @@ const query = (params?: QueryParams) => {
 };
 
 export const api = {
-  // ---------------------------------------------------------- health & jobs
   getLocalization: () => request<Localization>('/localization'),
   getLanguages: (signal?: AbortSignal) =>
     request<{
@@ -447,11 +372,6 @@ export const api = {
       languages: { code: string; name: string; completion: number; direction: 'ltr' | 'rtl' }[];
     }>('/localization/languages', { signal }),
   getStatus: (signal?: AbortSignal) => request<Status>('/status', { signal }),
-  /**
-   * `probe: false` answers from the database alone. The probe is what costs
-   * five seconds when an Arr is unreachable, and every instance then reports
-   * `status: 'unchecked'` rather than a guess.
-   */
   /**
    * `probe: false` reads the database alone. `fresh` probes again, where a
    * probe of the last 30 seconds is otherwise answered again.
@@ -465,7 +385,6 @@ export const api = {
     request<Paginated<Job>>(`/jobs${query(params)}`, { signal }),
   purge: () => followed<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
 
-  // ---------------------------------------------------------- instances
   getInstances: (signal?: AbortSignal) => request<Instance[]>('/instances', { signal }),
   createInstance: (data: unknown) =>
     request<Instance>('/instances', { method: 'POST', body: body(data) }),
@@ -487,7 +406,6 @@ export const api = {
   rotateWebhookToken: (id: string) =>
     request<Instance>(`/instances/${id}/webhook-token`, { method: 'POST' }),
 
-  // ---------------------------------------------------------- root folders
   getRootFolders: (signal?: AbortSignal) => request<RootFolder[]>('/root-folders', { signal }),
   /** Declare a destination the instance does not report as a root folder. */
   declareRootFolder: (instance_id: string, path: string) =>
@@ -505,7 +423,6 @@ export const api = {
       body: body({ category }),
     }),
 
-  // ---------------------------------------------------------- categories
   getCategories: (signal?: AbortSignal) => request<Category[]>('/categories', { signal }),
   createCategory: (data: unknown) =>
     request<Category>('/categories', { method: 'POST', body: body(data) }),
@@ -513,7 +430,6 @@ export const api = {
     request<Category>(`/categories/${id}`, { method: 'PUT', body: body({ name }) }),
   deleteCategory: (id: string) => request<unknown>(`/categories/${id}`, { method: 'DELETE' }),
 
-  // ---------------------------------------------------------- rules
   getRules: (signal?: AbortSignal) => request<Rule[]>('/rules', { signal }),
 
   getRuleHealth: (signal?: AbortSignal) => request<RuleHealthReport>('/rules/health', { signal }),
@@ -552,10 +468,7 @@ export const api = {
   /** The API key, sent once for a session cookie, in `apikey` mode. */
   keySession: (key: string) =>
     request<{ ok: boolean }>('/auth/key-session', { method: 'POST', body: body({ key }) }),
-  /**
-   * The new key comes back exactly once. No route reads it again, so a caller
-   * that drops it has to mint another.
-   */
+  /** The new key comes back exactly once: no route reads it again. */
   rotateApiKey: (proof: Proof) =>
     request<{ api_key: string }>('/auth/api-key', { method: 'POST', body: body(proof) }),
   deleteApiKey: (proof: Proof) =>
@@ -582,8 +495,20 @@ export const api = {
       body: body({ rule, rule_id: ruleId ?? null }),
     }),
   exportRules: () => request<RuleBundle>('/rules/export'),
+  getTemplates: (signal?: AbortSignal) =>
+    request<TemplateSummary[]>('/rules/templates', { signal }),
+  previewTemplate: (id: string, data: TemplateRequest, signal?: AbortSignal) =>
+    request<TemplatePreview>(`/rules/templates/${encodeURIComponent(id)}/preview`, {
+      method: 'POST',
+      body: body(data),
+      signal,
+    }),
+  importTemplate: (id: string, data: TemplateRequest) =>
+    request<TemplateAdded>(`/rules/templates/${encodeURIComponent(id)}/import`, {
+      method: 'POST',
+      body: body(data),
+    }),
 
-  // ---------------------------------------------------------- configuration
   /** Everything that cannot be regenerated from the Arrs. Never carries a key. */
   exportConfig: () => request<unknown>('/config/export'),
   /** `replaceRules`: the bundle's rules replace the rules in place rather than join them. */
@@ -599,17 +524,14 @@ export const api = {
       body: body({ bundle, replace }),
     }),
 
-  // ---------------------------------------------------------- media
   getMedia: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<MediaListItem>>(`/media${query(params)}`, { signal }),
   explainMedia: (id: string, signal?: AbortSignal) =>
     request<Explanation>(`/media/${id}/explain`, { signal }),
 
-  // ---------------------------------------------------------- decisions
   /**
-   * Followed, so a library of any size is never cut at the request bound. A
-   * stored run's report keeps its counts alone: its proposals are listed
-   * under `/decisions` by its `simulation_id`.
+   * Followed, so no library is cut at the request bound. A stored run's report keeps its counts
+   * alone, its proposals listed under `/decisions` by `simulation_id`.
    */
   runSimulation: (data?: unknown, following?: Following) =>
     followed<SimulationResult>('/simulate', { method: 'POST', body: body(data) }, following),
@@ -657,7 +579,6 @@ export const api = {
   cancelJob: (id: string) =>
     request<void>(`/jobs/${id}/cancel`, { method: 'POST' }, () => Promise.resolve()),
 
-  // ---------------------------------------------------------- overrides
   /** The contract other applications call, as the running version describes it. */
   openApi: (signal?: AbortSignal) => request<OpenApiDocument>('/openapi.json', { signal }),
 
@@ -683,20 +604,15 @@ export const api = {
     request<OverrideEntry>('/overrides', { method: 'POST', body: body(data) }),
   deleteOverride: (id: string) => request<unknown>(`/overrides/${id}`, { method: 'DELETE' }),
 
-  // ---------------------------------------------------------- logs
   getLogs: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<LogEntry>>(`/logs${query(params)}`, { signal }),
-  /**
-   * A link the browser follows itself: the sign-in has to leave this origin,
-   * so it cannot be a fetch.
-   */
+  /** A link the browser follows, since the sign-in has to leave this origin. */
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
   exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
   getSecurityLog: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<SecurityEvent>>(`/security-log${query(params)}`, { signal }),
   exportSecurityLog: (params?: QueryParams) => download(`/security-log/export${query(params)}`),
 
-  // ---------------------------------------------------------- settings
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
   getMetadataProviders: (signal?: AbortSignal) =>
     request<MetadataProviders>('/metadata/providers', { signal }),

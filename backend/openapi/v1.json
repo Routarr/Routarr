@@ -392,6 +392,13 @@
                   "array",
                   "null"
                 ]
+              },
+              "template": {
+                "description": "The template and version the rule was added from, as `children@1`.\nAbsent for a rule written by hand.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "type": "object"
@@ -692,6 +699,26 @@
                   "type": "string"
                 },
                 "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Whether any source knows the original language. A negative condition\nmatches a title of unknown language, and this tells it apart.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "original_language_known"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Whether any source knows the original language. A negative condition\nmatches a title of unknown language, and this tells it apart.",
+                "type": "boolean"
               }
             },
             "required": [
@@ -1734,7 +1761,7 @@
             "type": "array"
           },
           "rules_category": {
-            "description": "What the rules alone decide, the exception left out: the category a\nrule test pinned from this title expects, since a test replays the\nrules alone. Equal to `target_category` when no exception is in force.",
+            "description": "What the rules alone decide, leaving the exception out, as a rule test pinned from\nthis title expects. Equal to `target_category` when no exception is in force.",
             "type": "string"
           },
           "target_category": {
@@ -2842,6 +2869,22 @@
         ],
         "type": "object"
       },
+      "NeededSource": {
+        "description": "A metadata source a template needs.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "NewRuleTest": {
         "additionalProperties": false,
         "description": "What a caller supplies to pin a case.",
@@ -3301,6 +3344,25 @@
         ],
         "type": "object"
       },
+      "PlannedRule": {
+        "description": "A rule the template would add, at the priority it would take, and what\nthe validator says of it.",
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": "array"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/CreateRuleRequest"
+          }
+        },
+        "required": [
+          "rule",
+          "issues"
+        ],
+        "type": "object"
+      },
       "Pong": {
         "description": "What the liveness probe answers. No version: `/status` gives it to a caller with a key.",
         "properties": {
@@ -3624,6 +3686,55 @@
         ],
         "type": "object"
       },
+      "RequesterChoice": {
+        "additionalProperties": false,
+        "description": "One requester to route, and where.",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "category"
+        ],
+        "type": "object"
+      },
+      "RequesterTag": {
+        "description": "A requester, by the tag Seerr gives each request they make.",
+        "properties": {
+          "added": {
+            "description": "Whether a rule added from the template routes them.",
+            "type": "boolean"
+          },
+          "category": {
+            "description": "Where their titles go: the category a rule in place sends them to, or\nthe one suggested.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "titles": {
+            "description": "Titles carrying the tag.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tag",
+          "name",
+          "titles",
+          "category",
+          "added"
+        ],
+        "type": "object"
+      },
       "RevertDecisionsRequest": {
         "additionalProperties": false,
         "description": "Request to roll a previously applied decision back to its original folder.",
@@ -3799,6 +3910,13 @@
           },
           "target_category": {
             "type": "string"
+          },
+          "template": {
+            "description": "The template and version the rule was added from, as `children@1`. Null\nfor a rule written by hand.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updated_at": {
             "format": "date-time",
@@ -4372,6 +4490,296 @@
           "root_folders",
           "media",
           "removed"
+        ],
+        "type": "object"
+      },
+      "TakenBy": {
+        "description": "A rule in place that would keep titles the template's rules match.",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "titles": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_id",
+          "rule_name",
+          "titles"
+        ],
+        "type": "object"
+      },
+      "TemplateAdded": {
+        "description": "What adding a template did.",
+        "properties": {
+          "created": {
+            "description": "Categories it created.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "replaced": {
+            "description": "Rules of an earlier addition it removed.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules",
+          "created",
+          "replaced"
+        ],
+        "type": "object"
+      },
+      "TemplatePreview": {
+        "description": "What adding a template would do. Persists nothing.",
+        "properties": {
+          "creates": {
+            "description": "Categories it would create.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/TemplateReach"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedRule"
+            },
+            "type": "array"
+          },
+          "taken_by": {
+            "description": "The rules in place that would keep titles its rules match, most first.",
+            "items": {
+              "$ref": "#/components/schemas/TakenBy"
+            },
+            "type": "array"
+          },
+          "titles": {
+            "description": "The first titles it would decide, those to move first.",
+            "items": {
+              "$ref": "#/components/schemas/TemplateTitle"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules",
+          "creates",
+          "reach",
+          "titles",
+          "taken_by"
+        ],
+        "type": "object"
+      },
+      "TemplateReach": {
+        "description": "The titles a template's rules would decide, by what becomes of them.",
+        "properties": {
+          "in_place": {
+            "description": "Already in that folder.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "titles": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to_move": {
+            "description": "To move into their category's folder.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unmapped": {
+            "description": "Their category has no folder on their instance yet.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "titles",
+          "to_move",
+          "in_place",
+          "unmapped"
+        ],
+        "type": "object"
+      },
+      "TemplateRequest": {
+        "additionalProperties": false,
+        "description": "What adding a template takes. Each template reads only the fields it\nasks: `category` all but `requesters`, `languages` only `languages`,\n`requesters` only `requesters`.",
+        "properties": {
+          "category": {
+            "description": "The category its rules send titles to, created when missing. Left out,\nthe one it suggests.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "languages": {
+            "description": "ISO 639-1 codes. Left out, the ones it assumes.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "replace": {
+            "description": "Remove the rules an earlier addition of this template left, edited or not, each new\nrule taking the place of the one it replaces. For `requesters`, a requester still chosen\nkeeps their rule, those left out lose theirs, and the others get one.",
+            "type": "boolean"
+          },
+          "requesters": {
+            "items": {
+              "$ref": "#/components/schemas/RequesterChoice"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "TemplateSummary": {
+        "description": "A template as the gallery shows it, with the answers an earlier addition\nof it gave, or those it suggests.",
+        "properties": {
+          "added_version": {
+            "description": "The version the rules in place were added from. Null when none is.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "category": {
+            "description": "The category its rules send titles to. Null for `requesters`, whose\ncategories are each person's.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "languages": {
+            "description": "For `languages`: the languages the household watches in, ISO 639-1\ncodes.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs": {
+            "description": "The sources it needs, none of them enabled. Empty when it can match.",
+            "items": {
+              "$ref": "#/components/schemas/NeededSource"
+            },
+            "type": "array"
+          },
+          "parameter": {
+            "description": "What it asks beside the category: `languages`, `requesters`, or null.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "x-extensible-enum": [
+              "languages",
+              "requesters"
+            ]
+          },
+          "requesters": {
+            "description": "For `requesters`: the requesters the library's tags name.",
+            "items": {
+              "$ref": "#/components/schemas/RequesterTag"
+            },
+            "type": "array"
+          },
+          "rule_ids": {
+            "description": "The rules in place added from it.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "name",
+          "description",
+          "languages",
+          "requesters",
+          "needs",
+          "rule_ids"
+        ],
+        "type": "object"
+      },
+      "TemplateTitle": {
+        "description": "A title a template's rules would decide.",
+        "properties": {
+          "action": {
+            "description": "`move`, `none` when it is already in its category's folder, `skip`\nwhen that category has no folder on its instance.",
+            "type": "string",
+            "x-extensible-enum": [
+              "move",
+              "none",
+              "skip"
+            ]
+          },
+          "category": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_id": {
+            "type": "string"
+          },
+          "media_title": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "media_id",
+          "media_title",
+          "media_type",
+          "category",
+          "rule_name",
+          "action"
         ],
         "type": "object"
       },
@@ -4959,7 +5367,7 @@
     },
     "/decisions/apply": {
       "post": {
-        "description": "Asks the Arr to move each title, behind the same guardrails as the\ninterface. A decision no longer pending is skipped, so sending the same\nlist twice moves nothing twice. `move_files` needs a key allowed to move\nfiles.",
+        "description": "Asks the Arr to move each title, behind the interface's guardrails. A decision no longer\npending is skipped, so a repeat moves nothing. `move_files` needs a key that may move files.",
         "operationId": "apply",
         "parameters": [
           {
@@ -5057,7 +5465,7 @@
     },
     "/decisions/apply-all": {
       "post": {
-        "description": "In slices of the batch limit, stopping at the first slice that fails.\nAlways asks the `batch` guardrail first, whose question states how many\ntitles move.",
+        "description": "In slices of the batch limit, stopping at the first that fails. The `batch` guardrail\nalways asks first, its question stating how many titles move.",
         "operationId": "apply_all",
         "parameters": [
           {
@@ -5253,7 +5661,7 @@
     },
     "/health": {
       "get": {
-        "description": "Probes each enabled instance and metadata source, up to a connect timeout\neach, and records what it found for `/status` to repeat. A probe of the\nsame configuration in the last 30 seconds is answered again unless\n`fresh=true`, and a call made while one runs waits for it. `probe=false`\nreads the database alone: instances read `unchecked` and sources\n`connected: null`, while `warnings` repeat what the last probe found.",
+        "description": "Probes each enabled instance and source and records the result for `/status`. A probe of\nthe same configuration under 30 seconds old is answered again unless `fresh=true`, and a\ncall waits for one running. `probe=false` reads the database alone: instances read\n`unchecked`, sources `connected: null`, and `warnings` repeat the last probe.",
         "operationId": "health",
         "parameters": [
           {
@@ -5315,7 +5723,7 @@
     },
     "/instances": {
       "get": {
-        "description": "Their address, kind and last sync. Never the Arr's key, and for an\napplication key neither the webhook address, whose token lets anyone post\nevents as the Arr: `webhook_url` is `null` and `api_key_masked` empty.",
+        "description": "Their address, kind and last sync, never the Arr's key. For an application key\n`webhook_url` is `null`, since its token posts as the Arr, and `api_key_masked` empty.",
         "operationId": "list_instances",
         "responses": {
           "200": {
@@ -5350,7 +5758,7 @@
     },
     "/instances/sync": {
       "post": {
-        "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others. With\n`respond-async` it answers once its task has started, and that task holds\nthe reports when it ends. Each instance is read under a task of its own too.",
+        "description": "Answers once every instance is read, one report each. One that fails is reported with\nits `error` and stops none of the others. With `respond-async` the task holds the\nreports when it ends, and each instance is also read under a task of its own.",
         "operationId": "sync_all",
         "parameters": [
           {
@@ -5785,7 +6193,7 @@
     },
     "/logs/export": {
       "get": {
-        "description": "The filters of `/logs`, without its paging, up to the newest 50 000 rows.\nA cell that would start a formula in a spreadsheet starts with an\napostrophe, which the spreadsheet reads as text.",
+        "description": "The filters of `/logs` without its paging, up to the newest 50 000 rows. A cell that\nwould start a spreadsheet formula starts with an apostrophe, read as text.",
         "operationId": "export_logs",
         "parameters": [
           {
@@ -5999,7 +6407,7 @@
     },
     "/media/facets": {
       "get": {
-        "description": "What a rule could name: the genres, languages, countries, certifications,\ntags, series types and folders the library holds, each with how many\ntitles carry it, and the closed vocabularies of languages and countries.",
+        "description": "The genres, languages, countries, certifications, tags, series types and folders the\nlibrary holds, each with its title count, and the closed lists of languages and countries.",
         "operationId": "library_facets",
         "responses": {
           "200": {
@@ -6073,7 +6481,7 @@
     },
     "/media/{id}/explain": {
       "get": {
-        "description": "Every rule the title was held against, each condition with what it\nexpected and what it found, and the folder the winner sends it to. The\nsame answer a simulation gives, for one title, without storing anything.",
+        "description": "Every rule the title was held against, each condition with what it expected and\nfound, and the winner's folder: a simulation's answer for one title, storing nothing.",
         "operationId": "explain_media",
         "parameters": [
           {
@@ -6281,7 +6689,7 @@
     },
     "/overrides/external": {
       "delete": {
-        "description": "Removes the exception on every copy of the title, or on the one on\n`instance`. `deleted` is false when none had one. 404 when no copy is in\nthe library.",
+        "description": "On every copy of the title, or the one on `instance`. `deleted` is false when none\nhad one. 404 when no copy is in the library.",
         "operationId": "unpin_by_external_id",
         "parameters": [
           {
@@ -6360,7 +6768,7 @@
         "x-routarr-scope": "write"
       },
       "put": {
-        "description": "For an application that knows the title by its TMDB, TheTVDB or IMDb id.\nEvery copy of the title the library holds has its category forced, one per\ninstance, or only the one on `instance`. Each replaces the exception its copy had, and\nthe pending decisions for it are withdrawn. 404 when no copy is in the\nlibrary.",
+        "description": "For an application that knows the title by its TMDB, TheTVDB or IMDb id. Forces every\ncopy the library holds, one per instance, or only the one on `instance`, replacing its\nexception and withdrawing its pending decisions. 404 when no copy is in the library.",
         "operationId": "pin_by_external_id",
         "parameters": [
           {
@@ -6612,7 +7020,7 @@
     },
     "/root-folders/conflicts": {
       "get": {
-        "description": "Two folders of one instance claiming one category, a category a rule\ntargets with no folder on an instance the rule reaches, a folder the Arr\ndid not reach on its last look, a folder mapped to a category that no\nlonger exists.",
+        "description": "Two folders of one instance claiming one category, a rule's category with no folder on an\ninstance it reaches, a folder the Arr did not reach last time, a mapping to a removed one.",
         "operationId": "mapping_conflicts",
         "responses": {
           "200": {
@@ -6742,7 +7150,7 @@
     },
     "/route": {
       "get": {
-        "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDB or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
+        "description": "Decided as a simulation decides, on each enabled Arr of the title's kind or the one\n`instance` names, storing nothing. A title the library lacks is looked up in the Arr\n(Radarr by TMDB or IMDb id, Sonarr by TheTVDB or IMDb id) and its `action` is `add`.\n`unanswered_fields` lists what the rules read and no source answered, which `enrich=true`\nasks the sources for. 404 when no instance knows the title.",
         "operationId": "place_title",
         "parameters": [
           {
@@ -7067,7 +7475,7 @@
         "x-routarr-scope": "read"
       },
       "post": {
-        "description": "Refused with 400 when its target category does not exist, when a\ncondition has no value, or when no enabled source can answer one, as\n`/rules/validate` would say. It counts from the next simulation.",
+        "description": "Refused with 400, as `/rules/validate` would say, when its target category is missing, a\ncondition has no value or no enabled source answers one. It counts from the next simulation.",
         "operationId": "create_rule",
         "requestBody": {
           "content": {
@@ -7117,7 +7525,7 @@
     },
     "/rules/conditions": {
       "get": {
-        "description": "Each condition with its value type, the media types it applies to, the\nmetadata field it reads, whether an enabled source answers it, and the\nfacet that lists its values.",
+        "description": "Each condition with its value type, media types, the metadata field it reads, whether\nan enabled source answers it, and the facet that lists its values.",
         "operationId": "condition_catalog",
         "responses": {
           "200": {
@@ -7331,6 +7739,154 @@
           }
         },
         "summary": "Put the rules in a new order",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/templates": {
+      "get": {
+        "description": "Ready-made rule sets for the usual library splits, in the reader's\nlanguage: what each suggests, what it asks, and whether one is added.",
+        "operationId": "list_templates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateSummary"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The rule templates",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/rules/templates/{id}/import": {
+      "post": {
+        "description": "After the rules written by hand, among the templates added in catalogue order, creating\nthe categories it names. One already added answers 409 `template_added` unless `replace`.",
+        "operationId": "import_template",
+        "parameters": [
+          {
+            "description": "The template.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateAdded"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "The rules.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Add a template's rules",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/templates/{id}/preview": {
+      "post": {
+        "operationId": "preview_template",
+        "parameters": [
+          {
+            "description": "The template.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatePreview"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What adding a template would change, storing nothing",
         "tags": [
           "rules"
         ],
@@ -7562,7 +8118,7 @@
     },
     "/simulate": {
       "post": {
-        "description": "With `persist: true` the decisions are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.\nA preview, `persist: false`, waits its turn, and answers 409 while four\nare already running or waiting.",
+        "description": "With `persist: true` the decisions are stored under the `simulation_id` answered,\nreplacing the pending ones. One persisting run goes at a time, and another answers 409.\nA preview, `persist: false`, waits its turn, and answers 409 while four run or wait.",
         "operationId": "simulate",
         "parameters": [
           {
@@ -7650,7 +8206,7 @@
     },
     "/status": {
       "get": {
-        "description": "Read from the database alone, without reaching any Arr or source, so it is\ncheap enough to poll. `warnings` lists the configuration problems Routarr\ncan see, each in the interface language.",
+        "description": "Read from the database alone, so it is cheap enough to poll. `warnings` lists\nthe configuration problems Routarr can see, in the interface language.",
         "operationId": "status",
         "responses": {
           "200": {

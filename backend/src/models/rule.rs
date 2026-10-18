@@ -67,17 +67,12 @@ impl std::str::FromStr for MatchMode {
 /// One condition of a rule, written `{"type": "genre_contains", "value":
 /// ["Animation"]}`. `GET /rules/conditions` lists each `type` with the shape
 /// of its `value`.
-// A new variant needs `kind`, `is_empty`, `metadata_field`, an arm in
-// `evaluate_single_condition`, a `CONDITIONS` entry in `api::conditions` and
-// a `ConditionLabel` key. The rule builder reads the catalogue.
+// A new variant also needs a `CONDITIONS` entry and a `ConditionLabel` key.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(tag = "type", content = "value", deny_unknown_fields)]
 pub enum Condition {
     /// Genres must contain at least one of these values.
-    // The `_all` counterpart of each pair below is the same question with the
-    // other quantifier, and a separate variant rather than a field beside the
-    // values: the enum is serialised `{"type": …, "value": …}`, so a sibling
-    // key would change the shape of every condition already on disk.
+    // Each `_all` twin is its own variant: a sibling key would reshape every stored condition.
     #[serde(rename = "genre_contains")]
     GenreContains(Vec<String>),
 
@@ -108,6 +103,11 @@ pub enum Condition {
     /// Original language must NOT be one of these (ISO 639-1).
     #[serde(rename = "original_language_not")]
     OriginalLanguageNot(Vec<String>),
+
+    /// Whether any source knows the original language. A negative condition
+    /// matches a title of unknown language, and this tells it apart.
+    #[serde(rename = "original_language_known")]
+    OriginalLanguageKnown(bool),
 
     /// Origin country must be one of these (ISO 3166-1).
     #[serde(rename = "origin_country")]
@@ -232,6 +232,7 @@ impl Condition {
             Condition::AddedWithinDays(_) => "added_within_days",
             Condition::Monitored(_) => "monitored",
             Condition::HasMetadata(_) => "has_metadata",
+            Condition::OriginalLanguageKnown(_) => "original_language_known",
         }
     }
 
@@ -266,16 +267,13 @@ impl Condition {
             | Condition::HasFiles(_)
             | Condition::Monitored(_)
             | Condition::HasMetadata(_)
+            | Condition::OriginalLanguageKnown(_)
             | Condition::AddedWithinDays(_) => false,
         }
     }
 
-    /// The metadata field this condition reads, if any.
-    ///
-    /// Naming the field rather than answering "does this need TMDB?" is what
-    /// lets Routarr tell the user *which* source is missing: with Radarr alone
-    /// enabled, a genre rule is fine and a keyword rule cannot match, and a
-    /// single "does this need TMDB?" answer would warn about both alike.
+    /// The metadata field this condition reads, if any, so a warning can name
+    /// the field no enabled source answers.
     pub fn metadata_field(&self) -> Option<MetadataField> {
         Some(match self {
             Condition::GenreContains(_)
@@ -284,18 +282,14 @@ impl Condition {
             Condition::KeywordContains(_)
             | Condition::KeywordContainsAll(_)
             | Condition::KeywordNotContains(_) => MetadataField::Keywords,
-            Condition::OriginalLanguage(_) | Condition::OriginalLanguageNot(_) => {
-                MetadataField::OriginalLanguage
-            }
+            Condition::OriginalLanguage(_)
+            | Condition::OriginalLanguageNot(_)
+            | Condition::OriginalLanguageKnown(_) => MetadataField::OriginalLanguage,
             Condition::OriginCountry(_) | Condition::OriginCountryAll(_) => {
                 MetadataField::OriginCountries
             }
             Condition::CertificationIn(_) => MetadataField::Certification,
-            // Named rather than left to a wildcard: these read the media row,
-            // and a condition added without a decision about which metadata
-            // field it needs would fall through to `None`, silently exempt
-            // from the warning that tells the reader no enabled source can
-            // answer it. Spelled out, the compiler asks.
+            // No wildcard, so the compiler asks a new condition which field it reads.
             Condition::YearRange { .. }
             | Condition::TagIn(_)
             | Condition::TagInAll(_)
@@ -336,6 +330,10 @@ pub struct Rule {
     pub match_mode: MatchMode,
     pub target_category: String,
     pub instance_ids: Option<Vec<String>>,
+    /// The template and version the rule was added from, as `children@1`. Null
+    /// for a rule written by hand.
+    #[serde(default)]
+    pub template: Option<String>,
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
     #[schema(format = DateTime)]
     pub created_at: String,
@@ -427,6 +425,22 @@ pub struct BundledRule {
     /// instance. A rule naming none this installation has is not imported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_names: Option<Vec<String>>,
+    /// The template and version the rule was added from, as `children@1`.
+    /// Absent for a rule written by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+}
+
+impl BundledRule {
+    /// The template marker, when it has the shape one has: a template's id,
+    /// `@` and a version.
+    pub fn marker(&self) -> Option<&str> {
+        let marker = self.template.as_deref()?;
+        let (id, version) = marker.split_once('@')?;
+        let id_ok = !id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase() || c == '-');
+        let version_ok = !version.is_empty() && version.chars().all(|c| c.is_ascii_digit());
+        (id_ok && version_ok).then_some(marker)
+    }
 }
 
 /// Request body for `POST /rules/import`.
@@ -454,8 +468,7 @@ pub enum Severity {
 
 /// A problem with a rule: a stable `key` and its values, and the `message`
 /// in the interface language, which is not part of the contract.
-// The validator carries the key rather than prose, so it stays free of
-// wording: `message` is filled in at the API boundary.
+// `message` is filled in at the API boundary, so the validator stays free of wording.
 #[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct ValidationIssue {
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["error", "warning"]))))]

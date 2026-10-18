@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
 """Check that the frontend's view of a response matches the backend's.
 
-The API contract is written twice: once as `#[derive(Serialize)]` structs in
-`backend/src/`, once as interfaces in `frontend/src/api/types.ts`. Nothing joins
-them. Rename a field in Rust and everything still compiles, `cargo test` passes,
-`svelte-check` passes, and the interface renders `undefined`. The only layer
-that could notice is an end-to-end journey that happens to read that field.
-
-This closes the common half of that gap: for each pair declared in `PAIRS`
-below, the serialized field names must be identical on both sides.
-
-What it does *not* do, stated plainly so nobody trusts it further than it goes:
-
-* It compares **names**, not types. `count: number` against `count: String`
-  passes here and breaks at run time.
-* `PAIRS` is hand-written. A Rust struct named `...Response` with no entry is
-  reported, not compared, since most structs are internal. An exported
-  interface with no entry fails unless `UNPAIRED` says why it has none: the
-  frontend declares only what it reads.
-* It reads declarations, not traffic. A handler that assembles a payload with
-  `serde_json::json!` instead of a struct is invisible to it.
+For each pair in `PAIRS`, a `Serialize` struct in `backend/src/` and its interface
+in `frontend/src/api/types.ts` must carry the same field names. Types are not
+compared, and a payload built with `serde_json::json!` escapes the check.
 
 Run from anywhere: it resolves its own paths. Exits non-zero on a mismatch.
 """
@@ -34,12 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RUST = ROOT / "backend" / "src"
 TYPES = ROOT / "frontend" / "src" / "api" / "types.ts"
 
-# Rust struct -> TypeScript interface.
-#
-# The names differ on purpose: Rust says `InstanceResponse` because it is what a
-# handler returns, TypeScript says `Instance` because it is what a component
-# holds. Adding a response type means adding a line here, which is the point:
-# the alternative is a type nobody notices is unmirrored.
+# Rust struct -> TypeScript interface. A new response type needs its line here.
 PAIRS: dict[str, str] = {
     "InstanceResponse": "Instance",
     "RootFolderWithInstance": "RootFolder",
@@ -57,6 +36,15 @@ PAIRS: dict[str, str] = {
     "HealthResponse": "Health",
     "LocalizationResponse": "Localization",
     "PreviewResponse": "RulePreview",
+    "TemplateSummary": "TemplateSummary",
+    "NeededSource": "NeededSource",
+    "RequesterTag": "RequesterTag",
+    "PlannedRule": "PlannedRule",
+    "TakenBy": "TakenBy",
+    "TemplateReach": "TemplateReach",
+    "TemplateTitle": "TemplateTitle",
+    "TemplatePreview": "TemplatePreview",
+    "TemplateAdded": "TemplateAdded",
     "ProvidersResponse": "MetadataProviders",
     "StatusResponse": "Status",
     "Warning": "Warning",
@@ -107,6 +95,7 @@ PAIRS: dict[str, str] = {
 # Exported interfaces no struct mirrors, and why.
 UNPAIRED: dict[str, str] = {
     "InstanceProbe": "a request body",
+    "TemplateRequest": "a request body",
     "NewApplication": "a request body",
     "Proof": "a request body",
     "PasswordChanged": "built with json! in api::account::change_password",
@@ -117,11 +106,7 @@ UNPAIRED: dict[str, str] = {
 
 
 def strip_comments(text: str) -> str:
-    """Remove `//` and `/* */`, leaving string literals alone.
-
-    A naive strip would eat the `//` inside `"https://…"`, which appears in the
-    doc comments of both files.
-    """
+    """Remove `//` and `/* */`, leaving string literals such as `"https://"` alone."""
     out, i, n = [], 0, len(text)
     while i < n:
         c = text[i]
@@ -174,18 +159,12 @@ def rust_structs(root: Path) -> tuple[dict[str, set[str]], dict[str, list[str]]]
                 r"((?:#\[[^\]]*\]\s*)*)pub (\w+)\s*:", body
             ):
                 field_attrs, field_name = field.groups()
-                # Only serde decides what goes on the wire: `#[sqlx(skip)]`
-                # leaves a field out of the row, not out of the payload.
+                # Only serde decides what goes on the wire, never `#[sqlx(skip)]`.
                 field_attrs = " ".join(re.findall(r"#\[serde\(([^\]]*)\)\]", field_attrs))
-                # `skip_serializing` drops the field. `skip_serializing_if`
-                # keeps it and only omits it when the predicate holds, so it is
-                # still part of the contract. The two differ by a suffix, which
-                # is why this is a regex and not a substring test.
+                # `skip_serializing` drops a field, where `skip_serializing_if` keeps it.
                 if re.search(r"\bskip(_serializing)?\b(?!_if)", field_attrs):
                     continue
-                # `flatten` splices another struct's fields in. The type is
-                # recorded and spliced once every struct is known: resolved
-                # here, a struct defined later in the walk would be missing.
+                # Spliced once every struct is known, since a later one may define it.
                 if "flatten" in field_attrs:
                     flattened = re.search(
                         r"pub " + field_name + r"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)", body
@@ -205,19 +184,9 @@ def rust_structs(root: Path) -> tuple[dict[str, set[str]], dict[str, list[str]]]
 
 
 def resolve_flattened(structs: dict[str, set[str]]) -> dict[str, set[str]]:
-    """Splice each `#[serde(flatten)]` field into its own struct's field set.
-
-    The composite responses are exactly the ones a reader is most likely to
-    get wrong (`.claude/rules/frontend.md` warns that one arrives flat), so
-    they are the ones the check must compare rather than skip. A flattened
-    field is not unresolvable: the struct it names is in this same map.
-
-    A type the walk never saw (one outside `backend/src`, or a generic) leaves
-    the marker in place, so the caller still skips rather than comparing a set
-    it knows to be short. Nesting resolves by repeating until nothing moves.
-    A cycle cannot exist, since a struct that holds itself by value does not
-    compile.
-    """
+    """Splice each `#[serde(flatten)]` field into its own struct's field set,
+    repeating until nothing moves. A type the walk never saw keeps its marker,
+    so the caller skips the pair rather than compare a set it knows is short."""
     for _ in range(len(structs) + 1):
         moved = False
         for fields in structs.values():
@@ -248,19 +217,9 @@ def top_level_fields(body: str) -> set[str]:
 
 
 def ts_interfaces(path: Path) -> dict[str, set[str]]:
-    """Top-level field names of every exported interface, by interface name.
-
-    An object alias, `export type X = { a: string }`, is an interface written
-    another way and read as one. A mapped type (`{ [K in ...]: ... }`) declares
-    no field and is not a payload.
-
-    Depth matters. Several interfaces inline their nested shapes rather than
-    naming them, and a line-by-line read of `Health`, whose `instances` is
-    `{ id: string; name: string; … }[]`, would collect `id` and `name` as if
-    the response carried them at the top. The Rust side has one field there, so
-    every child would be reported as missing and the check would cry wolf on a
-    contract that agrees.
-    """
+    """Top-level field names of every exported interface or object alias, by
+    name. Depth is read, or the inline shape of `Health.instances` would put
+    its `id` at the top."""
     source = strip_comments(path.read_text())
     found: dict[str, set[str]] = {}
     bases: dict[str, list[str]] = {}
@@ -276,8 +235,7 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
         if fields:
             found[name] = fields
             bases[name] = []
-    # What an interface extends is part of it, as a flattened struct is on the
-    # Rust side: read alone, `SimulationResult` lacks every counter it carries.
+    # What an interface extends is part of it, as a flattened struct is in Rust.
     for _ in range(len(found) + 1):
         moved = False
         for name, parents in bases.items():
@@ -350,8 +308,7 @@ def main() -> int:
     for name in sorted(set(UNPAIRED) - (set(ts) - paired)):
         failures.append(f"{name}: listed in UNPAIRED, but paired or no longer in types.ts")
 
-    # Reported rather than enforced: most structs never reach the wire, and a
-    # response type with no pair is one someone should decide about.
+    # Reported rather than enforced, since most structs never reach the wire.
     unpaired = sorted(
         name
         for name in rust
@@ -366,8 +323,7 @@ def main() -> int:
             print(f"  {failure}", file=sys.stderr)
         return 1
 
-    # Compared, not declared. A summary that counts a skipped pair as agreeing
-    # is how a check comes to be trusted for work it did not do.
+    # A skipped pair is counted apart, never as agreeing.
     compared = len(PAIRS) - len(skipped)
     tail = f", {len(skipped)} skipped ({', '.join(skipped)})" if skipped else ""
     print(f"check-api-types: {compared} pair(s) compared and agreeing{tail}")

@@ -1,7 +1,5 @@
-//! Pure, synchronous routing decision logic.
-//!
-//! Everything here is deliberately free of I/O so the whole engine is unit
-//! testable and so a simulation over thousands of items does no per-item query.
+//! Pure, synchronous routing decision logic, free of I/O so a simulation does no
+//! per-item query.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -17,9 +15,7 @@ pub use validation::{MAX_NAME_LENGTH, RuleDraft, ValidationEnv, validate_rule};
 use crate::models::{Condition, MatchMode, Media, MediaMetadata, Rule};
 
 /// One condition of a rule, held against a title.
-// Structured rather than pre-rendered prose: the engine stays language-agnostic
-// and the wording is resolved through the dictionary at the edges
-// (`Localizer::describe`).
+// Keys and parameters, never prose: `Localizer::describe` words them at the edges.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq, utoipa::ToSchema)]
 pub struct ConditionOutcome {
     pub kind: String,
@@ -30,8 +26,7 @@ pub struct ConditionOutcome {
     pub params: BTreeMap<String, String>,
     /// What the title carried, as the reader's language writes it. Empty
     /// when it carried nothing.
-    // The engine stores it raw, a size in bytes, a switch as `true`, and
-    // `Localizer::localize_outcome` writes it for the reader.
+    // Stored raw (bytes, `true`) and written for the reader by `Localizer::localize_outcome`.
     pub observed: String,
     /// What the condition asked for, in the interface language.
     // Filled in by `Localizer::localize_outcome`.
@@ -39,9 +34,7 @@ pub struct ConditionOutcome {
     pub expected: String,
     /// Which metadata source supplied `observed`, absent for a condition the
     /// Arr answers directly.
-    // With several sources enabled, "genre does not contain Animation" is only
-    // explainable if the reader can see whether the genres came from Radarr or
-    // from TMDB.
+    // With several sources, the reader must see which one supplied the value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
@@ -73,20 +66,15 @@ pub struct RuleMatch {
     pub rule_name: String,
     pub category: String,
     pub evaluations: Vec<ConditionOutcome>,
-    /// 0.0–1.0 confidence, driven by how many independent signals agreed.
+    /// Confidence from 0.0 to 1.0, driven by how many independent signals agreed.
     pub confidence: f32,
     /// The exclusion that vetoed an otherwise-matching rule.
     pub excluded_by: Option<ConditionOutcome>,
 }
 
-/// The rules that apply to `media`, in the order they are tried: enabled,
-/// covering its type and its instance.
-///
-/// Lower priority number wins, ties break on name and then on id, so the
-/// outcome does not depend on the order SQLite returns rows in. Name alone is
-/// not enough: nothing stops two rules sharing one (the interface accepts the
-/// same name twice and duplication only appends "(copy)"), and two such rules
-/// can target different categories.
+/// The rules that apply to `media`, enabled and covering its type and instance,
+/// lowest priority first, then by name, then by id, since two rules may share a
+/// name. The order never depends on the one SQLite returns.
 pub fn in_order<'a>(rules: &'a [Rule], media: &Media) -> Vec<&'a Rule> {
     let mut applicable: Vec<&Rule> = rules
         .iter()
@@ -122,18 +110,14 @@ pub struct EvalContext<'a> {
     pub now: DateTime<Utc>,
 }
 
-/// Evaluate all rules against a single media item.
-///
-/// Rules are considered in ascending `priority` order and the first one whose
-/// conditions hold wins. The rest are reported as alternatives so the UI can
-/// explain what was considered and discarded.
+/// Evaluate all rules against a single media item: the first to hold wins, and
+/// the rest are reported as alternatives the explanation shows.
 pub fn evaluate_rules(
     ctx: EvalContext<'_>,
     rules: &[Rule],
     override_category: Option<&str>,
 ) -> Evaluation {
-    // An explicit human decision outranks the entire engine: automation
-    // must never prevent an explicit manual decision.
+    // A manual override outranks every rule.
     if let Some(cat) = override_category {
         return Evaluation {
             winner: Some(RuleMatch {
@@ -193,10 +177,8 @@ pub fn veto(rule: &Rule, ctx: EvalContext<'_>) -> Option<ConditionOutcome> {
         .find(|outcome| outcome.matched)
 }
 
-/// Confidence heuristic: more agreeing signals means a more trustworthy call.
-///
-/// `all` mode starts higher because every condition had to hold. `any` mode is
-/// intentionally capped lower since a single weak signal can carry it.
+/// Confidence heuristic: more agreeing signals make a more trustworthy call. `any`
+/// mode is capped lower, since one weak signal can carry it.
 fn confidence_for(evaluations: &[ConditionOutcome], mode: MatchMode) -> f32 {
     let agreeing = evaluations.iter().filter(|e| e.matched).count() as f32;
     if agreeing == 0.0 {
@@ -209,10 +191,8 @@ fn confidence_for(evaluations: &[ConditionOutcome], mode: MatchMode) -> f32 {
     (base + step * (agreeing - 1.0)).min(ceiling)
 }
 
-/// Evaluate the conditions of a rule under its match mode.
-///
-/// Every condition is always evaluated, even in `any` mode where an early exit
-/// would be cheaper: the non-matching ones are part of the explanation.
+/// Evaluate the conditions of a rule under its match mode, every one even in `any`
+/// mode, since the failures are part of the explanation.
 pub(crate) fn evaluate_conditions(
     conditions: &[Condition],
     mode: MatchMode,
@@ -323,6 +303,19 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             )
         }
 
+        Condition::OriginalLanguageKnown(expected) => {
+            let known = metadata
+                .and_then(|m| m.original_language.as_deref())
+                .is_some_and(|lang| !lang.is_empty());
+            ConditionOutcome::new(
+                kind,
+                known == *expected,
+                "ConditionOriginalLanguageKnown",
+                &[("value", expected.to_string())],
+                known.to_string(),
+            )
+        }
+
         Condition::OriginCountry(values) => {
             let countries = metadata.map(|m| m.origin_countries.as_slice()).unwrap_or_default();
             list(kind, "ConditionOriginCountry", contains_any(countries, values), values, countries)
@@ -429,7 +422,6 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             metadata.is_some().to_string(),
         ),
 
-        // ---- signals the Arr already knows, no external provider involved ----
         Condition::TagIn(values) => {
             let tags = media.tag_labels();
             ConditionOutcome::new(
@@ -456,8 +448,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let actual = media.series_type.as_deref().unwrap_or("").trim().to_lowercase();
             ConditionOutcome::new(
                 kind,
-                // An absent series type never matches, including for movies:
-                // an unknown value must not satisfy a condition.
+                // An absent series type never matches, movies included.
                 !actual.is_empty() && values.iter().any(|v| v.trim().eq_ignore_ascii_case(&actual)),
                 "ConditionSeriesTypeIs",
                 &[("values", values.join(", "))],
@@ -485,11 +476,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
         ),
 
         Condition::TitleContains(values) => {
-            // Normalised on both sides, like every other string condition, so
-            // `amelie` finds "Amélie" and `spider man` finds "Spider-Man" as
-            // `Science-Fiction` finds "Science Fiction" in a genre. Compared
-            // with `to_lowercase` alone, a title would fold case, keep the
-            // accents, and be the one condition to break the engine's contract.
+            // Normalised like every string condition, so `amelie` finds "Amélie".
             let title = normalise_value(&media.title);
             ConditionOutcome::new(
                 kind,
@@ -642,6 +629,7 @@ mod tests {
             match_mode: MatchMode::All,
             target_category: category.into(),
             instance_ids: None,
+            template: None,
             created_at: String::new(),
             updated_at: String::new(),
         }
@@ -710,11 +698,8 @@ mod tests {
         assert_eq!(first, "cat-a");
     }
 
-    /// Nothing stops two rules sharing a name: the interface accepts the same
-    /// one twice, and duplicating a rule only appends "(copy)". With the
-    /// priority equal too, name leaves a genuine tie whose winner would be
-    /// whatever SQLite returns first, and these two send the same film to
-    /// different folders.
+    /// Two rules sharing a name and a priority are still ordered, by id, whatever
+    /// order they arrive in.
     #[test]
     fn two_rules_with_the_same_name_and_priority_still_have_an_order() {
         let mut a = rule("same", 10, "cat-a", vec![Condition::HasFiles(true)]);
@@ -776,12 +761,7 @@ mod tests {
     }
 
     // ------------------------------------------------- genres: OR and AND
-    //
-    // The one distinction the shape of a rule has to make unambiguous. Several
-    // values in one condition are alternatives. Requiring several at once is
-    // the `_all` form of the condition, or several conditions under
-    // `MatchMode::All`. Nothing infers an AND from a separator, so a rule means
-    // the same thing however its values were typed.
+    // Values in one condition are alternatives: an AND is the `_all` form or a second one.
 
     /// Evaluate one rule against the fixture, whose genres are Animation,
     /// Family and Fantasy.
@@ -889,8 +869,7 @@ mod tests {
             vec![Condition::GenreContainsAll(vec!["Animation".into(), "Family".into()])],
             MatchMode::All,
         ));
-        // Fantasy is carried, Western is not, so the pair cannot hold, where
-        // the `any` form would.
+        // Western is not carried, so the pair fails where the `any` form holds.
         let mixed = vec!["Fantasy".into(), "Western".into()];
         assert!(!genre_rule(vec![Condition::GenreContainsAll(mixed.clone())], MatchMode::All));
         assert!(genre_rule(vec![Condition::GenreContains(mixed)], MatchMode::All));
@@ -904,9 +883,8 @@ mod tests {
         ));
     }
 
-    /// An empty list is a condition nobody finished writing, so it matches
-    /// nothing. Answering "every value in an empty set is present" would make
-    /// it match the whole library instead.
+    /// An empty list is an unfinished condition and matches nothing, never the
+    /// whole library.
     #[test]
     fn requiring_every_genre_of_nothing_matches_nothing() {
         assert!(!genre_rule(vec![Condition::GenreContainsAll(vec![])], MatchMode::All));
@@ -932,8 +910,7 @@ mod tests {
         let json = serde_json::to_string(&condition).unwrap();
         assert_eq!(json, r#"{"type":"genre_contains_all","value":["Animation","Family"]}"#);
         assert_eq!(serde_json::from_str::<Condition>(&json).unwrap(), condition);
-        // And the `any` form it was switched from is a different kind, so a
-        // stored rule cannot change meaning by being reopened.
+        // The `any` form is another kind, so reopening a stored rule keeps its meaning.
         assert_ne!(condition.kind(), Condition::GenreContains(vec![]).kind());
     }
 
@@ -966,7 +943,7 @@ mod tests {
             ],
             MatchMode::All,
         ));
-        // The alternative half now offers nothing the item carries.
+        // The alternative half offers nothing the item carries.
         assert!(!genre_rule(
             vec![
                 Condition::GenreContains(vec!["Western".into(), "Horror".into()]),
@@ -1254,8 +1231,7 @@ mod tests {
     }
 
     /// A prefix is a folder: `/movies` holds `/movies/standard`, and
-    /// `/movies/stand` is not a folder of it but a sibling sharing its letters,
-    /// as `/data/movies-4k` is to `/data/movies`.
+    /// `/movies/stand` is a sibling sharing its letters.
     #[test]
     fn a_folder_prefix_does_not_match_a_sibling_sharing_its_letters() {
         assert!(!matches(Condition::CurrentRootFolderStartsWith("/movies/stand".into())));
@@ -1294,9 +1270,8 @@ mod tests {
         assert!(!matches(Condition::TitleContains(vec!["akira".into()])));
     }
 
-    /// A title goes through `normalise_value` like every other string
-    /// condition. Compared with `to_lowercase` alone, it would fold case and
-    /// keep the accents, against the contract the engine states about itself.
+    /// A title goes through `normalise_value` like every other string condition,
+    /// accents and punctuation folded.
     #[test]
     fn a_title_is_matched_the_way_every_other_value_is() {
         let accented = |needle: &str| {
@@ -1311,8 +1286,7 @@ mod tests {
         assert!(accented("amelie"), "an unaccented needle has to find an accented title");
         assert!(accented("Amélie"), "and the accented one still does");
 
-        // Punctuation collapses to a space on both sides, so the separator a
-        // person happened to type stops deciding the answer.
+        // Punctuation folds to a space on both sides, so the typed separator decides nothing.
         let punctuated = |needle: &str| {
             let mut media = media();
             media.title = "Spider-Man: No Way Home".to_string();
@@ -1392,8 +1366,7 @@ mod tests {
     fn metadata_conditions_do_not_match_when_metadata_is_missing() {
         assert!(!matches_without_metadata(Condition::GenreContains(vec!["Animation".into()])));
         assert!(!matches_without_metadata(Condition::OriginalLanguage(vec!["ja".into()])));
-        // The negative form is vacuously true, which is the useful behaviour for
-        // a "not anime" rule on an item TMDB knows nothing about.
+        // The negative form holds, as a "not anime" rule needs on an unknown title.
         assert!(matches_without_metadata(Condition::GenreNotContains(vec!["Animation".into()])));
     }
 
@@ -1444,14 +1417,13 @@ mod tests {
             Some(ImdbIdIn(_)) => AddedWithinDays(7),
             Some(AddedWithinDays(_)) => Monitored(true),
             Some(Monitored(_)) => HasMetadata(true),
-            Some(HasMetadata(_)) => return None,
+            Some(HasMetadata(_)) => OriginalLanguageKnown(true),
+            Some(OriginalLanguageKnown(_)) => return None,
         })
     }
 
-    /// Every kind explains itself in words: its key is in the dictionary and
-    /// every placeholder of the sentence is filled. A key nobody wrote comes
-    /// back as the key itself, and a parameter the engine stopped sending
-    /// leaves `{values}` on the panel.
+    /// Every kind explains itself in words, in English and French: its key is in
+    /// the dictionary and every placeholder of the sentence is filled.
     #[test]
     fn every_condition_produces_a_reason() {
         let (mut media, metadata) = (media(), metadata());
@@ -1468,8 +1440,7 @@ mod tests {
             let reason = english.describe(&outcome);
             assert!(!reason.contains(&outcome.key), "{} has no sentence: {reason}", outcome.kind);
             assert!(!reason.contains('{'), "{} left a placeholder: {reason}", outcome.kind);
-            // Said in the reader's language whole: no switch read as `true`,
-            // no size in English units, no time of day nobody asked for.
+            // Whole in French: no `true`, no English size unit, no stray time of day.
             let reason = french.describe(&outcome);
             for english_only in ["true", "false", " GB", "T00:", ":00Z", "[-]"] {
                 assert!(!reason.contains(english_only), "{}: {reason}", outcome.kind);
@@ -1477,7 +1448,7 @@ mod tests {
             assert!(seen.insert(current.kind()), "{} is visited twice", current.kind());
             condition = next_kind(Some(&current));
         }
-        assert_eq!(seen.len(), 28, "the walk visited {} kinds", seen.len());
+        assert_eq!(seen.len(), 29, "the walk visited {} kinds", seen.len());
     }
 
     #[test]

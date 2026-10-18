@@ -4,24 +4,20 @@ import { test, expect, api, openScreen, screenShown, ARR } from './fixtures';
 import type { RuleDraft } from '../src/api/types';
 
 /**
- * The journeys a user actually walks, against the real binary. These exist to
- * catch what neither the Rust tests nor the component tests can see: a route
- * that does not resolve, a control wired to nothing, a table that renders empty
- * because a payload field was renamed on one side only.
+ * The journeys a user walks, against the real binary: a dead route, a control wired to nothing
+ * or a field renamed on one side only shows here and in no other test.
  */
 
 test.describe('navigation', () => {
   test('every sidebar entry reaches a page that renders', async ({ page }) => {
-    // Counted by hand: a sidebar link navigates without loading a page, so
-    // `waitForLoadState('networkidle')` answers at once, before the loads.
+    // Counted by hand: a sidebar link loads no page, so networkidle answers before the loads.
     let inFlight = 0;
     page.on('request', () => (inFlight += 1));
     page.on('requestfinished', () => (inFlight -= 1));
     page.on('requestfailed', () => (inFlight -= 1));
     await page.goto('/');
 
-    // Read the entries from the sidebar itself rather than restating the route
-    // table here: a link added without a page must fail this test.
+    // Read from the sidebar, so a link added without a page fails this test.
     const links = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link');
     const count = await links.count();
     expect(count).toBeGreaterThan(5);
@@ -31,9 +27,7 @@ test.describe('navigation', () => {
       const label = (await link.innerText()).trim();
       await link.click();
 
-      // A rendered page has its own title, not the not-found page's, and no
-      // error banner once its loads have answered: the heading draws before
-      // them, and a load answering 500 shows its banner after.
+      // The heading draws before the loads, and a load answering 500 shows its banner after.
       await screenShown(page, label);
       await expect.poll(() => inFlight, { message: `${label} never settles` }).toBe(0);
       await expect(page.getByRole('alert'), `${label} shows an error`).toHaveCount(0);
@@ -41,8 +35,7 @@ test.describe('navigation', () => {
   });
 
   test('the chrome speaks the configured language', async ({ page }) => {
-    // Proves the dictionary reaches the browser, which the English run cannot:
-    // in English most keys and their translations are the same word.
+    // In English most keys read as their translation, so only another language proves this.
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings: { ui_language: 'fr' } }),
@@ -60,10 +53,8 @@ test.describe('navigation', () => {
   });
 
   /**
-   * The same index fallback that makes a deep link work also means the server
-   * answers 200 for *any* path, so telling somebody they mistyped is the
-   * client's job. The dashboard in its place would be a screen nobody asked
-   * for, with no menu entry active and nothing saying why.
+   * The server answers 200 for any path, so a mistyped one is the client's to report. The
+   * dashboard in its place would be a screen nobody asked for.
    */
   test('a path that does not exist says so, and keeps the address', async ({ page }) => {
     await page.goto('/typo');
@@ -76,8 +67,7 @@ test.describe('navigation', () => {
     await expect(navigation).toBeVisible();
     await expect(navigation.locator('[aria-current="page"]')).toHaveCount(0);
 
-    // The way out offered in the page's header, where every action is, and
-    // not the sidebar's own link to the same place.
+    // The header's own link, where every action is, and not the sidebar's.
     await page.getByRole('link', { name: 'Back to the dashboard' }).click();
     await screenShown(page, 'the dashboard');
     expect(new URL(page.url()).pathname).toMatch(/\/$/);
@@ -93,9 +83,8 @@ async function addCondition(page: Page, kind: string): Promise<void> {
 
 test.describe('unsaved work', () => {
   /**
-   * The browser has moved by the time Back is heard. Only a browser shows that
-   * the editor asks first, and that Cancel puts the address back with the
-   * draft still open.
+   * The browser has moved by the time Back is heard, so only a browser shows that Cancel puts
+   * the address back with the draft still open.
    */
   test('Back under a half-written rule asks first, and Cancel keeps it', async ({ page }) => {
     await openScreen(page, '/');
@@ -121,11 +110,8 @@ test.describe('unsaved work', () => {
 
 test.describe('picking a condition value', () => {
   /**
-   * A genre is a string the engine compares, and the exact spelling lives in
-   * the metadata rather than in the user's head. Only a browser can establish
-   * that the library's own values reach the picker, that choosing one stores
-   * that value, and that a second one is an alternative rather than a second
-   * requirement.
+   * The library's values reach the picker, choosing one stores its exact spelling, and a second
+   * one is an alternative rather than a second requirement.
    */
   test('a genre rule is built from the library, not from memory', async ({ page }) => {
     await page.goto('/rules');
@@ -135,20 +121,18 @@ test.describe('picking a condition value', () => {
     await page.getByLabel('Target category', { exact: true }).selectOption('anime');
     await addCondition(page, 'genre_contains');
 
-    // The list is what the fake Radarr's library carries, so a value appears
-    // here only if the facets reached the browser. Named exactly: the
-    // quantifier selector beside it is captioned with the same words.
+    // Named exactly: the quantifier selector beside it carries the same words.
     const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
     await picker.click();
     await expect(page.getByRole('option', { name: 'Animation' })).toBeVisible();
 
-    // Typed without its capital, and the option is still found: the point of
-    // the control is that the spelling is not the user's to remember.
+    // Typed without its capital: the spelling is not the user's to remember.
     await picker.fill('anim');
     await page.getByRole('option', { name: 'Animation' }).click();
 
     await page.getByRole('button', { name: 'Save rule' }).click();
-    await expect(page.getByText('Animated')).toBeVisible();
+    const table = page.getByRole('table', { name: 'Rules' });
+    await expect(table.getByText('Animated', { exact: true })).toBeVisible();
 
     // What was stored is the library's spelling, in the multi-value shape.
     const rules = (await api('/rules')) as { name: string; conditions: unknown[] }[];
@@ -164,7 +148,6 @@ test.describe('the routing journey', () => {
       body: JSON.stringify({ settings: { global_dry_run: 'false' } }),
     });
 
-    // --- create the rule through the editor -------------------------------
     await page.goto('/rules');
     await page.getByRole('button', { name: 'New Rule' }).click();
 
@@ -176,29 +159,19 @@ test.describe('the routing journey', () => {
     await page.getByRole('button', { name: 'Save rule' }).click();
     await expect(page.getByText('Japanese animation')).toBeVisible();
 
-    // --- simulate ----------------------------------------------------------
     await page.goto('/simulation');
     await page.getByRole('button', { name: /run simulation/i }).click();
 
-    // One move proposed for Akira, found by the control that selects it: every
-    // row's explanation echoes the condition's values, so a row-level text
-    // filter matches all of them.
+    // Found by its checkbox, since every row's explanation echoes the condition's values.
     await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toHaveCount(
       1,
     );
 
-    // The explanation is the product's core promise, so it has to be on screen
-    // next to the move rather than a click away.
+    // The explanation is on screen beside the move, never a click away.
     await expect(page.getByText(/Title contains .*found \[Akira\]/)).toBeVisible();
     await expect(page.getByText('/movies/anime').first()).toBeVisible();
 
-    // --- apply -------------------------------------------------------------
-    // Nothing is asked here, and that is the design: "apply selected" goes
-    // straight through below the confirmation threshold, and only the backend's
-    // refusal past it turns into a question. Asserting that no dialog appears
-    // needs the absence to be observable, which a `page.on('dialog')` handler
-    // cannot give: it cannot tell a dialog that never came from one it
-    // accepted.
+    // Below the confirmation threshold the apply asks nothing, so the banner follows the click.
     await page.getByRole('checkbox', { name: 'Select the move for "Akira"' }).check();
     await page.getByRole('button', { name: /apply selected/i }).click();
 
@@ -212,16 +185,13 @@ test.describe('the routing journey', () => {
     const akira = movies.find((m) => m.title === 'Akira');
     expect(akira?.rootFolderPath).toBe('/movies/anime');
 
-    // --- revert ------------------------------------------------------------
     await page.goto('/history');
     await page
       .getByRole('button', { name: /revert/i })
       .first()
       .click();
 
-    // Reverting asks once, in a dialog that also carries the "move the files
-    // too" choice, rather than two chained native prompts whose second Cancel
-    // would not cancel.
+    // One dialog asks and carries the "move the files too" choice: no second prompt to cancel.
     const confirmRevert = page.getByRole('dialog');
     await expect(confirmRevert).toBeVisible();
     await confirmRevert.getByRole('button', { name: 'Put back' }).click();
@@ -237,15 +207,30 @@ test.describe('the routing journey', () => {
   });
 });
 
+test.describe('the templates', () => {
+  test('a template from the gallery lands as rules the table lists', async ({ page }) => {
+    await page.goto('/rules');
+    await page.getByRole('button', { name: 'Add – Anime' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Anime' });
+    await expect(dialog.getByLabel('Category')).toHaveValue('anime');
+    // The preview answers before anything is stored.
+    await expect(dialog.getByRole('heading', { name: 'What it would do' })).toBeVisible();
+    await expect(dialog.getByRole('status')).toHaveText(/Titles it recognises|no title/);
+    await dialog.getByRole('button', { name: 'Add' }).click();
+
+    await expect(page.getByText('Template "Anime" added. Rules created: 2')).toBeVisible();
+    const table = page.getByRole('table', { name: 'Rules' });
+    await expect(table.getByText('Anime series', { exact: true })).toBeVisible();
+    await expect(table.getByText('Anime films', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Replace – Anime' })).toBeVisible();
+  });
+});
+
 test.describe('guardrails are visible', () => {
   test('the shell states whether writing is possible', async ({ page }) => {
     await page.goto('/');
-    // Scoped to the top bar: the Dashboard also has a "Run a dry-run" link, and
-    // matching that instead would make this assertion pass for the wrong reason.
-    //
-    // Asserted on the accessible name rather than the visible text: the chip
-    // shows a short word so the chrome does not change width with the
-    // language, and the whole sentence is what a screen reader is given.
+    // Top bar only: the dashboard links a dry-run too. The chip's name holds the full sentence.
     const mode = page.locator('.topbar .mode-chip');
     await expect(mode).toHaveAccessibleName(/dry-run/i);
     await expect(page.locator('.topbar .mode-dot')).toHaveClass(/is-held/);
@@ -256,11 +241,7 @@ test.describe('guardrails are visible', () => {
     });
     await page.reload();
     await expect(mode).toHaveAccessibleName(/live mode/i);
-    // Never the danger colour for the state the application is meant to run
-    // in. Measured rather than asserted against a class name: `.mode-chip`
-    // carries no modifier, so a class assertion here could not fail whatever
-    // the stylesheet did. Both values are resolved by the browser, or a hex
-    // token would be compared against an `rgb()` and never match either.
+    // Live never paints danger. Compared as resolved colours: a hex token never equals an rgb().
     const dot = page.locator('.topbar .mode-dot');
     await expect(dot).toHaveClass(/is-live/);
     const [painted, success, danger] = await page.evaluate(() => {
@@ -285,10 +266,7 @@ test.describe('guardrails are visible', () => {
 });
 
 test.describe('the API reference', () => {
-  /**
-   * Built from the contract the binary serves: an operation the screen drops,
-   * a method it does not read, is one an outside application cannot find.
-   */
+  /** An operation the screen drops is one an outside application cannot find. */
   test('shows every operation the contract holds', async ({ page }) => {
     const contract = (await api('/openapi.json')) as { paths: Record<string, object> };
     const methods = ['get', 'post', 'put', 'patch', 'delete'];
@@ -319,8 +297,7 @@ test.describe('reclassifying a whole library', () => {
   test('apply all reaches past the displayed list, in batches', async ({ page }) => {
     await api('/settings', {
       method: 'PUT',
-      // Two per batch, so three matching films need two batches: the point is
-      // that the user confirms once, not once per batch.
+      // Two per batch, so three films take two batches and the user still confirms once.
       body: JSON.stringify({ settings: { global_dry_run: 'false', batch_limit: '2' } }),
     });
     await api('/rules', {

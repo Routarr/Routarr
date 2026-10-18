@@ -62,8 +62,8 @@ describe('GettingStarted', () => {
     const next = screen.getByRole('link', { name: 'Open categories and folders' });
     expect(next.getAttribute('href')).toBe('/categories');
     expect(next.classList.contains('btn-primary')).toBe(true);
-    expect(screen.getByRole('link', { name: 'Create a rule' }).getAttribute('href')).toBe(
-      '/rules?new=1',
+    expect(screen.getByRole('link', { name: 'Open the templates' }).getAttribute('href')).toBe(
+      '/rules#templates',
     );
     expect(screen.getByRole('link', { name: 'Open the sources' }).getAttribute('href')).toBe(
       '/sources',
@@ -139,9 +139,8 @@ describe('GettingStarted', () => {
   });
 
   /**
-   * Each choice replaces the block that holds the pressed button, and the
-   * focus with it. The focus goes to what takes the block's place, and Resume
-   * carries the sentence it answers.
+   * Skipping removes the block that held the pressed button, so the focus goes to Resume,
+   * which carries the sentence it answers.
    */
   it('puts the focus on Resume once the guide is skipped', async () => {
     vi.spyOn(api, 'setOnboarding').mockResolvedValue(

@@ -9,11 +9,7 @@ export interface StepGuide {
   to: string;
 }
 
-/**
- * Each step points at the real screen, never at a form of its own: a second
- * copy of the instance or rule form would have to follow every change of the
- * first, validation included, and would drift the first time one of them moved.
- */
+/** Each step opens the real screen, since a second copy of its form would drift from the first. */
 export const STEP_GUIDES: Record<OnboardingStep['id'], StepGuide> = {
   instance: {
     titleKey: 'GuideInstanceTitle',
@@ -37,7 +33,7 @@ export const STEP_GUIDES: Record<OnboardingStep['id'], StepGuide> = {
     titleKey: 'GuideRuleTitle',
     textKey: 'GuideRuleText',
     actionKey: 'GuideRuleAction',
-    to: '/rules?new=1',
+    to: '/rules#templates',
   },
   simulation: {
     titleKey: 'GuideSimulationTitle',
@@ -54,10 +50,8 @@ export const STEP_GUIDES: Record<OnboardingStep['id'], StepGuide> = {
 };
 
 /**
- * How far the required steps are, and which one comes next.
- *
- * Optional steps never count: they cannot hold the guide back, so counting them
- * would show "4 of 6" on an installation that is ready.
+ * How far the required steps are, and which one comes next. Optional steps never count, or a
+ * ready installation would read "4 of 6".
  */
 export function guideProgress(status: OnboardingStatus): {
   done: number;
@@ -73,10 +67,8 @@ export function guideProgress(status: OnboardingStatus): {
 }
 
 /**
- * The step to offer after `id`: the next one in the list not done yet,
- * optional or not, so an optional step is offered in its turn rather than
- * jumped over in silence. Past the end of the list, a required step left
- * behind, if any.
+ * The step to offer after `id`: the next one not done, optional ones included so none is
+ * skipped in silence. Past the end, a required step left behind, if any.
  */
 export function nextAfter(
   status: OnboardingStatus,
@@ -88,13 +80,8 @@ export function nextAfter(
 }
 
 /**
- * The warnings the guide does not say itself.
- *
- * While it runs, a warning that restates an open step is that step's, and its
- * banner and the dashboard list say it already. Every other warning shows, as
- * an Arr that stopped answering, which no step brings back. Once every
- * required step is done nothing is held back: Finish is a click the reader may
- * never make, and an optional step may stay open for good.
+ * The warnings the guide does not say itself: while it runs, one restating an open step is left
+ * to that step. Once the required steps are done all show, since Finish may never be pressed.
  */
 export function outsideTheGuide(warnings: Warning[], status: OnboardingStatus | null): Warning[] {
   if (!status || status.state !== 'pending' || status.complete) return warnings;
@@ -108,11 +95,8 @@ export function requiredNumber(status: OnboardingStatus, id: OnboardingStep['id'
 }
 
 /**
- * Read a one-shot request carried in the address, then take it out.
- *
- * A link from the guide opens a dialog with `?add=1`. Left in the address, a
- * reload or the back button would open the dialog again, long after the reader
- * closed it.
+ * Read a one-shot flag such as `?add=1`, then take it out of the address, or a reload or the
+ * back button would open its dialog again.
  */
 export function takeQueryFlag(name: string): boolean {
   const params = new URLSearchParams(window.location.search);

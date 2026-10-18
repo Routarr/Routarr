@@ -45,16 +45,10 @@ export default defineConfig({
 
     rollupOptions: {
       output: {
-        // Everything from node_modules in one chunk of its own.
-        //
-        // Without this, Rollup folds the Svelte runtime and the icons into
-        // whichever application chunk happens to pull them first, shipping
-        // them as `ErrorBanner-<hash>.js`, which makes a network panel lie
-        // about what is being downloaded. It also caches better: dependencies
-        // change on a Dependabot schedule, screens change on every commit, and
-        // a shared hash would let one edit invalidate both.
+        // Dependencies in a chunk of their own, cached apart from the screens. An icon stays with
+        // what draws it, or one that a single lazy screen uses would join the first load.
         manualChunks(id) {
-          if (id.includes('node_modules')) return 'vendor';
+          if (id.includes('node_modules') && !id.includes('/@lucide/')) return 'vendor';
         },
       },
     },
