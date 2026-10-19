@@ -56,6 +56,27 @@ pub struct ArrMedia {
     pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
 }
 
+impl ArrMedia {
+    /// The title with the deepest of `folders` holding its path as its root folder. An Arr
+    /// reports the deepest root folder it lists, worked out at every read, so a declared
+    /// destination beneath one would read as that root, and its move be proposed again. The
+    /// Arr's own answer stands under none of them.
+    pub fn in_folder_of(&self, folders: &[String]) -> Self {
+        let deepest = self.path.as_deref().and_then(|path| {
+            folders
+                .iter()
+                .filter(|folder| {
+                    crate::paths::within(path, folder) && !crate::paths::same(path, folder)
+                })
+                .max_by_key(|folder| crate::paths::key(folder).len())
+        });
+        match deepest {
+            Some(folder) => Self { root_folder_path: Some(folder.clone()), ..self.clone() },
+            None => self.clone(),
+        }
+    }
+}
+
 /// A tag as defined in an Arr.
 #[derive(Debug, Clone)]
 pub struct ArrTag {

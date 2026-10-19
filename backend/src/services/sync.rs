@@ -429,7 +429,9 @@ async fn do_sync(
         );
         retire_media(&mut tx, &reassigned).await?;
     }
+    let known = known_folders(&mut tx, &instance.id).await?;
     for item in &media {
+        let item = &item.in_folder_of(&known);
         upsert_media(&mut *tx, &instance.id, item, &names, &sync_token, &read_at).await?;
     }
 
@@ -540,6 +542,7 @@ pub async fn sync_single_media(
     if let Some(read) = &fresh_profiles {
         store_profiles(&mut tx, &instance.id, read).await?;
     }
+    let item = item.in_folder_of(&known_folders(&mut tx, &instance.id).await?);
     upsert_media(&mut *tx, &instance.id, &item, &names, &read_at, &read_at).await?;
     tx.commit().await?;
 
@@ -633,6 +636,17 @@ pub async fn retire_media(
 
 /// Write one media row, creating or updating it. The one writer of its column list, for the
 /// full sync and the webhook alike, so a new column cannot reach only one of them.
+/// Every folder of `instance` Routarr knows, reported or declared.
+async fn known_folders(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+) -> AppResult<Vec<String>> {
+    Ok(sqlx::query_scalar("SELECT path FROM root_folders WHERE instance_id = ?")
+        .bind(instance_id)
+        .fetch_all(&mut **tx)
+        .await?)
+}
+
 async fn upsert_media<'e, E>(
     executor: E,
     instance_id: &str,
