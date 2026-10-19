@@ -1,0 +1,123 @@
+name: Mutants
+
+# Apart from ci.yml on purpose: a run takes hours and gates nothing, neither a pull request nor
+# a release (`scripts/release-runs.py` reads ci.yml and docker.yml alone). Line coverage says a
+# line ran. A mutant no test catches says no test would notice that line change. It runs over
+# the code that decides where a title goes and what guards a move.
+on:
+  schedule:
+    # Saturdays at 02:41 UTC, off the hour, when GitHub's scheduler is busiest.
+    - cron: '41 2 * * 6'
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time: a dispatch during the weekly run waits for it.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # A property test a mutant breaks must not write its seed into the tree the run mutates.
+  PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
+
+jobs:
+  mutants:
+    name: Mutants in ${{ matrix.area }}, shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    # Shards of about an hour each: a mutant costs a build of some 45 s plus its tests. The
+    # tests named are those reaching the code, and `paths.rs` takes the whole suite, since its
+    # collation orders every query.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - area: rule-engine
+            files: src/services/rule_engine/*.rs
+            tests: rule_engine rule_tests rule_health routing placement properties scores ratings
+            shard: 0/3
+          - area: rule-engine
+            files: src/services/rule_engine/*.rs
+            tests: rule_engine rule_tests rule_health routing placement properties scores ratings
+            shard: 1/3
+          - area: rule-engine
+            files: src/services/rule_engine/*.rs
+            tests: rule_engine rule_tests rule_health routing placement properties scores ratings
+            shard: 2/3
+          - area: guards
+            files: src/services/executor/guards.rs
+            tests: executor batch_apply move_confirmation auto_apply paced_moves
+            shard: 0/2
+          - area: guards
+            files: src/services/executor/guards.rs
+            tests: executor batch_apply move_confirmation auto_apply paced_moves
+            shard: 1/2
+          - area: paths
+            files: src/paths.rs
+            tests: ''
+            shard: 0/2
+          - area: paths
+            files: src/paths.rs
+            tests: ''
+            shard: 1/2
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: backend
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-mutants@27.1.0
+
+      # In place, since a runner's copy would only cost disk. The baseline run proves the
+      # tests named pass unmutated, and sets each mutant's timeout from their time.
+      - name: Mutate
+        id: mutate
+        env:
+          FILES: ${{ matrix.files }}
+          SHARD: ${{ matrix.shard }}
+          TESTS: ${{ matrix.tests }}
+        run: |
+          set +e
+          read -ra filters <<<"$TESTS"
+          cargo mutants --in-place --no-shuffle --shard "$SHARD" --file "$FILES" \
+            --cargo-arg=--locked --minimum-test-timeout 60 -- "${filters[@]}"
+          echo "status=$?" >>"$GITHUB_OUTPUT"
+
+      - name: Say which mutants no test caught
+        if: ${{ !cancelled() }}
+        run: |
+          for kind in missed timeout; do
+            if [ -s "mutants.out/$kind.txt" ]; then
+              echo "### $kind" >>"$GITHUB_STEP_SUMMARY"
+              sed 's/^/- /' "mutants.out/$kind.txt" >>"$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: mutants-${{ matrix.area }}-${{ strategy.job-index }}
+          path: backend/mutants.out
+          retention-days: 30
+
+      # Reported, not yet failed on: a survivor (2) or a timeout (3) waits for a test, or for an
+      # entry in `.cargo/mutants.toml` saying why it changes nothing. A setup or baseline
+      # failure fails at once.
+      - name: Fail on anything but survivors
+        env:
+          STATUS: ${{ steps.mutate.outputs.status }}
+        run: |
+          case "$STATUS" in
+            0 | 2 | 3) ;;
+            *) echo "cargo mutants ended with $STATUS" && exit 1 ;;
+          esac
