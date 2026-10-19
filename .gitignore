@@ -53,3 +53,6 @@ frontend/coverage/
 # bytecode caches land in the source tree.
 __pycache__/
 *.pyc
+
+# What a run of cargo mutants leaves in place.
+/backend/mutants.out*
