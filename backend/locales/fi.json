@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Lue uudelleen",
   "SourceRefreshed": "{source}: uudelleen luettuja vastauksia: {enriched}, epäonnistuneita: {failed}",
   "SourceRefreshNone": "Ei uudelleen luettavia lähteitä: Radarrin ja Sonarrin metatiedot tulevat jokaisen synkronoinnin mukana.",
-  "TermTextTemplate": "Valmis sääntökokoelma tavalliseen kirjaston jaotteluun, kuten animeen tai lastennimikkeisiin. Lisäämisen jälkeen sen säännöt ovat tavallisia sääntöjä, ja jokainen niistä kirjaa mallin, josta se on peräisin."
+  "TermTextTemplate": "Valmis sääntökokoelma tavalliseen kirjaston jaotteluun, kuten animeen tai lastennimikkeisiin. Lisäämisen jälkeen sen säännöt ovat tavallisia sääntöjä, ja jokainen niistä kirjaa mallin, josta se on peräisin.",
+  "AuditApplicationKeyExpired": "Lähetettiin vanhentunut sovellusavain {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Sovellusavain vanhenee pian",
+  "NotificationMessageApplicationKeyExpiring": "Sovellusavain {name} vanhenee {date}. Luo sovellukselle uusi avain ja mitätöi tämä avain ennen sitä.",
+  "ApplicationExpiry": "Vanhenee",
+  "ApplicationExpiryIn30Days": "30 päivän kuluttua",
+  "ApplicationExpiryIn90Days": "90 päivän kuluttua",
+  "ApplicationExpiryInAYear": "Vuoden kuluttua",
+  "ApplicationExpiryHelp": "Tämän päivän jälkeen jokainen avaimella tehty kutsu hylätään, kunnes mitätöit sen. Routarr lähettää ilmoituksen viikkoa ennen. Avainta ei uusita: luo uusi ja mitätöi vanha.",
+  "ApplicationExpired": "Vanhentunut",
+  "ApplicationExpiresSoon": "Viikon sisällä",
+  "ApplicationLongUnused": "Käyttämättä yli 90 päivää"
 }

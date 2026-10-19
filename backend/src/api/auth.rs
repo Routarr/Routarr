@@ -26,7 +26,7 @@ use crate::AppState;
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
 use crate::jobs::Attribution;
-use crate::services::applications::{self, Grant, TOKEN_PREFIX};
+use crate::services::applications::{self, Grant, Resolved, TOKEN_PREFIX};
 use crate::services::executor::Confirmed;
 use crate::services::{accounts, audit};
 
@@ -211,8 +211,15 @@ pub async fn authenticate(
             extract_key(request.headers()).filter(|key| key.starts_with(TOKEN_PREFIX))
     {
         let grant = match applications::resolve(&state.pool, &token).await {
-            Ok(Some(grant)) => grant,
-            Ok(None) => {
+            Ok(Resolved::Live(grant)) => grant,
+            Ok(Resolved::Expired { id, name, expires_at }) => {
+                let event = refusal(audit::Kind::ApplicationKey, "AuditApplicationKeyExpired")
+                    .with("name", &name)
+                    .with("id", &id);
+                refused(&state, client, audit::Event { subject: Some(&name), ..event });
+                return expired_application_key(&expires_at);
+            }
+            Ok(Resolved::Unknown) => {
                 // The id names the row and is no secret: the token's secret
                 // follows it.
                 let id = token.strip_prefix(TOKEN_PREFIX).and_then(|rest| rest.split_once('_'));
@@ -374,6 +381,22 @@ fn refused_origin(headers: &HeaderMap) -> audit::Event<'static> {
 /// The refusal of a token shaped like an application key that names no live one.
 fn unknown_application_key() -> Response {
     unauthorized_because("This application key does not exist or was revoked.")
+}
+
+/// Refused until revoked, with a `reason` a script branches on: renewing means a new key.
+fn expired_application_key(expires_at: &str) -> Response {
+    let message = format!(
+        "This application key expired on {}. Make a new one on the Applications screen.",
+        crate::timestamp::written(expires_at)
+    );
+    (
+        StatusCode::UNAUTHORIZED,
+        [(axum::http::header::WWW_AUTHENTICATE, r#"Bearer realm="Routarr""#)],
+        axum::Json(serde_json::json!({
+            "error": "unauthorized", "message": message, "reason": "key_expired",
+        })),
+    )
+        .into_response()
 }
 
 /// A 401 in the envelope, naming the scheme a key is sent with: RFC 9110
@@ -834,11 +857,17 @@ pub struct Me {
     /// An application's name, the signed-in person, `apikey` for the owner's
     /// key, or `anonymous` where the mode asks for nothing.
     pub subject: String,
+    /// When the application key this request carries stops being accepted. Null for a key that
+    /// never expires, and for anyone else.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
+    pub expires_at: Option<String>,
 }
 
 /// Who this request is, for a shell that wants to show a name.
 pub async fn me(axum::Extension(identity): axum::Extension<Identity>) -> super::Json<Me> {
-    super::Json(Me { subject: identity.subject })
+    let expires_at = identity.application.as_ref().and_then(|grant| grant.expires_at.clone());
+    super::Json(Me { subject: identity.subject, expires_at })
 }
 
 /// Send the browser to the provider.

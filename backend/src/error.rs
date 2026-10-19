@@ -336,7 +336,8 @@ pub struct ErrorResponse {
     /// stays until somebody changes it: `name_taken`, `in_use`,
     /// `already_listed`, `not_declared`, `category_mapped`,
     /// `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,
-    /// `only_credential`, `secret_unreadable`.
+    /// `only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an
+    /// application key past its expiry.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
     /// The guardrail that asks, for `confirmation_required`. Sending it back

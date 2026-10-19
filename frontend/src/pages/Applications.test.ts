@@ -24,7 +24,9 @@ function application(over: Partial<Application> = {}): Application {
     may_move_files: false,
     created_at: '2026-09-30 10:00:00',
     created_by: null,
-    last_used_at: null,
+    last_used_at: new Date().toISOString(),
+    expires_at: null,
+    expired: false,
     ...over,
   };
 }
@@ -77,6 +79,33 @@ describe('Applications', () => {
     expect(made.closest('td')?.classList.contains('cell-timestamp')).toBe(true);
   });
 
+  /**
+   * A key stopping within the week the notification warns of, one already refused and one
+   * nobody used for 90 days each read so in their row. An expired key is greyed until revoked.
+   */
+  it('marks a key that expires soon, an expired one and one left unused', async () => {
+    const day = 86_400_000;
+    const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+    show([
+      application({ id: 'k1', name: 'soon', expires_at: at(3 * day) }),
+      application({ id: 'k2', name: 'gone', expires_at: at(-day), expired: true }),
+      application({ id: 'k3', name: 'idle', last_used_at: at(-91 * day) }),
+      application({ id: 'k4', name: 'fine', expires_at: at(60 * day) }),
+    ]);
+
+    const row = async (name: string) =>
+      (await screen.findByText(name)).closest('tr') as HTMLElement;
+    expect(within(await row('soon')).getByText('Within a week')).toBeTruthy();
+    const gone = await row('gone');
+    expect(within(gone).getByText('Expired').classList.contains('badge-danger')).toBe(true);
+    expect(gone.classList.contains('row-muted')).toBe(true);
+    expect(within(await row('idle')).getByText('Unused for over 90 days')).toBeTruthy();
+    const fine = await row('fine');
+    for (const badge of ['Within a week', 'Expired', 'Unused for over 90 days']) {
+      expect(within(fine).queryByText(badge)).toBeNull();
+    }
+  });
+
   it('makes a key and shows its token once, then no more once revoked', async () => {
     const user = userEvent.setup();
     show([]);
@@ -87,6 +116,7 @@ describe('Applications', () => {
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText('Name'), 'n8n');
     await user.click(within(dialog).getByLabelText(/^Write/));
+    await user.selectOptions(within(dialog).getByLabelText('Expires'), 'In 90 days');
     // What the list reads once the key exists.
     vi.spyOn(api, 'getApplications').mockResolvedValue([application({ scopes: ['write'] })]);
     await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
@@ -98,6 +128,7 @@ describe('Applications', () => {
       scopes: ['write'],
       may_confirm: [],
       may_move_files: false,
+      expires_in_days: 90,
     });
     expect(await screen.findByText('rtr_k1_secret')).toBeTruthy();
     expect(screen.getByText('Key for n8n')).toBeTruthy();
@@ -143,6 +174,7 @@ describe('Applications', () => {
       scopes: [],
       may_confirm: [],
       may_move_files: false,
+      expires_in_days: null,
     });
   });
 
@@ -168,6 +200,7 @@ describe('Applications', () => {
       scopes: ['operate'],
       may_confirm: ['capacity', 'batch'],
       may_move_files: true,
+      expires_in_days: null,
     });
     // The token is read on the page, not under a dialog left open over it.
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

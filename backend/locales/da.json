@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Læs igen",
   "SourceRefreshed": "{source}: svar læst igen: {enriched}, mislykket: {failed}",
   "SourceRefreshNone": "Ingen kilde at læse igen: metadata fra Radarr og Sonarr kommer med hver synkronisering.",
-  "TermTextTemplate": "Et færdigt regelsæt til en almindelig opdeling af biblioteket, f.eks. anime eller børnetitler. Når det er tilføjet, er dets regler almindelige regler, og hver af dem registrerer den skabelon, den kom fra."
+  "TermTextTemplate": "Et færdigt regelsæt til en almindelig opdeling af biblioteket, f.eks. anime eller børnetitler. Når det er tilføjet, er dets regler almindelige regler, og hver af dem registrerer den skabelon, den kom fra.",
+  "AuditApplicationKeyExpired": "Den udløbne applikationsnøgle {name} ({id}) blev sendt.",
+  "NotificationHeadlineApplicationKeyExpiring": "En applikationsnøgle udløber snart",
+  "NotificationMessageApplicationKeyExpiring": "Applikationsnøglen {name} udløber {date}. Opret en ny nøgle til dens applikation, og tilbagekald denne inden da.",
+  "ApplicationExpiry": "Udløber",
+  "ApplicationExpiryIn30Days": "Om 30 dage",
+  "ApplicationExpiryIn90Days": "Om 90 dage",
+  "ApplicationExpiryInAYear": "Om et år",
+  "ApplicationExpiryHelp": "Efter denne dato afvises alle kald med nøglen, indtil du tilbagekalder den. Routarr sender en notifikation en uge før. En nøgle fornyes ikke: opret en ny, og tilbagekald den gamle.",
+  "ApplicationExpired": "Udløbet",
+  "ApplicationExpiresSoon": "Inden for en uge",
+  "ApplicationLongUnused": "Ubrugt i over 90 dage"
 }

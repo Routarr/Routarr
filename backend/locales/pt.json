@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Reler",
   "SourceRefreshed": "{source}: respostas relidas: {enriched}, falhadas: {failed}",
   "SourceRefreshNone": "Nenhuma fonte a reler: os metadados do Radarr e do Sonarr chegam com cada sincronização.",
-  "TermTextTemplate": "Um conjunto de regras pronto para uma divisão habitual da biblioteca, como anime ou títulos infantis. Depois de adicionado, as regras dele são regras comuns, e cada uma regista o modelo de onde veio."
+  "TermTextTemplate": "Um conjunto de regras pronto para uma divisão habitual da biblioteca, como anime ou títulos infantis. Depois de adicionado, as regras dele são regras comuns, e cada uma regista o modelo de onde veio.",
+  "AuditApplicationKeyExpired": "Foi enviada a chave de aplicação expirada {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Uma chave de aplicação expira em breve",
+  "NotificationMessageApplicationKeyExpiring": "A chave de aplicação {name} expira em {date}. Crie uma nova chave para a respetiva aplicação e revogue esta antes dessa data.",
+  "ApplicationExpiry": "Expira",
+  "ApplicationExpiryIn30Days": "Daqui a 30 dias",
+  "ApplicationExpiryIn90Days": "Daqui a 90 dias",
+  "ApplicationExpiryInAYear": "Daqui a um ano",
+  "ApplicationExpiryHelp": "Depois desta data, todas as chamadas com a chave são recusadas, até a revogar. O Routarr envia uma notificação uma semana antes. Uma chave não é renovada: crie uma nova e revogue a antiga.",
+  "ApplicationExpired": "Expirada",
+  "ApplicationExpiresSoon": "Numa semana",
+  "ApplicationLongUnused": "Sem uso há mais de 90 dias"
 }

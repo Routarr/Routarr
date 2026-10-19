@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Läs igen",
   "SourceRefreshed": "{source}: svar lästa igen: {enriched}, misslyckade: {failed}",
   "SourceRefreshNone": "Ingen källa att läsa igen: metadata från Radarr och Sonarr kommer med varje synkronisering.",
-  "TermTextTemplate": "En färdig regeluppsättning för en vanlig uppdelning av biblioteket, till exempel anime eller barntitlar. När den har lagts till är dess regler vanliga regler, och var och en registrerar mallen den kommer från."
+  "TermTextTemplate": "En färdig regeluppsättning för en vanlig uppdelning av biblioteket, till exempel anime eller barntitlar. När den har lagts till är dess regler vanliga regler, och var och en registrerar mallen den kommer från.",
+  "AuditApplicationKeyExpired": "Den utgångna applikationsnyckeln {name} ({id}) skickades.",
+  "NotificationHeadlineApplicationKeyExpiring": "En applikationsnyckel går snart ut",
+  "NotificationMessageApplicationKeyExpiring": "Applikationsnyckeln {name} går ut {date}. Skapa en ny nyckel för dess applikation och återkalla den här före dess.",
+  "ApplicationExpiry": "Går ut",
+  "ApplicationExpiryIn30Days": "Om 30 dagar",
+  "ApplicationExpiryIn90Days": "Om 90 dagar",
+  "ApplicationExpiryInAYear": "Om ett år",
+  "ApplicationExpiryHelp": "Efter detta datum avvisas varje anrop med nyckeln, tills du återkallar den. Routarr skickar en avisering en vecka innan. En nyckel förnyas inte: skapa en ny och återkalla den gamla.",
+  "ApplicationExpired": "Utgången",
+  "ApplicationExpiresSoon": "Inom en vecka",
+  "ApplicationLongUnused": "Oanvänd i över 90 dagar"
 }
