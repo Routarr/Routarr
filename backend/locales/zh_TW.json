@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "超過這個日期，使用該金鑰的所有呼叫都會被拒絕，直到你將其撤銷。Routarr 會提前一週傳送通知。金鑰不能續期：請新增一個，並撤銷舊的。",
   "ApplicationExpired": "已到期",
   "ApplicationExpiresSoon": "一週內到期",
-  "ApplicationLongUnused": "超過 90 天未使用"
+  "ApplicationLongUnused": "超過 90 天未使用",
+  "JobDetailMovingFiles": "正在 {arr} 中移動 {title} 的檔案。",
+  "JobDetailStoppedArrUnreachable": "移動檔案時有 Arr 五分鐘無法讀取，已停止。已完成：{done}，失敗：{failed}，仍在移動：{moving}。其餘部分未嘗試。",
+  "JobDetailStoppedArrStalled": "有 Arr 移動同一作品的檔案已達六小時，其佇列可能卡住，已停止。已完成：{done}，失敗：{failed}，仍在移動：{moving}。其餘部分未嘗試。",
+  "ApplyStoppedArrUnreachable": "移動檔案時有 Arr 五分鐘無法讀取，已停止：其餘部分未嘗試。",
+  "ApplyStoppedArrStalled": "有 Arr 移動同一作品的檔案已達六小時，其佇列可能卡住，已停止：其餘部分未嘗試。"
 }

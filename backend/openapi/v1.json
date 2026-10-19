@@ -4991,7 +4991,9 @@
         "enum": [
           "dry_run",
           "cancelled",
-          "shutdown"
+          "shutdown",
+          "unreachable",
+          "stalled"
         ],
         "type": "string"
       },

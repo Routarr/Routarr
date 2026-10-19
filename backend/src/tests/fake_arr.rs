@@ -68,6 +68,8 @@ struct QueuedMove {
     item: i64,
     source: String,
     destination: String,
+    /// When the one disk command running before it ends, as the Arr runs one at a time.
+    starts_at: std::time::Instant,
     ends_at: std::time::Instant,
     /// Whether its end has been laid over the title.
     settled: bool,
@@ -84,6 +86,10 @@ struct Moving {
     /// Titles whose move command fails, leaving the new path recorded.
     failed: Vec<i64>,
     queued: Vec<QueuedMove>,
+    /// The most moves the Arr held unfinished at once.
+    most_held: usize,
+    /// Whether the command list answers a 500, as an Arr that stops answering does.
+    unreadable: bool,
 }
 
 #[derive(Clone)]
@@ -260,6 +266,16 @@ impl FakeArr {
     /// From now on `/system/status` reports `version` of `app`.
     pub fn report_version(&self, version: &str, app: &str) {
         *self.status.lock().expect("lock") = (version.to_string(), app.to_string());
+    }
+
+    /// The most moves this Arr ever held unfinished at once, queued or running.
+    pub fn most_moves_held(&self) -> usize {
+        self.moving.lock().expect("lock").most_held
+    }
+
+    /// From now on the command list answers a 500.
+    pub fn break_command_listing(&self) {
+        self.moving.lock().expect("lock").unreadable = true;
     }
 
     /// From now on each move queued runs for `lasts` before it ends.
@@ -912,13 +928,18 @@ fn take_update(
     if params.get("moveFiles").map(String::as_str) == Some("true") {
         let mut moving = state.moving.lock().expect("lock");
         let next = moving.queued.len() as i64 + 1;
-        let ends_at = std::time::Instant::now() + moving.lasts;
+        let now = std::time::Instant::now();
+        let unfinished: Vec<_> = moving.queued.iter().filter(|q| q.ends_at > now).collect();
+        let starts_at = unfinished.iter().map(|q| q.ends_at).max().unwrap_or(now);
+        moving.most_held = moving.most_held.max(unfinished.len() + 1);
+        let ends_at = starts_at + moving.lasts;
         moving.queued.push(QueuedMove {
             id: next,
             name: command,
             item: id,
             source: held["path"].as_str().unwrap_or_default().to_string(),
             destination: body["path"].as_str().unwrap_or_default().to_string(),
+            starts_at,
             ends_at,
             settled: false,
         });
@@ -947,17 +968,25 @@ fn settle_moves(state: &FakeState) {
 }
 
 /// The commands the Arr lists, as `GET /api/v3/command` answers.
-async fn commands(State(state): State<FakeState>, headers: HeaderMap) -> Json<serde_json::Value> {
+async fn commands(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     record_key(&state, &headers);
     record_read(&state, "/api/v3/command");
     settle_moves(&state);
     let moving = state.moving.lock().expect("lock");
+    if moving.unreadable {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
     let now = std::time::Instant::now();
     let listed: Vec<serde_json::Value> = moving
         .queued
         .iter()
         .map(|queued| {
-            let (status, message) = if queued.ends_at > now {
+            let (status, message) = if queued.starts_at > now {
+                ("queued", "")
+            } else if queued.ends_at > now {
                 ("started", "Moving")
             } else if moving.failed.contains(&queued.item) {
                 ("failed", "Access to the path is denied")
@@ -978,7 +1007,7 @@ async fn commands(State(state): State<FakeState>, headers: HeaderMap) -> Json<se
             })
         })
         .collect();
-    Json(serde_json::Value::Array(listed))
+    Ok(Json(serde_json::Value::Array(listed)))
 }
 
 async fn series_list(

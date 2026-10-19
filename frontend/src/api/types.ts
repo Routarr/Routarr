@@ -12,7 +12,7 @@ export type DecisionAction = 'move' | 'none' | 'skip';
 /** `requested`: the Arr took the move and was not yet seen to finish it. */
 export type DecisionStatus = 'pending' | 'requested' | 'applied' | 'failed' | 'skipped';
 /** Why a run that moves titles ended before its last move. */
-export type StopReason = 'dry_run' | 'cancelled' | 'shutdown';
+export type StopReason = 'dry_run' | 'cancelled' | 'shutdown' | 'unreachable' | 'stalled';
 export type LogAction = 'move' | 'revert';
 
 export interface Instance {

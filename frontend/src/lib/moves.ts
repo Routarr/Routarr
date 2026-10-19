@@ -6,6 +6,8 @@ const STOPPED: Record<StopReason, string> = {
   dry_run: 'ApplyStoppedByDryRun',
   cancelled: 'ApplyStoppedOnRequest',
   shutdown: 'ApplyStoppedForShutdown',
+  unreachable: 'ApplyStoppedArrUnreachable',
+  stalled: 'ApplyStoppedArrStalled',
 };
 
 /**

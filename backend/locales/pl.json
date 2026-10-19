@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Po tej dacie każde wywołanie z tym kluczem jest odrzucane, dopóki go nie unieważnisz. Routarr wysyła powiadomienie tydzień wcześniej. Klucza nie można odnowić: utwórz nowy i unieważnij stary.",
   "ApplicationExpired": "Wygasł",
   "ApplicationExpiresSoon": "W ciągu tygodnia",
-  "ApplicationLongUnused": "Nieużywany od ponad 90 dni"
+  "ApplicationLongUnused": "Nieużywany od ponad 90 dni",
+  "JobDetailMovingFiles": "Przenoszenie plików tytułu {title} w {arr}.",
+  "JobDetailStoppedArrUnreachable": "Zatrzymano, bo Arr był nieczytelny przez pięć minut podczas przenoszenia plików. Wykonane: {done}, nieudane: {failed}, wciąż przenoszone: {moving}. Reszty nie próbowano.",
+  "JobDetailStoppedArrStalled": "Zatrzymano, bo Arr przenosi pliki jednego tytułu od sześciu godzin, a jego kolejka prawdopodobnie utknęła. Wykonane: {done}, nieudane: {failed}, wciąż przenoszone: {moving}. Reszty nie próbowano.",
+  "ApplyStoppedArrUnreachable": "Zatrzymano, bo Arr był nieczytelny przez pięć minut podczas przenoszenia plików: reszty nie próbowano.",
+  "ApplyStoppedArrStalled": "Zatrzymano, bo Arr przenosi pliki jednego tytułu od sześciu godzin, a jego kolejka prawdopodobnie utknęła: reszty nie próbowano."
 }

@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "بعد هذا التاريخ يُرفض كل استدعاء بالمفتاح إلى أن تبطله. يرسل Routarr إشعارًا قبل أسبوع. لا يُجدَّد المفتاح: أنشئ مفتاحًا جديدًا وأبطل القديم.",
   "ApplicationExpired": "منتهي",
   "ApplicationExpiresSoon": "خلال أسبوع",
-  "ApplicationLongUnused": "بلا استخدام منذ أكثر من 90 يومًا"
+  "ApplicationLongUnused": "بلا استخدام منذ أكثر من 90 يومًا",
+  "JobDetailMovingFiles": "نقل ملفات {title} في {arr}.",
+  "JobDetailStoppedArrUnreachable": "توقّفت لأن تعذّرت قراءة أحد Arr لمدة خمس دقائق أثناء نقل الملفات. المنجَز: {done}، المخفق: {failed}، قيد النقل: {moving}. لم تجرِ محاولة الباقي.",
+  "JobDetailStoppedArrStalled": "توقّفت لأن أحد Arr يقوم بنقل ملفات عنوان واحد منذ ست ساعات، وقائمة انتظاره عالقة على الأرجح. المنجَز: {done}، المخفق: {failed}، قيد النقل: {moving}. لم تجرِ محاولة الباقي.",
+  "ApplyStoppedArrUnreachable": "توقّف لأن تعذّرت قراءة أحد Arr لمدة خمس دقائق أثناء نقل الملفات: لم تجرِ محاولة الباقي.",
+  "ApplyStoppedArrStalled": "توقّف لأن أحد Arr يقوم بنقل ملفات عنوان واحد منذ ست ساعات، وقائمة انتظاره عالقة على الأرجح: لم تجرِ محاولة الباقي."
 }

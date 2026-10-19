@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Na deze datum wordt elke aanroep met de sleutel geweigerd, totdat je hem intrekt. Routarr stuurt een week van tevoren een melding. Een sleutel wordt niet verlengd: maak een nieuwe en trek de oude in.",
   "ApplicationExpired": "Verlopen",
   "ApplicationExpiresSoon": "Binnen een week",
-  "ApplicationLongUnused": "Meer dan 90 dagen ongebruikt"
+  "ApplicationLongUnused": "Meer dan 90 dagen ongebruikt",
+  "JobDetailMovingFiles": "De bestanden van {title} worden verplaatst in {arr}.",
+  "JobDetailStoppedArrUnreachable": "Gestopt omdat een Arr vijf minuten niet te lezen was tijdens het verplaatsen van bestanden. Uitgevoerd: {done}, mislukt: {failed}, wordt nog verplaatst: {moving}. De rest is niet meer geprobeerd.",
+  "JobDetailStoppedArrStalled": "Gestopt omdat een Arr al zes uur de bestanden van één titel verplaatst, de wachtrij zit waarschijnlijk vast. Uitgevoerd: {done}, mislukt: {failed}, wordt nog verplaatst: {moving}. De rest is niet meer geprobeerd.",
+  "ApplyStoppedArrUnreachable": "Gestopt omdat een Arr vijf minuten niet te lezen was tijdens het verplaatsen van bestanden: de rest is niet meer geprobeerd.",
+  "ApplyStoppedArrStalled": "Gestopt omdat een Arr al zes uur de bestanden van één titel verplaatst, de wachtrij zit waarschijnlijk vast: de rest is niet meer geprobeerd."
 }

@@ -14,6 +14,10 @@ use super::{TestApp, one_move_ready};
 const BEFORE: &str = "/movies/standard/My Neighbor Totoro (1988)";
 const AFTER: &str = "/movies/anime/My Neighbor Totoro (1988)";
 
+/// A move running past the longest wait a 1 ms `move_wait` gives, 360 ms: the run stops waiting
+/// and leaves it to a sync.
+const STALLED: Duration = Duration::from_millis(800);
+
 async fn apply_with_files(app: &TestApp, decision_id: &str) -> executor::ApplyReport {
     executor::apply_decisions(
         &app.state,
@@ -84,26 +88,27 @@ async fn a_move_whose_command_fails_is_recorded_as_failed() {
     assert!(reason.unwrap_or_default().contains("Access to the path is denied"));
 }
 
-/// A move still running when the apply stops waiting is recorded as
-/// requested, the title where the Arr already holds it. The next sync, once
-/// the Arr has finished, confirms it.
+/// A move still running when the apply stops waiting, past the longest wait, is recorded as
+/// requested, the title where the Arr already holds it. The next sync, once the Arr has
+/// finished, confirms it.
 #[tokio::test]
-async fn a_move_still_running_at_the_deadline_is_confirmed_by_the_next_sync() {
+async fn a_move_still_running_when_the_run_stops_waiting_is_confirmed_by_the_next_sync() {
     let arr = FakeArr::start().await;
-    arr.moving_for(Duration::from_millis(600));
+    arr.moving_for(STALLED);
     let (app, decision_id) = one_move_ready(&arr).await;
-    let app = app.with_move_wait(Duration::from_millis(150));
+    let app = app.with_move_wait(Duration::from_millis(1));
 
     let report = apply_with_files(&app, &decision_id).await;
 
     assert_eq!((report.applied, report.moving), (0, 1), "{report:?}");
+    assert_eq!(report.stopped, Some(executor::StopReason::Stalled));
     assert_eq!(decision(&app, &decision_id).await.0, "requested");
     assert_eq!(totoro_path(&app).await, AFTER);
 
     sync(&app).await;
     assert_eq!(decision(&app, &decision_id).await.0, "requested", "settled while still moving");
 
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    tokio::time::sleep(STALLED).await;
     sync(&app).await;
     assert_eq!(decision(&app, &decision_id).await.0, "applied");
 }
@@ -113,12 +118,12 @@ async fn a_move_still_running_at_the_deadline_is_confirmed_by_the_next_sync() {
 #[tokio::test]
 async fn a_requested_move_the_arr_undid_is_failed_by_the_next_sync() {
     let arr = FakeArr::start().await;
-    arr.moving_for(Duration::from_millis(300));
+    arr.moving_for(STALLED);
     arr.rolling_back(10);
     let (app, decision_id) = one_move_ready(&arr).await;
-    let app = app.with_move_wait(Duration::from_millis(100));
+    let app = app.with_move_wait(Duration::from_millis(1));
     apply_with_files(&app, &decision_id).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(STALLED).await;
 
     sync(&app).await;
 
@@ -133,8 +138,8 @@ async fn a_requested_move_the_arr_undid_is_failed_by_the_next_sync() {
 #[tokio::test]
 async fn a_requested_move_whose_title_is_gone_is_failed_by_the_next_sync() {
     let arr = FakeArr::start().await;
-    arr.moving_for(Duration::from_millis(300));
-    let app = TestApp::films_to_move(&arr, 1).await.with_move_wait(Duration::from_millis(100));
+    arr.moving_for(STALLED);
+    let app = TestApp::films_to_move(&arr, 1).await.with_move_wait(Duration::from_millis(1));
     app.simulate().await;
     let decision_id: String =
         sqlx::query_scalar("SELECT id FROM decisions WHERE media_id = 'm-0' AND superseded = 0")
@@ -142,7 +147,7 @@ async fn a_requested_move_whose_title_is_gone_is_failed_by_the_next_sync() {
             .await
             .unwrap();
     apply_with_files(&app, &decision_id).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(STALLED).await;
     arr.forget_movie(100);
 
     sync(&app).await;
@@ -158,7 +163,7 @@ async fn a_requested_move_whose_title_is_gone_is_failed_by_the_next_sync() {
 async fn a_requested_revert_is_settled_by_the_next_sync() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = one_move_ready(&arr).await;
-    let app = app.with_move_wait(Duration::from_millis(100));
+    let app = app.with_move_wait(Duration::from_millis(1));
     executor::apply_decisions(
         &app.state,
         std::slice::from_ref(&decision_id),
@@ -168,7 +173,7 @@ async fn a_requested_revert_is_settled_by_the_next_sync() {
     )
     .await
     .unwrap();
-    arr.moving_for(Duration::from_millis(300));
+    arr.moving_for(STALLED);
 
     let reverted = executor::revert_decisions(
         &app.state,
@@ -182,7 +187,7 @@ async fn a_requested_revert_is_settled_by_the_next_sync() {
 
     assert_eq!(reverted.moving, 1, "{reverted:?}");
     assert_eq!(decision(&app, &decision_id).await.0, "requested");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(STALLED).await;
     sync(&app).await;
     assert_eq!(decision(&app, &decision_id).await.0, "skipped");
     assert_eq!(totoro_path(&app).await, BEFORE);

@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Po tomto dátume sa každé volanie s kľúčom odmietne, kým ho nezneplatníte. Routarr pošle upozornenie týždeň vopred. Kľúč sa neobnovuje: vytvorte nový a starý zneplatnite.",
   "ApplicationExpired": "Exspirovaný",
   "ApplicationExpiresSoon": "Do týždňa",
-  "ApplicationLongUnused": "Nepoužitý viac ako 90 dní"
+  "ApplicationLongUnused": "Nepoužitý viac ako 90 dní",
+  "JobDetailMovingFiles": "Presúvajú sa súbory titulu {title} v Arre {arr}.",
+  "JobDetailStoppedArrUnreachable": "Zastavené, pretože Arr sa päť minút nedal prečítať počas presunu súborov. Hotové: {done}, neúspešné: {failed}, stále sa presúva: {moving}. Zvyšok sa už neskúšal.",
+  "JobDetailStoppedArrStalled": "Zastavené, pretože Arr presúva súbory jedného titulu už šesť hodín a jeho fronta sa zrejme zasekla. Hotové: {done}, neúspešné: {failed}, stále sa presúva: {moving}. Zvyšok sa už neskúšal.",
+  "ApplyStoppedArrUnreachable": "Zastavené, pretože Arr sa päť minút nedal prečítať počas presunu súborov: zvyšok sa už neskúšal.",
+  "ApplyStoppedArrStalled": "Zastavené, pretože Arr presúva súbory jedného titulu už šesť hodín a jeho fronta sa zrejme zasekla: zvyšok sa už neskúšal."
 }

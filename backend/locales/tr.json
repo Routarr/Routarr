@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Bu tarihten sonra anahtarla yapılan her çağrı, siz geçersiz kılana kadar reddedilir. Routarr bir hafta önceden bildirim gönderir. Anahtar yenilenmez: yeni bir tane oluşturun ve eskisini geçersiz kılın.",
   "ApplicationExpired": "Süresi doldu",
   "ApplicationExpiresSoon": "Bir hafta içinde",
-  "ApplicationLongUnused": "90 günden uzun süredir kullanılmadı"
+  "ApplicationLongUnused": "90 günden uzun süredir kullanılmadı",
+  "JobDetailMovingFiles": "{title} dosyaları {arr} içinde taşınıyor.",
+  "JobDetailStoppedArrUnreachable": "Dosyalar taşınırken bir Arr beş dakika okunamadığı için durduruldu. Tamamlanan: {done}, başarısız: {failed}, hâlâ taşınan: {moving}. Gerisi denenmedi.",
+  "JobDetailStoppedArrStalled": "Bir Arr tek bir başlığın dosyalarını altı saattir taşıdığı ve kuyruğu büyük olasılıkla takılı kaldığı için durduruldu. Tamamlanan: {done}, başarısız: {failed}, hâlâ taşınan: {moving}. Gerisi denenmedi.",
+  "ApplyStoppedArrUnreachable": "Dosyalar taşınırken bir Arr beş dakika okunamadığı için durduruldu: gerisi denenmedi.",
+  "ApplyStoppedArrStalled": "Bir Arr tek bir başlığın dosyalarını altı saattir taşıdığı ve kuyruğu büyük olasılıkla takılı kaldığı için durduruldu: gerisi denenmedi."
 }

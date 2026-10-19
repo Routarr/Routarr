@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "この日を過ぎると、失効させるまで、このキーによる呼び出しはすべて拒否されます。Routarr は 1 週間前に通知を送信します。キーは更新できません。新しいキーを作成し、古いキーを失効させてください。",
   "ApplicationExpired": "期限切れ",
   "ApplicationExpiresSoon": "1 週間以内",
-  "ApplicationLongUnused": "90 日以上未使用"
+  "ApplicationLongUnused": "90 日以上未使用",
+  "JobDetailMovingFiles": "{arr} で {title} のファイルを移動中です。",
+  "JobDetailStoppedArrUnreachable": "ファイルの移動中に Arr を 5 分間読み取れなかったため停止しました。完了: {done}、失敗: {failed}、移動中: {moving}。残りは試行していません。",
+  "JobDetailStoppedArrStalled": "Arr が 1 つの作品のファイルを 6 時間移動し続けており、キューが停滞している可能性が高いため停止しました。完了: {done}、失敗: {failed}、移動中: {moving}。残りは試行していません。",
+  "ApplyStoppedArrUnreachable": "ファイルの移動中に Arr を 5 分間読み取れなかったため停止しました。残りは試行していません。",
+  "ApplyStoppedArrStalled": "Arr が 1 つの作品のファイルを 6 時間移動し続けており、キューが停滞している可能性が高いため停止しました。残りは試行していません。"
 }

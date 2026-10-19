@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Tämän päivän jälkeen jokainen avaimella tehty kutsu hylätään, kunnes mitätöit sen. Routarr lähettää ilmoituksen viikkoa ennen. Avainta ei uusita: luo uusi ja mitätöi vanha.",
   "ApplicationExpired": "Vanhentunut",
   "ApplicationExpiresSoon": "Viikon sisällä",
-  "ApplicationLongUnused": "Käyttämättä yli 90 päivää"
+  "ApplicationLongUnused": "Käyttämättä yli 90 päivää",
+  "JobDetailMovingFiles": "Siirretään nimikkeen {title} tiedostoja kohteessa {arr}.",
+  "JobDetailStoppedArrUnreachable": "Pysäytetty, kun Arria ei voitu lukea viiteen minuuttiin tiedostojen siirron aikana. Tehtyjä: {done}, epäonnistuneita: {failed}, siirto kesken: {moving}. Loppuja ei yritetty.",
+  "JobDetailStoppedArrStalled": "Pysäytetty, kun Arr on siirtänyt yhden nimikkeen tiedostoja kuusi tuntia ja sen jono on todennäköisesti jumissa. Tehtyjä: {done}, epäonnistuneita: {failed}, siirto kesken: {moving}. Loppuja ei yritetty.",
+  "ApplyStoppedArrUnreachable": "Pysäytetty, kun Arria ei voitu lukea viiteen minuuttiin tiedostojen siirron aikana: loppuja ei yritetty.",
+  "ApplyStoppedArrStalled": "Pysäytetty, kun Arr on siirtänyt yhden nimikkeen tiedostoja kuusi tuntia ja sen jono on todennäköisesti jumissa: loppuja ei yritetty."
 }

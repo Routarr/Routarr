@@ -410,6 +410,20 @@ pub struct Progress {
 }
 
 impl Progress {
+    /// Say what the running job does now, its counters kept.
+    pub async fn say(&self, detail: Detail) {
+        let _ = sqlx::query(
+            "UPDATE jobs SET detail = ?, detail_key = ?, detail_params = ?
+              WHERE id = ? AND status = 'running'",
+        )
+        .bind(detail.english())
+        .bind(detail.key)
+        .bind(detail.stored_params())
+        .bind(&self.id)
+        .execute(&self.pool)
+        .await;
+    }
+
     /// Update the progress counters the Tasks screen and a caller following
     /// the job read.
     pub async fn report(&self, current: usize, total: usize) {

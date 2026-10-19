@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Pasada esta fecha, toda llamada con la clave se rechaza hasta que la revoques. Routarr envía una notificación una semana antes. Una clave no se renueva: crea una nueva y revoca la anterior.",
   "ApplicationExpired": "Caducada",
   "ApplicationExpiresSoon": "En una semana",
-  "ApplicationLongUnused": "Sin uso desde hace más de 90 días"
+  "ApplicationLongUnused": "Sin uso desde hace más de 90 días",
+  "JobDetailMovingFiles": "Moviendo los archivos de {title} en {arr}.",
+  "JobDetailStoppedArrUnreachable": "Detenida porque no se pudo leer un Arr durante cinco minutos mientras movía archivos. Completados: {done}, fallidos: {failed}, aún en movimiento: {moving}. No se intentó el resto.",
+  "JobDetailStoppedArrStalled": "Detenida porque un Arr lleva seis horas moviendo los archivos de un título y su cola probablemente está atascada. Completados: {done}, fallidos: {failed}, aún en movimiento: {moving}. No se intentó el resto.",
+  "ApplyStoppedArrUnreachable": "Detenido porque no se pudo leer un Arr durante cinco minutos mientras movía archivos: no se intentó el resto.",
+  "ApplyStoppedArrStalled": "Detenido porque un Arr lleva seis horas moviendo los archivos de un título y su cola probablemente está atascada: no se intentó el resto."
 }

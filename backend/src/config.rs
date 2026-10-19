@@ -10,8 +10,8 @@ pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 /// `ROUTARR_MAX_LIBRARY_MIB` when unset.
 pub(crate) const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
 
-/// How long an apply follows the Arr's moves of files. A rename within one filesystem ends in a
-/// second, a copy across disks takes minutes a film and is left to the next sync.
+/// How long a move of files is polled at its quickest: a rename within one filesystem ends in a
+/// second, a copy across disks takes minutes a film. Five minutes unread, six hours running.
 const MOVE_WAIT: Duration = Duration::from_secs(60);
 
 /// How long a webhook delivery is answered within, under the timeout an Arr
@@ -318,8 +318,8 @@ pub struct Config {
     /// is held to a cap of its own: a library of tens of thousands of titles
     /// outgrows any one size.
     pub max_library_bytes: usize,
-    /// How long an apply follows the Arr's moves of files before it records
-    /// the ones still running as requested, for the next sync to settle.
+    /// How long an apply polls a move of files at its quickest. An Arr unread for five times it,
+    /// or one move running past 360 times it, stops the run, the title left for a sync to settle.
     pub move_wait: Duration,
     /// How long a webhook delivery is answered within: past it the Arr is told
     /// the delivery was accepted, and the work goes on.
