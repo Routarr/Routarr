@@ -10,3 +10,10 @@ UPDATE rule_tests SET metadata_json = replace(metadata_json, '"jikan"', '"tenrai
  WHERE metadata_json LIKE '%"jikan"%';
 -- A probe of the address no longer asked says nothing about the new one.
 DELETE FROM probe_results WHERE subject = 'source:jikan';
+
+-- The scores a title is given, by scale: Radarr's on the media row, each source's in the cache.
+ALTER TABLE media ADD COLUMN ratings TEXT;
+ALTER TABLE metadata_cache ADD COLUMN ratings TEXT NOT NULL DEFAULT '{}';
+-- Asked again as each pass reaches them, within each source's own pace, for the scores they
+-- were cached without.
+UPDATE metadata_cache SET stale = 1 WHERE source IN ('tmdb', 'omdb', 'tenrai', 'anilist');
