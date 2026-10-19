@@ -1,6 +1,6 @@
-//! Jikan, the unofficial and credential-free MyAnimeList API. Its themes and demographics
-//! ("Shounen", "Iyashikei") are what anime libraries are organised by. It allows a few requests
-//! per second, so a 429 backs the whole pass off rather than retrying.
+//! Tenrai, an unofficial and credential-free MyAnimeList API. Its themes and demographics
+//! ("Shounen", "Iyashikei") are what anime libraries are organised by. It limits requests per
+//! address, so a 429 backs the whole pass off rather than retrying.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -9,24 +9,24 @@ use tracing::debug;
 use super::send_json;
 use crate::error::AppResult;
 
-const SERVICE: &str = "Jikan";
-pub const DEFAULT_BASE_URL: &str = "https://api.jikan.moe/v4";
+const SERVICE: &str = "Tenrai";
+pub const DEFAULT_BASE_URL: &str = "https://api.tenrai.org/v1";
 
 #[derive(Debug, Clone)]
-pub struct JikanClient {
+pub struct TenraiClient {
     client: Client,
     base_url: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct JikanCandidate {
+pub struct TenraiCandidate {
     pub id: i64,
     pub year: Option<i64>,
     pub titles: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct JikanDetails {
+pub struct TenraiDetails {
     pub genres: Vec<String>,
     pub keywords: Vec<String>,
     pub certification: Option<String>,
@@ -106,7 +106,7 @@ struct Named {
     name: String,
 }
 
-impl JikanClient {
+impl TenraiClient {
     /// Where this client points, so a caller can tell the public API from a mirror or a proxy.
     pub fn base_url(&self) -> &str {
         &self.base_url
@@ -121,8 +121,8 @@ impl JikanClient {
         send_json::<serde_json::Value>(SERVICE, probe).await.map(|_| true)
     }
 
-    pub async fn search(&self, title: &str, media_type: &str) -> AppResult<Vec<JikanCandidate>> {
-        debug!("Searching Jikan for {title}");
+    pub async fn search(&self, title: &str, media_type: &str) -> AppResult<Vec<TenraiCandidate>> {
+        debug!("Searching Tenrai for {title}");
         let mut request = self
             .client
             .get(format!("{}/anime", self.base_url))
@@ -135,15 +135,15 @@ impl JikanClient {
         Ok(response.data.into_iter().map(candidate).collect())
     }
 
-    pub async fn get_details(&self, id: i64) -> AppResult<JikanDetails> {
-        debug!("Fetching Jikan {id}");
+    pub async fn get_details(&self, id: i64) -> AppResult<TenraiDetails> {
+        debug!("Fetching Tenrai {id}");
         let response: Envelope<RawAnime> =
             send_json(SERVICE, self.client.get(format!("{}/anime/{id}/full", self.base_url)))
                 .await?;
         let raw = response.data;
         let ratings = raw.ratings();
 
-        // As genres, themes and demographics would collide with TMDB's coarser list.
+        // Keywords, since as genres the themes and demographics would collide with TMDB's list.
         let mut keywords: Vec<String> = raw
             .themes
             .into_iter()
@@ -153,7 +153,7 @@ impl JikanClient {
         keywords.sort();
         keywords.dedup();
 
-        Ok(JikanDetails {
+        Ok(TenraiDetails {
             genres: raw.genres.into_iter().map(|entry| entry.name).collect(),
             keywords,
             certification: raw.rating.map(|rating| shorten_rating(&rating)),
@@ -170,8 +170,8 @@ fn shorten_rating(rating: &str) -> String {
     rating.split(" - ").next().unwrap_or(rating).trim().to_string()
 }
 
-fn candidate(raw: RawAnime) -> JikanCandidate {
-    JikanCandidate { id: raw.mal_id, year: raw.released(), titles: titles_of(&raw) }
+fn candidate(raw: RawAnime) -> TenraiCandidate {
+    TenraiCandidate { id: raw.mal_id, year: raw.released(), titles: titles_of(&raw) }
 }
 
 fn titles_of(raw: &RawAnime) -> Vec<String> {
@@ -276,7 +276,7 @@ mod tests {
         }"#;
 
         let page: Envelope<Vec<RawAnime>> = serde_json::from_str(json).unwrap();
-        let found: Vec<JikanCandidate> = page.data.into_iter().map(candidate).collect();
+        let found: Vec<TenraiCandidate> = page.data.into_iter().map(candidate).collect();
 
         let summary: Vec<(i64, Option<i64>)> = found.iter().map(|c| (c.id, c.year)).collect();
         assert_eq!(summary, [(523, Some(1988)), (457, Some(2005))]);

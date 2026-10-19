@@ -1,4 +1,4 @@
-//! AniList, Jikan, OMDb and TheTVDB, each through its own client. AniList and Jikan know none of
+//! AniList, Tenrai, OMDb and TheTVDB, each through its own client. AniList and Tenrai know none of
 //! Routarr's identifiers and search for an item, the one place a source can attach the wrong
 //! work: most of what follows defends that seam.
 
@@ -242,7 +242,7 @@ async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
 /// and unrestricted, the film is searched among series as well.
 #[tokio::test]
 async fn a_film_is_searched_among_films_and_a_series_among_the_rest() {
-    for (source, films) in [("anilist", "MOVIE"), ("jikan", "movie")] {
+    for (source, films) in [("anilist", "MOVIE"), ("tenrai", "movie")] {
         let sources = FakeSources::start().await;
         let app = TestApp::one_film_on(&sources, source).await;
         app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, year,
@@ -403,20 +403,20 @@ async fn a_pass_that_identifies_nothing_still_ends_its_progress() {
     assert_eq!(progress, ("success".to_string(), 2, 2));
 }
 
-/// Jikan leaves `year` null for a film and dates it by `aired`. Read from
+/// Tenrai leaves `year` null for a film and dates it by `aired`. Read from
 /// `year`, every film whose library knows its year would be refused, and the
 /// refusal remembered for good.
 #[tokio::test]
-async fn a_jikan_film_is_resolved_by_its_aired_year() {
+async fn a_tenrai_film_is_resolved_by_its_aired_year() {
     let sources = FakeSources::start().await;
-    let app = TestApp::one_film_on(&sources, "jikan").await;
+    let app = TestApp::one_film_on(&sources, "tenrai").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
     let resolved: Option<String> =
-        sqlx::query_scalar("SELECT external_id FROM source_identifiers WHERE source = 'jikan'")
+        sqlx::query_scalar("SELECT external_id FROM source_identifiers WHERE source = 'tenrai'")
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
@@ -530,18 +530,18 @@ async fn an_anilist_error_is_not_remembered_as_nothing_found() {
 }
 
 #[tokio::test]
-async fn jikan_themes_and_demographics_become_keywords() {
+async fn tenrai_themes_and_demographics_become_keywords() {
     let sources = FakeSources::start().await;
-    let app = TestApp::one_film_on(&sources, "jikan").await;
+    let app = TestApp::one_film_on(&sources, "tenrai").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
-    assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
+    assert_eq!(asked(&sources, "tenrai"), ["523"], "another work was described");
     let paths = sources.recorded().paths.clone();
-    assert!(paths.contains(&"/jikan/anime/523/full".to_string()), "{paths:?}");
-    let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
+    assert!(paths.contains(&"/tenrai/anime/523/full".to_string()), "{paths:?}");
+    let (genres, keywords, certification, _) = cached(&app, "tenrai").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
     assert_eq!(keywords, r#"["iyashikei","kids"]"#);
     // "G - All Ages" keeps the code a rule names.
@@ -553,7 +553,7 @@ async fn jikan_themes_and_demographics_become_keywords() {
 #[tokio::test]
 async fn every_source_contributes_what_only_it_has() {
     let sources = FakeSources::start().await;
-    let app = TestApp::one_film_on(&sources, "arr,anilist,jikan,omdb,tvdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,anilist,tenrai,omdb,tvdb").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -567,7 +567,7 @@ async fn every_source_contributes_what_only_it_has() {
     assert_eq!(field_sources["genres"], "anilist");
     assert_eq!(field_sources["keywords"], "anilist");
     assert_eq!(field_sources["origin_countries"], "anilist");
-    // Jikan rates first but on MyAnimeList's scale, and OMDb for the US, the default region.
+    // Tenrai rates first but on MyAnimeList's scale, and OMDb for the US, the default region.
     assert_eq!(field_sources["certification"], "omdb");
     // Neither anime source reports a language, and OMDb is the first that does.
     assert_eq!(field_sources["original_language"], "omdb");
@@ -824,10 +824,10 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
 
 /// A work a source does not have is an answer like any other, cached so the next pass does not
 /// ask again and a daily quota is kept. TheTVDB and OMDb are asked by the library's id, AniList
-/// and Jikan by one an earlier search resolved.
+/// and Tenrai by one an earlier search resolved.
 #[tokio::test]
 async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
-    for source in ["tvdb", "omdb", "anilist", "jikan"] {
+    for source in ["tvdb", "omdb", "anilist", "tenrai"] {
         let sources = FakeSources::start().await;
         let app = TestApp::one_film_on(&sources, source).await;
         if source == "tvdb" {
@@ -836,7 +836,8 @@ async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
         app.execute(&[
             "UPDATE media SET tvdb_id = 999, imdb_id = 'tt0999999'",
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
-             VALUES ('anilist', 'movie', 'tmdb:8392', '999'), ('jikan', 'movie', 'tmdb:8392', '999')",
+             VALUES ('anilist', 'movie', 'tmdb:8392', '999'),
+                    ('tenrai', 'movie', 'tmdb:8392', '999')",
         ])
         .await;
 
@@ -901,12 +902,12 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
     assert!(gap >= std::time::Duration::from_secs(1), "the next search left after {gap:?}");
 }
 
-/// Jikan answers `504` to every request while MyAnimeList is down. A source refusing five times
-/// in a row is not asked again that pass, not even for the titles a search identified before,
-/// but the requests in flight at the fifth refusal still go out.
+/// A source reading MyAnimeList answers `504` to every request while it is down. One refusing
+/// five times in a row is not asked again that pass, not even for the titles a search identified
+/// before, but the requests in flight at the fifth refusal still go out.
 #[tokio::test]
 async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
-    for source in ["jikan", "anilist", "omdb", "tvdb"] {
+    for source in ["tenrai", "anilist", "omdb", "tvdb"] {
         let sources = FakeSources::failing(504).await;
         let app = library_of(&sources, source, 20).await;
         if source == "tvdb" {
@@ -916,7 +917,7 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
         app.execute(&[
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
              SELECT searching.source, 'movie', 'tmdb:' || tmdb_id, tmdb_id
-               FROM media, (SELECT 'anilist' AS source UNION ALL SELECT 'jikan') searching
+               FROM media, (SELECT 'anilist' AS source UNION ALL SELECT 'tenrai') searching
               WHERE arr_id BETWEEN 100 AND 109",
         ])
         .await;
@@ -945,7 +946,7 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
 #[tokio::test]
 async fn a_working_source_is_never_cut_off_by_the_breaker() {
     let sources = FakeSources::start().await;
-    let app = library_of(&sources, "jikan", 20).await;
+    let app = library_of(&sources, "tenrai", 20).await;
 
     let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -983,7 +984,7 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     let sources = FakeSources::start().await;
 
     // The fake is what a mirror or a proxy looks like, and no published limit applies to it.
-    let app = TestApp::one_film_on(&sources, "anilist,jikan,omdb").await;
+    let app = TestApp::one_film_on(&sources, "anilist,tenrai,omdb").await;
     for source in app.state.metadata_sources().await {
         assert!(
             source.rate().is_none(),
@@ -995,24 +996,24 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     // Pointed at the real APIs, the published ceilings apply.
     let mut config = crate::config::Config::for_tests();
     config.anilist_base_url = crate::integrations::anilist::DEFAULT_BASE_URL.into();
-    config.jikan_base_url = crate::integrations::jikan::DEFAULT_BASE_URL.into();
+    config.tenrai_base_url = crate::integrations::tenrai::DEFAULT_BASE_URL.into();
     config.omdb_base_url = crate::integrations::omdb::DEFAULT_BASE_URL.into();
     config.omdb_api_key = Some("omdb-key".into());
     let app = TestApp::around(AppState::for_tests().await.with_config(config));
-    app.store_setting("metadata_providers", "anilist,jikan,omdb").await;
+    app.store_setting("metadata_providers", "anilist,tenrai,omdb").await;
 
     let sources = app.state.metadata_sources().await;
     let rates: Vec<(&str, Option<(u32, u32)>)> =
         sources.iter().map(|source| (source.id(), source.rate())).collect();
     assert_eq!(
         rates,
-        vec![("anilist", Some((30, 2))), ("jikan", Some((60, 3))), ("omdb", Some((300, 10)))]
+        vec![("anilist", Some((30, 2))), ("tenrai", Some((60, 3))), ("omdb", Some((300, 10)))]
     );
 
-    // A concurrency setting is a ceiling: Jikan keeps two in flight whatever it says.
+    // A concurrency setting is a ceiling: Tenrai keeps two in flight whatever it says.
     let concurrency: Vec<(&str, usize)> =
         sources.iter().map(|source| (source.id(), source.concurrency(8))).collect();
-    assert_eq!(concurrency, vec![("anilist", 8), ("jikan", 2), ("omdb", 8)]);
+    assert_eq!(concurrency, vec![("anilist", 8), ("tenrai", 2), ("omdb", 8)]);
 }
 
 /// A verdict must not outlive its subject. A source switched off is not probed, and nothing
@@ -1055,7 +1056,7 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
 #[tokio::test]
 async fn a_probe_names_why_a_source_did_not_answer() {
     for (status, order, verdict) in [
-        (429, "arr,jikan", "source_rate_limited"),
+        (429, "arr,tenrai", "source_rate_limited"),
         (429, "arr,anilist", "source_rate_limited"),
         (401, "arr,tvdb", "source_key_refused"),
         (401, "arr,omdb", "source_key_refused"),
@@ -1073,9 +1074,9 @@ async fn a_probe_names_why_a_source_did_not_answer() {
 #[tokio::test]
 async fn a_probe_waits_while_its_source_is_held_back() {
     let sources = FakeSources::start().await;
-    let app = TestApp::one_film_on(&sources, "arr,jikan").await;
-    let jikan = app.state.metadata_sources().await.into_iter().find(|s| s.id() == "jikan");
-    let pace = app.state.paces.of(&jikan.expect("jikan is a source"));
+    let app = TestApp::one_film_on(&sources, "arr,tenrai").await;
+    let tenrai = app.state.metadata_sources().await.into_iter().find(|s| s.id() == "tenrai");
+    let pace = app.state.paces.of(&tenrai.expect("tenrai is a source"));
     pace.penalise(std::time::Duration::from_millis(300)).await;
 
     let started = std::time::Instant::now();
@@ -1089,8 +1090,8 @@ async fn a_probe_waits_while_its_source_is_held_back() {
 #[tokio::test]
 async fn a_pass_names_the_source_and_stage_its_count_measures() {
     for (order, id, stage, count) in [
-        ("arr,jikan", "jikan", "JobDetailIdentifying", None),
-        ("arr,jikan,omdb", "omdb", "JobDetailFetching", Some((0, 0))),
+        ("arr,tenrai", "tenrai", "JobDetailIdentifying", None),
+        ("arr,tenrai,omdb", "omdb", "JobDetailFetching", Some((0, 0))),
     ] {
         let sources = FakeSources::start().await;
         let app = TestApp::one_film_on(&sources, order).await;
@@ -1131,7 +1132,7 @@ async fn a_pass_names_the_source_and_stage_its_count_measures() {
 #[tokio::test]
 async fn a_searched_answer_past_its_lifetime_is_read_again() {
     let sources = FakeSources::start().await;
-    let app = TestApp::one_film_on(&sources, "arr,jikan").await;
+    let app = TestApp::one_film_on(&sources, "arr,tenrai").await;
     let by = crate::jobs::Attribution::manual(None);
     let pass = || enrichment::enrich_all_media(&app.state, &by);
     pass().await.unwrap();
@@ -1140,8 +1141,8 @@ async fn a_searched_answer_past_its_lifetime_is_read_again() {
     pass().await.unwrap();
 
     let recorded = sources.recorded();
-    let read = recorded.details.iter().filter(|(source, _)| *source == "jikan").count();
-    let searched = recorded.searches.iter().filter(|(source, _)| *source == "jikan").count();
+    let read = recorded.details.iter().filter(|(source, _)| *source == "tenrai").count();
+    let searched = recorded.searches.iter().filter(|(source, _)| *source == "tenrai").count();
     assert_eq!((read, searched), (2, 1));
 }
 
@@ -1186,7 +1187,55 @@ async fn an_upgrade_keeps_due_the_answers_whose_time_had_come() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(due, [("jikan".to_string(), true), ("tmdb".to_string(), true)]);
+    assert_eq!(due, [("tenrai".to_string(), true), ("tmdb".to_string(), true)]);
+}
+
+/// An upgrade carries MyAnimeList's source over to Tenrai under its new id: the source order, the
+/// cached answers and the resolved titles keep their MyAnimeList ids, a pinned test names Tenrai,
+/// and the probe of the old address goes.
+#[tokio::test]
+async fn an_upgrade_moves_myanimelist_to_tenrai_with_what_it_knew() {
+    let pool = super::database_of_0_1_5().await;
+    for statement in [
+        "INSERT OR REPLACE INTO settings (key, value)
+         VALUES ('metadata_providers', 'arr, jikan,tmdb')",
+        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+         VALUES ('jikan', '523', 'movie', '2099-01-01 00:00:00')",
+        "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+         VALUES ('jikan', 'movie', 'tmdb:8392', '523')",
+        r#"INSERT INTO rule_tests (id, name, media_type, media_json, metadata_json, evaluated_at,
+                                  expected_category)
+           VALUES ('t', 'Totoro', 'movie', '{}',
+                   '{"sources":["jikan"],"field_sources":{"genres":"jikan"}}',
+                   '2026-10-01 00:00:00', 'anime')"#,
+        "INSERT INTO probe_results (subject, reachable, detail, checked_at)
+         VALUES ('source:jikan', 0, 'timed out', '2026-10-01 00:00:00')",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let one = |sql: &'static str| sqlx::query_scalar::<_, String>(sql).fetch_one(&pool);
+    assert_eq!(
+        one("SELECT value FROM settings WHERE key = 'metadata_providers'").await.unwrap(),
+        "arr,tenrai,tmdb"
+    );
+    assert_eq!(
+        one("SELECT source || ':' || external_id FROM metadata_cache").await.unwrap(),
+        "tenrai:523"
+    );
+    assert_eq!(
+        one("SELECT source || ':' || external_id FROM source_identifiers").await.unwrap(),
+        "tenrai:523"
+    );
+    assert_eq!(
+        one("SELECT metadata_json FROM rule_tests").await.unwrap(),
+        r#"{"sources":["tenrai"],"field_sources":{"genres":"tenrai"}}"#
+    );
+    let probes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM probe_results").fetch_one(&pool).await.unwrap();
+    assert_eq!(probes, 0);
 }
 
 /// An upgrade has OMDb and TheTVDB asked again, for names and codes read into every ISO language

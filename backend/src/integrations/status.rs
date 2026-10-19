@@ -1,8 +1,6 @@
-//! The status each source gives a title, read into the words Radarr and Sonarr
-//! write theirs in: `tba`, `announced`, `inCinemas` and `released` for a film,
-//! `upcoming`, `continuing` and `ended` for a series. Read otherwise, one
-//! title would be "Released", "FINISHED" or "Finished Airing" depending on
-//! which source answered first.
+//! The status each source gives a title, in the words Radarr and Sonarr use: `tba`, `announced`,
+//! `inCinemas` and `released` for a film, `upcoming`, `continuing` and `ended` for a series.
+//! Read raw, one title would be "Released" or "Finished Airing" by which source answered first.
 
 /// The status `raw` states for a title of `media_type`, or `None` where the
 /// Arrs have no word for it, as a film cancelled before its release.
@@ -10,7 +8,7 @@ pub fn read(raw: &str, media_type: &str) -> Option<&'static str> {
     let film = media_type == "movie";
     let folded = raw.trim().to_ascii_lowercase().replace(['_', '-'], " ");
     Some(match folded.as_str() {
-        // TMDb and TheTVDB, AniList, MyAnimeList through Jikan.
+        // TMDb and TheTVDB, AniList, MyAnimeList through Tenrai.
         "released" | "ended" | "finished" | "finished airing" => {
             if film {
                 "released"
@@ -41,8 +39,7 @@ pub fn read(raw: &str, media_type: &str) -> Option<&'static str> {
                 "upcoming"
             }
         }
-        // A series stopped for good has ended. A film stopped is no status
-        // Radarr writes.
+        // A series stopped for good has ended. A film stopped is no status Radarr writes.
         "canceled" | "cancelled" if !film => "ended",
         _ => return None,
     })

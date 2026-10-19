@@ -7,7 +7,7 @@ import { ENGLISH, renderWithI18n } from '../test/render';
 import { SERVER_COUNTS } from '../test/counts';
 import { statusRevision } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
-import type { AuthMode } from '../api/types';
+import type { AuthMode, MetadataProviders } from '../api/types';
 import { FIELDS, SECTIONS } from '../lib/settings';
 import Settings from './Settings.svelte';
 import Sources from './Sources.svelte';
@@ -25,14 +25,7 @@ vi.mock('../lib/proof.svelte', () => ({
   withProof: <T>(send: (proof: object) => Promise<T>) => send({ current_key: 'the-key-proven' }),
 }));
 
-/**
- * The two screens built on the settings editor: Settings, and the metadata
- * sources, which have a screen of their own.
- *
- * Settings is where unattended writing gets armed, so the warning that says so
- * is a guardrail rather than decoration: neither switch is dangerous alone, and
- * the banner must appear for the combination and only for it.
- */
+/** The two screens built on the settings editor: Settings and the metadata sources. */
 
 const LIVE_MODE =
   'Global dry-run is OFF: applying a decision will write to Radarr/Sonarr immediately.';
@@ -48,6 +41,35 @@ const APIKEY_MODE: AuthMode = {
 };
 
 type ProviderOverride = { configured?: boolean; order?: string[] };
+
+/** The sources the server lists, TMDB answering or not. */
+const catalogue = (provider: ProviderOverride): MetadataProviders => ({
+  providers: [
+    {
+      id: 'arr',
+      display_name: 'Radarr / Sonarr',
+      fetched: false,
+      needs_key: false,
+      key_env: null,
+      configured: true,
+      fields: ['genres'],
+      media_types: ['movie', 'series'],
+      website: null,
+    },
+    {
+      id: 'tmdb',
+      display_name: 'TMDB',
+      fetched: true,
+      needs_key: true,
+      key_env: 'TMDB_API_KEY',
+      configured: provider.configured ?? false,
+      fields: ['genres', 'keywords'],
+      media_types: ['movie', 'series'],
+      website: 'https://www.themoviedb.org',
+    },
+  ],
+  order: provider.order ?? ['arr'],
+});
 
 function mount(
   settings: Record<string, string | boolean>,
@@ -70,36 +92,10 @@ function mount(
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
   // So does the sessions card, in every mode a browser signs in.
   vi.spyOn(api, 'getSessions').mockResolvedValue([]);
-  // The signing card loads with the Automation section, and its failure would
+  // The signing card loads with the Notifications section, and its failure would
   // pass through every test of that section unseen.
   vi.spyOn(api, 'webhookSigning').mockResolvedValue({ signed: false, since: null, readable: true });
-  vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({
-    providers: [
-      {
-        id: 'arr',
-        display_name: 'Radarr / Sonarr',
-        fetched: false,
-        needs_key: false,
-        key_env: null,
-        configured: true,
-        fields: ['genres'],
-        media_types: ['movie', 'series'],
-        website: null,
-      },
-      {
-        id: 'tmdb',
-        display_name: 'TMDB',
-        fetched: true,
-        needs_key: true,
-        key_env: 'TMDB_API_KEY',
-        configured: provider.configured ?? false,
-        fields: ['genres', 'keywords'],
-        media_types: ['movie', 'series'],
-        website: 'https://www.themoviedb.org',
-      },
-    ],
-    order: provider.order ?? ['arr'],
-  });
+  vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(catalogue(provider));
   return renderWithI18n(page, { direction });
 }
 
@@ -141,6 +137,10 @@ afterEach(() => {
   publishOnboarding(null);
 });
 
+/**
+ * Settings is where unattended writing gets armed: neither switch is dangerous alone, so the
+ * banner appears for the combination and only for it.
+ */
 describe('the unattended-writing warning', () => {
   it('stays quiet while dry run is on', async () => {
     mount({ global_dry_run: 'true', auto_apply_enabled: 'true' });
@@ -158,7 +158,6 @@ describe('the unattended-writing warning', () => {
     expect(screen.queryByText(AUTO_APPLY_ARMED)).toBeNull();
   });
 
-  /** Only the combination writes without anyone asking. */
   it('warns for the combination', async () => {
     mount({ global_dry_run: 'false', auto_apply_enabled: 'true' });
 
@@ -396,9 +395,8 @@ describe('the metadata sources', () => {
   });
 
   /**
-   * The field is empty on every load (the backend never returns a sealed
-   * value), so sending it would write that emptiness. Saving an unrelated
-   * setting would delete all three credentials with nothing on screen saying
+   * The field is empty on every load, the backend never returning a sealed value. Sent, that
+   * emptiness would delete every credential on an unrelated save, with nothing on screen saying
    * so: the sources would simply stop answering on the next pass.
    */
   it('does not delete a stored key when an unrelated setting is saved', async () => {
@@ -424,17 +422,9 @@ describe('the metadata sources', () => {
   });
 
   /**
-   * A setting the form shows is a setting the form sends.
-   *
-   * "Blank means leave the stored value alone" exists for one reason: the
-   * backend never returns a sealed credential, so that field is empty on every
-   * load and sending the emptiness would delete the key. The rule holds for a
-   * secret and for nothing else. Applied to the source list, it would drop the
-   * one setting whose empty value means something, show "Settings saved", and
-   * leave the sources answering exactly as before.
-   *
-   * An empty list is refused by the backend, which is the point: the operator
-   * is told the list is invalid instead of being told it was saved.
+   * "Blank leaves it alone" holds for a secret only. Applied to the source list, it would drop
+   * an emptied list, say "Settings saved" and change nothing. Sent, the list is refused, which
+   * tells the operator it is invalid.
    */
   it('sends an emptied source list rather than dropping it', async () => {
     // A stored order without `arr`, so its last source carries the button the
@@ -462,10 +452,8 @@ describe('the metadata sources', () => {
   });
 
   /**
-   * The server refuses a source listed twice, but a stored list can still
-   * arrive here with one. Each row is keyed by its source, and a save sends
-   * every field of the screen, so the list is read without the repeat and
-   * saved that way.
+   * The server refuses a source listed twice, but a stored list can still hold one. Rows are
+   * keyed by source and a save sends every field, so the list is read and saved without it.
    */
   it('reads a stored list without its repeated source, and saves it that way', async () => {
     mountSources(
@@ -592,6 +580,42 @@ describe("a source's stored key", () => {
     await screen.findByLabelText('TMDB');
     expect(screen.queryByRole('button', { name: 'Remove – TMDB' })).toBeNull();
   });
+
+  /** The mark follows what the server says after the save, not what it said at the opening. */
+  it('stops marking the source inactive once a saved key lets it answer', async () => {
+    mountSources({ metadata_providers: 'arr,tmdb' }, { order: ['arr', 'tmdb'] });
+    expect(await screen.findByText('Inactive', { selector: '.badge' })).toBeTruthy();
+
+    await userEvent.type(screen.getByLabelText('TMDB'), 'a-key');
+    vi.mocked(api.getSettings).mockResolvedValue({
+      metadata_providers: 'arr,tmdb',
+      tmdb_api_key_configured: true,
+    });
+    vi.mocked(api.getMetadataProviders).mockResolvedValue(
+      catalogue({ configured: true, order: ['arr', 'tmdb'] }),
+    );
+    await save();
+
+    await waitFor(() => expect(screen.queryByText('Inactive', { selector: '.badge' })).toBeNull());
+    expect(screen.getByRole('button', { name: 'Remove – TMDB' })).toBeTruthy();
+  });
+
+  it('marks the source inactive once its removed key leaves it nothing to answer with', async () => {
+    mountSources(
+      { metadata_providers: 'arr,tmdb', tmdb_api_key_configured: true },
+      { configured: true, order: ['arr', 'tmdb'] },
+    );
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove – TMDB' }));
+    expect(screen.queryByText('Inactive', { selector: '.badge' })).toBeNull();
+
+    vi.mocked(api.getSettings).mockResolvedValue({ metadata_providers: 'arr,tmdb' });
+    vi.mocked(api.getMetadataProviders).mockResolvedValue(
+      catalogue({ configured: false, order: ['arr', 'tmdb'] }),
+    );
+    await save();
+
+    expect(await screen.findByText('Inactive', { selector: '.badge' })).toBeTruthy();
+  });
 });
 
 /** The configuration a reader versions or carries over, readable, under a name of its own. */
@@ -671,7 +695,7 @@ describe('the section strip', () => {
     expect(tab.getAttribute('aria-selected')).toBe('true');
   });
 
-  /** The sources are a screen of their own, so their old fragment opens nothing here. */
+  /** The sources are a screen of their own, so `#metadata` opens nothing here. */
   it('opens the first section for a fragment no section of the screen holds', async () => {
     window.history.replaceState({}, '', '/settings#metadata');
     mount({});
@@ -835,9 +859,8 @@ describe('importing a configuration', () => {
     const before = getSettings.mock.calls.length;
     await importFile({ version: 1 });
 
-    // Without this the draft still holds the pre-import values, and the payload
-    // a save sends is built from all of FIELDS, so the next save undoes the
-    // import for every setting at once.
+    // Unread, the draft keeps the values from before, and the next save, which sends every
+    // field, undoes the import.
     await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(before));
   });
 
@@ -979,10 +1002,8 @@ describe('importing a configuration', () => {
 });
 
 /**
- * The card belongs on the screen only where the middleware reads a key. `none`
- * and `external` resolve an identity before they ever look at the header, so a
- * field there writes a string nothing will read. Where a key can be rotated,
- * the card is also where one is minted.
+ * The card shows only where the middleware reads a key: `none` and `external` resolve an
+ * identity before they look at the header. Where a key can be rotated, the card mints one.
  */
 describe('the API key card', () => {
   // Who may come in is the Security section's.

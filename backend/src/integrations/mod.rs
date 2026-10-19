@@ -2,12 +2,12 @@ pub mod adapter;
 pub mod anilist;
 pub mod arr_moves;
 pub mod certification;
-pub mod jikan;
 pub mod language;
 pub mod omdb;
 pub mod radarr;
 pub mod sonarr;
 pub mod status;
+pub mod tenrai;
 pub mod tmdb;
 pub mod tvdb;
 

@@ -1,19 +1,9 @@
-//! Pacing for outbound calls to one metadata source.
+//! Pacing for outbound calls to one metadata source. The breaker in `enrichment` stops a pass
+//! hammering a source that is down, and a concurrency cap is not a rate: unpaced, a first pass
+//! over a large library trips its own breaker on a source that is up and has a limit.
 //!
-//! The circuit breaker in `enrichment` stops a pass hammering a source that is
-//! *down*. It does nothing about a source that is up and simply has a limit:
-//! AniList allows 30 requests a minute while degraded and Jikan 60, and a
-//! concurrency cap is not a rate: four requests in flight can still mean forty
-//! a second if each one is fast.
-//!
-//! Without pacing, a first pass over a large library trips its own breaker,
-//! abandons the source, and has to be repeated until it converges. With it, the
-//! pass takes the time the source's limit implies and finishes.
-//!
-//! A **reservation** token bucket: a caller takes its token under the lock, then
-//! sleeps outside it. Letting the balance go negative is what makes the queue
-//! fair: each waiter is told a different instant to wake at, in the order it
-//! arrived, instead of every waiter racing for the same moment.
+//! A reservation token bucket: a caller takes its token under the lock, then sleeps outside
+//! it. The balance goes negative so each waiter is told a different instant, in arrival order.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -84,10 +74,8 @@ impl RateLimiter {
         }
     }
 
-    /// Take a token and report how long its holder must wait for it.
-    ///
-    /// Separate from `acquire` so the arithmetic can be tested without actually
-    /// sleeping through it.
+    /// Take a token and report how long its holder must wait, apart from `acquire` so a test
+    /// reads the wait without sleeping through it.
     async fn reserve(&self) -> Duration {
         let mut state = self.state.lock().await;
         let now = Instant::now();
@@ -98,9 +86,8 @@ impl RateLimiter {
             state.last_refill = now;
         }
 
-        // Counted from the later of now and the moment a `Retry-After` named,
-        // so the waiters it held leave at the source's rate from that moment
-        // rather than all at once.
+        // Counted from the later of now and a `Retry-After`'s moment, so the waiters it held
+        // leave at the source's rate rather than all at once.
         state.tokens -= 1.0;
         let owed = Duration::from_secs_f64((-state.tokens).max(0.0) / state.rate);
         (state.last_refill + owed).saturating_duration_since(now)
@@ -112,10 +99,9 @@ impl RateLimiter {
         hold(&mut *self.state.lock().await, Instant::now() + delay);
     }
 
-    /// Hold everything back after a refusal that named no wait, for longer each
-    /// time the source still refuses once a hold has ended. A refusal met
-    /// while a hold is in force answers a request sent before it, and the hold
-    /// already covers it.
+    /// Hold everything back after a refusal that named no wait, longer each time the source
+    /// still refuses once a hold has ended. A refusal during a hold answers a request sent
+    /// before it, and lengthens nothing.
     pub async fn back_off(&self) {
         let mut state = self.state.lock().await;
         let now = Instant::now();
@@ -170,12 +156,9 @@ fn hold(state: &mut State, until: Instant) {
     }
 }
 
-/// Pace `limiter` after an answer of its source.
-///
-/// Pacing is a guess about someone else's limit. A refusal is that someone
-/// telling us: held back as long as its `Retry-After` names, or for a back-off
-/// when it names nothing, every later request waits instead of spending its
-/// budget discovering the same thing again.
+/// Pace `limiter` after an answer of its source. A refusal states the limit pacing guesses:
+/// held back for its `Retry-After`, or a back-off when it names none, later requests wait
+/// rather than spend their budget learning it again.
 pub async fn after_answer<T>(limiter: &RateLimiter, outcome: &crate::error::AppResult<T>) {
     use crate::error::AppError;
     match outcome {
@@ -202,8 +185,7 @@ mod tests {
     async fn a_burst_is_allowed_before_any_pacing_begins() {
         let limiter = RateLimiter::new(60, 3);
 
-        // Three tokens are in the bucket, so the first three cost nothing: a
-        // three-item library must not be paced to a rate it never reaches.
+        // A three-item library is not paced to a rate it never reaches.
         for _ in 0..3 {
             assert_eq!(limiter.reserve().await, Duration::ZERO);
         }
@@ -227,9 +209,7 @@ mod tests {
         let limiter = RateLimiter::new(60, 1);
         limiter.reserve().await;
 
-        // Each waiter is told a later instant than the one before it. Without
-        // the balance going negative they would all be told "one second" and
-        // then stampede the source together.
+        // Without a negative balance, every waiter would be told one second and stampede.
         let first = limiter.reserve().await;
         let second = limiter.reserve().await;
         let third = limiter.reserve().await;
@@ -337,10 +317,8 @@ mod tests {
         ))
     }
 
-    /// A 429 that names no wait still slows the source, for longer each time
-    /// it refuses again once the hold is over, and from the start again once
-    /// it answers. The refusals of requests already in flight when the hold
-    /// began do not lengthen it.
+    /// A 429 naming no wait still slows the source, longer each time it refuses once the hold
+    /// is over, and from the start once it answers. Refusals already in flight lengthen nothing.
     #[tokio::test(start_paused = true)]
     async fn a_429_without_retry_after_still_slows_the_source() {
         let limiter = RateLimiter::unlimited();

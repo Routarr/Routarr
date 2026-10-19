@@ -104,7 +104,7 @@ RUN cat crates-notices.txt packages-notices.txt > third-party-notices.txt
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runner
 # `ca-certificates` is load-bearing, not hygiene: reqwest verifies TLS against
 # the *platform's* trust store, so without this package every call to TMDB,
-# OMDb, TheTVDB, AniList and Jikan fails certificate validation, and so does
+# OMDb, TheTVDB, AniList and Tenrai fails certificate validation, and so does
 # every Arr reached over HTTPS. It is also what makes a homelab CA work: mount
 # it into /usr/local/share/ca-certificates and run update-ca-certificates.
 RUN apk add --no-cache ca-certificates tzdata

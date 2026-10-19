@@ -194,6 +194,6 @@ Each of these questions has one function. Call it, never spell the question agai
 - The webhook is the one route that reaches the library without the API key. No body may
   produce a 500 or a panic (`backend/src/tests/webhook_fuzz.rs`), and a bad token answers a
   404 that does not confirm the instance exists (`backend/src/tests/security.rs`).
-- `backend/src/tests/live_sources.rs` (the real AniList, Jikan, OMDb and TheTVDB) stays
+- `backend/src/tests/live_sources.rs` (the real AniList, Tenrai, OMDb and TheTVDB) stays
   `#[ignore]`d and out of CI: a green build never depends on a third party's uptime. Their
   clients keep captured-payload tests beside them, which run in CI.

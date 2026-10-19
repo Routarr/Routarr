@@ -8,11 +8,6 @@ import type { Health } from '../api/types';
 import { statusRevision } from '../lib/status.svelte';
 import Diagnostics from './Diagnostics.svelte';
 
-/**
- * Diagnostics is where a homelab operator finds out why nothing is moving. It
- * has one job: report what is wrong without inventing a verdict of its own.
- */
-
 const show = () => renderWithI18n(Diagnostics);
 
 const withProviders = (list: Health['metadata']['providers']) =>
@@ -20,6 +15,10 @@ const withProviders = (list: Health['metadata']['providers']) =>
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * Diagnostics is where a homelab operator finds out why nothing is moving. It
+ * has one job: report what is wrong without inventing a verdict of its own.
+ */
 describe('Diagnostics', () => {
   /** A re-check waits out every Arr that does not answer, and says it is running. */
   it('says the re-check is running until it ends', async () => {
@@ -78,8 +77,7 @@ describe('Diagnostics', () => {
     const { container } = show();
 
     await screen.findByText('one');
-    // The dashboard caps at three because it is a summary. This page is the
-    // full list, and a cap here would hide the problem it exists to report.
+    // The dashboard caps at three as a summary, and this page is the full list.
     expect(container.querySelectorAll('.banner-warning')).toHaveLength(1);
     expect(container.querySelectorAll('.banner-warning li')).toHaveLength(5);
     expect(screen.getByText('five')).toBeTruthy();
@@ -148,11 +146,10 @@ describe('Diagnostics', () => {
     );
     const { container } = show();
 
-    await screen.findByText('active');
-    // Scoped to the source list: the footer's database badge legitimately says
-    // "Connected", so a page-wide assertion matches it instead.
+    await screen.findByText('Active');
+    // Scoped to the row: the footer's database badge says "Connected" too.
     const row = container.querySelector('.source-row') as HTMLElement;
-    expect(within(row).getByText('active')).toBeTruthy();
+    expect(within(row).getByText('Active')).toBeTruthy();
     expect(within(row).queryByText('Connected')).toBeNull();
   });
 
@@ -175,9 +172,8 @@ describe('Diagnostics', () => {
   });
 
   /**
-   * Zero mapped folders is already in the warnings above. Painting the number
-   * red as well makes the table look like it has found a second, different
-   * problem. It is a count, not a verdict.
+   * Zero mapped folders is already a warning: painted red, the count would read
+   * as a second problem.
    */
   it('reports mapped folders as a count, without a verdict of its own', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(

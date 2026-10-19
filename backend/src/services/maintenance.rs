@@ -1,8 +1,5 @@
-//! Retention and housekeeping.
-//!
-//! Every simulation appends one decision row per actionable media item, so on a
-//! large library the `decisions` table grows without bound. Retention keeps the
-//! audit trail useful without letting the database balloon.
+//! Retention and housekeeping: every simulation writes a decision per actionable title, and
+//! retention keeps the audit trail without letting the database grow without bound.
 
 use std::collections::HashSet;
 
@@ -14,12 +11,9 @@ use crate::jobs::{Attribution, Detail, JobKind};
 use crate::services::metadata;
 use crate::state::AppState;
 
-/// Everything a start brings in line before anything reads the database, in
-/// this order: secrets sealed with the current key before anything opens
-/// one, stored values inside the bounds this build enforces, since a value
-/// out of them makes every later save fail on a field the operator never
-/// touched, and the source list the environment asks for before routing
-/// reads it. `main` calls this, so a test runs what a start runs.
+/// What a start brings in line before anything reads the database: secrets sealed under the
+/// current key, stored values inside this build's bounds, and the source list the environment
+/// asks for. `main` calls this, so a test runs what a start runs.
 pub async fn converge(state: &AppState) -> AppResult<()> {
     reseal_secrets(state).await?;
     converge_setting_bounds(state).await?;
@@ -27,17 +21,9 @@ pub async fn converge(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
-/// List TMDB when the environment hands in its key and nobody chose the
-/// sources yet.
-///
-/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDB on, and the
-/// shipped order is the Arr alone: without this, the key would be read and
-/// never used. A list already stored is left as it is, TMDB in it or not,
-/// since taking a source out is a choice the environment must not undo.
-///
-/// Converged at startup rather than resolved on each read, because routing
-/// reads the stored list straight from the database and never sees the
-/// environment.
+/// List TMDB when the environment hands in its key and nobody chose the sources yet: the
+/// shipped order is the Arr alone, and a stored list is a choice the environment must not undo.
+/// Converged at startup, since routing reads the stored list and never the environment.
 pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
     if state.config.tmdb_api_key.is_none() {
         return Ok(false);
@@ -57,20 +43,10 @@ pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
     Ok(listed)
 }
 
-/// Bring stored `Bounded` settings inside the ranges this build enforces.
-///
-/// `PUT /settings` validates the whole payload, and the Settings screen always
-/// sends every field, so one stored value outside its range makes *every* save
-/// fail, naming a key in a tab the operator never opened. The converged value
-/// is the one that runs from then on, and the log says so.
-///
-/// A retention count is raised to its floor like any other and never lowered:
-/// lowering it removes what is beyond it, and nothing but the operator's own
-/// save may do that. `settings::bounds` answers no ceiling for one, and
-/// `offline_warnings` names a stored value above it.
-///
-/// Converged at startup rather than in a migration, so the ranges stay stated
-/// once, beside the settings they bound.
+/// Bring stored `Bounded` settings inside this build's ranges: the Settings screen sends every
+/// field, so one value outside its range fails every save. A retention count is raised to its
+/// floor and never lowered, which would delete what lies beyond it (`settings::bounds` answers
+/// no ceiling for one). At startup, so the ranges stay stated once, beside their settings.
 pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT key, value FROM settings").fetch_all(&state.pool).await?;
@@ -80,8 +56,7 @@ pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
         let Some((min, max)) = crate::services::settings::bounds(&key) else {
             continue;
         };
-        // A value that is not a number at all is left for `check` to refuse:
-        // guessing one would be inventing a setting nobody chose.
+        // Not a number: left for `check` to refuse, since guessing one invents a setting.
         let Ok(current) = value.trim().parse::<i64>() else {
             continue;
         };
@@ -105,10 +80,8 @@ pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
     Ok(converged)
 }
 
-/// Rewrite every stored secret under the current master key.
-///
-/// Runs at startup, so a plaintext value, or one sealed under
-/// `ROUTARR_PREVIOUS_SECRET_KEY`, is rewritten without anyone entering it again.
+/// Rewrite every stored secret under the current master key, so a plaintext value or one
+/// sealed under `ROUTARR_PREVIOUS_SECRET_KEY` needs no entering again.
 pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT id, api_key FROM instances").fetch_all(&state.pool).await?;
@@ -119,8 +92,7 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
             continue;
         }
 
-        // A key we cannot open is left untouched: overwriting it would destroy
-        // the only copy. The instance surfaces as unreachable instead.
+        // Left untouched: overwriting a key that cannot be opened destroys the only copy.
         let Ok(plaintext) = state.secrets.open(&stored) else {
             tracing::error!(
                 instance_id = %id,
@@ -141,9 +113,8 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         info!("Re-encrypted {resealed} instance API key(s) under the current master key");
     }
 
-    // The notification's signing secrets, opened each time a notification is
-    // signed: one left under a retired key signs nothing, and the receiver
-    // refuses every message without a word here.
+    // The notification's signing secrets: one left under a retired key signs nothing, and the
+    // receiver refuses every message without a word here.
     let secrets: Vec<(i64, String)> =
         sqlx::query_as("SELECT rowid, secret FROM webhook_secrets").fetch_all(&state.pool).await?;
     for (rowid, stored) in secrets {
@@ -162,15 +133,8 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         resealed += 1;
     }
 
-    // The sealed settings, as `KNOWN` marks them. Covering `instances` alone
-    // leaves them unreadable after a rotation, and unlike an Arr, a setting
-    // that fails to open shows up only as conditions that quietly stop
-    // matching or notifications that stop arriving.
-    //
-    // A source's key among them is named `<id>_api_key`, the one name
-    // `AppState::provider_key_from` builds to read it back. Stored under any
-    // other name, a key is resealed here and never opened, and its source
-    // answers nothing.
+    // The settings `KNOWN` seals: one left under a retired key shows only as conditions that
+    // stop matching or notifications that stop arriving.
     let keys = crate::services::settings::sealed_keys();
     let mut query = sqlx::query_as::<_, (String, String)>(AssertSqlSafe(format!(
         "SELECT key, value FROM settings WHERE key IN ({})",
@@ -231,15 +195,12 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
     crate::race::checked("maintenance::run", "").await;
     let outcome = purge(state).await;
 
-    // The planner's statistics, which a connection the pool never closes
-    // would otherwise not refresh. Not part of the purge's success.
+    // A connection the pool never closes would never refresh the planner's statistics.
     if let Err(e) = sqlx::query("PRAGMA optimize").execute(&state.pool).await {
         warn!("Could not refresh the query planner's statistics: {e}");
     }
-    // The write-ahead log folded into the database file, without waiting on a
-    // reader: SQLite does it only past a thousand pages, and a copy of the file
-    // alone taken while Routarr runs would miss everything since, up to the
-    // whole schema. Such a copy is still not a safe one, the archives are.
+    // SQLite folds the write-ahead log only past a thousand pages, and a copy of the file alone
+    // would miss everything since, up to the whole schema. The archives are the safe copy.
     if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(PASSIVE)").execute(&state.pool).await {
         warn!("Could not fold the write-ahead log into the database: {e}");
     }
@@ -288,16 +249,9 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     }
 
     if decision_days > 0 {
-        // Applied decisions are the audit trail and are never purged here,
-        // whatever the window: proposals and failures age out.
-        //
-        // Every delete also spares a decision that carries an execution log.
-        // `revert` sets a decision back to `skipped`, so a move that was really
-        // written and then undone looks exactly like a stale proposal, and a
-        // failure is logged too: each goes with its last log. And
-        // `execution_logs.decision_id` has no `ON DELETE` clause, so SQLite
-        // would reject the delete and the *whole* maintenance run would fail,
-        // hourly and for ever.
+        // Applied decisions are the audit trail, never purged. A decision a log names, a
+        // reverted move or a failure, goes with its last log: `execution_logs.decision_id` has
+        // no `ON DELETE`, so deleting it first would fail the whole run, every hour.
         report.decisions_removed = delete_older_than(
             pool,
             "DELETE FROM decisions WHERE decided_at < datetime('now', ?)
@@ -308,9 +262,8 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
         .await?;
     }
 
-    // A superseded proposal carries no history, and goes whatever the window:
-    // a retention of 0 keeps decisions, and a pass writing a row per move and
-    // per skip would otherwise grow the table without end.
+    // A superseded proposal carries no history and goes whatever the window, a retention of 0
+    // included, or a pass writing a row per title would grow the table without end.
     report.decisions_removed += sqlx::query(
         "DELETE FROM decisions WHERE superseded = 1 AND status = 'pending'
             AND NOT EXISTS (SELECT 1 FROM execution_logs e WHERE e.decision_id = decisions.id)",
@@ -319,8 +272,7 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     .await?
     .rows_affected();
 
-    // Housekeeping rather than a guard: an expired row already fails the
-    // lookup, this is what stops the table growing for ever.
+    // An expired session already fails the lookup: this only stops the table growing.
     report.sessions_removed = super::accounts::purge_expired_sessions(pool).await?;
 
     if security_days > 0 {
@@ -332,14 +284,9 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
         .await?;
     }
 
-    // `decisions` deliberately carries no foreign key on `media_id`: an applied
-    // decision must outlive the media it moved, or the audit trail would erase
-    // itself. The cost is orphans: a proposal or a skip whose media is gone can
-    // never be applied, since the executor joins `media`. Removing the media
-    // retires its proposals, which takes them out of the pending count at
-    // once, and this is what deletes the rows.
-    //
-    // Applied and failed decisions are left alone here: those are the history.
+    // `decisions` has no foreign key on `media_id`, so an applied decision outlives its media.
+    // A proposal or a skip whose media is gone can never be applied, and goes here. Applied
+    // and failed decisions are the history.
     report.decisions_removed += sqlx::query(
         "DELETE FROM decisions
           WHERE status IN ('pending', 'skipped')
@@ -350,25 +297,14 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     .await?
     .rows_affected();
 
-    // A resolution whose library key names no media any more would keep the
-    // cache row it points at alive for ever, so it goes first and the cache
-    // purge below follows it.
+    // A resolution naming no media would keep its cache row alive for ever, so it goes first.
     report.source_identifiers_removed = prune_resolutions(pool).await?;
 
-    // Metadata for media nobody tracks any more is dead weight.
     report.metadata_cache_removed = sqlx::query(
-        // Matched across every identifier namespace: a source keyed on `imdb_id`
-        // is as much a reason to keep a row as one keyed on `tmdb_id`, and an
-        // id that collides across namespaces only means a row is kept slightly
-        // too long, the harmless direction for a cache.
-        // One NOT EXISTS per namespace, each an indexed seek on `media`: the same
-        // test as a single OR, without the scan of `media` per cache row that
-        // the OR costs on a large library.
-        // A source addressed by search caches under *its own* identifier, which
-        // no column of `media` holds: the fourth clause is what keeps AniList's
-        // and Jikan's rows. Without it the purge deletes them every hour, the
-        // next pass fetches the whole anime library again, and every simulation
-        // in between runs blind.
+        // Matched across every namespace, an id colliding across them only keeping a row longer.
+        // One NOT EXISTS per namespace is an indexed seek, where a single OR scans `media` per row.
+        // A source addressed by search caches under its own id, which only `source_identifiers`
+        // ties to the library: without that clause, the anime library is fetched every hour.
         "DELETE FROM metadata_cache
           WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.media_type = metadata_cache.media_type
                               AND m.tmdb_id = CAST(metadata_cache.external_id AS INTEGER)
@@ -413,9 +349,8 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
              {}, sessions: {}, security events: {}",
             removed[0], removed[1], removed[2], removed[3], removed[4], removed[5], removed[6]
         );
-        // Not vacuuming on purpose: SQLite reuses the freed pages for the next
-        // simulation, and a full VACUUM would rewrite the whole file while the
-        // scheduler holds the pool.
+        // No VACUUM: SQLite reuses the freed pages, and a VACUUM would rewrite the whole file
+        // while the scheduler holds the pool.
     }
 
     Ok(report)
@@ -431,11 +366,8 @@ struct LibraryIdentity {
     imdb_id: Option<String>,
 }
 
-/// Drop the search resolutions whose library key names no media any more.
-///
-/// The key is what `metadata::local_key_of` computes from the media row, and
-/// its title form has no SQL spelling, so the comparison is made here from the
-/// same function rather than approximated in a `DELETE`.
+/// Drop the search resolutions whose library key names no media any more. The key's title form
+/// has no SQL spelling, so it comes from `metadata::local_key_of`, not from a `DELETE`.
 async fn prune_resolutions(pool: &SqlitePool) -> AppResult<u64> {
     let keys: Vec<(String,)> =
         sqlx::query_as("SELECT DISTINCT local_key FROM source_identifiers").fetch_all(pool).await?;
@@ -460,10 +392,8 @@ async fn prune_resolutions(pool: &SqlitePool) -> AppResult<u64> {
         })
         .collect();
 
-    // A chunk at a time, each its own write: one transaction over them all
-    // holds the write lock for as long as the whole prune takes, and every
-    // sync, webhook and job outcome waits on it. A key a sync brings back
-    // meanwhile only costs the next search.
+    // A chunk at a time, each its own write: one transaction would hold the write lock the
+    // whole prune long, and a key a sync brings back meanwhile only costs the next search.
     let stale: Vec<&str> =
         keys.iter().map(|(key,)| key.as_str()).filter(|key| !live.contains(*key)).collect();
     let mut removed = 0;
@@ -481,10 +411,8 @@ async fn prune_resolutions(pool: &SqlitePool) -> AppResult<u64> {
     Ok(removed)
 }
 
-/// `&'static str` rather than `&str`, which is the whole guarantee: a caller
-/// cannot reach this with a string it assembled at run time, so no audit is
-/// needed here and none can be forgotten. The cut-off is bound, never
-/// interpolated.
+/// `&'static str`, so no caller can pass a statement assembled at run time. The cut-off is
+/// bound, never interpolated.
 async fn delete_older_than(pool: &SqlitePool, sql: &'static str, days: i64) -> AppResult<u64> {
     Ok(sqlx::query(sql).bind(format!("-{days} days")).execute(pool).await?.rows_affected())
 }
@@ -492,12 +420,8 @@ async fn delete_older_than(pool: &SqlitePool, sql: &'static str, days: i64) -> A
 #[cfg(test)]
 mod tests {
 
-    /// Reverting sets a decision to `skipped` (`services::executor`), and a reverted
-    /// decision necessarily carries the `move` and `revert` execution logs. The
-    /// purge targets `skipped`, `execution_logs.decision_id` has no `ON DELETE`
-    /// clause, and `foreign_keys` is ON, so deleting that decision is rejected
-    /// and fails the **whole** maintenance run, every hour, for ever. The purge
-    /// has to keep it, or retention stops working entirely.
+    /// A reverted decision is `skipped` and carries its `move` and `revert` logs, which hold it
+    /// by a foreign key with no `ON DELETE`: deleting it would fail the whole maintenance run.
     #[tokio::test]
     async fn a_decision_that_caused_a_write_does_not_break_the_purge() {
         let state = crate::state::AppState::for_tests().await;
@@ -542,8 +466,7 @@ mod tests {
 
     use super::*;
 
-    /// The instance and media rows a decision refers to. Minimal on purpose:
-    /// these tests care about retention, not about routing.
+    /// The instance and media rows a decision refers to.
     async fn seed_media(state: &AppState, id: &str) {
         sqlx::query(
             "INSERT OR IGNORE INTO instances (id, name, instance_type, base_url, api_key,
@@ -564,10 +487,8 @@ mod tests {
         .unwrap();
     }
 
-    /// A reverted move and a failed one are named by their execution logs, so
-    /// they stay as long as the logs do, whatever the decision retention
-    /// reads. Each goes in the pass that removes the last of them, not an
-    /// hour later.
+    /// A reverted move and a failed one are named by their execution logs, so they stay as long
+    /// as the logs do, whatever the decision retention, and go in the pass that removes the last.
     #[tokio::test]
     async fn a_reverted_or_failed_move_goes_in_the_pass_that_removes_its_log() {
         let state = crate::state::AppState::for_tests().await;
@@ -628,9 +549,7 @@ mod tests {
     async fn superseded_pending_decisions_are_purged_immediately() {
         for retention in ["30", "0"] {
             let state = AppState::for_tests().await;
-            // A decision always points at a real media row. Without one, the
-            // orphan purge would claim these before the superseded rule is
-            // exercised.
+            // Without the media row, the orphan purge would claim these first.
             seed_media(&state, "m1").await;
             sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('decision_retention_days', ?)")
                 .bind(retention)
@@ -775,12 +694,8 @@ mod tests {
         .unwrap()
     }
 
-    /// A source addressed by search caches under *its own* identifier, which
-    /// matches no column of `media`. `source_identifiers` is the only thing
-    /// tying that row to the library. Purging the row would re-search and
-    /// re-read the whole anime library every hour, and every simulation in
-    /// between would run without those fields. The orphan beside it is the
-    /// control: a purge that keeps everything would pass without it.
+    /// A source addressed by search caches under its own id, which only `source_identifiers`
+    /// ties to the library. The orphan beside it is the control: a purge keeping all would pass.
     #[tokio::test]
     async fn metadata_resolved_by_search_survives_the_purge() {
         let state = AppState::for_tests().await;
