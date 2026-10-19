@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Ezen a dátumon túl a kulccsal indított minden hívást elutasít a rendszer, amíg érvényteleníti. A Routarr egy héttel előtte értesítést küld. A kulcs nem újítható meg: készítsen újat, és érvénytelenítse a régit.",
   "ApplicationExpired": "Lejárt",
   "ApplicationExpiresSoon": "Egy héten belül",
-  "ApplicationLongUnused": "90 napnál régebben nem használt"
+  "ApplicationLongUnused": "90 napnál régebben nem használt",
+  "JobDetailMovingFiles": "{title} fájljainak áthelyezése itt: {arr}.",
+  "JobDetailStoppedArrUnreachable": "Leállt: egy Arr öt percig nem volt olvasható a fájlok áthelyezése közben. Kész: {done}, sikertelen: {failed}, áthelyezés alatt: {moving}. A többit már nem kísérelte meg.",
+  "JobDetailStoppedArrStalled": "Leállt: egy Arr hat órája helyezi át egy cím fájljait, a sora valószínűleg elakadt. Kész: {done}, sikertelen: {failed}, áthelyezés alatt: {moving}. A többit már nem kísérelte meg.",
+  "ApplyStoppedArrUnreachable": "Leállt: egy Arr öt percig nem volt olvasható a fájlok áthelyezése közben. A többit már nem kísérelte meg.",
+  "ApplyStoppedArrStalled": "Leállt: egy Arr hat órája helyezi át egy cím fájljait, a sora valószínűleg elakadt. A többit már nem kísérelte meg."
 }

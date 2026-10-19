@@ -886,9 +886,10 @@ async fn a_long_apply_names_fifty_titles_and_counts_them_all() {
 #[tokio::test]
 async fn a_move_still_moving_is_announced_again_once_settled() {
     let arr = FakeArr::start().await;
-    arr.moving_for(std::time::Duration::from_millis(600));
+    arr.moving_for(std::time::Duration::from_millis(800));
     let (app, decision_id) = super::one_move_ready(&arr).await;
-    let app = app.with_move_wait(std::time::Duration::from_millis(150));
+    // Past 360 times the wait the run stops following the move, and a sync settles it.
+    let app = app.with_move_wait(std::time::Duration::from_millis(1));
     let receiver = Receiver::start().await;
     listening(&app, &receiver).await;
     app.save_setting("notify_moves_completed", "true").await.assert_ok();
@@ -901,7 +902,7 @@ async fn a_move_still_moving_is_announced_again_once_settled() {
     let sent = &receiver.arrived(1).await[0];
     assert_eq!(sent["data"]["moves"][0]["status"], "moving", "{sent}");
 
-    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
     crate::services::sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
     let settled = &receiver.arrived(2).await[1];
     assert_eq!(settled["event"], "moves_settled");

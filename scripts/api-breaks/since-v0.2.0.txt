@@ -14,3 +14,9 @@ PUT /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18
 PUT /rules/{id} added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `exclusions/items/` response property `oneOf` list for the response status `200`
 POST /rules/{id}/duplicate added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `conditions/items/` response property `oneOf` list for the response status `201`
 POST /rules/{id}/duplicate added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `exclusions/items/` response property `oneOf` list for the response status `201`
+POST /decisions/apply added the new `stalled` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply-all added the new `stalled` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply-all added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/revert added the new `stalled` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/revert added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`

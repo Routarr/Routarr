@@ -37,6 +37,7 @@ mod notify;
 mod oidc;
 mod onboarding;
 mod outbound_http;
+mod paced_moves;
 mod placement;
 mod properties;
 mod provider_keys;

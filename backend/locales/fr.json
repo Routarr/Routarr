@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Passé cette date, chaque appel avec la clé est refusé, jusqu'à ce que vous la révoquiez. Routarr envoie une notification une semaine avant. Une clé ne se renouvelle pas : créez-en une nouvelle et révoquez l'ancienne.",
   "ApplicationExpired": "Expirée",
   "ApplicationExpiresSoon": "Dans la semaine",
-  "ApplicationLongUnused": "Inutilisée depuis plus de 90 jours"
+  "ApplicationLongUnused": "Inutilisée depuis plus de 90 jours",
+  "JobDetailMovingFiles": "Déplacement des fichiers de {title} dans {arr}.",
+  "JobDetailStoppedArrUnreachable": "Arrêtée car un Arr est resté illisible pendant cinq minutes alors qu'il déplaçait des fichiers. Effectués : {done}, en échec : {failed}, déplacements en cours : {moving}. Le reste n'a pas été tenté.",
+  "JobDetailStoppedArrStalled": "Arrêtée car un Arr déplace les fichiers d'un même titre depuis six heures, sa file sans doute bloquée. Effectués : {done}, en échec : {failed}, déplacements en cours : {moving}. Le reste n'a pas été tenté.",
+  "ApplyStoppedArrUnreachable": "Arrêté car un Arr est resté illisible pendant cinq minutes alors qu'il déplaçait des fichiers : le reste n'a pas été tenté.",
+  "ApplyStoppedArrStalled": "Arrêté car un Arr déplace les fichiers d'un même titre depuis six heures, sa file sans doute bloquée : le reste n'a pas été tenté."
 }

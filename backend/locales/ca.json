@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Passada aquesta data, tota crida amb la clau es rebutja fins que la revoquis. Routarr envia una notificació una setmana abans. Una clau no es renova: crea'n una de nova i revoca l'antiga.",
   "ApplicationExpired": "Caducada",
   "ApplicationExpiresSoon": "En una setmana",
-  "ApplicationLongUnused": "Sense ús des de fa més de 90 dies"
+  "ApplicationLongUnused": "Sense ús des de fa més de 90 dies",
+  "JobDetailMovingFiles": "Movent els fitxers de {title} a {arr}.",
+  "JobDetailStoppedArrUnreachable": "Aturada perquè no s'ha pogut llegir un Arr durant cinc minuts mentre movia fitxers. Completats: {done}, fallits: {failed}, encara en moviment: {moving}. No s'ha intentat la resta.",
+  "JobDetailStoppedArrStalled": "Aturada perquè un Arr fa sis hores que mou els fitxers d'un sol títol, amb la cua probablement bloquejada. Completats: {done}, fallits: {failed}, encara en moviment: {moving}. No s'ha intentat la resta.",
+  "ApplyStoppedArrUnreachable": "Aturat perquè no s'ha pogut llegir un Arr durant cinc minuts mentre movia fitxers: no s'ha intentat la resta.",
+  "ApplyStoppedArrStalled": "Aturat perquè un Arr fa sis hores que mou els fitxers d'un sol títol, amb la cua probablement bloquejada: no s'ha intentat la resta."
 }

@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "过了这个日期，使用该密钥的所有调用都会被拒绝，直到你将其吊销。Routarr 会提前一周发送通知。密钥不能续期：请新建一个，并吊销旧的。",
   "ApplicationExpired": "已到期",
   "ApplicationExpiresSoon": "一周内到期",
-  "ApplicationLongUnused": "超过 90 天未使用"
+  "ApplicationLongUnused": "超过 90 天未使用",
+  "JobDetailMovingFiles": "正在 {arr} 中移动 {title} 的文件。",
+  "JobDetailStoppedArrUnreachable": "移动文件时有 Arr 五分钟无法读取，已停止。已完成：{done}，失败：{failed}，仍在移动：{moving}。其余部分未尝试。",
+  "JobDetailStoppedArrStalled": "有 Arr 移动同一作品的文件已达六小时，其队列可能卡住，已停止。已完成：{done}，失败：{failed}，仍在移动：{moving}。其余部分未尝试。",
+  "ApplyStoppedArrUnreachable": "移动文件时有 Arr 五分钟无法读取，已停止：其余部分未尝试。",
+  "ApplyStoppedArrStalled": "有 Arr 移动同一作品的文件已达六小时，其队列可能卡住，已停止：其余部分未尝试。"
 }

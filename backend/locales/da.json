@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Efter denne dato afvises alle kald med nøglen, indtil du tilbagekalder den. Routarr sender en notifikation en uge før. En nøgle fornyes ikke: opret en ny, og tilbagekald den gamle.",
   "ApplicationExpired": "Udløbet",
   "ApplicationExpiresSoon": "Inden for en uge",
-  "ApplicationLongUnused": "Ubrugt i over 90 dage"
+  "ApplicationLongUnused": "Ubrugt i over 90 dage",
+  "JobDetailMovingFiles": "Flytter filerne for {title} i {arr}.",
+  "JobDetailStoppedArrUnreachable": "Stoppet, da et Arr ikke kunne læses i fem minutter under flytning af filer. Udført: {done}, mislykket: {failed}, flyttes stadig: {moving}. Resten blev ikke forsøgt.",
+  "JobDetailStoppedArrStalled": "Stoppet, da et Arr har flyttet filerne for én titel i seks timer, og dets kø sandsynligvis sidder fast. Udført: {done}, mislykket: {failed}, flyttes stadig: {moving}. Resten blev ikke forsøgt.",
+  "ApplyStoppedArrUnreachable": "Stoppet, da et Arr ikke kunne læses i fem minutter under flytning af filer: resten blev ikke forsøgt.",
+  "ApplyStoppedArrStalled": "Stoppet, da et Arr har flyttet filerne for én titel i seks timer, og dets kø sandsynligvis sidder fast: resten blev ikke forsøgt."
 }

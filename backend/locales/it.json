@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Dopo questa data ogni chiamata con la chiave viene rifiutata, finché non la revochi. Routarr invia una notifica una settimana prima. Una chiave non si rinnova: creane una nuova e revoca la vecchia.",
   "ApplicationExpired": "Scaduta",
   "ApplicationExpiresSoon": "Entro una settimana",
-  "ApplicationLongUnused": "Inutilizzata da oltre 90 giorni"
+  "ApplicationLongUnused": "Inutilizzata da oltre 90 giorni",
+  "JobDetailMovingFiles": "Spostamento dei file di {title} in {arr}.",
+  "JobDetailStoppedArrUnreachable": "Interrotta: un Arr non è stato leggibile per cinque minuti durante lo spostamento dei file. Completati: {done}, falliti: {failed}, spostamenti in corso: {moving}. Il resto non è stato tentato.",
+  "JobDetailStoppedArrStalled": "Interrotta: un Arr sposta da sei ore i file di un titolo, la sua coda è probabilmente bloccata. Completati: {done}, falliti: {failed}, spostamenti in corso: {moving}. Il resto non è stato tentato.",
+  "ApplyStoppedArrUnreachable": "Interrotto: un Arr non è stato leggibile per cinque minuti durante lo spostamento dei file. Il resto non è stato tentato.",
+  "ApplyStoppedArrStalled": "Interrotto: un Arr sposta da sei ore i file di un titolo, la sua coda è probabilmente bloccata. Il resto non è stato tentato."
 }

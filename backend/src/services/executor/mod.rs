@@ -8,14 +8,15 @@ mod load;
 mod matching;
 mod record;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::{error, info};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::arr_moves::Repointed;
-use crate::jobs::registry::JobLock;
+use crate::jobs::registry::{JobLock, Progress};
 use crate::jobs::{Attribution, Detail, JobKind, Stop, detached};
-use crate::localization::Told;
+use crate::localization::{Localizer, Told};
 use crate::models::DecisionFilter;
 use crate::services::notify;
 use crate::state::AppState;
@@ -26,7 +27,7 @@ pub use guards::{Confirmed, confirm};
 pub use matching::RevertScope;
 
 use crate::services::connection::Said;
-use follow::{Following, Sent, follow};
+use follow::{Followed, Sent, follow_one};
 use guards::{
     CapacityScope, guard_batch_limit, guard_capacity, guard_confirmation, guard_dry_run,
     guard_reachable,
@@ -67,6 +68,19 @@ impl ApplyReport {
     fn note(&mut self, moved: Moved) {
         if self.moved.len() < MOVED_LISTED {
             self.moved.push(moved);
+        }
+    }
+
+    /// Add what one instance's moves did, the first reason to stop kept.
+    fn absorb(&mut self, part: ApplyReport) {
+        self.applied += part.applied;
+        self.failed += part.failed;
+        self.skipped += part.skipped;
+        self.moving += part.moving;
+        self.errors.extend(part.errors);
+        self.stopped = self.stopped.or(part.stopped);
+        for moved in part.moved {
+            self.note(moved);
         }
     }
 }
@@ -121,6 +135,10 @@ pub enum StopReason {
     Cancelled,
     /// Routarr was stopping.
     Shutdown,
+    /// An Arr's commands could not be read for five times the move wait while it moved files.
+    Unreachable,
+    /// An Arr held one move of files past the longest wait, its queue likely stuck.
+    Stalled,
 }
 
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
@@ -417,7 +435,9 @@ async fn run_in_slices(
                 Ok(moves) => {
                     report.skipped += batch.len() - moves.len();
                     report.batches_run += 1;
-                    execute_moves(&state, moves, move_files, direction, &by, &stop).await
+                    let attempted = report.applied + report.failed + report.skipped + report.moving;
+                    let tally = Tally::new(job.progress_reporter(), attempted, ids.len());
+                    execute_moves(&state, moves, move_files, direction, &by, &stop, &tally).await
                 }
                 Err(e) => Err(e),
             };
@@ -426,6 +446,7 @@ async fn run_in_slices(
                 Ok(slice) => {
                     report.applied += slice.applied;
                     report.failed += slice.failed;
+                    report.skipped += slice.skipped;
                     report.moving += slice.moving;
                     report.errors.extend(slice.errors);
                     let room = MOVED_LISTED.saturating_sub(moved.len());
@@ -503,8 +524,9 @@ pub async fn apply_unattended(
     run_locked(state, decision_ids, false, by, turn, 0).await
 }
 
-/// How long an unattended apply waits for the one running. The Arr carries a disk move as its
-/// own command, followed for `move_wait` at most, so an apply holds the lock minutes, not hours.
+/// How long an unattended apply waits for the one running. A run moving files holds the lock as
+/// long as its copies last, hours for a library: past this wait the decision stays pending for
+/// the sweep after that run.
 const UNATTENDED_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// The apply lock for an unattended apply, waited for rather than refused: dropped, the fix for
@@ -562,9 +584,15 @@ async fn run_locked(
 
         let direction = MoveDirection::Forward;
         let requested = ids.len() + superseded;
-        let outcome = execute_moves(&state, moves, move_files, direction, &by, &stop)
+        let tally = Tally::new(job.progress_reporter(), skipped, ids.len());
+        let outcome = execute_moves(&state, moves, move_files, direction, &by, &stop, &tally)
             .await
-            .map(|report| ApplyReport { requested, skipped, superseded, ..report });
+            .map(|report| ApplyReport {
+                requested,
+                skipped: skipped + report.skipped,
+                superseded,
+                ..report
+            });
 
         match &outcome {
             Ok(report) => {
@@ -636,9 +664,14 @@ pub async fn revert_decisions(
         let skipped = ids.len() - moves.len();
 
         let direction = MoveDirection::Revert;
-        let outcome = execute_moves(&state, moves, move_files, direction, &by, &stop)
+        let tally = Tally::new(job.progress_reporter(), skipped, ids.len());
+        let outcome = execute_moves(&state, moves, move_files, direction, &by, &stop, &tally)
             .await
-            .map(|report| ApplyReport { requested: ids.len(), skipped, ..report });
+            .map(|report| ApplyReport {
+                requested: ids.len(),
+                skipped: skipped + report.skipped,
+                ..report
+            });
 
         match &outcome {
             Ok(report) => {
@@ -679,7 +712,40 @@ impl MoveDirection {
     }
 }
 
-/// Send each move to its Arr, title by title, instance by instance in the order given.
+/// Where a run counts the titles it is done with, from `offset` of `total`, on its task.
+pub(super) struct Tally {
+    progress: Progress,
+    offset: usize,
+    total: usize,
+    done: AtomicUsize,
+}
+
+impl Tally {
+    fn new(progress: Progress, offset: usize, total: usize) -> Self {
+        Self { progress, offset, total, done: AtomicUsize::new(0) }
+    }
+
+    async fn step(&self) {
+        let done = self.done.fetch_add(1, Ordering::SeqCst) + 1;
+        self.progress.report(self.offset + done, self.total).await;
+    }
+}
+
+/// What every title of one run is sent with.
+#[derive(Clone, Copy)]
+struct Sending<'a> {
+    state: &'a AppState,
+    move_files: bool,
+    direction: MoveDirection,
+    by: &'a Attribution,
+    stop: &'a Stop,
+    localizer: &'a Localizer,
+    tally: &'a Tally,
+}
+
+/// Send each move to its Arr, title by title. With files every Arr works at once, each on one
+/// title at a time, since an Arr copies one at a time and imports nothing while its queue holds
+/// a move. A repoint is instant, and instance after instance keeps one order of calls.
 async fn execute_moves(
     state: &AppState,
     moves: Vec<PendingMove>,
@@ -687,88 +753,29 @@ async fn execute_moves(
     direction: MoveDirection,
     by: &Attribution,
     stop: &Stop,
+    tally: &Tally,
 ) -> AppResult<ApplyReport> {
-    let mut report = ApplyReport::default();
-    let mut following = Vec::new();
     let localizer = state.localizer().await;
-
-    'instances: for batch in by_instance(moves) {
-        let instance = match state.instance(&batch[0].instance_id).await {
-            Ok(instance) => instance,
-            Err(e) => {
-                let failed = Said::of(&e, None, &localizer);
-                fail_batch(state, &batch, &mut report, &failed, direction, by).await;
-                note_failed(&mut report, &batch, None);
-                continue;
-            }
-        };
-        let named = Some(instance.name.as_str());
-        // A proposal left from before the instance was disabled must not reach it.
-        if !instance.enabled {
-            let refusal = Told::new("ErrorInstanceDisabled").with("name", &instance.name);
-            let failed = Said::told(&refusal, &localizer);
-            fail_batch(state, &batch, &mut report, &failed, direction, by).await;
-            note_failed(&mut report, &batch, named);
-            continue;
-        }
-
-        let adapter = match state.adapter(&instance) {
-            Ok(a) => a,
-            Err(e) => {
-                let failed = Said::of(&e, Some(&instance), &localizer);
-                fail_batch(state, &batch, &mut report, &failed, direction, by).await;
-                note_failed(&mut report, &batch, named);
-                continue;
-            }
-        };
-
-        let mut sent = Vec::new();
-        for mv in &batch {
-            if let Some(reason) = stop_reason(state, stop).await {
-                report.stopped = Some(reason);
-                if !sent.is_empty() {
-                    following.push(Following { adapter, arr: instance.name.clone(), sent });
-                }
-                break 'instances;
-            }
-            let outcome = match record_requested(&state.pool, mv, direction).await {
-                Ok(()) => send(&adapter, mv, move_files)
-                    .await
-                    .map_err(|e| Said::of(&e, Some(&instance), &localizer)),
-                // Unrecorded, a move the Arr made is lost to a stop or a crash.
-                Err(e) => Err(Said::of(&e, None, &localizer)),
-            };
-            match outcome {
-                Ok(Repointed { from, to: path }) if move_files => {
-                    record_sent(state, mv, &path, direction, by).await;
-                    sent.push(Sent { mv: mv.clone(), path, from });
-                }
-                Ok(Repointed { from, to }) => {
-                    record_success(state, mv, &to, direction, by).await;
-                    report.applied += 1;
-                    report.note(Moved::of(mv, named, from, Some(to), "applied"));
-                }
-                Err(failed) => {
-                    fail(state, mv, &failed, &mut report, direction, by).await;
-                    report.note(Moved::of(mv, named, None, None, "failed"));
-                }
-            }
-        }
-        if !sent.is_empty() {
-            following.push(Following { adapter, arr: instance.name.clone(), sent });
-        }
-    }
-
-    // A stopping server has no minute to give: what is left stays requested for the next sync.
-    if report.stopped == Some(StopReason::Shutdown) {
-        for instance in &following {
-            for sent in &instance.sent {
-                report.moving += 1;
-                report.note(sent.moved(&instance.arr, "moving"));
-            }
-        }
+    let sending = Sending { state, move_files, direction, by, stop, localizer: &localizer, tally };
+    let batches = by_instance(moves);
+    let parts = if move_files {
+        futures::future::join_all(batches.into_iter().map(|batch| move_instance(sending, batch)))
+            .await
     } else {
-        follow(state, following, direction, by, &mut report).await;
+        let mut parts = Vec::new();
+        for batch in batches {
+            let part = move_instance(sending, batch).await;
+            let stopped = part.stopped.is_some();
+            parts.push(part);
+            if stopped {
+                break;
+            }
+        }
+        parts
+    };
+    let mut report = ApplyReport::default();
+    for part in parts {
+        report.absorb(part);
     }
 
     info!(
@@ -776,6 +783,114 @@ async fn execute_moves(
         report.applied, report.failed, report.moving
     );
     Ok(report)
+}
+
+/// The moves of one instance, in order. A move with files is followed to its end before the
+/// next goes, and each one after the first is checked again first: the run may be hours old.
+async fn move_instance(sending: Sending<'_>, batch: Vec<PendingMove>) -> ApplyReport {
+    let Sending { state, move_files, direction, by, stop, localizer, tally } = sending;
+    let mut report = ApplyReport::default();
+    let instance = match state.instance(&batch[0].instance_id).await {
+        Ok(instance) => instance,
+        Err(e) => {
+            let failed = Said::of(&e, None, localizer);
+            fail_batch(state, &batch, &mut report, &failed, direction, by).await;
+            note_failed(&mut report, &batch, None);
+            return report;
+        }
+    };
+    let named = Some(instance.name.as_str());
+    // A proposal left from before the instance was disabled must not reach it.
+    if !instance.enabled {
+        let refusal = Told::new("ErrorInstanceDisabled").with("name", &instance.name);
+        let failed = Said::told(&refusal, localizer);
+        fail_batch(state, &batch, &mut report, &failed, direction, by).await;
+        note_failed(&mut report, &batch, named);
+        return report;
+    }
+    let adapter = match state.adapter(&instance) {
+        Ok(a) => a,
+        Err(e) => {
+            let failed = Said::of(&e, Some(&instance), localizer);
+            fail_batch(state, &batch, &mut report, &failed, direction, by).await;
+            note_failed(&mut report, &batch, named);
+            return report;
+        }
+    };
+
+    for (index, loaded) in batch.iter().enumerate() {
+        if let Some(reason) = stop_reason(state, stop).await {
+            report.stopped = Some(reason);
+            break;
+        }
+        let mv = if move_files && index > 0 {
+            match revalidated(state, loaded, direction).await {
+                Some(mv) => mv,
+                None => {
+                    report.skipped += 1;
+                    tally.step().await;
+                    continue;
+                }
+            }
+        } else {
+            loaded.clone()
+        };
+        let outcome = match record_requested(&state.pool, &mv, direction).await {
+            Ok(()) => send(&adapter, &mv, move_files)
+                .await
+                .map_err(|e| Said::of(&e, Some(&instance), localizer)),
+            // Unrecorded, a move the Arr made is lost to a stop or a crash.
+            Err(e) => Err(Said::of(&e, None, localizer)),
+        };
+        match outcome {
+            Ok(Repointed { from, to: path }) if move_files => {
+                record_sent(state, &mv, &path, direction, by).await;
+                let moving = Detail::new("JobDetailMovingFiles")
+                    .with("title", &mv.media_title)
+                    .with("arr", &instance.name);
+                tally.progress.say(moving).await;
+                let sent = Sent { mv, path, from };
+                let followed = follow_one(sending, &adapter, &instance.name, sent, &mut report);
+                if let Followed::Stopped(reason) = followed.await {
+                    report.stopped = Some(reason);
+                    tally.step().await;
+                    break;
+                }
+            }
+            Ok(Repointed { from, to }) => {
+                record_success(state, &mv, &to, direction, by).await;
+                report.applied += 1;
+                report.note(Moved::of(&mv, named, from, Some(to), "applied"));
+            }
+            Err(failed) => {
+                fail(state, &mv, &failed, &mut report, direction, by).await;
+                report.note(Moved::of(&mv, named, None, None, "failed"));
+            }
+        }
+        tally.step().await;
+    }
+    report
+}
+
+/// `mv` as it stands now, `None` once it is no longer a move to make: applied, retired, or sent
+/// elsewhere by the rules. A title that cannot be read again waits for the next run.
+async fn revalidated(
+    state: &AppState,
+    mv: &PendingMove,
+    direction: MoveDirection,
+) -> Option<PendingMove> {
+    let ids = [mv.decision_id.clone()];
+    let loaded = match direction {
+        MoveDirection::Forward => load_pending_moves(&state.pool, &ids).await,
+        MoveDirection::Revert => load_revertible_moves(&state.pool, &ids).await,
+    };
+    match loaded {
+        Ok(moves) => moves.into_iter().next(),
+        Err(e) => {
+            error!(title = %mv.media_title, "A move could not be checked again before it went: {e}");
+            None
+        }
+    }
 }
 
 /// Ask the Arr for one move. A write whose answer never came may have been made all the same,
@@ -869,6 +984,8 @@ fn stopped_detail(
         StopReason::DryRun => "JobDetailStoppedByDryRun",
         StopReason::Cancelled => "JobDetailCancelled",
         StopReason::Shutdown => "JobDetailStoppedForShutdown",
+        StopReason::Unreachable => "JobDetailStoppedArrUnreachable",
+        StopReason::Stalled => "JobDetailStoppedArrStalled",
     };
     Some(Detail::new(key).with("done", done).with("failed", failed).with("moving", moving))
 }

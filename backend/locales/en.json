@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Past this date every call with the key is refused, until you revoke it. Routarr sends a notification a week before. A key is not renewed: make a new one and revoke the old.",
   "ApplicationExpired": "Expired",
   "ApplicationExpiresSoon": "Within a week",
-  "ApplicationLongUnused": "Unused for over 90 days"
+  "ApplicationLongUnused": "Unused for over 90 days",
+  "JobDetailMovingFiles": "Moving the files of {title} in {arr}.",
+  "JobDetailStoppedArrUnreachable": "Stopped: an Arr could not be read for five minutes while it moved files. Done: {done}, failed: {failed}, still moving: {moving}. The rest was not attempted.",
+  "JobDetailStoppedArrStalled": "Stopped: an Arr has been moving the files of one title for six hours, its queue likely stuck. Done: {done}, failed: {failed}, still moving: {moving}. The rest was not attempted.",
+  "ApplyStoppedArrUnreachable": "Stopped: an Arr could not be read for five minutes while it moved files. The rest was not attempted.",
+  "ApplyStoppedArrStalled": "Stopped: an Arr has been moving the files of one title for six hours, its queue likely stuck. The rest was not attempted."
 }

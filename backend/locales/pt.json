@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Depois desta data, todas as chamadas com a chave são recusadas, até a revogar. O Routarr envia uma notificação uma semana antes. Uma chave não é renovada: crie uma nova e revogue a antiga.",
   "ApplicationExpired": "Expirada",
   "ApplicationExpiresSoon": "Numa semana",
-  "ApplicationLongUnused": "Sem uso há mais de 90 dias"
+  "ApplicationLongUnused": "Sem uso há mais de 90 dias",
+  "JobDetailMovingFiles": "A mover os ficheiros de {title} no {arr}.",
+  "JobDetailStoppedArrUnreachable": "Parada porque um Arr não pôde ser lido durante cinco minutos enquanto movia ficheiros. Concluídas: {done}, falhadas: {failed}, ainda em movimentação: {moving}. O resto não foi tentado.",
+  "JobDetailStoppedArrStalled": "Parada porque um Arr move os ficheiros de um título há seis horas, com a fila provavelmente bloqueada. Concluídas: {done}, falhadas: {failed}, ainda em movimentação: {moving}. O resto não foi tentado.",
+  "ApplyStoppedArrUnreachable": "Parado porque um Arr não pôde ser lido durante cinco minutos enquanto movia ficheiros: o resto não foi tentado.",
+  "ApplyStoppedArrStalled": "Parado porque um Arr move os ficheiros de um título há seis horas, com a fila provavelmente bloqueada: o resto não foi tentado."
 }

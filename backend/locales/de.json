@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "Nach diesem Datum wird jeder Aufruf mit dem Schlüssel abgelehnt, bis Sie ihn widerrufen. Routarr sendet eine Woche vorher eine Benachrichtigung. Ein Schlüssel wird nicht verlängert: Erstellen Sie einen neuen und widerrufen Sie den alten.",
   "ApplicationExpired": "Abgelaufen",
   "ApplicationExpiresSoon": "Innerhalb einer Woche",
-  "ApplicationLongUnused": "Seit über 90 Tagen ungenutzt"
+  "ApplicationLongUnused": "Seit über 90 Tagen ungenutzt",
+  "JobDetailMovingFiles": "Die Dateien von {title} werden in {arr} verschoben.",
+  "JobDetailStoppedArrUnreachable": "Gestoppt, weil ein Arr beim Verschieben von Dateien fünf Minuten lang nicht gelesen werden konnte. Erledigt: {done}, fehlgeschlagen: {failed}, Verschiebung läuft noch: {moving}. Der Rest wurde nicht mehr versucht.",
+  "JobDetailStoppedArrStalled": "Gestoppt, weil ein Arr seit sechs Stunden die Dateien eines Titels verschiebt und seine Warteschlange wahrscheinlich hängt. Erledigt: {done}, fehlgeschlagen: {failed}, Verschiebung läuft noch: {moving}. Der Rest wurde nicht mehr versucht.",
+  "ApplyStoppedArrUnreachable": "Gestoppt, weil ein Arr beim Verschieben von Dateien fünf Minuten lang nicht gelesen werden konnte: Der Rest wurde nicht mehr versucht.",
+  "ApplyStoppedArrStalled": "Gestoppt, weil ein Arr seit sechs Stunden die Dateien eines Titels verschiebt und seine Warteschlange wahrscheinlich hängt: Der Rest wurde nicht mehr versucht."
 }

@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "După această dată, orice apel cu cheia este refuzat, până când o revoci. Routarr trimite o notificare cu o săptămână înainte. O cheie nu se reînnoiește: creează una nouă și revocă-o pe cea veche.",
   "ApplicationExpired": "Expirată",
   "ApplicationExpiresSoon": "În cel mult o săptămână",
-  "ApplicationLongUnused": "Neutilizată de peste 90 de zile"
+  "ApplicationLongUnused": "Neutilizată de peste 90 de zile",
+  "JobDetailMovingFiles": "Se mută fișierele pentru {title} în {arr}.",
+  "JobDetailStoppedArrUnreachable": "Oprită deoarece un Arr nu a putut fi citit timp de cinci minute în timpul mutării fișierelor. Efectuate: {done}, eșuate: {failed}, în curs de mutare: {moving}. Restul nu a mai fost încercat.",
+  "JobDetailStoppedArrStalled": "Oprită deoarece un Arr mută fișierele unui titlu de șase ore, iar coada lui pare blocată. Efectuate: {done}, eșuate: {failed}, în curs de mutare: {moving}. Restul nu a mai fost încercat.",
+  "ApplyStoppedArrUnreachable": "Oprit deoarece un Arr nu a putut fi citit timp de cinci minute în timpul mutării fișierelor: restul nu a mai fost încercat.",
+  "ApplyStoppedArrStalled": "Oprit deoarece un Arr mută fișierele unui titlu de șase ore, iar coada lui pare blocată: restul nu a mai fost încercat."
 }

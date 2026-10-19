@@ -1805,5 +1805,10 @@
   "ApplicationExpiryHelp": "이 날짜가 지나면 폐기할 때까지 이 키로 하는 모든 호출이 거부됩니다. Routarr는 일주일 전에 알림을 보냅니다. 키는 갱신되지 않습니다. 새 키를 만들고 이전 키를 폐기하세요.",
   "ApplicationExpired": "만료됨",
   "ApplicationExpiresSoon": "일주일 이내",
-  "ApplicationLongUnused": "90일 넘게 미사용"
+  "ApplicationLongUnused": "90일 넘게 미사용",
+  "JobDetailMovingFiles": "{arr}에서 {title}의 파일을 이동하는 중입니다.",
+  "JobDetailStoppedArrUnreachable": "파일을 이동하는 동안 Arr를 5분간 읽을 수 없어 중지되었습니다. 완료: {done}, 실패: {failed}, 이동 중: {moving}. 나머지는 시도하지 않았습니다.",
+  "JobDetailStoppedArrStalled": "Arr가 한 작품의 파일을 6시간째 이동하고 있고 큐가 멈춘 것으로 보여 중지되었습니다. 완료: {done}, 실패: {failed}, 이동 중: {moving}. 나머지는 시도하지 않았습니다.",
+  "ApplyStoppedArrUnreachable": "파일을 이동하는 동안 Arr를 5분간 읽을 수 없어 중지되었습니다. 나머지는 시도하지 않았습니다.",
+  "ApplyStoppedArrStalled": "Arr가 한 작품의 파일을 6시간째 이동하고 있고 큐가 멈춘 것으로 보여 중지되었습니다. 나머지는 시도하지 않았습니다."
 }
