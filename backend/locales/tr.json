@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Yeniden oku",
   "SourceRefreshed": "{source}: yeniden okunan yanıtlar: {enriched}, başarısız: {failed}",
   "SourceRefreshNone": "Yeniden okunacak kaynak yok: Radarr ve Sonarr üst verileri her eşitlemeyle gelir.",
-  "TermTextTemplate": "Anime veya çocuk başlıkları gibi yaygın bir kitaplık düzeni için hazır bir kural seti. Eklendikten sonra kuralları sıradan kurallardır ve her biri geldiği şablonu kaydeder."
+  "TermTextTemplate": "Anime veya çocuk başlıkları gibi yaygın bir kitaplık düzeni için hazır bir kural seti. Eklendikten sonra kuralları sıradan kurallardır ve her biri geldiği şablonu kaydeder.",
+  "AuditApplicationKeyExpired": "Süresi dolmuş {name} ({id}) API istemcisi anahtarı gönderildi.",
+  "NotificationHeadlineApplicationKeyExpiring": "Bir API istemcisi anahtarının süresi yakında dolacak",
+  "NotificationMessageApplicationKeyExpiring": "{name} API istemcisi anahtarının süresi {date} tarihinde dolacak. O tarihten önce bu istemci için yeni bir anahtar oluşturun ve bunu geçersiz kılın.",
+  "ApplicationExpiry": "Sona erer",
+  "ApplicationExpiryIn30Days": "30 gün sonra",
+  "ApplicationExpiryIn90Days": "90 gün sonra",
+  "ApplicationExpiryInAYear": "1 yıl sonra",
+  "ApplicationExpiryHelp": "Bu tarihten sonra anahtarla yapılan her çağrı, siz geçersiz kılana kadar reddedilir. Routarr bir hafta önceden bildirim gönderir. Anahtar yenilenmez: yeni bir tane oluşturun ve eskisini geçersiz kılın.",
+  "ApplicationExpired": "Süresi doldu",
+  "ApplicationExpiresSoon": "Bir hafta içinde",
+  "ApplicationLongUnused": "90 günden uzun süredir kullanılmadı"
 }

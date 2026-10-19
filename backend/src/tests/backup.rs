@@ -298,6 +298,7 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
         scopes: Vec::new(),
         may_confirm: Vec::new(),
         may_move_files: false,
+        expires_in_days: None,
     };
     let leaked = applications::create(&app.state, new, None).await.unwrap();
     notify::rotate_signing_secret(&app.state).await.unwrap();

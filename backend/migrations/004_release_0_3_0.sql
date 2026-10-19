@@ -61,3 +61,8 @@ ALTER TABLE instances ADD COLUMN webhook_checked_at TEXT;
 -- moved.
 ALTER TABLE execution_logs ADD COLUMN job_id TEXT;
 CREATE INDEX idx_execution_logs_job ON execution_logs (job_id);
+
+-- When an application key stops being accepted, null for one that never does, and when the owner
+-- was told it soon would, once per key.
+ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
+ALTER TABLE api_keys ADD COLUMN expiry_notified_at TEXT;

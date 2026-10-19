@@ -1168,3 +1168,40 @@ async fn a_failed_scheduled_backup_is_sent_and_shown() {
     let warned = super::warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(warned.contains(&failed), "{warned:?}");
 }
+
+/// A key expiring within a week is announced once, so the application gets a new key before it
+/// stops. A key further off, one that never expires and one already expired are not.
+#[tokio::test]
+async fn a_key_about_to_expire_is_announced_once_a_week_before() {
+    let receiver = Receiver::start().await;
+    let app = TestApp::new().await;
+    listening(&app, &receiver).await;
+    app.store_setting("backup_enabled", "false").await;
+    for (name, days) in
+        [("soon", Some(30)), ("later", Some(30)), ("gone", Some(30)), ("ever", None)]
+    {
+        let body = serde_json::json!({ "name": name, "expires_in_days": days });
+        app.post("/api/v1/applications", body).await.assert_ok();
+    }
+    app.execute(&[
+        "UPDATE api_keys SET expires_at = datetime('now', '+5 days') WHERE name = 'soon'",
+        "UPDATE api_keys SET expires_at = datetime('now', '-1 day') WHERE name = 'gone'",
+    ])
+    .await;
+
+    for _ in 0..2 {
+        let (mut synced, mut maintained, mut backed_up) = (Default::default(), None, None);
+        crate::jobs::scheduler::tick(&app.state, &mut synced, &mut maintained, &mut backed_up)
+            .await
+            .unwrap();
+    }
+
+    let sent = receiver.awaiting(1).await;
+    let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body["event"], "application_key_expiring", "{body}");
+    assert_eq!(body["data"]["name"], "soon", "{body}");
+    assert!(body["data"]["expires_at"].as_str().unwrap().ends_with('Z'), "{body}");
+    assert!(body["message"].as_str().unwrap().contains("soon"), "{body}");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(receiver.deliveries().len(), 1, "announced twice, or another key announced");
+}

@@ -1794,5 +1794,16 @@
   "SourceRefresh": "重新讀取",
   "SourceRefreshed": "{source}：已重新讀取：{enriched}，失敗：{failed}",
   "SourceRefreshNone": "沒有可重新讀取的來源：Radarr 與 Sonarr 的中繼資料會隨每次同步而來。",
-  "TermTextTemplate": "針對常見媒體庫劃分方式的現成規則組，例如動畫或兒童作品。新增後，其規則即為一般規則，且每條規則都會記錄其來源範本。"
+  "TermTextTemplate": "針對常見媒體庫劃分方式的現成規則組，例如動畫或兒童作品。新增後，其規則即為一般規則，且每條規則都會記錄其來源範本。",
+  "AuditApplicationKeyExpired": "收到一個已過期的應用程式金鑰 {name}（{id}）。",
+  "NotificationHeadlineApplicationKeyExpiring": "有應用程式金鑰即將到期",
+  "NotificationMessageApplicationKeyExpiring": "應用程式金鑰 {name} 將於 {date} 到期。請在此之前為該應用程式新增金鑰，並撤銷此金鑰。",
+  "ApplicationExpiry": "到期",
+  "ApplicationExpiryIn30Days": "30 天後",
+  "ApplicationExpiryIn90Days": "90 天後",
+  "ApplicationExpiryInAYear": "一年後",
+  "ApplicationExpiryHelp": "超過這個日期，使用該金鑰的所有呼叫都會被拒絕，直到你將其撤銷。Routarr 會提前一週傳送通知。金鑰不能續期：請新增一個，並撤銷舊的。",
+  "ApplicationExpired": "已到期",
+  "ApplicationExpiresSoon": "一週內到期",
+  "ApplicationLongUnused": "超過 90 天未使用"
 }

@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Načíst znovu",
   "SourceRefreshed": "{source}: znovu načtené odpovědi: {enriched}, selhalo: {failed}",
   "SourceRefreshNone": "Žádný zdroj k opětovnému načtení: metadata z Radarru a Sonarru přicházejí s každou synchronizací.",
-  "TermTextTemplate": "Hotová sada pravidel pro běžné rozdělení knihovny, například anime nebo dětské tituly. Po přidání jsou její pravidla obyčejná pravidla a každé z nich si pamatuje šablonu, ze které pochází."
+  "TermTextTemplate": "Hotová sada pravidel pro běžné rozdělení knihovny, například anime nebo dětské tituly. Po přidání jsou její pravidla obyčejná pravidla a každé z nich si pamatuje šablonu, ze které pochází.",
+  "AuditApplicationKeyExpired": "Byl odeslán prošlý klíč aplikace {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Klíči aplikace brzy vyprší platnost",
+  "NotificationMessageApplicationKeyExpiring": "Klíči aplikace {name} vyprší platnost {date}. Vytvořte pro tuto aplikaci nový klíč a tento do té doby zneplatněte.",
+  "ApplicationExpiry": "Vyprší",
+  "ApplicationExpiryIn30Days": "Za 30 dní",
+  "ApplicationExpiryIn90Days": "Za 90 dní",
+  "ApplicationExpiryInAYear": "Za rok",
+  "ApplicationExpiryHelp": "Po tomto datu je každé volání s klíčem odmítnuto, dokud klíč nezneplatníte. Routarr pošle oznámení týden předem. Klíč se neobnovuje: vytvořte nový a starý zneplatněte.",
+  "ApplicationExpired": "Vypršel",
+  "ApplicationExpiresSoon": "Do týdne",
+  "ApplicationLongUnused": "Nepoužit přes 90 dní"
 }

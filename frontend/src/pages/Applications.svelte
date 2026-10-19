@@ -6,7 +6,7 @@
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatTimestamp, toggled } from '../api/format';
+  import { expiresWithinAWeek, formatTimestamp, idleFor90Days, toggled } from '../api/format';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
   import NoValue from '../components/NoValue.svelte';
@@ -37,6 +37,14 @@
     { value: 'unreachable', key: 'GuardrailUnreachable' },
   ];
 
+  /** The lives the form offers. A key is never renewed: a new one replaces it. */
+  const EXPIRIES: { days: number | null; key: string }[] = [
+    { days: null, key: 'Never' },
+    { days: 30, key: 'ApplicationExpiryIn30Days' },
+    { days: 90, key: 'ApplicationExpiryIn90Days' },
+    { days: 365, key: 'ApplicationExpiryInAYear' },
+  ];
+
   const scopeKey = (scope: ApplicationScope) =>
     SCOPES.find((entry) => entry.value === scope)?.key ?? scope;
   const guardrailKey = (name: Guardrail) =>
@@ -51,6 +59,7 @@
   let scopes = $state<ApplicationScope[]>([]);
   let mayConfirm = $state<Guardrail[]>([]);
   let mayMoveFiles = $state(false);
+  let expiresInDays = $state<number | null>(null);
   // A guardrail and a file move are only ever asked of a key that operates.
   const operates = $derived(scopes.includes('operate'));
 
@@ -59,6 +68,7 @@
     scopes = [];
     mayConfirm = [];
     mayMoveFiles = false;
+    expiresInDays = null;
     dialogError = null;
     creating = true;
   }
@@ -74,6 +84,7 @@
             scopes,
             may_confirm: operates ? mayConfirm : [],
             may_move_files: operates && mayMoveFiles,
+            expires_in_days: expiresInDays,
           },
           proof,
         ),
@@ -149,18 +160,19 @@
             <th>{t('ApplicationMayConfirm')}</th>
             <th>{t('ApplicationMovesFiles')}</th>
             <th>{t('Created')}</th>
+            <th>{t('ApplicationExpiry')}</th>
             <th>{t('LastUsed')}</th>
             <th class="w-80"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if applications.loading && rows.length === 0}
-            <TableSkeleton columns={7} />
+            <TableSkeleton columns={8} />
           {:else if rows.length === 0 && !applications.error}
-            <tr><td colspan="7"><EmptyState>{t('NoApplications')}</EmptyState></td></tr>
+            <tr><td colspan="8"><EmptyState>{t('NoApplications')}</EmptyState></td></tr>
           {:else}
             {#each rows as application, index (application.id)}
-              <tr>
+              <tr class:row-muted={application.expired}>
                 <td><strong>{application.name}</strong></td>
                 <td>
                   <!-- A wrapping row with a gap, as chips are elsewhere: stacked in
@@ -191,9 +203,26 @@
                   {/if}
                 </td>
                 <td class="cell-timestamp">
-                  {application.last_used_at
-                    ? formatTimestamp(application.last_used_at, i18n.language)
-                    : t('Never')}
+                  <span>
+                    {application.expires_at
+                      ? formatTimestamp(application.expires_at, i18n.language)
+                      : t('Never')}
+                  </span>
+                  {#if application.expired}
+                    <span class="badge badge-danger">{t('ApplicationExpired')}</span>
+                  {:else if expiresWithinAWeek(application.expires_at)}
+                    <span class="badge badge-warning">{t('ApplicationExpiresSoon')}</span>
+                  {/if}
+                </td>
+                <td class="cell-timestamp">
+                  <span>
+                    {application.last_used_at
+                      ? formatTimestamp(application.last_used_at, i18n.language)
+                      : t('Never')}
+                  </span>
+                  {#if !application.expired && idleFor90Days(application.last_used_at, application.created_at)}
+                    <span class="badge badge-warning">{t('ApplicationLongUnused')}</span>
+                  {/if}
                 </td>
                 <td>
                   <button
@@ -243,6 +272,21 @@
             placeholder={t('ApplicationNamePlaceholder')}
             bind:value={name}
           />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="application-expiry">{t('ApplicationExpiry')}</label>
+          <select
+            id="application-expiry"
+            class="form-select"
+            aria-describedby="application-expiry-help"
+            bind:value={expiresInDays}
+          >
+            {#each EXPIRIES as expiry (expiry.key)}
+              <option value={expiry.days}>{t(expiry.key)}</option>
+            {/each}
+          </select>
+          <p id="application-expiry-help" class="form-hint">{t('ApplicationExpiryHelp')}</p>
         </div>
 
         <fieldset class="form-group">

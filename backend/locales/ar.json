@@ -1794,5 +1794,16 @@
   "SourceRefresh": "إعادة القراءة",
   "SourceRefreshed": "المصدر {source}: المُعاد قراءته: {enriched}، المخفق: {failed}",
   "SourceRefreshNone": "لا يوجد مصدر يمكن إعادة قراءته: تصل البيانات الوصفية لـ Radarr و Sonarr مع كل مزامنة.",
-  "TermTextTemplate": "مجموعة قواعد جاهزة لطريقة شائعة في تنظيم المكتبة، مثل الأنمي أو عناوين الأطفال. بعد إضافة القالب تصبح قواعده قواعد عادية، وتسجّل كل قاعدة منها القالب الذي جاءت منه."
+  "TermTextTemplate": "مجموعة قواعد جاهزة لطريقة شائعة في تنظيم المكتبة، مثل الأنمي أو عناوين الأطفال. بعد إضافة القالب تصبح قواعده قواعد عادية، وتسجّل كل قاعدة منها القالب الذي جاءت منه.",
+  "AuditApplicationKeyExpired": "أُرسل مفتاح عميل API المنتهي الصلاحية {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "مفتاح عميل API على وشك الانتهاء",
+  "NotificationMessageApplicationKeyExpiring": "ينتهي مفتاح عميل API «{name}» في {date}. أنشئ مفتاحًا جديدًا لعميله وأبطل هذا المفتاح قبل ذلك.",
+  "ApplicationExpiry": "تاريخ الانتهاء",
+  "ApplicationExpiryIn30Days": "بعد 30 يومًا",
+  "ApplicationExpiryIn90Days": "بعد 90 يومًا",
+  "ApplicationExpiryInAYear": "بعد سنة",
+  "ApplicationExpiryHelp": "بعد هذا التاريخ يُرفض كل استدعاء بالمفتاح إلى أن تبطله. يرسل Routarr إشعارًا قبل أسبوع. لا يُجدَّد المفتاح: أنشئ مفتاحًا جديدًا وأبطل القديم.",
+  "ApplicationExpired": "منتهي",
+  "ApplicationExpiresSoon": "خلال أسبوع",
+  "ApplicationLongUnused": "بلا استخدام منذ أكثر من 90 يومًا"
 }

@@ -26,7 +26,7 @@ pub fn rfc3339_or_null<S: Serializer>(
 
 /// A value no shape reads is written as it is: a field that looks odd beats
 /// one that silently says another moment.
-fn written(stored: &str) -> String {
+pub fn written(stored: &str) -> String {
     parse_timestamp(stored)
         .map_or_else(|| stored.to_string(), |at| at.to_rfc3339_opts(SecondsFormat::Secs, true))
 }

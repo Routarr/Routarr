@@ -1954,7 +1954,7 @@
             "type": "string"
           },
           "reason": {
-            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`.",
+            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an\napplication key past its expiry.",
             "type": [
               "string",
               "null"
@@ -2757,6 +2757,14 @@
       "Me": {
         "description": "Who a request is.",
         "properties": {
+          "expires_at": {
+            "description": "When the application key this request carries stops being accepted. Null for a key that\nnever expires, and for anyone else.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "subject": {
             "description": "An application's name, the signed-in person, `apikey` for the owner's\nkey, or `anonymous` where the mode asks for nothing.",
             "type": "string"
@@ -3348,11 +3356,11 @@
             "type": "string"
           },
           "data": {
-            "description": "Ids and counts for a program: the instance, the simulation, how many titles moved. For\n`apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`\nand `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,\ntvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or\n`failed` and the paths as the Arr holds them. The two first carry `task_id`, which\n`GET /logs?task_id=` lists in full.",
+            "description": "Ids and counts for a program: the instance, the simulation, how many titles moved. For\n`apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`\nand `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,\ntvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or\n`failed` and the paths as the Arr holds them. The two first carry `task_id`, which\n`GET /logs?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`\nand `expires_at`.",
             "type": "object"
           },
           "event": {
-            "description": "What happened, in snake case: `instance_unreachable`,\n`instance_recovered`, `auto_apply_failed`, `auto_apply_held`, `rule_tests_failing`,\n`sync_failed`, `backup_failed`, `simulation_completed`,\n`apply_completed`, `revert_completed`, or `test` when sent from\nSettings. The list may grow.",
+            "description": "What happened, in snake case: `instance_unreachable`,\n`instance_recovered`, `auto_apply_failed`, `auto_apply_held`, `rule_tests_failing`,\n`sync_failed`, `backup_failed`, `simulation_completed`,\n`apply_completed`, `revert_completed`, `moves_settled`, `application_key_expiring`, or\n`test` when sent from Settings. The list may grow.",
             "type": "string"
           },
           "message": {

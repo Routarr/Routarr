@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Recitește",
   "SourceRefreshed": "{source}: răspunsuri recitite: {enriched}, eșuate: {failed}",
   "SourceRefreshNone": "Nicio sursă de recitit: metadatele Radarr și Sonarr vin cu fiecare sincronizare.",
-  "TermTextTemplate": "Un set de reguli gata făcut pentru o împărțire obișnuită a bibliotecii, cum ar fi anime sau titluri pentru copii. Odată adăugat, regulile lui sunt reguli obișnuite, iar fiecare reține șablonul din care provine."
+  "TermTextTemplate": "Un set de reguli gata făcut pentru o împărțire obișnuită a bibliotecii, cum ar fi anime sau titluri pentru copii. Odată adăugat, regulile lui sunt reguli obișnuite, iar fiecare reține șablonul din care provine.",
+  "AuditApplicationKeyExpired": "S-a trimis cheia de aplicație expirată {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "O cheie de aplicație expiră în curând",
+  "NotificationMessageApplicationKeyExpiring": "Cheia de aplicație {name} expiră la {date}. Creează o cheie nouă pentru aplicația ei și revocă-o pe aceasta înainte de această dată.",
+  "ApplicationExpiry": "Expiră",
+  "ApplicationExpiryIn30Days": "În 30 de zile",
+  "ApplicationExpiryIn90Days": "În 90 de zile",
+  "ApplicationExpiryInAYear": "Într-un an",
+  "ApplicationExpiryHelp": "După această dată, orice apel cu cheia este refuzat, până când o revoci. Routarr trimite o notificare cu o săptămână înainte. O cheie nu se reînnoiește: creează una nouă și revocă-o pe cea veche.",
+  "ApplicationExpired": "Expirată",
+  "ApplicationExpiresSoon": "În cel mult o săptămână",
+  "ApplicationLongUnused": "Neutilizată de peste 90 de zile"
 }

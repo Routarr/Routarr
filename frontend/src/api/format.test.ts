@@ -1,6 +1,8 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { readBackend } from '../test/backend';
 import {
+  expiresWithinAWeek,
+  idleFor90Days,
   dayStart,
   formatDecimal,
   setFields,
@@ -373,5 +375,25 @@ describe('formatDecimal', () => {
     expect(formatDecimal(7.5, 'en')).toBe('7.5');
     expect(formatDecimal(86, 'en')).toBe('86');
     expect(formatDecimal(8, 'fr', 1)).toBe('8,0');
+  });
+});
+
+describe('expiresWithinAWeek', () => {
+  const now = Date.parse('2026-10-19T12:00:00Z');
+  it('holds for a key stopping within seven days, and for no other', () => {
+    expect(expiresWithinAWeek('2026-10-26T12:00:00Z', now)).toBe(true);
+    expect(expiresWithinAWeek('2026-10-26T12:00:01Z', now)).toBe(false);
+    expect(expiresWithinAWeek('2026-10-19T11:59:59Z', now)).toBe(false);
+    expect(expiresWithinAWeek(null, now)).toBe(false);
+  });
+});
+
+describe('idleFor90Days', () => {
+  const now = Date.parse('2026-10-19T12:00:00Z');
+  it('counts from the last call, or from the making of a key never used', () => {
+    expect(idleFor90Days('2026-07-21T12:00:00Z', '2026-01-01T00:00:00Z', now)).toBe(true);
+    expect(idleFor90Days('2026-07-21T12:00:01Z', '2026-01-01T00:00:00Z', now)).toBe(false);
+    expect(idleFor90Days(null, '2026-07-21T12:00:00Z', now)).toBe(true);
+    expect(idleFor90Days(null, '2026-10-01T00:00:00Z', now)).toBe(false);
   });
 });

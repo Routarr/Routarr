@@ -346,6 +346,24 @@ export function localName(
   }
 }
 
+const DAY_MS = 86_400_000;
+
+/** Whether a key expiring at `expiresAt` stops within the week the notification warns of. */
+export function expiresWithinAWeek(expiresAt: string | null, now = Date.now()): boolean {
+  if (!expiresAt) return false;
+  const left = Date.parse(expiresAt) - now;
+  return left > 0 && left <= 7 * DAY_MS;
+}
+
+/** Whether a key made at `createdAt` has gone 90 days without a call, `lastUsedAt` the last. */
+export function idleFor90Days(
+  lastUsedAt: string | null,
+  createdAt: string,
+  now = Date.now(),
+): boolean {
+  return now - Date.parse(lastUsedAt ?? createdAt) >= 90 * DAY_MS;
+}
+
 /** `list` with `value` added when a box is ticked, or taken out when it is cleared. */
 export function toggled<T>(list: readonly T[], value: T, on: boolean): T[] {
   return on ? [...list, value] : list.filter((entry) => entry !== value);
