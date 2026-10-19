@@ -148,7 +148,7 @@ def main() -> int:
             ".",
             ("scripts/*.*", "scripts/tests/*.py", ".github/**/*.yml", ".devcontainer/*.*",
              ".devcontainer/Dockerfile",
-             "Dockerfile", "docker-compose.yml", ".hadolint.yaml"),
+             "Dockerfile", "docker-compose.yml", ".hadolint.yaml", "contrib/**/*.*"),
             problems,
         ),
     }

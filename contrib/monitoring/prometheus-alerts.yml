@@ -1,0 +1,108 @@
+# Alert rules for Routarr's metrics, at /api/v1/metrics read with a key holding the read scope.
+# Load the file from `rule_files` in prometheus.yml. The warnings Routarr shows are the series
+# `routarr_warnings`, with the thresholds the application itself applies.
+groups:
+  - name: routarr
+    rules:
+      - alert: RoutarrInstanceDown
+        expr: routarr_instance_up == 0 and on (arr_instance_id) routarr_instance_enabled == 1
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.arr_instance }} failed its last sync"
+          description: "Routarr reads no new title from {{ $labels.arr_instance }} until a sync succeeds."
+      - alert: RoutarrSyncLate
+        expr: >
+          time() - routarr_instance_last_sync_attempt_timestamp_seconds
+          > 2 * routarr_instance_sync_interval_seconds
+          and on (arr_instance_id) routarr_instance_enabled == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.arr_instance }} has not been synced for two intervals"
+          description: "The scheduler may be stopped. Diagnostics says whether it panicked."
+      - alert: RoutarrWebhookSilent
+        expr: routarr_warnings{code="webhook_never_delivered"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An instance armed for automatic application never sent a webhook"
+          description: "New titles wait for the next sync. Routarr's Instances screen names it."
+      - alert: RoutarrAutoApplyHeld
+        expr: routarr_warnings{code="auto_apply_held"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Automatic application holds back more moves than the batch limit"
+          description: "Apply them from the Simulation screen, or raise the batch limit."
+      - alert: RoutarrRuleTestsFailing
+        expr: routarr_rule_tests_failing > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rule tests are failing"
+          description: "A rule no longer routes a pinned title where its test expects. Automatic application waits."
+      - alert: RoutarrMetadataSourceDown
+        expr: routarr_metadata_source_up == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The metadata source {{ $labels.source }} does not answer"
+          description: "The sources below it in the order answer meanwhile."
+      - alert: RoutarrMetadataQuotaNearlySpent
+        expr: routarr_metadata_quota_spent / routarr_metadata_quota_limit > 0.9
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.source }} has used most of its daily requests"
+          description: "Past the quota, the source is asked again the next UTC day."
+      - alert: RoutarrBackupFailed
+        expr: routarr_warnings{code="backup_failed"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "The last scheduled backup failed"
+          description: "Settings, Backups shows why."
+      - alert: RoutarrBackupOverdue
+        expr: routarr_warnings{code="backup_overdue"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "No backup for twice the backup interval"
+          description: "The scheduler may be stopped, or the backups switched off on the way."
+      - alert: RoutarrDataDiskLow
+        expr: routarr_warnings{code="data_disk_low"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "The data disk has less free space than the next backup needs"
+          description: "Fewer bytes free than twice the database and 100 MiB."
+      - alert: RoutarrOtherError
+        expr: routarr_warnings{severity="error", code!~"backup_failed|data_disk_low"} > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Routarr reports an error: {{ $labels.code }}"
+          description: "Diagnostics says what stopped working and what to change."
+      - alert: RoutarrDecisionsFailed
+        expr: routarr_decisions_by_status{status="failed"} > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Moves failed and wait for a person"
+          description: "The Move log says why each failed."
+      - alert: RoutarrMovesStuck
+        expr: routarr_decisions_by_status{status="requested"} > 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Moves have been on their way for two hours"
+          description: "An Arr may be stuck copying files. Its own Activity screen says."

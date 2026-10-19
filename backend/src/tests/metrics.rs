@@ -327,3 +327,58 @@ async fn the_newest_archive_and_the_free_space_are_series() {
     assert!(value("routarr_data_free_bytes") > 0.0);
     assert_well_formed(&body);
 }
+
+/// Every warning the interface raises is a series an alert reads, by code and severity, with the
+/// threshold the application itself applies. The version, the database's size and each
+/// instance's sync interval are series too, which a dashboard and a stale-sync rule read.
+#[tokio::test]
+async fn the_warnings_the_version_the_database_and_the_sync_intervals_are_series() {
+    let (app, _dir) = super::backup::app_with_files("metrics-warnings").await;
+    app.execute(&[crate::tests::AN_INSTANCE, "UPDATE instances SET sync_interval_minutes = 30"])
+        .await;
+
+    let body = scrape(&app).await;
+
+    let version = env!("CARGO_PKG_VERSION");
+    for line in [
+        format!(r#"routarr_build_info{{version="{version}"}} 1"#),
+        r#"routarr_warnings{code="instance_without_mapping",severity="warning"} 1"#.to_string(),
+        concat!(
+            r#"routarr_instance_sync_interval_seconds"#,
+            r#"{arr_instance="Radarr",arr_instance_id="inst-1"} 1800"#
+        )
+        .to_string(),
+    ] {
+        assert!(body.lines().any(|l| l == line), "{line} missing from:\n{body}");
+    }
+    let database = body
+        .lines()
+        .find_map(|line| line.strip_prefix("routarr_database_bytes "))
+        .unwrap_or_else(|| panic!("no database size in:\n{body}"));
+    assert!(database.parse::<f64>().unwrap() > 0.0);
+    assert_well_formed(&body);
+}
+
+/// The dashboard and the alert rules in `contrib/monitoring/` read series Routarr emits: a family
+/// renamed or removed would leave a panel empty and an alert that never fires, unseen.
+#[tokio::test]
+async fn the_shipped_dashboard_and_alerts_read_series_routarr_emits() {
+    let app = TestApp::new().await;
+    let body = scrape(&app).await;
+    let dashboard = include_str!("../../../contrib/monitoring/grafana-dashboard.json");
+    let rules = include_str!("../../../contrib/monitoring/prometheus-alerts.yml");
+    serde_json::from_str::<serde_json::Value>(dashboard).expect("the dashboard is JSON");
+
+    let mut named = std::collections::BTreeSet::new();
+    for text in [dashboard, rules] {
+        for (at, _) in text.match_indices("routarr_") {
+            let name: String =
+                text[at..].chars().take_while(|c| c.is_ascii_lowercase() || *c == '_').collect();
+            named.insert(name);
+        }
+    }
+    assert!(named.len() > 10, "{named:?}");
+    for name in named {
+        assert!(body.contains(&format!("# HELP {name} ")), "{name} is not emitted");
+    }
+}
