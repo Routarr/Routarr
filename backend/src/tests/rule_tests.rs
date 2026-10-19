@@ -287,3 +287,25 @@ async fn a_failing_case_is_kept_failing_warned_of_and_counted() {
     let listed = app.get("/api/v1/rule-tests").await;
     assert_eq!(listed.assert_ok()["data"][0]["last_passed"], true);
 }
+
+/// A failing case says it holds automatic application only while an instance is armed for it: on
+/// a library whose every instance is kept to proposals, nothing is waiting.
+#[tokio::test]
+async fn a_failing_case_says_it_holds_auto_apply_only_while_an_instance_is_armed() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    pin(&app, "Totoro in anime", "m-1", Some("anime")).await;
+    let message = || async {
+        let status = app.get("/api/v1/status").await;
+        let body = status.assert_ok().clone();
+        let warnings = body["warnings"].as_array().unwrap().clone();
+        let failing = warnings.iter().find(|w| w["code"] == "rule_tests_failing").unwrap();
+        failing["message"].as_str().unwrap().to_string()
+    };
+
+    assert!(message().await.contains("Automatic application waits"));
+    app.execute(&["UPDATE instances SET auto_apply = 0"]).await;
+    assert!(!message().await.contains("Automatic application waits"));
+}

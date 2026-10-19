@@ -14,12 +14,6 @@ import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
 import { readBackend } from '../test/backend';
 
-/**
- * The only screen that holds an Arr credential. It must never show one back,
- * must not lose the stored one on an edit that did not mean to change it, and
- * must not let a user sync a library they have not connected yet.
- */
-
 const show = (list: ReturnType<typeof instance>[]) => {
   vi.spyOn(api, 'getInstances').mockResolvedValue(list);
   return renderWithI18n(Instances);
@@ -30,6 +24,11 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, 'clipboard');
 });
 
+/**
+ * The only screen that holds an Arr credential. It must never show one back,
+ * must not lose the stored one on an edit that did not mean to change it, and
+ * must not let a user sync a library they have not connected yet.
+ */
 describe('Instances', () => {
   it('invites a first instance instead of showing an empty table', async () => {
     show([]);
@@ -154,10 +153,9 @@ describe('Instances', () => {
   });
 
   /**
-   * Blank means "keep the stored key" on the backend, which is the only way to
-   * edit a base URL without retyping a credential the user no longer has. The
-   * form must therefore open empty, not pre-filled with a mask that would be
-   * saved as the literal key.
+   * Blank means "keep the stored key" on the backend, the only way to edit a base URL without
+   * retyping a credential the user no longer has. Pre-filled with a mask, the form would save
+   * the mask as the key.
    */
   it('opens the editor with the key field empty, so an edit keeps the stored one', async () => {
     show([instance()]);
@@ -316,11 +314,10 @@ describe('Instances', () => {
     expect(following?.signal?.aborted).toBe(true);
   });
 
-  /** A grey Save says nothing about the field that holds it. */
   /**
-   * The ceiling is the one the scheduler clamps an interval to, read where
-   * the backend writes it: a form that let more through would save a number
-   * that is not the one running.
+   * A grey Save says nothing about the field that holds it. The ceiling is the one the
+   * scheduler clamps an interval to, read where the backend writes it: a form that let more
+   * through would save a number that is not the one running.
    */
   it('says why an interval outside its bounds holds Save', async () => {
     const jobs = readBackend('backend/src/jobs/mod.rs');
@@ -360,6 +357,23 @@ describe('Instances', () => {
 
     expect(await screen.findByText('Disabled')).toBeTruthy();
     expect(screen.getByText('Radarr')).toBeTruthy();
+  });
+
+  /** The 4K Radarr kept to proposals says so in its row, and its switch travels with the form. */
+  it('marks an instance kept to proposals and saves its switch', async () => {
+    const update = vi.spyOn(api, 'updateInstance').mockResolvedValue(instance());
+    show([instance({ auto_apply: false })]);
+
+    expect(await screen.findByText('Proposals only')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr' }));
+    const switched = (await screen.findByLabelText('Automatic application')) as HTMLInputElement;
+    expect(switched.checked).toBe(false);
+    expect(switched).toHaveAccessibleDescription(/automatic application is on in Settings/);
+    await userEvent.click(switched);
+    await fireEvent.submit(switched.closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(nthCall(update)[1]).toMatchObject({ auto_apply: true });
   });
 
   /** A dialog opens on its own form, never on the refusal of the one before. */
@@ -433,13 +447,9 @@ describe('Instances', () => {
   });
 
   /**
-   * On a plain http origin every Copy fails, and a URL shown only by the
-   * failure is read by provoking an error.
-   */
-  /**
-   * Both setups are in the editor, with no copy to go through: the address and
-   * the token for an Arr that sends headers, which keeps the token out of the
-   * logged URL, and the address carrying the token for one that does not.
+   * On a plain http origin every Copy fails, so both setups are in the editor: the address and
+   * the token for an Arr that sends headers, which keeps the token out of the logged URL, and
+   * the address carrying the token for one that does not.
    */
   it('shows both webhook setups in the editor, with no copy to go through', async () => {
     show([
@@ -518,7 +528,7 @@ describe('Instances', () => {
     await fireEvent.submit(key.closest('form') as HTMLFormElement);
   }
 
-  /** The server accepts a second instance of the same name, synced and routed twice. */
+  /** A second submit would come back refused, the first having taken the name. */
   it('adds an instance once however often the form is submitted', async () => {
     const create = vi.spyOn(api, 'createInstance').mockReturnValue(new Promise(() => {}));
     show([]);

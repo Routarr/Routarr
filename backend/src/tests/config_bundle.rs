@@ -1,9 +1,6 @@
-//! Exporting the configuration and restoring it elsewhere.
-//!
-//! The value is in what cannot be regenerated: rules, folder mappings and above
-//! all the manual overrides, which are human judgements no resync brings back.
-//! The risk is in what must *not* travel: ids that mean nothing on another
-//! machine, and API keys sealed with a master key that exists on one.
+//! Exporting the configuration and restoring it elsewhere. A bundle carries what no resync
+//! brings back (rules, folder mappings, manual overrides) and never ids that mean nothing on
+//! another machine, nor API keys sealed with a master key that exists on one.
 
 use super::TestApp;
 
@@ -18,10 +15,8 @@ async fn configured() -> TestApp {
         .unwrap();
     app.store_setting("batch_limit", "25").await;
 
-    // A sealed setting, so `no_api_key_leaves_the_installation` has something
-    // to prove. Without one, the assertion on `enc:v` would pass over a bundle
-    // that could not contain it, a test reporting a property it never
-    // exercised.
+    // A sealed setting, without which the `enc:v` assertion of
+    // `no_api_key_leaves_the_installation` would pass over a bundle that could not hold one.
     app.store_setting("tmdb_api_key", &app.state.secrets.seal("tmdb-key-not-a-secret").unwrap())
         .await;
     sqlx::query(
@@ -56,8 +51,7 @@ async fn the_bundle_carries_what_cannot_be_regenerated() {
         .collect();
     assert!(categories.contains(&"kids"));
 
-    // The mapping is keyed by instance name and path, not by ids that mean
-    // nothing on the machine restoring it.
+    // Keyed by instance name and path, not by ids that mean nothing on the restoring machine.
     let mapping = &bundle["root_folders"].as_array().unwrap()[0];
     assert!(mapping["instance_name"].is_string());
     assert!(mapping["path"].as_str().unwrap().starts_with('/'));
@@ -102,10 +96,9 @@ async fn an_export_leaves_the_notification_webhook_out() {
     assert!(!serialised.contains("hook-secret"), "the address travelled");
 }
 
-/// A bundle exported before a credential was sealed, or edited by hand, carries
-/// it in the clear: the notification address, or a source's key. The import
-/// leaves every one out and says to set it again, rather than storing a
-/// credential that arrived in a shared file.
+/// A bundle exported before a credential was sealed, or edited by hand, carries it in the
+/// clear: the notification address, or a source's key. The import leaves each out and says to
+/// set it again, rather than store a credential that arrived in a shared file.
 #[tokio::test]
 async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     let app = TestApp::new().await;
@@ -134,10 +127,9 @@ async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 
-/// A setting this release does not read, whether an older release exported it
-/// or a later one did, is reported and not stored: stored, it would sit in the
-/// table for ever, unreachable through the API and impossible to remove. The
-/// rest of the bundle is restored.
+/// A setting this release does not read, from an older release or a later one, is reported
+/// and not stored, where it would sit for ever, unreachable through the API and impossible to
+/// remove. The rest of the bundle is restored.
 #[tokio::test]
 async fn a_bundle_setting_this_release_does_not_read_is_reported_not_stored() {
     let app = TestApp::new().await;
@@ -182,9 +174,8 @@ async fn nothing_reproducible_is_carried() {
 
     let bundle = export(&app).await;
 
-    // The library, the decision history and the metadata cache all come back
-    // from the Arrs and TMDB. Carrying them would bloat the bundle past being
-    // readable for no gain.
+    // The library, the decisions and the cache come back from the Arrs and the sources, and
+    // would bloat the bundle past being readable.
     for absent in ["media", "decisions", "metadata_cache", "jobs", "execution_logs"] {
         assert!(bundle.get(absent).is_none(), "{absent} has no business in a bundle");
     }
@@ -218,6 +209,31 @@ async fn a_bundle_restores_onto_an_empty_installation() {
     assert_eq!(limit, "25");
 }
 
+/// An instance kept to proposals stays so on the copy, and a bundle carrying no switch leaves
+/// the instance to automatic application, as an upgrade does.
+#[tokio::test]
+async fn an_instance_kept_to_proposals_is_kept_so_on_the_copy() {
+    let source = configured().await;
+    source.execute(&["UPDATE instances SET auto_apply = 0"]).await;
+    let mut bundle = export(&source).await;
+    assert_eq!(bundle["instances"][0]["auto_apply"], false);
+
+    let restored = |bundle: serde_json::Value| async move {
+        let target = TestApp::new().await;
+        target
+            .post("/api/v1/config/import", serde_json::json!({ "bundle": bundle }))
+            .await
+            .assert_ok();
+        sqlx::query_scalar::<_, bool>("SELECT auto_apply FROM instances")
+            .fetch_one(&target.state.pool)
+            .await
+            .unwrap()
+    };
+    assert!(!restored(bundle.clone()).await);
+    bundle["instances"][0].as_object_mut().unwrap().remove("auto_apply");
+    assert!(restored(bundle).await);
+}
+
 #[tokio::test]
 async fn a_restored_instance_arrives_disabled_and_says_why() {
     let source = configured().await;
@@ -230,16 +246,14 @@ async fn a_restored_instance_arrives_disabled_and_says_why() {
         .assert_ok()
         .clone();
 
-    // Enabled without a key, it would fail on every scheduler tick and fill the
-    // log with noise the user did not ask for.
+    // Enabled without a key, it would fail on every scheduler tick and fill the log.
     let enabled: bool = sqlx::query_scalar("SELECT enabled FROM instances")
         .fetch_one(&target.state.pool)
         .await
         .unwrap();
     assert!(!enabled);
 
-    // Named apart from what failed: the instance is restored, and the
-    // interface shows `skipped` as the part of the import that did not work.
+    // Named apart from `skipped`, which the interface shows as the part that did not work.
     let name = bundle["instances"][0]["name"].as_str().unwrap().trim();
     assert_eq!(report["needs_key"], serde_json::json!([name]));
     let skipped = report["skipped"].as_array().unwrap();
@@ -261,8 +275,7 @@ async fn a_mapping_whose_folder_is_not_synced_yet_is_reported_not_dropped() {
         .assert_ok()
         .clone();
 
-    // Root folders only exist once the instance has been synced, so on a fresh
-    // install the mappings cannot land yet. Saying so is the whole point: a
+    // Root folders exist once the instance has synced, so the mappings cannot land yet, and a
     // backup that silently drops half its contents is worse than none.
     assert_eq!(report["root_folders"], 0);
     let skipped = report["skipped"].as_array().unwrap();
@@ -426,8 +439,7 @@ async fn an_override_lands_once_its_media_exists() {
     let source = configured().await;
     let bundle = export(&source).await;
 
-    // The destination has already synced the same film from its own Arr, so the
-    // external id matches even though every local id differs.
+    // The target synced the film from its own Arr: the external id matches, no local id does.
     let target = TestApp::new().await;
     target.seed_library().await;
 
@@ -511,8 +523,7 @@ async fn a_bundle_from_a_future_version_is_refused_rather_than_half_applied() {
         .await;
 
     assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST);
-    // Asserted on the bundle's own content rather than on an empty table: a
-    // fresh install already ships a default category.
+    // On the bundle's own category: a fresh install already ships a default one.
     let leaked: Option<String> = sqlx::query_scalar("SELECT name FROM categories WHERE name = 'x'")
         .fetch_optional(&app.state.pool)
         .await
@@ -534,8 +545,7 @@ async fn importing_twice_changes_nothing_the_second_time() {
         .assert_ok()
         .clone();
 
-    // Restoring is something people retry after fixing what was missing, so it
-    // has to be safe to run again.
+    // People retry a restore after fixing what was missing, so it must be safe to run again.
     assert_eq!(second["instances"], 0, "the existing instance is left alone");
     let instances: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM instances")
         .fetch_one(&target.state.pool)
@@ -564,9 +574,8 @@ async fn a_bundle_cannot_write_a_setting_the_api_refuses() {
             serde_json::json!({ "bundle": {
                 "version": 1,
                 "settings": [
-                    // The fallback every unmatched item lands in. Named wrong,
-                    // the delete guard compares against a category nobody holds
-                    // and stops protecting the one routing actually uses.
+                    // The fallback category: named wrong, the delete guard protects a
+                    // name nobody holds instead of the one routing uses.
                     { "key": "default_category", "value": "ghost" },
                     // The engine reads the Arr's own metadata at no cost, and a
                     // list without it makes every metadata rule dead.
@@ -662,11 +671,9 @@ async fn a_bundle_cannot_write_an_instance_the_api_refuses() {
     assert_eq!(written, 0, "an instance the API would refuse was written anyway");
 }
 
-/// `POST /instances` trims the name and clamps the interval to a day, and a
-/// bundle stores both the same way. The scheduler clamps the interval when it
-/// reads it, so a raw number on screen would not be the one running, and a
-/// name with a stray space would be a second instance the existence check
-/// cannot see.
+/// A bundle stores an instance as `POST /instances` does, its name trimmed and its interval
+/// clamped to a day: the scheduler clamps the interval it reads, so a raw one on screen is not
+/// the one running, and a stray space makes a second instance the existence check cannot see.
 #[tokio::test]
 async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
     let app = configured().await;
@@ -689,8 +696,7 @@ async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
         let report =
             app.post("/api/v1/config/import", bundle(raw, interval)).await.assert_ok().clone();
         assert_eq!(report["instances"], 1, "{raw:?}: {report}");
-        // Found through `TRIM` so a raw name stored as it came is still seen,
-        // and reported by the assertion rather than by a missing row.
+        // Found through `TRIM`, so a name stored untrimmed fails the assertion, not the fetch.
         let (name, minutes): (String, i64) = sqlx::query_as(
             "SELECT name, sync_interval_minutes FROM instances WHERE TRIM(name) = ?",
         )
@@ -701,8 +707,7 @@ async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
         assert_eq!((name.as_str(), minutes), (raw.trim(), stored_interval), "{raw:?}");
     }
 
-    // A bundle carries no key: the instance waits for one, stored sealed as
-    // every key is, and says so.
+    // No key travels: the instance waits for one, stored sealed as every key is, and says so.
     let keys: Vec<String> =
         sqlx::query_scalar("SELECT api_key FROM instances WHERE name LIKE 'Sonarr%'")
             .fetch_all(&app.state.pool)
@@ -730,10 +735,9 @@ async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
     assert_eq!(sonarrs, 1, "a name with a stray space became a second instance");
 }
 
-/// Names differing only by case or by spaces are one name, the rule the
-/// unique index holds instance names to. A bundle naming an instance so is
-/// naming the one this installation holds: it creates no second one, and its
-/// folders and exceptions land on it.
+/// Names differing only by case or spaces are one, as the unique index holds them. A bundle
+/// naming an instance so names the one held here: it creates no second one, and its folders
+/// and exceptions land on it.
 #[tokio::test]
 async fn a_bundle_names_an_instance_whatever_the_case_and_spaces() {
     let app = configured().await;
@@ -862,10 +866,9 @@ async fn a_mapping_is_matched_to_a_category_whatever_its_case() {
     assert_eq!(stored.as_deref(), Some("kids"), "the mapping names a category that exists");
 }
 
-/// `POST /categories` refuses a name with a space, an ampersand or five hundred
-/// characters, because it reaches paths, rule payloads and query strings. A
-/// bundle that wrote one anyway would leave a name that could never be
-/// corrected, since `rename` runs the check such an import skips.
+/// `POST /categories` refuses a name with a space, an ampersand or five hundred characters, as
+/// it reaches paths, rule payloads and query strings. Written by a bundle, it could never be
+/// corrected: `rename` runs the check such an import skips.
 #[tokio::test]
 async fn a_bundle_cannot_create_a_category_the_api_would_refuse() {
     let app = configured().await;
@@ -920,10 +923,9 @@ async fn a_category_the_bundle_could_not_create_is_not_a_valid_default() {
     assert_eq!(report["categories"], 0);
 }
 
-/// An override short-circuits the engine entirely, so one naming a category
-/// this installation does not have would route its item nowhere. It is refused
-/// and reported in `skipped`, which is the one place a partial restore is
-/// visible. The lock a bundle may hold on one is read and dropped.
+/// An override short-circuits the engine, so one naming a category this installation lacks
+/// routes its item nowhere: it is refused and reported in `skipped`, where a partial restore
+/// shows. The lock a bundle may hold on one is read and dropped.
 #[tokio::test]
 async fn a_bundle_cannot_pin_media_to_a_category_that_does_not_exist() {
     let app = configured().await;

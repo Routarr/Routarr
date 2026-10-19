@@ -1,9 +1,5 @@
-//! Outbound notifications.
-//!
-//! The property that matters most is not that a message is sent but that the
-//! same failure is not sent over and over. An alert that fires every
-//! fifteen minutes for a week is an alert the operator mutes, which leaves them
-//! worse off than with no notifications at all.
+//! Outbound notifications. What matters most is that one failure is not sent over and over:
+//! an alert firing every fifteen minutes for a week is one the operator mutes.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -31,7 +27,6 @@ struct Delivery {
     headers: HeaderMap,
 }
 
-/// A webhook receiver that records what Routarr posted to it.
 struct Receiver {
     url: String,
     received: Arc<Mutex<Vec<Delivery>>>,
@@ -124,7 +119,6 @@ impl Receiver {
         panic!("{count} deliveries never arrived, {} did", self.deliveries().len());
     }
 
-    /// The messages once `count` have arrived.
     async fn arrived(&self, count: usize) -> Vec<serde_json::Value> {
         self.awaiting(count)
             .await
@@ -208,8 +202,7 @@ async fn a_slow_receiver_holds_neither_the_sync_nor_its_lock() {
 async fn an_instance_going_down_notifies_once_not_on_every_tick() {
     let receiver = Receiver::start().await;
     let app = TestApp::new().await;
-    // Port 1 on the loopback refuses the connection at once: unreachable,
-    // without the timeout a black-hole address costs on every test.
+    // Port 1 on the loopback refuses at once, without a black-hole address's timeout.
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
@@ -249,7 +242,6 @@ async fn coming_back_closes_the_loop() {
     // Sent on a task of its own: waited for, so the recovery arrives second.
     receiver.arrived(1).await;
 
-    // Point it at a reachable Arr and sync again.
     sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'inst-1'")
         .bind(&arr.base_url)
         .execute(&app.state.pool)
@@ -340,8 +332,7 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
 
     let message = receiver.arrived(1).await.remove(0);
     let text = message["message"].as_str().unwrap();
-    // Discord reads `content`, Apprise reads `body`, Gotify reads `message`.
-    // All three carry the same sentence so one webhook fits all of them.
+    // Discord reads `content`, Apprise `body`, Gotify `message`: one sentence fits all three.
     assert_eq!(message["content"].as_str().unwrap(), text);
     assert_eq!(message["body"].as_str().unwrap(), text);
     assert_eq!(message["source"], "routarr");
@@ -387,8 +378,7 @@ async fn an_unreachable_webhook_does_not_fail_the_send() {
         .expect("an unreachable webhook held the caller");
 }
 
-/// A film not yet downloaded, routed to `anime`, on a Radarr that refuses the
-/// move, with automatic application armed.
+/// A film not yet downloaded on `arr`, routed to `anime`, with automatic application armed.
 async fn an_unattended_move(app: &TestApp, arr: &FakeArr) -> String {
     app.seed_one_film_to_move(arr, false).await;
     app.store_setting("auto_apply_enabled", "true").await;
@@ -416,7 +406,7 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
     .await;
 
     assert!(
-        matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 1),
+        matches!(&outcome, Ok(AutoApplyOutcome::Applied { report, .. }) if report.failed == 1),
         "{outcome:?}"
     );
     let messages = receiver.arrived(1).await;
@@ -466,7 +456,7 @@ async fn a_sweep_held_over_the_cap_is_announced_once_and_warned_of() {
     for _ in 0..2 {
         let outcome =
             crate::services::auto_apply::apply_simulation(&app.state, &simulation, &by).await;
-        assert!(matches!(outcome, Ok(AutoApplyOutcome::OverCap { .. })), "{outcome:?}");
+        assert!(matches!(outcome, Ok(AutoApplyOutcome::OverCap(_))), "{outcome:?}");
     }
     let held = app.get("/api/v1/status").await;
     assert!(warned(held.assert_ok()), "{}", held.json);
@@ -483,7 +473,10 @@ async fn a_sweep_held_over_the_cap_is_announced_once_and_warned_of() {
         .filter(|message| message["event"] == "auto_apply_held")
         .collect();
     assert_eq!(held.len(), 1, "{messages:?}");
-    assert_eq!(held[0]["data"], serde_json::json!({ "candidates": 2, "cap": 1 }));
+    assert_eq!(
+        held[0]["data"],
+        serde_json::json!({ "instance": "Fake radarr", "candidates": 2, "cap": 1 })
+    );
 }
 
 /// An unattended apply that moved everything raises no alarm. The instance
@@ -504,7 +497,7 @@ async fn an_unattended_apply_that_moved_everything_raises_no_alarm() {
     )
     .await;
     assert!(
-        matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 0),
+        matches!(&outcome, Ok(AutoApplyOutcome::Applied { report, .. }) if report.failed == 0),
         "{outcome:?}"
     );
     app.execute(&["UPDATE instances SET base_url = 'http://127.0.0.1:1'"]).await;
@@ -536,8 +529,8 @@ async fn an_internal_sync_failure_is_not_announced_as_an_unreachable_instance() 
     assert_eq!(events, ["sync_failed"], "{messages:?}");
 }
 
-/// And told on a task of its own: the webhook waits for the automatic apply,
-/// and a receiver slow to answer would hold that delivery and the ones queued
+/// An unattended apply's failure is told on a task of its own: the webhook waits for the
+/// automatic apply, and a receiver slow to answer would hold that delivery and the ones queued
 /// behind it.
 #[tokio::test]
 async fn a_slow_receiver_does_not_hold_the_unattended_apply() {
@@ -562,9 +555,7 @@ async fn a_slow_receiver_does_not_hold_the_unattended_apply() {
 async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
     let app = TestApp::new().await;
 
-    // A typo here fails silently in the background, where nobody sees it,
-    // which is exactly what this feature exists to prevent: a scheme with no
-    // host, and a space in the host, are as unusable as no scheme.
+    // A typo fails unseen in the background. No host, or a space in it, is as bad as no scheme.
     for typed in
         ["discord.com/hook", "http://", "https://", "https://discord .com/api/webhooks/1/abc"]
     {
@@ -594,10 +585,9 @@ async fn listening(app: &TestApp, receiver: &Receiver) {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 }
 
-/// The case the Standard Webhooks libraries publish for their own signer:
-/// secret, message id, timestamp, body, and the signature every receiver built
-/// on them expects. The tests below check a delivery against `notify::sign`,
-/// which only proves the signer agrees with itself.
+/// The Standard Webhooks libraries' own case: secret, message id, timestamp, body and the
+/// signature their receivers expect. The tests below check against `notify::sign`, which only
+/// proves the signer agrees with itself.
 const REFERENCE: [&str; 5] = [
     "whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD",
     "msg_27UH4WbU6Z5A5EzD8u03UvzRbpk",
@@ -613,7 +603,7 @@ fn a_signature_is_the_one_standard_webhooks_receivers_expect() {
     assert_eq!(notify::sign(&[signing], id, timestamp, body), expected);
 }
 
-/// Whether `signature` holds a `v1` entry made with `secret` over the rest.
+/// Whether the delivery's signature holds a `v1` entry made with `secret` over the rest.
 fn signed_with(secret: &str, delivery: &Delivery) -> bool {
     let key = crate::crypto::signing_key(secret).expect("a signing secret");
     let expected = notify::sign(&[key], &delivery.id, &delivery.timestamp, &delivery.body);
@@ -702,10 +692,9 @@ async fn a_failed_delivery_is_tried_again_and_a_refused_one_is_not() {
     assert_eq!(refusing.deliveries().len(), 1, "a refused message was sent again");
 }
 
-/// A secret no key opens, as a database restored beside another master key
-/// leaves it, signs nothing. Sent unsigned, a message would pass any receiver
-/// that checks a signature only when one is there, so nothing is sent, and
-/// the status says the secret cannot be read rather than that it signs.
+/// A secret no key opens, as a restore beside another master key leaves it, signs nothing.
+/// Unsigned, a message would pass a receiver that checks a signature only when there is one,
+/// so nothing is sent, and the status says the secret cannot be read.
 #[tokio::test]
 async fn a_secret_that_cannot_be_opened_sends_nothing_and_says_so() {
     let app = TestApp::new().await;
@@ -865,11 +854,9 @@ async fn a_failed_sync_is_told_every_time_once_asked_for() {
     assert_eq!(failed["data"], serde_json::json!({ "instance_id": "inst-1", "instance": name }));
 }
 
-/// A Standard Webhooks receiver refuses a `webhook-timestamp` more than a few
-/// minutes from its own clock, in seconds. Each attempt is stamped when it is
-/// sent: a retry carrying the first attempt's stamp is refused once the
-/// retries reach minutes. The first answer takes over a second, so the retry
-/// falls in another second.
+/// A Standard Webhooks receiver refuses a `webhook-timestamp` minutes from its clock, so each
+/// attempt is stamped, in seconds, when it is sent. The first answer takes over a second, so
+/// the retry falls in another second.
 #[tokio::test]
 async fn each_attempt_is_stamped_in_seconds_when_it_is_sent() {
     let app = TestApp::new().await.with_http_budget(std::time::Duration::from_secs(5));
@@ -886,10 +873,8 @@ async fn each_attempt_is_stamped_in_seconds_when_it_is_sent() {
     assert!(stamps[1] > stamps[0], "the retry carried the first attempt's stamp: {stamps:?}");
 }
 
-/// A refused delivery is retried before anything sent after it: otherwise an
-/// `instance_unreachable` retried ten seconds on lands after the
-/// `instance_recovered` that followed it, and the channel ends on the wrong
-/// state.
+/// A refused delivery is retried before anything sent after it: an `instance_unreachable`
+/// retried ten seconds on would land after the `instance_recovered` that followed it.
 #[tokio::test]
 async fn a_retried_notification_never_lands_after_a_newer_one() {
     let receiver = Receiver::answering(&[503]).await;

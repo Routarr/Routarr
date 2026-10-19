@@ -813,5 +813,36 @@
       "zh_CN": "评分",
       "zh_TW": "評分"
     }
+  },
+  "proposal": {
+    "en": "\\bproposals?\\b",
+    "except": [],
+    "words": {
+      "ar": "مقترح",
+      "ca": "propost",
+      "cs": "návrh",
+      "da": "forslag",
+      "de": "vorschl",
+      "el": "πρότασ|προτάσ",
+      "es": "propuest",
+      "fi": "ehdotu|ehdotus",
+      "fr": "proposition",
+      "hu": "javaslat",
+      "it": "propost",
+      "ja": "提案",
+      "ko": "제안",
+      "nb_NO": "forslag",
+      "nl": "voorstel",
+      "pl": "propozycj",
+      "pt": "propost",
+      "ro": "propuner",
+      "ru": "предложени",
+      "sk": "návrh",
+      "sv": "förslag",
+      "tr": "öneri",
+      "uk": "пропозиці",
+      "zh_CN": "建议",
+      "zh_TW": "建議"
+    }
   }
 }

@@ -17,3 +17,7 @@ ALTER TABLE metadata_cache ADD COLUMN ratings TEXT NOT NULL DEFAULT '{}';
 -- Asked again as each pass reaches them, within each source's own pace, for the scores they
 -- were cached without.
 UPDATE metadata_cache SET stale = 1 WHERE source IN ('tmdb', 'omdb', 'tenrai', 'anilist');
+
+-- Whether automatic application may write to this instance, under the global switch. On, so an
+-- upgrade changes nobody's behaviour and one switch still arms a single instance.
+ALTER TABLE instances ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 1 CHECK (auto_apply IN (0, 1));

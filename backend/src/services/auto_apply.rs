@@ -17,12 +17,29 @@ pub enum AutoApplyOutcome {
     Held(Hold),
     /// Nothing in this run qualified.
     NothingToApply,
-    /// More candidates than one unattended run may touch, so none were touched.
-    OverCap {
-        candidates: usize,
-        cap: usize,
-    },
-    Applied(ApplyReport),
+    /// Nothing was written, and the instances listed had more moves than one unattended run may
+    /// touch.
+    OverCap(Vec<OverCap>),
+    /// The moves of the instances within the cap, the others listed.
+    Applied { report: ApplyReport, over_cap: Vec<OverCap> },
+}
+
+/// An instance whose moves one unattended run left, for being more than `batch_limit`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverCap {
+    pub instance_id: String,
+    pub instance: String,
+    pub candidates: usize,
+    pub cap: usize,
+}
+
+impl AutoApplyOutcome {
+    fn over_cap(&self) -> &[OverCap] {
+        match self {
+            Self::OverCap(held) | Self::Applied { over_cap: held, .. } => held,
+            Self::Held(_) | Self::NothingToApply => &[],
+        }
+    }
 }
 
 /// Consider the moves a simulation just proposed for unattended application. Only decisions
@@ -33,12 +50,42 @@ pub async fn apply_simulation(
     simulation_id: &str,
     by: &Attribution,
 ) -> AppResult<AutoApplyOutcome> {
+    apply(state, simulation_id, None, by).await
+}
+
+/// [`apply_simulation`] for a simulation of `instance` alone, as a webhook's: the verdicts on the
+/// other instances stand.
+pub async fn apply_instance_simulation(
+    state: &AppState,
+    simulation_id: &str,
+    instance: &str,
+    by: &Attribution,
+) -> AppResult<AutoApplyOutcome> {
+    apply(state, simulation_id, Some(instance), by).await
+}
+
+async fn apply(
+    state: &AppState,
+    simulation_id: &str,
+    instance: Option<&str>,
+    by: &Attribution,
+) -> AppResult<AutoApplyOutcome> {
     let outcome = decide(state, simulation_id, by).await?;
     let trigger = by.trigger.as_str();
 
+    for held in outcome.over_cap() {
+        warn!(
+            trigger,
+            instance = %held.instance,
+            candidates = held.candidates,
+            cap = held.cap,
+            "Auto-apply held back: too many moves for one unattended run. Apply them from the \
+             Simulation screen"
+        );
+    }
     // Logged here, so an auto-apply that did nothing always has an answer in the log.
     match &outcome {
-        AutoApplyOutcome::Applied(report) => {
+        AutoApplyOutcome::Applied { report, .. } => {
             info!(
                 trigger,
                 applied = report.applied,
@@ -58,13 +105,7 @@ pub async fn apply_simulation(
                 );
             }
         }
-        AutoApplyOutcome::OverCap { candidates, cap } => warn!(
-            trigger,
-            candidates,
-            cap,
-            "Auto-apply held back: too many moves for one unattended run. Apply them from the \
-             Simulation screen"
-        ),
+        AutoApplyOutcome::OverCap(_) => {}
         AutoApplyOutcome::Held(Hold::TurnNotReached) => warn!(
             trigger,
             "Auto-apply held back: another apply kept running past the wait, the moves stay pending"
@@ -78,7 +119,7 @@ pub async fn apply_simulation(
             debug!(trigger, "Auto-apply had nothing to do")
         }
     }
-    held_back(state, &outcome);
+    held_back(state, instance, &outcome);
 
     Ok(outcome)
 }
@@ -97,23 +138,36 @@ pub enum Hold {
     TurnNotReached,
 }
 
-/// Keep the last pass's verdict on the moves it held back for being too many,
-/// which `/status` warns of, and say so once when it starts holding them.
-/// Another verdict on the library clears it, a guardrail's leaves it.
-fn held_back(state: &AppState, outcome: &AutoApplyOutcome) {
-    let mut held = state.auto_apply_held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    match outcome {
-        AutoApplyOutcome::OverCap { candidates, cap } => {
-            if held.replace((*candidates, *cap)).is_none() {
-                notify::send_later(
-                    state,
-                    notify::Event::AutoApplyHeld { candidates: *candidates, cap: *cap },
-                );
-            }
-        }
-        AutoApplyOutcome::Applied(_) | AutoApplyOutcome::NothingToApply => *held = None,
-        AutoApplyOutcome::Held(_) => {}
+/// Keep, per instance, the last pass's verdict on the moves it held back for being too many,
+/// which `/status` warns of, and say so once when an instance starts being held. A verdict
+/// replaces the ones on the instances its simulation covered, a guardrail's leaves them.
+fn held_back(state: &AppState, instance: Option<&str>, outcome: &AutoApplyOutcome) {
+    if matches!(outcome, AutoApplyOutcome::Held(_)) {
+        return;
     }
+    let mut held = state.auto_apply_held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let before = std::mem::take(&mut *held);
+    *held = match instance {
+        Some(id) => before.iter().filter(|(held, _)| *held != id).map(clone_entry).collect(),
+        None => Default::default(),
+    };
+    for over in outcome.over_cap() {
+        held.insert(over.instance_id.clone(), over.clone());
+        if !before.contains_key(&over.instance_id) {
+            notify::send_later(
+                state,
+                notify::Event::AutoApplyHeld {
+                    instance: over.instance.clone(),
+                    candidates: over.candidates,
+                    cap: over.cap,
+                },
+            );
+        }
+    }
+}
+
+fn clone_entry((id, over): (&String, &OverCap)) -> (String, OverCap) {
+    (id.clone(), over.clone())
 }
 
 async fn decide(
@@ -142,10 +196,12 @@ async fn decide(
         return Ok(AutoApplyOutcome::Held(Hold::RuleTestsFailing { failed, total }));
     }
 
-    // Over the cap, apply nothing, or the library is left half reorganised with no record.
+    // An instance over the cap gets nothing, or its library is left half reorganised with no
+    // record. Counted per instance, so one backlog does not hold another instance's moves.
     let cap: usize = state.bounding_setting::<usize>("batch_limit").await?;
-    if candidates.len() > cap {
-        return Ok(AutoApplyOutcome::OverCap { candidates: candidates.len(), cap });
+    let (candidates, over_cap) = within_cap(candidates, cap);
+    if candidates.is_empty() {
+        return Ok(AutoApplyOutcome::OverCap(over_cap));
     }
 
     // The turn first: a "no file yet" read before the wait may be stale when the apply runs.
@@ -154,13 +210,39 @@ async fn decide(
     };
     let without_files = still_without_files(state, candidates).await;
     if without_files.is_empty() {
-        return Ok(AutoApplyOutcome::NothingToApply);
+        return Ok(if over_cap.is_empty() {
+            AutoApplyOutcome::NothingToApply
+        } else {
+            AutoApplyOutcome::OverCap(over_cap)
+        });
     }
 
-    Ok(AutoApplyOutcome::Applied(
+    let report =
         executor::apply_unattended(state, &without_files, &Attribution::automatic(by), turn)
-            .await?,
-    ))
+            .await?;
+    Ok(AutoApplyOutcome::Applied { report, over_cap })
+}
+
+/// The candidates of the instances with no more than `cap` of them, and the instances with more.
+fn within_cap(candidates: Vec<Candidate>, cap: usize) -> (Vec<Candidate>, Vec<OverCap>) {
+    let mut per_instance: std::collections::BTreeMap<String, Vec<Candidate>> = Default::default();
+    for candidate in candidates {
+        per_instance.entry(candidate.instance_id.clone()).or_default().push(candidate);
+    }
+    let (mut kept, mut over) = (Vec::new(), Vec::new());
+    for (instance_id, group) in per_instance {
+        if group.len() > cap {
+            over.push(OverCap {
+                instance: group[0].instance_name.clone(),
+                instance_id,
+                candidates: group.len(),
+                cap,
+            });
+        } else {
+            kept.extend(group);
+        }
+    }
+    (kept, over)
 }
 
 /// A decision an unattended pass may write, and what reading its item again takes.
@@ -168,18 +250,21 @@ async fn decide(
 struct Candidate {
     decision_id: String,
     instance_id: String,
+    instance_name: String,
     arr_id: i64,
     media_title: String,
 }
 
-/// The decisions from one simulation that may be written without asking: pending, current,
-/// actionable and with no file on disk. With a file, the same edit strands it at the old path
-/// or starts a real disk move.
+/// The decisions from one simulation that may be written without asking: on an instance left to
+/// automatic application, pending, current, actionable and with no file on disk. With a file,
+/// the same edit strands it at the old path or starts a real disk move.
 async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<Vec<Candidate>> {
     let candidates = sqlx::query_as(
-        "SELECT d.id AS decision_id, d.instance_id, m.arr_id, d.media_title
+        "SELECT d.id AS decision_id, d.instance_id, i.name AS instance_name, m.arr_id,
+                d.media_title
            FROM decisions d
            JOIN media m ON m.id = d.media_id
+           JOIN instances i ON i.id = d.instance_id AND i.auto_apply = 1
           WHERE d.simulation_id = ?
             AND d.status = 'pending'
             AND d.superseded = 0

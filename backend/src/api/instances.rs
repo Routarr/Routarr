@@ -93,18 +93,18 @@ pub async fn create(
 
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled,
-         sync_interval_minutes, webhook_token)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         sync_interval_minutes, webhook_token, auto_apply)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(req.name.trim())
     .bind(req.instance_type.to_lowercase())
     .bind(&base_url)
-    // Stored encrypted: the plaintext never touches the database.
     .bind(state.secrets.seal(req.api_key.trim())?)
     .bind(req.enabled)
     .bind(req.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
     .bind(&webhook_token)
+    .bind(req.auto_apply)
     .execute(&state.pool)
     .await
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
@@ -118,6 +118,8 @@ pub async fn create(
 
 pub async fn update(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Path(id): Path<String>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
@@ -126,10 +128,8 @@ pub async fn update(
     let existing = state.instance(&id).await?;
     let base_url = keep_saved_credentials(base_url, &existing.base_url, &localizer)?;
 
-    // An empty api_key means "keep the current one": the UI only ever shows a
-    // masked value, so re-submitting the form must not wipe the secret. Kept
-    // for the address it was saved with only, or the next sync carries it to
-    // whatever address was typed.
+    // A blank key keeps the stored one, which the form never shows back, on the address it
+    // was saved with only, or the next sync carries it to whatever address was typed.
     let api_key = if req.api_key.trim().is_empty() {
         saved_for_this_address(
             &existing.base_url,
@@ -146,7 +146,7 @@ pub async fn update(
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     sqlx::query(
         "UPDATE instances SET name = ?, instance_type = ?, base_url = ?, api_key = ?,
-         enabled = ?, sync_interval_minutes = ?, updated_at = datetime('now')
+         enabled = ?, sync_interval_minutes = ?, auto_apply = ?, updated_at = datetime('now')
          WHERE id = ?",
     )
     .bind(req.name.trim())
@@ -155,14 +155,13 @@ pub async fn update(
     .bind(api_key)
     .bind(req.enabled)
     .bind(req.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
+    .bind(req.auto_apply)
     .bind(&id)
     .execute(&mut *tx)
     .await
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
-    // A pending proposal names the ids of the Arr the instance pointed at, and
-    // another Arr gives those ids to other titles. The next sync tells which
-    // titles are still the same (`sync::reassigned`), and the next simulation
-    // proposes again.
+    // A pending proposal names ids another Arr gives to other titles. The next sync tells
+    // which titles stay the same (`sync::reassigned`), and the next simulation proposes again.
     if base_url != existing.base_url || instance_type != existing.instance_type {
         sqlx::query(
             "UPDATE decisions SET superseded = 1
@@ -173,6 +172,19 @@ pub async fn update(
         .await?;
     }
     tx.commit().await?;
+
+    // Audited as the global switch is: both decide where Routarr writes alone.
+    if req.auto_apply != existing.auto_apply {
+        let message =
+            if req.auto_apply { "AuditInstanceAutoApplyOn" } else { "AuditInstanceAutoApplyOff" };
+        let event = crate::api::auth::allowed(crate::services::audit::Kind::Settings, message);
+        crate::api::auth::audited(
+            &state,
+            &identity,
+            client,
+            event.with("instance", req.name.trim()),
+        );
+    }
 
     let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
     let key_set = key_set(&state, &instance);
@@ -188,8 +200,7 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
-    // Not under a sync of it: its writes would fail on rows gone, and the
-    // failure would be notified for an instance that no longer exists.
+    // Not under its sync, whose writes would fail on rows gone and notify a deleted instance.
     let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
         let message = state.localizer().await.translate("ErrorInstanceSyncing", &[]);
         return Err(AppError::InProgress { reason: "sync_running", message });
@@ -204,9 +215,8 @@ pub async fn remove(
         return Err(AppError::NotFound(format!("Instance {id} not found")));
     }
 
-    // Out of every rule's scope too. A rule scoped to this instance alone is
-    // switched off: left with no instance its scope would read as every one,
-    // and the rule would start routing libraries it was never written for.
+    // A rule scoped to this instance alone is switched off: left with no instance, its scope
+    // reads as every one, and it would route libraries it was never written for.
     let scoped: Vec<(String, String, bool)> = sqlx::query_as(
         "SELECT id, instance_ids, enabled FROM rules
           WHERE instance_ids IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(rules.instance_ids)
@@ -434,19 +444,15 @@ async fn explained(state: &AppState, id: &str, error: AppError) -> AppError {
 }
 
 async fn explain_sync_failure(state: &AppState, id: &str, cause: Cause) -> AppResult<AppError> {
-    // Explained by what answers at the address: a probe tells a wrong type from
-    // a wrong port, which the sync's own failure, a 404 on the library, cannot.
-    // This is the first failure most people read, since a new instance syncs as
-    // its form closes.
+    // A probe of the address tells a wrong type from a wrong port, which the sync's own
+    // failure, a 404 on the library, cannot.
     let instance = state.instance(id).await?;
     let localizer = state.localizer().await;
     let adapter = state.adapter(&instance)?;
     let kind = instance.instance_type.as_str();
     check(&adapter, kind, &instance.base_url, &localizer).await?;
-    // The probe passed, so the address answers as the Arr, and blaming it
-    // sends the operator to edit an address that is right. What failed is the
-    // library listing, the one call large enough to outlast its timeout or
-    // outgrow its cap.
+    // The probe passed, so the address is right and blaming it misleads: what failed is the
+    // library listing, the one call large enough to outlast its timeout or outgrow its cap.
     let service = [("service", connection::service_name(kind))];
     Ok(match cause {
         Cause::TimedOut => {
@@ -467,11 +473,9 @@ async fn explain_sync_failure(state: &AppState, id: &str, cause: Cause) -> AppRe
     })
 }
 
-/// Refuse to send a stored secret anywhere but the origin it was saved with.
-///
-/// The API key is the Arr's write credential and a proxy's credentials guard
-/// it, and the form shows neither back: left as shown on another address, one
-/// would leave for that address unseen. `refusal` names the one to type again.
+/// Refuse to send a stored secret anywhere but the origin it was saved with: the form shows
+/// neither the key nor a proxy's credentials back, so one left as shown on another address
+/// would leave for it unseen. `refusal` names the one to type again.
 fn saved_for_this_address(
     saved: &str,
     typed: &str,
@@ -528,9 +532,6 @@ pub async fn rotate_webhook_token(
 
 /// Whether an instance may be written as given, and its address as stored:
 /// the one check of a create, an update and a configuration import.
-///
-/// The type comes from a list the interface offers, so its refusal stays in
-/// English. The name and the address are typed, and read under their field.
 pub(crate) fn validate(
     name: &str,
     instance_type: &str,
@@ -553,9 +554,8 @@ fn normalize_base_url(raw: &str, localizer: &Localizer) -> AppResult<String> {
     if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
         return Err(AppError::BadRequest(localizer.translate("InstanceUrlScheme", &[])));
     }
-    // The API's path is appended to the address: after a `?` or a `#` it would
-    // land in the query or the fragment, and the key would go to whatever path
-    // the address names.
+    // The API's path is appended: after a `?` or a `#` it would land in the query or the
+    // fragment, and the key would go to whatever path the address names.
     if base_url.contains(['?', '#']) {
         return Err(AppError::BadRequest(localizer.translate("InstanceUrlPlain", &[])));
     }

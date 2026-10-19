@@ -61,6 +61,14 @@ pub struct Instance {
     /// named in the report's `needs_key`.
     #[serde(default)]
     pub has_api_key: bool,
+    /// Whether automatic application may write to the instance. Absent from an older bundle,
+    /// which leaves it on, as the upgrade does.
+    #[serde(default = "on")]
+    pub auto_apply: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 /// A folder mapping, keyed by what means the same thing on another machine.
@@ -117,20 +125,21 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
     .map(|(name, description)| Category { name, description })
     .collect();
 
-    let instances: Vec<Instance> = sqlx::query_as::<_, (String, String, String, bool, i64)>(
-        "SELECT name, instance_type, base_url, enabled, sync_interval_minutes
+    let instances: Vec<Instance> = sqlx::query_as::<_, (String, String, String, bool, i64, bool)>(
+        "SELECT name, instance_type, base_url, enabled, sync_interval_minutes, auto_apply
            FROM instances ORDER BY name",
     )
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(name, instance_type, base_url, enabled, sync_interval_minutes)| Instance {
+    .map(|(name, instance_type, base_url, enabled, sync_interval_minutes, auto_apply)| Instance {
         name,
         instance_type,
         base_url: crate::http::without_credentials(&base_url).into_owned(),
         enabled,
         sync_interval_minutes,
         has_api_key: false,
+        auto_apply,
     })
     .collect();
 
@@ -390,8 +399,8 @@ pub async fn import(
         // Sealed though empty, so the instance reads as waiting for its key.
         sqlx::query(
             "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled,
-             sync_interval_minutes, webhook_token)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+             sync_interval_minutes, webhook_token, auto_apply)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(name)
@@ -400,6 +409,7 @@ pub async fn import(
         .bind(state.secrets.seal("")?)
         .bind(instance.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
         .bind(Uuid::new_v4().to_string())
+        .bind(instance.auto_apply)
         .execute(&mut *tx)
         .await?;
         report.instances += 1;

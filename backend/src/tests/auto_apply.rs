@@ -89,18 +89,16 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
     .await
     .unwrap();
 
-    let AutoApplyOutcome::Applied(report) = outcome else {
+    let AutoApplyOutcome::Applied { report, .. } = outcome else {
         panic!("expected the move to be applied, got {outcome:?}");
     };
     assert_eq!(report.applied, 1);
     assert_eq!(report.failed, 0);
 
-    // It really went over the wire, to the right folder.
     let recorded = arr.recorded();
     assert_eq!(recorded.writes.len(), 1, "{:?}", recorded.writes);
     assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
 
-    // Never a disk move: auto-apply is the case where no bytes move.
     assert_eq!(recorded.query_strings, ["moveFiles=false"], "auto-apply requested a disk move");
 }
 
@@ -269,7 +267,7 @@ async fn an_unattended_apply_waits_for_the_apply_already_running() {
     let outcome = waiting.await.unwrap();
 
     assert!(
-        matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.applied == 1),
+        matches!(&outcome, Ok(AutoApplyOutcome::Applied { report, .. }) if report.applied == 1),
         "{outcome:?}"
     );
 }
@@ -308,10 +306,10 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
     .unwrap();
 
     // Half a reorganisation is worse than none: it is all or nothing.
-    assert!(
-        matches!(outcome, AutoApplyOutcome::OverCap { candidates: 3, cap: 2 }),
-        "got {outcome:?}"
-    );
+    let AutoApplyOutcome::OverCap(held) = &outcome else {
+        panic!("expected every move held, got {outcome:?}");
+    };
+    assert_eq!((held.len(), held[0].candidates, held[0].cap), (1, 3, 2));
     assert!(arr.recorded().writes.is_empty(), "not one of them may be applied");
 
     // At the cap it goes ahead: the fake holds Totoro alone, so the two others are left.
@@ -324,9 +322,91 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
     .await
     .unwrap();
     assert!(
-        matches!(&outcome, AutoApplyOutcome::Applied(report) if report.applied == 1),
+        matches!(&outcome, AutoApplyOutcome::Applied { report, .. } if report.applied == 1),
         "got {outcome:?}"
     );
+}
+
+/// An instance kept to proposals keeps its moves for a person while another routes on its own,
+/// as a 4K Radarr beside a 1080p one.
+#[tokio::test]
+async fn an_instance_kept_to_proposals_is_left_while_another_is_applied() {
+    let arr = FakeArr::with_unimported_movie().await;
+    let other = FakeArr::with_unimported_movie().await;
+    let app = TestApp::one_film_to_move(&arr, false).await;
+    app.seed_second_film_to_move(&other).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.execute(&["UPDATE instances SET auto_apply = 0 WHERE id = 'inst-2'"]).await;
+    let simulation = app.simulate().await;
+
+    auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(arr.recorded().writes.len(), 1, "the instance left on was not applied");
+    assert!(other.recorded().writes.is_empty(), "the instance kept to proposals was written to");
+    let pending: String = sqlx::query_scalar(
+        "SELECT status FROM decisions WHERE media_id = 'm-2' AND superseded = 0",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(pending, "pending");
+}
+
+/// The batch limit is counted per instance: one instance's backlog holds its own moves, not
+/// another's, and the warning names the instance held.
+#[tokio::test]
+async fn one_instance_over_the_batch_limit_holds_only_its_own_moves() {
+    let arr = FakeArr::with_unimported_movie().await;
+    let other = FakeArr::with_unimported_movie().await;
+    let app = TestApp::one_film_to_move(&arr, false).await;
+    app.seed_second_film_to_move(&other).await;
+    for (id, arr_id, title) in [("m-3", 11, "Akira"), ("m-4", 12, "Perfect Blue")] {
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+             current_root_folder, monitored, has_files)
+             VALUES (?, 'inst-1', ?, 'movie', ?, 8392, ?, '/movies/standard', 1, 0)",
+        )
+        .bind(id)
+        .bind(arr_id)
+        .bind(title)
+        .bind(format!("/movies/standard/{title}"))
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.store_setting("batch_limit", "2").await;
+    let simulation = app.simulate().await;
+
+    auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
+
+    assert!(arr.recorded().writes.is_empty(), "the instance over the limit was written to");
+    assert_eq!(other.recorded().writes.len(), 1, "the instance within the limit was held too");
+    let answer = app.get("/api/v1/status").await;
+    let status = answer.assert_ok();
+    let held: Vec<String> = status["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|warning| warning["code"] == "auto_apply_held")
+        .map(|warning| warning["message"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(held.len(), 1, "{status}");
+    assert!(held[0].contains("Fake radarr") && !held[0].contains("inst-2"), "{}", held[0]);
 }
 
 #[tokio::test]
@@ -531,4 +611,106 @@ async fn a_failing_rule_test_holds_every_unattended_move() {
     app.delete("/api/v1/rule-tests/t-1").await.assert_ok();
     let routed = app.post("/api/v1/webhook/inst-1/tok", added).await;
     assert_eq!(routed.assert_ok()["auto_applied"], 1, "the positive control");
+}
+
+/// An instance takes automatic application unless told otherwise, says so, and each change of it
+/// goes to the security log, as the global switch's does: it decides where Routarr writes alone.
+#[tokio::test]
+async fn an_instance_s_automatic_application_is_read_written_and_audited() {
+    let app = TestApp::new().await;
+    let body = |auto_apply: Option<bool>| {
+        let mut body = serde_json::json!({
+            "name": "Radarr 4K", "instance_type": "radarr",
+            "base_url": "http://radarr:7878", "api_key": "k",
+        });
+        if let Some(on) = auto_apply {
+            body["auto_apply"] = serde_json::json!(on);
+        }
+        body
+    };
+
+    let created = app.post("/api/v1/instances", body(None)).await;
+    let created = created.assert_ok().clone();
+    assert_eq!(created["auto_apply"], true);
+    let id = created["id"].as_str().unwrap();
+    for _ in 0..2 {
+        let updated = app.put(&format!("/api/v1/instances/{id}"), body(Some(false))).await;
+        assert_eq!(updated.assert_ok()["auto_apply"], false);
+    }
+    let read = app.get(&format!("/api/v1/instances/{id}")).await;
+    assert_eq!(read.assert_ok()["auto_apply"], false);
+
+    app.state.audit.flush().await;
+    let logged: Vec<(String, String)> = sqlx::query_as(
+        "SELECT message, params FROM security_events WHERE message LIKE 'AuditInstanceAutoApply%'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(logged.len(), 1, "one change, one entry: {logged:?}");
+    assert_eq!(logged[0].0, "AuditInstanceAutoApplyOff");
+    assert!(logged[0].1.contains("Radarr 4K"), "{logged:?}");
+}
+
+/// An upgrade leaves every instance to automatic application, so nobody's routing changes: the
+/// global switch still decides as it did.
+#[tokio::test]
+async fn an_upgrade_leaves_every_instance_to_automatic_application() {
+    let pool = super::database_of_0_1_5().await;
+    sqlx::query(
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key)
+         VALUES ('i', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let auto_apply: bool =
+        sqlx::query_scalar("SELECT auto_apply FROM instances").fetch_one(&pool).await.unwrap();
+    assert!(auto_apply);
+}
+
+/// A pass over one instance, as a webhook's, settles that instance's hold alone: the other
+/// instance's backlog is still waiting and still warned of.
+#[tokio::test]
+async fn a_pass_over_one_instance_leaves_another_s_hold_standing() {
+    let arr = FakeArr::with_unimported_movie().await;
+    let other = FakeArr::with_unimported_movie().await;
+    let app = TestApp::one_film_to_move(&arr, false).await;
+    app.seed_second_film_to_move(&other).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.store_setting("batch_limit", "1").await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-3', 'inst-1', 11, 'movie', 'Akira', 8392, '/movies/standard/Akira',
+                 '/movies/standard', 1, 0)",
+    ])
+    .await;
+    let by = crate::jobs::Attribution::unattended("schedule");
+    let library = app.simulate().await;
+    auto_apply::apply_simulation(&app.state, &library, &by).await.unwrap();
+    let held = || app.state.auto_apply_held.lock().unwrap().keys().cloned().collect::<Vec<_>>();
+    assert_eq!(held(), ["inst-1"]);
+
+    // A webhook simulates its own instance alone.
+    let options = crate::services::routing::SimulationOptions {
+        persist: true,
+        instance_ids: vec!["inst-2".to_string()],
+        ..Default::default()
+    };
+    let scoped = crate::services::routing::run_simulation(
+        &app.state.pool,
+        &app.state.library_passes,
+        options,
+    )
+    .await
+    .unwrap()
+    .simulation_id;
+    let webhook = crate::jobs::Attribution::unattended("webhook");
+    auto_apply::apply_instance_simulation(&app.state, &scoped, "inst-2", &webhook).await.unwrap();
+    assert_eq!(held(), ["inst-1"], "a pass over inst-2 settled inst-1's hold");
 }

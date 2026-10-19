@@ -26,6 +26,8 @@ export interface Instance {
   api_key_set: boolean;
   enabled: boolean;
   sync_interval_minutes: number;
+  /** Whether automatic application may write here, under the global switch. */
+  auto_apply: boolean;
   /** When a sync last *succeeded*. Null while none ever has. */
   last_sync_at: string | null;
   /** When one was last attempted, successful or not. */

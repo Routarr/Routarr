@@ -1,9 +1,6 @@
-//! Near-real-time routing via Radarr/Sonarr webhooks.
-//!
-//! A delivery authenticates with a per-instance token, rotated from the
-//! Instances screen. Radarr 5.16 and Sonarr 4.0.11 send it in a header, as a
-//! Basic password or in `X-Routarr-Token`, and an older Arr in the URL, where
-//! every proxy between the two and the Arr's own log keep it.
+//! Near-real-time routing through Radarr and Sonarr webhooks, authenticated by a per-instance
+//! token. Radarr 5.16 and Sonarr 4.0.11 send it in a header (a Basic password or
+//! `X-Routarr-Token`), an older Arr in the URL, where every proxy and the Arr's own log keep it.
 
 use super::Json;
 use axum::extract::State;
@@ -47,20 +44,14 @@ pub const TOKEN_HEADER: &str = "X-Routarr-Token";
 /// sent, so it never reaches it.
 pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 
-/// How many deliveries may wait behind the one in progress, per instance.
-///
-/// An Arr delivers sequentially and waits for each response, so a second
-/// waiter is already unusual, and four leaves room for a proxy that retries.
-/// The wait is what bounds this route's cost to an unauthenticated caller, and
-/// a queue of waiters with no bound of its own hands that cost straight back:
-/// each one a task for as long as the wait lasts. Past the bound a delivery is
-/// acknowledged without work.
+/// The deliveries that may wait behind the one in progress, per instance: an Arr sends one at a
+/// time, and four leave room for a retrying proxy. Unbounded, the waiters would hand an
+/// unauthenticated caller a task each. Past the bound a delivery is acknowledged without work.
 pub const MAX_WAITING_DELIVERIES: usize = 4;
 
-/// The events that can change where a title belongs, lower-cased: both Arrs
-/// mark their event names as due to change case. `episodefiledelete` is
-/// Sonarr's counterpart of `moviefiledelete`: removing the last episode file
-/// flips `has_files`, and a rule reading it routes the series elsewhere.
+/// The events that can change where a title belongs, lower-cased since both Arrs warn their case
+/// may change. A file deletion counts: removing the last file flips `has_files`, which a rule
+/// may read.
 const ACTED_ON: [&str; 8] = [
     "download",
     "movieadded",
@@ -116,15 +107,13 @@ fn header_token(headers: &HeaderMap) -> Option<String> {
     Some(password)
 }
 
-/// Handle one webhook delivery.
 async fn deliver(
     state: AppState,
     instance_id: &str,
     token: Option<String>,
     payload: ArrWebhook,
 ) -> AppResult<Response> {
-    // One answer whether the id or the token is wrong: the route is reachable
-    // without a key, and "instance not found" would confirm which ids exist.
+    // One answer for a wrong id and a wrong token, or the route confirms which ids exist.
     let instance = state
         .instance(instance_id)
         .await
@@ -137,11 +126,8 @@ async fn deliver(
         return Err(AppError::NotFound("Unknown webhook".into()));
     }
 
-    // A disabled instance is one the user switched off. The scheduler skips
-    // it, and a webhook must not be the back door that keeps syncing it,
-    // re-evaluating it, and (with automatic application armed) writing to it.
-    // Acknowledged rather than refused: the Arr is configured correctly, and a
-    // refusal would only put an error in its log that nobody there can act on.
+    // No back door into an instance switched off. Acknowledged, not refused: the Arr is
+    // configured correctly, and a refusal would only fill its log.
     if !instance.enabled {
         info!(instance = %instance.name, "Ignored a webhook for a disabled instance");
         return answered(serde_json::json!({ "ok": true, "ignored": "instance is disabled" }));
@@ -163,8 +149,7 @@ async fn deliver(
         return answered(serde_json::json!({ "ok": true, "ignored": event }));
     }
 
-    // A Radarr address pasted into Sonarr sends series ids, which name other
-    // titles here.
+    // A Radarr address pasted into Sonarr sends series ids, which name other titles here.
     let (media, other) = match instance.instance_type.as_str() {
         "radarr" => (payload.movie, payload.series),
         _ => (payload.series, payload.movie),
@@ -188,11 +173,8 @@ async fn deliver(
         "Webhook received"
     );
 
-    // A place in the queue first, whether or not the lock turns out to be
-    // free: the place is what bounds the queue, and it goes back the moment
-    // the lock is held or the wait given up. A delivery for a title already
-    // waiting adds nothing: the one waiting reads the title when its turn
-    // comes.
+    // A place first, even when the lock is free, since the places bound the queue. A title
+    // already waiting needs no second delivery: the waiting one reads it when its turn comes.
     let Some(item) = state.jobs.try_wait(&format!("webhook:{}:{arr_id}", instance.id), 1) else {
         return answered(serde_json::json!({
             "ok": true, "ignored": "a delivery for that item is already waiting",
@@ -210,10 +192,8 @@ async fn deliver(
         }));
     };
 
-    // On a task of its own, so an Arr that gives up on the delivery leaves the
-    // work to its end, and answered with its outcome when it ends in time.
-    // Past that the Arr is told it was accepted, before its own timeout: an
-    // automatic move can wait minutes for an apply already running.
+    // On its own task, so an Arr giving up leaves the work to finish. Past the wait a 202 goes
+    // out before the Arr's own timeout: an automatic move can wait minutes behind a running apply.
     let name = instance.name.clone();
     let work = state.jobs.spawn_tracked(process(
         state.clone(),
@@ -270,24 +250,13 @@ async fn run(
     arr_id: i64,
     places: [WaitingPlace; 2],
 ) -> AppResult<serde_json::Value> {
-    // One delivery at a time per instance. This route is the only one an
-    // unauthenticated party reaches, and each accepted call costs a request to
-    // the Arr, a metadata fetch, a simulation and, with automatic application
-    // armed, a write. A token read from a URL in a log starts as much, and
-    // nothing else bounds it.
-    //
-    // Waited for, not skipped. An Arr does not retry a webhook it considers
-    // delivered, and the run this guards is scoped to *one* media item, so a
-    // delivery dropped here is that item left unsynced and unevaluated until
-    // the next scheduled sweep, or for ever where `auto_sync_enabled` is off.
-    // The cost of waiting is a timer, and the cost of the work is what stays
-    // serialised, which is the whole point of the bound. The queue of timers
-    // has a bound of its own, `MAX_WAITING_DELIVERIES`.
+    // One delivery at a time per instance: a token leaked from a URL in a log buys, per call, an
+    // Arr request, a metadata fetch, a simulation and maybe a write. Waited for, not skipped: an
+    // Arr never retries, and a dropped delivery leaves its title unsynced until the next sweep.
     let key = format!("webhook:{}", instance.id);
     let deadline = tokio::time::Instant::now() + DELIVERY_WAIT;
 
-    // Past the budget it is dropped after all, and acknowledged rather than
-    // refused: an Arr retries neither, and a refusal only fills its log.
+    // Dropped past the budget, acknowledged all the same: a refusal would only fill the Arr's log.
     let Some(_delivery) = state.jobs.lock_within(&key, DELIVERY_WAIT).await else {
         warn!(
             instance = %instance.name,
@@ -302,13 +271,10 @@ async fn run(
 
     let media_id = sync::sync_single_media(state, instance, arr_id).await?;
 
-    // Read from the row the sync just wrote rather than from the payload: a
-    // delivery may omit `tmdbId`, as older Sonarr does, and enrichment would
-    // then be skipped in silence. The row carries what the Arr's own API
-    // returned, which is the fuller answer.
+    // Read from the synced row, not the payload: a delivery may omit `tmdbId`, as older Sonarr
+    // does, and enrichment would be skipped in silence.
     if let Some(id) = media_id.as_deref() {
-        // Metadata must exist before the rules run, otherwise the first
-        // decision for a brand-new item falls back to the default category.
+        // Before the rules, or a new title's first decision falls back to the default category.
         let enriched = async {
             let media = crate::api::media::load_media(state, id).await?;
             enrichment::enrich_one(state, &media).await
@@ -318,27 +284,14 @@ async fn run(
         }
     }
 
-    // Nothing to evaluate: `sync_single_media` answers `None` when the Arr no
-    // longer has the item. Evaluated with no media filter, that is the whole
-    // instance, persisted and automatically applied, outside the lock that
-    // bounds exactly that.
-    //
-    // On a delete event the absence is the news itself, and the row goes the
-    // way the full sync takes it: with its override, and with its pending
-    // proposal retired. On any other event the row is left alone. A 404 there
-    // can be a base URL pointing at something that is not an Arr, and the
-    // full sync (which reads the whole list and refuses to act on an empty
-    // one) is the safer judge of what is gone.
+    // `None` means the Arr lacks the item, and a simulation with no media filter runs the whole
+    // instance. A delete retires the row as the full sync does. On another event a 404 may be an
+    // address that is no Arr, so the full sync, which refuses an empty list, judges what is gone.
     let Some(only) = media_id.clone() else {
         let retired = if DELETE_EVENTS.contains(&kind) {
-            // After any synchronisation in flight. One that read the Arr
-            // before the deletion writes the row back, stamped current, and
-            // keeps it until the next full pass. Retired once it has
-            // committed, the row goes whatever the order of the reads. The
-            // sync key is held for one transaction, so a scheduled sync that
-            // lands in that instant is skipped for a tick and no more. Waited
-            // for within what is left of the delivery budget: past it, the
-            // next full pass is what retires the row.
+            // After any sync in flight, which would write back a row read before the deletion.
+            // A scheduled sync meeting the held key skips one tick. Past the delivery budget,
+            // the next full pass retires the row.
             let sync_key = format!("sync:{}", instance.id);
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             let Some(_sync) = state.jobs.lock_within(&sync_key, left).await else {
@@ -366,9 +319,7 @@ async fn run(
         }));
     };
 
-    // Re-evaluate just this item. Sonarr sends a `Download` event per imported
-    // episode file, so a season import would otherwise trigger one
-    // full-library simulation per episode.
+    // This title alone: Sonarr sends a `Download` for each episode file a season import brings.
     let result = routing::run_simulation(
         &state.pool,
         &state.library_passes,
@@ -384,21 +335,18 @@ async fn run(
     )
     .await?;
 
-    // The whole point of routing on the webhook: the film has just been added
-    // and nothing has downloaded yet, so the root folder can be corrected while
-    // the folder is still empty. auto_apply decides whether it is allowed to.
-    let auto_applied = match auto_apply::apply_simulation(
+    // The point of the webhook: a title just added moves while its folder is still empty.
+    let auto_applied = match auto_apply::apply_instance_simulation(
         state,
         &result.simulation_id,
+        &instance.id,
         &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK),
     )
     .await
     {
-        Ok(AutoApplyOutcome::Applied(report)) => report.applied,
+        Ok(AutoApplyOutcome::Applied { report, .. }) => report.applied,
         Ok(_) => 0,
-        // A failed auto-apply does not fail the webhook. The Arr logs a failed
-        // notification and never sends it again, and the decision is stored
-        // here, pending, for the user to apply.
+        // Not the delivery's failure: the Arr never resends it, and the decision waits, pending.
         Err(e) => {
             warn!("Auto-apply after webhook failed: {e}");
             0
