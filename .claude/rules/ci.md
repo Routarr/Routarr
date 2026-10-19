@@ -20,10 +20,11 @@ paths:
   `taiki-e/install-action`: a new third-party action is allowed there by the owner first.
 - Every checkout sets `persist-credentials: false` (`gh` takes `GH_TOKEN`), and `release.yml`
   grants nothing at the top (`permissions: {}`), each job naming what it needs.
-- The four workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
+- The five workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
   run, `docker.yml` queues so a started image build finishes, `release.yml` runs on a `v*` tag,
   `site.yml` deploys the site from the latest release's tag (secrets `CLOUDFLARE_API_TOKEN` and
-  `CLOUDFLARE_ACCOUNT_ID`) and compares production with it every week.
+  `CLOUDFLARE_ACCOUNT_ID`) and compares production with it every week, and `mutants.yml` runs
+  cargo-mutants every Saturday, for hours, gating nothing.
 - In `ci.yml`, `changes` gates every job except `repository`, and those two are the only
   unfiltered jobs. A check that must see every commit goes in one of them, as
   `scripts/check-versions.py` does in `changes`: a commit touching only a Dockerfile or
@@ -62,11 +63,11 @@ paths:
   It installs the other tools CI runs (shellcheck, hadolint, actionlint, gitleaks, cargo-deny,
   cargo-llvm-cov, oasdiff, ruff) at the versions `ci.yml` pins, and `cargo about` and
   `cargo auditable` at those of the root `Dockerfile`, which `check-versions.py` holds in step,
-  so bump a tool in both files. Run the `repository` job's checks before pushing a script, a
-  workflow, a Dockerfile or a contract change: every tracked `*.sh` under `shellcheck -S style`,
-  both Dockerfiles under hadolint (`.hadolint.yaml`), the workflows under actionlint, the Python
-  scripts under `ruff check scripts frontend/e2e site/screenshots`, `scripts/check-api-breaks.sh`,
-  and `python3 -m unittest discover -s scripts/tests`, the tests of the scripts CI relies on.
+  so bump a tool in both files. Run `bash scripts/check.sh repository` before pushing a script,
+  a workflow, a Dockerfile or a contract change.
+- `scripts/check.py` runs the `run:` steps of `ci.yml` themselves, mapped to areas by job
+  (`AREAS`): a new job needs its line there, and a step only CI can take (an install, a filter)
+  its start in `CI_ONLY_STEPS`. `scripts/tests/test_check.py` fails on either missing.
 - gitleaks scans every commit and no `.gitleaksignore` exists: a secret-shaped literal, a
   realistic fake key in a test included, fails the job even after a later commit deletes it.
 - `docker.yml` builds `.devcontainer/Dockerfile` on amd64 and arm64 when its `devcontainer` line

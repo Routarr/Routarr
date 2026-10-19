@@ -5,6 +5,9 @@
 #
 #   scripts/changed-areas.sh BASE [HEAD]
 #
+# HEAD `WORKTREE` compares BASE with the working tree, untracked files included, as
+# scripts/check.sh asks for a branch with work not yet committed.
+#
 # The three directories are disjoint, so a site-only commit costs neither the
 # Rust jobs nor the end-to-end suite.
 #
@@ -27,7 +30,12 @@ if [ -z "$BASE" ] \
 else
   # Without `--no-renames` a moved file is listed by its destination alone, and
   # moving one out of an area wakes nothing that builds that area.
-  if changed=$(git diff --name-only --no-renames "$BASE" "$HEAD"); then
+  if [ "$HEAD" = WORKTREE ]; then
+    listed() { git diff --name-only --no-renames "$BASE" && git ls-files --others --exclude-standard; }
+  else
+    listed() { git diff --name-only --no-renames "$BASE" "$HEAD"; }
+  fi
+  if changed=$(listed); then
     printf 'Changed since %s:\n%s\n' "$BASE" "$changed" >&2
   else
     echo "Cannot compare '$BASE' with '$HEAD', running everything." >&2

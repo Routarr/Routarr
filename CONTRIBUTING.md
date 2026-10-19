@@ -92,56 +92,28 @@ site/        the showcase site, deployed separately, never in the image
 
 ## What CI will check
 
-Run these before opening a pull request. They are the gates CI runs, all fast
-but the end-to-end suites. The dev container ships every tool below at the
-version CI pins, Docker apart, so the image block is the one most people meet
-in CI. CI only runs the areas
-a commit touches (a site-only change does not pay for the Rust suite), but it
-runs everything when it cannot work out what changed, so do not rely on that to
-skip a check locally.
+Run the checks before opening a pull request. `scripts/check.sh` reads the steps of
+`.github/workflows/ci.yml` and runs them here, in each step's directory, for the areas the
+branch changed since main, uncommitted work included, as CI decides them. It never writes to
+the tree, installs nothing, and ends on what passed, failed and was skipped. The dev container
+ships every tool at the version CI pins, Docker apart.
 
 ```bash
-# backend/
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo test --locked
-cargo llvm-cov --locked --summary-only --fail-under-lines 96 --ignore-filename-regex 'src/(tests/|process\.rs)'
-python3 ../scripts/check-locales.py
-python3 ../scripts/check-api-types.py   # the response structs against types.ts
-python3 ../scripts/check-versions.py    # every place a version is written
-python3 ../scripts/check-typography.py  # plain punctuation in what a reader sees
-python3 ../scripts/check-claude-md.py   # CLAUDE.md and the rules stay short
-python3 ../scripts/check-licences.py    # the bundled npm packages and about.toml, against deny.toml
-python3 -m unittest discover -s ../scripts/tests   # the tests of the scripts CI relies on
+bash scripts/check.sh                    # the areas this branch changed, as CI wakes them
+bash scripts/check.sh all                # every area
+bash scripts/check.sh backend site       # the areas named: repository, backend, coverage,
+                                         # frontend, site, e2e
+bash scripts/check.sh --engines chromium,firefox,webkit e2e   # every browser CI runs
+bash scripts/check.sh --fail-fast        # stop at the first failure
+bash scripts/check.sh --list             # each step, its directory and its command
+```
 
-# frontend/
-npm run format:check
-npm run check          # svelte-check, then the types of the e2e specs
-npm run lint           # ESLint, type-aware
-npm run coverage       # vitest, with floors
-npm audit --omit=dev --audit-level=high   # what the bundle carries
-npm run build && node ../scripts/check-bundle-size.mjs   # the first load's ceiling
-npm run test:e2e       # builds the release binary; a few minutes, in Chromium
-ROUTARR_E2E_BROWSER=firefox npm run test:e2e   # and webkit: CI runs every suite in all three
-npm run test:e2e:base  # the specs tagged @subpath, under ROUTARR_BASE_PATH=/routarr
-npm run test:e2e:auth  # the specs tagged @forms and @oidc, each against a server in that mode
+It exits 0 when every step passed, 1 when one failed, and 3 when the rest passed but a step was
+skipped: a linter the machine lacks, or the image, which needs Docker. The backend's coverage
+gate is `--fail-under-lines 96` (`cargo llvm-cov`), and the image is checked, with Docker, by:
 
-# site/
-npm run build && node check.mjs && node verify.mjs
-npx astro check        # types over the components and the catalogue
-
-# repository root, with Docker: starts the image and checks it serves
+```bash
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
-
-# repository root, with the tools the dev container installs at CI's versions
-(cd backend && cargo deny --locked check)   # advisories, licences and sources, from deny.toml
-bash scripts/check-api-breaks.sh            # the API contract against the last release (oasdiff)
-actionlint                                  # the workflows
-git ls-files -z '*.sh' | xargs -0 shellcheck -S style
-ruff check scripts frontend/e2e site/screenshots   # the Python scripts and fakes
-hadolint Dockerfile .devcontainer/Dockerfile
-gitleaks git --no-banner --redact .         # every commit, not the last one
 ```
 
 gitleaks reads the whole history: a secret-shaped literal, a realistic fake key

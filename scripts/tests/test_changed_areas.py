@@ -85,3 +85,14 @@ class ChangedAreas(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_the_working_tree_counts_what_is_not_committed_yet(self):
+        Path(self.folder, "site/src/pages/index.astro").write_text("edited\n")
+        Path(self.folder, "frontend/src/New.svelte").write_text("untracked\n")
+        answer = subprocess.run(
+            ["bash", str(SCRIPTS / "changed-areas.sh"), self.base, "WORKTREE"],
+            cwd=self.folder, capture_output=True, text=True, check=True,
+        ).stdout
+        woken = {key for key, value in (line.split("=") for line in answer.split())
+                 if value == "true"}
+        self.assertEqual(woken, {"frontend", "image", "site"})
