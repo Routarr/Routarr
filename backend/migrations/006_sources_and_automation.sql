@@ -21,3 +21,9 @@ UPDATE metadata_cache SET stale = 1 WHERE source IN ('tmdb', 'omdb', 'tenrai', '
 -- Whether automatic application may write to this instance, under the global switch. On, so an
 -- upgrade changes nobody's behaviour and one switch still arms a single instance.
 ALTER TABLE instances ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 1 CHECK (auto_apply IN (0, 1));
+-- The last webhook delivery with a valid token and its event, and when the token was issued,
+-- which a rotation sets: an instance armed for automatic application and silent an hour on is
+-- warned of.
+ALTER TABLE instances ADD COLUMN last_webhook_at TEXT;
+ALTER TABLE instances ADD COLUMN last_webhook_event TEXT;
+ALTER TABLE instances ADD COLUMN webhook_token_at TEXT;

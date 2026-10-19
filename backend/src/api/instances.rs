@@ -513,7 +513,9 @@ pub async fn rotate_webhook_token(
     state.instance(&id).await?;
 
     sqlx::query(
-        "UPDATE instances SET webhook_token = ?, updated_at = datetime('now') WHERE id = ?",
+        "UPDATE instances SET webhook_token = ?, webhook_token_at = datetime('now'),
+         last_webhook_at = NULL, last_webhook_event = NULL, updated_at = datetime('now')
+         WHERE id = ?",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(&id)

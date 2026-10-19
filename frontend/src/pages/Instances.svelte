@@ -434,14 +434,15 @@
             <th>{t('BaseUrl')}</th>
             <th>{t('ApiKey')}</th>
             <th>{t('LastSync')}</th>
+            <th>{t('LastWebhook')}</th>
             <th class="w-230"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if list.loading && instances.length === 0}
-            <TableSkeleton columns={6} />
+            <TableSkeleton columns={7} />
           {:else if instances.length === 0 && !list.error}
-            <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
+            <tr><td colspan="7"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
             {#each instances as instance, index (instance.id)}
               {@const address = withoutCredentials(instance.base_url)}
@@ -524,6 +525,17 @@
                     {#if instance.last_sync_status !== 'success'}
                       <span class="status-reason">{failureDetail(instance.last_sync_status)}</span>
                     {/if}
+                  {/if}
+                </td>
+                <td class="cell-timestamp">
+                  <span
+                    class="text-muted"
+                    title={formatTimestamp(instance.last_webhook_at, i18n.language, '')}
+                  >
+                    {formatRelative(instance.last_webhook_at, i18n.language, t('Never'))}
+                  </span>
+                  {#if instance.last_webhook_event}
+                    <span class="text-muted text-xs">{instance.last_webhook_event}</span>
                   {/if}
                 </td>
                 <td>
@@ -731,6 +743,16 @@
           </p>
         </div>
         {#if editing.webhook?.webhook_path && editing.webhook.webhook_url}
+          <p class="text-sm">
+            {#if editing.webhook.last_webhook_at}
+              {t('WebhookLastDelivery', {
+                event: editing.webhook.last_webhook_event ?? '',
+                when: formatRelative(editing.webhook.last_webhook_at, i18n.language, ''),
+              })}
+            {:else}
+              {t('WebhookNoDeliveryYet', { service: SERVICE[form.instance_type] })}
+            {/if}
+          </p>
           <!-- Here and not only behind Copy: on a plain http origin the clipboard is closed. -->
           <div class="form-group">
             <label class="form-label" for="instances-webhook-path">{t('WebhookUrl')}</label>

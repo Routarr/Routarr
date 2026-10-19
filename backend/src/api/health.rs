@@ -55,8 +55,8 @@ pub struct Warning {
     /// `backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
-    /// `oidc_open_to_anyone`, `backup_passphrase_unreadable` or `rule_tests_failing`. The list may
-    /// grow.
+    /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing` or
+    /// `webhook_never_delivered`. The list may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -178,6 +178,13 @@ pub struct InstanceHealth {
     pub media_count: i64,
     /// Its root folders mapped to a category.
     pub mapped_root_folders: i64,
+    /// When a webhook from it last arrived. Null while none has since it was added or its token
+    /// rotated.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
+    pub last_webhook_at: Option<String>,
+    /// The event that delivery carried, as `Test` or `MovieAdded`.
+    pub last_webhook_event: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, utoipa::ToSchema)]
@@ -812,6 +819,25 @@ async fn offline_warnings(
         ));
     }
 
+    // An armed instance its Arr never reached leaves each new title to the next sync, unsaid.
+    if state.bool_setting("auto_apply_enabled").await && !state.bool_setting("global_dry_run").await
+    {
+        let silent: Vec<(String,)> = sqlx::query_as(
+            "SELECT name FROM instances
+              WHERE enabled = 1 AND auto_apply = 1 AND last_webhook_at IS NULL
+                AND COALESCE(webhook_token_at, created_at) <= datetime('now', '-1 hour')
+              ORDER BY name",
+        )
+        .fetch_all(&state.pool)
+        .await?;
+        for (name,) in silent {
+            warnings.push(Warning::new(
+                "webhook_never_delivered",
+                localizer.translate("WarnWebhookNeverDelivered", &[("instance", &name)]),
+            ));
+        }
+    }
+
     let regions = AppState::certification_regions_from(settings);
     let rating: Vec<(String, String)> = sqlx::query_as(
         "SELECT name, certification_country FROM instances
@@ -1019,6 +1045,8 @@ async fn counts_for(
         ),
         media_count,
         mapped_root_folders,
+        last_webhook_at: instance.last_webhook_at.clone(),
+        last_webhook_event: instance.last_webhook_event.clone(),
     })
 }
 

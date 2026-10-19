@@ -21,7 +21,6 @@ fn key_id(token: &str) -> String {
     token.strip_prefix("rtr_").and_then(|rest| rest.split_once('_')).unwrap().0.to_string()
 }
 
-/// Make a key as the owner and return its token.
 async fn mint(app: &TestApp, owner_key: Option<&str>, body: Value) -> String {
     let response = send(app, "POST", "/api/v1/applications", owner_key, Some(body)).await;
     response.assert_ok()["token"].as_str().expect("a token").to_string()
@@ -128,6 +127,8 @@ async fn an_application_reads_the_instances_without_their_webhook_or_key() {
             assert!(instance[field].is_null(), "{path} {field}: {:?}", read.json);
         }
         assert_eq!(instance["api_key_masked"], "", "{path}: {:?}", read.json);
+        // When the Arr last called is no credential, and a monitor alerts on it.
+        assert!(instance.as_object().unwrap().contains_key("last_webhook_at"), "{path}");
     }
 }
 
@@ -290,7 +291,6 @@ async fn a_revoked_or_unknown_key_is_refused_even_where_nothing_is_asked() {
 
     let revoked = send(&app, "DELETE", &format!("/api/v1/applications/{id}"), None, None).await;
     assert_eq!(revoked.assert_ok()["deleted"], true);
-    // Gone from the list, and revoked once only.
     let listed = send(&app, "GET", "/api/v1/applications", None, None).await;
     assert_eq!(listed.assert_ok().as_array().unwrap().len(), 0, "a revoked key is still listed");
     let again = send(&app, "DELETE", &format!("/api/v1/applications/{id}"), None, None).await;
@@ -306,7 +306,6 @@ async fn a_revoked_or_unknown_key_is_refused_even_where_nothing_is_asked() {
     send(&app, "GET", "/api/v1/status", None, None).await.assert_ok();
 }
 
-/// In an open mode a request without a key is let in, and one presenting a key is held to it.
 #[tokio::test]
 async fn in_an_open_mode_a_presented_key_is_held_to_its_scopes() {
     let app = TestApp::new().await;
@@ -393,12 +392,12 @@ async fn an_application_leaves_its_name_on_the_tasks_and_decisions_it_starts() {
     }
 }
 
-/// The three routes that move files, each over two films a simulation proposes, with the
-/// guardrail each asks first. The revert's films are applied beforehand, and a threshold of
-/// one makes moving both ask it.
+/// The three routes that move files, with the guardrail each asks first.
 const MOVING: [(&str, &str); 3] =
     [("apply", "threshold"), ("apply-all", "batch"), ("revert", "threshold")];
 
+/// Two films a simulation proposes, and the body `route` moves them with. The revert's films
+/// are applied beforehand, and a threshold of one makes moving both ask it.
 async fn ready_to_move(arr: &FakeArr, route: &str) -> (TestApp, Value) {
     let app = TestApp::films_to_move(arr, 2).await;
     let simulation = app.simulate().await;
@@ -486,8 +485,8 @@ async fn every_route_that_moves_refuses_files_to_a_key_not_allowed_them() {
     }
 }
 
-/// A key's moves are logged under its name, its apply and its revert both:
-/// the Move log screen tells them from the owner's.
+/// A key's moves are logged under its name on the three routes that move, so the Move log
+/// screen tells them from the owner's.
 #[tokio::test]
 async fn a_keys_apply_and_revert_are_logged_under_its_name() {
     let arr = FakeArr::start().await;
@@ -512,7 +511,6 @@ async fn a_keys_apply_and_revert_are_logged_under_its_name() {
         |action: &str| (action.to_string(), Some("api".to_string()), Some("cron".to_string()));
     assert_eq!(logged, [as_cron("move"), as_cron("revert")]);
 
-    // A whole simulation applied through the key, the third route that moves.
     let arr = FakeArr::start().await;
     let (app, mut body) = ready_to_move(&arr, "apply-all").await;
     let key =
@@ -528,8 +526,6 @@ async fn a_keys_apply_and_revert_are_logged_under_its_name() {
     assert_eq!(logged, [(Some("api".to_string()), Some("cron".to_string()))]);
 }
 
-/// A title pinned by the id another service knows it by names the
-/// application that pinned it, as a pin by the library's id does.
 #[tokio::test]
 async fn a_pin_by_external_id_names_the_application_that_set_it() {
     let arr = FakeArr::start().await;
@@ -658,7 +654,8 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     let decisions = send(&app, "GET", "/api/v1/decisions", Some(&token), None).await;
     assert_eq!(decisions.assert_ok()["data"][0]["subject"], Value::Null);
     let pins = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
-    assert_eq!(pins.assert_ok()[0]["subject"], Value::Null);
+    let pin = &pins.assert_ok()["data"][0];
+    assert_eq!((&pin["id"], &pin["subject"]), (&json!("o-1"), &Value::Null), "{pin}");
     let log = send(&app, "GET", "/api/v1/logs", Some(&token), None).await;
     assert_eq!(log.assert_ok()["data"][0]["subject"], Value::Null);
     let export = Request::get("/api/v1/logs/export").header("x-api-key", &token);
@@ -954,7 +951,7 @@ async fn a_reason_or_a_rule_past_its_limit_is_refused() {
 }
 
 /// A key that may operate takes a backup, which prunes past the retention count. Its archives
-/// are counted apart and ten minutes apart at most, so a loop removes none of the owner's and
+/// are counted apart, one per ten minutes at most, so a loop removes none of the owner's and
 /// does not hold off the schedule.
 #[tokio::test]
 async fn an_operating_key_cannot_push_the_owners_backups_out() {

@@ -376,6 +376,31 @@ describe('Instances', () => {
     expect(nthCall(update)[1]).toMatchObject({ auto_apply: true });
   });
 
+  /** Whether the Arr's webhook ever arrived, in the row and where its address is copied from. */
+  it('says when each instance last sent a webhook, and what to do while none has', async () => {
+    const heard = new Date(Date.now() - 120_000).toISOString();
+    show([
+      instance({ id: 'i1', name: 'Radarr', last_webhook_at: heard, last_webhook_event: 'Test' }),
+      instance({
+        id: 'i2',
+        name: 'Radarr 4K',
+        webhook_path: '/api/v1/webhook/i2',
+        webhook_url: '/api/v1/webhook/i2/tok',
+        webhook_token: 'tok',
+      }),
+    ]);
+
+    const heardCell = (await screen.findByText('Test')).closest('td') as HTMLElement;
+    expect(heardCell).toHaveTextContent('2 minutes ago');
+    const silent = screen.getByText('Radarr 4K').closest('tr') as HTMLElement;
+    expect(within(silent).getAllByText('Never').length).toBeGreaterThan(0);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr 4K' }));
+    expect(
+      await screen.findByText('No delivery yet. Once the address is in Radarr, press Test there.'),
+    ).toBeTruthy();
+  });
+
   /** A dialog opens on its own form, never on the refusal of the one before. */
   it.each(['Edit – Radarr', 'Add instance'])(
     'opens %s without the refusal of the last dialog',

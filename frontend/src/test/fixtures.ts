@@ -122,6 +122,8 @@ export function healthInstance(
     last_sync_status: 'success',
     media_count: 120,
     mapped_root_folders: 2,
+    last_webhook_at: null,
+    last_webhook_event: null,
     ...over,
   };
 }
@@ -138,6 +140,8 @@ export function instance(over: Partial<Instance> = {}): Instance {
     enabled: true,
     sync_interval_minutes: 15,
     auto_apply: true,
+    last_webhook_at: null,
+    last_webhook_event: null,
     last_sync_at: null,
     last_sync_attempt_at: null,
     last_sync_status: null,

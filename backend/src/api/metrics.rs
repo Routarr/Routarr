@@ -55,7 +55,8 @@ pub(crate) const LATEST: &str = "d.superseded = 0
                             OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)))";
 
 /// An instance's id, name, last sync outcome, enabled, last success, last try and auto-apply.
-type Synced = (String, String, Option<String>, bool, Option<String>, Option<String>, bool);
+type Synced =
+    (String, String, Option<String>, bool, Option<String>, Option<String>, bool, Option<String>);
 
 pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
@@ -109,7 +110,8 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
 
     // Without the sync timestamps, a sync that stopped running would read as up for ever.
     let instances: Vec<Synced> = sqlx::query_as(
-        "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at, auto_apply
+        "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at, auto_apply,
+                last_webhook_at
            FROM instances",
     )
     .fetch_all(pool)
@@ -140,7 +142,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when automatic application may write to this instance, under the global switch.",
         samples: instances
             .iter()
-            .map(|(id, name, .., auto_apply)| {
+            .map(|(id, name, .., auto_apply, _)| {
                 (arr_instance(id, name), if *auto_apply { 1.0 } else { 0.0 })
             })
             .collect(),
@@ -159,11 +161,21 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
     families.push(Family {
+        name: "routarr_instance_last_webhook_timestamp_seconds",
+        help: "When a webhook from this instance last arrived, in seconds since the Unix epoch.",
+        samples: instances
+            .iter()
+            .filter_map(|(id, name, .., heard)| {
+                Some((arr_instance(id, name), at(heard)?.timestamp() as f64))
+            })
+            .collect(),
+    });
+    families.push(Family {
         name: "routarr_instance_last_sync_attempt_timestamp_seconds",
         help: "When a sync of this instance was last tried, in seconds since the Unix epoch.",
         samples: instances
             .iter()
-            .filter_map(|(id, name, _, _, _, tried, _)| {
+            .filter_map(|(id, name, _, _, _, tried, ..)| {
                 Some((arr_instance(id, name), at(tried)?.timestamp() as f64))
             })
             .collect(),
