@@ -54,13 +54,43 @@ pub(crate) const LATEST: &str = "d.superseded = 0
                        AND (later.decided_at > d.decided_at
                             OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)))";
 
-/// An instance's id, name, last sync outcome, enabled, last success, last try and auto-apply.
-type Synced =
-    (String, String, Option<String>, bool, Option<String>, Option<String>, bool, Option<String>);
+/// An instance's id, name, last sync outcome, enabled, last success, last try, auto-apply, last
+/// webhook and sync interval in minutes.
+type Synced = (
+    String,
+    String,
+    Option<String>,
+    bool,
+    Option<String>,
+    Option<String>,
+    bool,
+    Option<String>,
+    i64,
+);
 
 pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
     let mut families: Vec<Family> = Vec::new();
+
+    families.push(Family {
+        name: "routarr_build_info",
+        help: "Always 1, labelled with the release running.",
+        samples: vec![(format!("version=\"{}\"", label(env!("CARGO_PKG_VERSION"))), 1.0)],
+    });
+    let mut warnings: std::collections::BTreeMap<(&str, &str), u32> = Default::default();
+    for warning in crate::api::health::warning_codes(&state).await? {
+        *warnings.entry(warning).or_default() += 1;
+    }
+    families.push(Family {
+        name: "routarr_warnings",
+        help: "The warnings the interface shows, by code and severity, at its own thresholds.",
+        samples: warnings
+            .into_iter()
+            .map(|((code, severity), count)| {
+                (format!("code=\"{code}\",severity=\"{severity}\""), f64::from(count))
+            })
+            .collect(),
+    });
 
     let media: Vec<(String, String, String, i64)> = sqlx::query_as(
         "SELECT i.id, i.name, m.media_type, COUNT(*)
@@ -111,7 +141,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     // Without the sync timestamps, a sync that stopped running would read as up for ever.
     let instances: Vec<Synced> = sqlx::query_as(
         "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at, auto_apply,
-                last_webhook_at
+                last_webhook_at, sync_interval_minutes
            FROM instances",
     )
     .fetch_all(pool)
@@ -142,7 +172,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when automatic application may write to this instance, under the global switch.",
         samples: instances
             .iter()
-            .map(|(id, name, .., auto_apply, _)| {
+            .map(|(id, name, .., auto_apply, _, _)| {
                 (arr_instance(id, name), if *auto_apply { 1.0 } else { 0.0 })
             })
             .collect(),
@@ -161,11 +191,19 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
     families.push(Family {
+        name: "routarr_instance_sync_interval_seconds",
+        help: "How often this instance is synced, in seconds: a sync older than twice it is late.",
+        samples: instances
+            .iter()
+            .map(|(id, name, .., minutes)| (arr_instance(id, name), (*minutes * 60) as f64))
+            .collect(),
+    });
+    families.push(Family {
         name: "routarr_instance_last_webhook_timestamp_seconds",
         help: "When a webhook from this instance last arrived, in seconds since the Unix epoch.",
         samples: instances
             .iter()
-            .filter_map(|(id, name, .., heard)| {
+            .filter_map(|(id, name, .., heard, _)| {
                 Some((arr_instance(id, name), at(heard)?.timestamp() as f64))
             })
             .collect(),
@@ -263,6 +301,14 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "When the newest archive was written, in seconds since the Unix epoch.",
         samples: crate::services::backup::last_taken_at(&state)
             .map(|taken| (String::new(), taken.timestamp() as f64))
+            .into_iter()
+            .collect(),
+    });
+    families.push(Family {
+        name: "routarr_database_bytes",
+        help: "The database file's size, which a backup and the free space are weighed against.",
+        samples: std::fs::metadata(&state.config.db_path)
+            .map(|meta| (String::new(), meta.len() as f64))
             .into_iter()
             .collect(),
     });

@@ -16,6 +16,7 @@ FILES = [
     "frontend/src/App.svelte",
     "site/src/pages/index.astro",
     ".devcontainer/Dockerfile",
+    "contrib/monitoring/prometheus-alerts.yml",
     "README.md",
     "Dockerfile",
 ]
@@ -54,6 +55,9 @@ class ChangedAreas(unittest.TestCase):
 
     def woken(self, *changed: str) -> list[str]:
         return sorted(area for area, wakes in self.areas(*changed).items() if wakes)
+
+    def test_the_alert_rules_wake_the_backend_whose_test_reads_them(self):
+        self.assertEqual(self.woken("contrib/monitoring/prometheus-alerts.yml"), ["backend"])
 
     def test_the_route_table_wakes_the_frontend_whose_tests_read_it(self):
         self.assertEqual(self.woken("backend/src/main.rs"), ["backend", "frontend", "image"])

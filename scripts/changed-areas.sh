@@ -49,8 +49,9 @@ decide() {
 CONTROL='\.github/workflows/ci\.yml|scripts/changed-areas\.sh'
 
 # `scripts/` holds the locale and API type checks the backend job runs, and
-# both read the frontend's copy of the API types, as a backend test does.
-echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|$CONTROL)")"
+# both read the frontend's copy of the API types, as a backend test does. A
+# backend test holds the dashboard and the alert rules to the metrics.
+echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|contrib/monitoring/|$CONTROL)")"
 # The frontend job alone runs the bundle size check, and its tests read these
 # backend files: the routes the client calls, the settings' defaults, the
 # count placeholders, the dictionary its components render, and the tables of

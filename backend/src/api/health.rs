@@ -618,6 +618,15 @@ pub(crate) const UNMAPPED: &str =
 
 /// Every warning known without the network, for the top bar and the diagnostics page alike, so
 /// the badge counts what the page lists. Probe findings are read back from `probe_results`.
+/// The code and severity of each warning `/status` shows, which the metrics count.
+pub(crate) async fn warning_codes(
+    state: &AppState,
+) -> AppResult<Vec<(&'static str, &'static str)>> {
+    let settings = state.settings().await;
+    let warnings = offline_warnings(state, &Localizer::new("en"), &settings).await?;
+    Ok(warnings.into_iter().map(|warning| (warning.code, warning.severity)).collect())
+}
+
 async fn offline_warnings(
     state: &AppState,
     localizer: &Localizer,

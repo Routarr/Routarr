@@ -204,6 +204,25 @@ In `none` mode Routarr answers to its addresses and `localhost`. Reached by a na
 `nas.lan`, list it in `ROUTARR_ALLOWED_HOSTS`: a page of another site can make its own name point at
 Routarr's address, and the browser would then let it act as Routarr.
 
+## Monitoring
+
+`/api/v1/metrics` serves Prometheus gauges: the instances, the library, the metadata sources, the
+backups, the disk, and every warning the interface shows, by code and severity. Scrape it with an
+application key holding the read scope, made on the Applications screen, as a bearer token:
+
+```yaml
+scrape_configs:
+  - job_name: routarr
+    metrics_path: /api/v1/metrics
+    authorization:
+      credentials: rtr_...
+    static_configs:
+      - targets: ["routarr:9876"]
+```
+
+[`contrib/monitoring/`](contrib/monitoring/) holds a Grafana dashboard to import and Prometheus
+alert rules to load from `rule_files`, both held to the metrics by Routarr's tests.
+
 ## Contributing
 
 Rust (Axum, SQLx) and Svelte 5, one SQLite database, one image. [`CONTRIBUTING.md`](CONTRIBUTING.md)
