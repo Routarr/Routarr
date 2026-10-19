@@ -722,6 +722,7 @@ fn movie_by_id(state: &FakeState, id: i64) -> Option<serde_json::Value> {
         "tags": [],
     });
     laid_over(&state.movie_edits, id, &mut film);
+    with_arr_root(state, &mut film);
     Some(film)
 }
 
@@ -755,6 +756,7 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         }
     });
     laid_over(&state.movie_edits, 10, &mut movie);
+    with_arr_root(state, &mut movie);
     movie
 }
 
@@ -1055,7 +1057,37 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "network": "TV Tokyo"
     });
     laid_over(&state.series_edits, id, &mut series);
+    with_arr_root(state, &mut series);
     series
+}
+
+/// The `rootFolderPath` both Arrs compute at every read (`GetBestRootFolderPath`): the longest
+/// root folder they list holding the title's path, else the folder above it. Never the one an
+/// edit wrote, which they do not keep.
+fn with_arr_root(state: &FakeState, title: &mut serde_json::Value) {
+    let Some(path) = title["path"].as_str().map(str::to_string) else { return };
+    let mut listed: Vec<String> = ["/movies/standard", "/movies/anime", "/movies/kids"]
+        .iter()
+        .map(|folder| shown(state, folder))
+        .collect();
+    listed.extend(
+        state
+            .more_root_folders
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter_map(|folder| folder["path"].as_str())
+            .map(|folder| folder.trim_end_matches(['/', '\\']).to_string()),
+    );
+    let root = listed
+        .into_iter()
+        .filter(|folder| crate::paths::within(&path, folder) && !crate::paths::same(&path, folder))
+        .max_by_key(String::len)
+        .unwrap_or_else(|| {
+            let cut = path.trim_end_matches(['/', '\\']).rfind(['/', '\\']).unwrap_or(0);
+            path[..cut].to_string()
+        });
+    title["rootFolderPath"] = serde_json::Value::String(root);
 }
 
 /// A held series as Sonarr's lookup answers it: its id, with statistics of

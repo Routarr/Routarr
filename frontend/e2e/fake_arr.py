@@ -86,6 +86,13 @@ EDITS = []
 UNKNOWN = []
 
 
+def best_root_folder(path):
+    """The root folder Radarr reports for a title, worked out at every read and never the one
+    an edit sent: the longest it lists holding the path, else the folder above it."""
+    holding = [f["path"] for f in ROOT_FOLDERS if path.startswith(f["path"].rstrip("/") + "/")]
+    return max(holding, key=len) if holding else path.rsplit("/", 1)[0]
+
+
 def directory_listing(asked):
     """What `/api/v3/filesystem` answers, as Radarr's LookupContents does: the
     query is cut after its last separator and what remains is listed, each
@@ -197,8 +204,8 @@ class Handler(BaseHTTPRequestHandler):
         payload = self._body()
         move_files = "moveFiles=true" in self.path
         EDITS.append({"movieIds": [item["id"]], "moveFiles": move_files})
-        item["rootFolderPath"] = payload["rootFolderPath"]
         item["path"] = payload["path"]
+        item["rootFolderPath"] = best_root_folder(item["path"])
         # Radarr answers 202 with the movie as it now is.
         return self._send(item, 202)
 

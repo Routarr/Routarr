@@ -491,6 +491,68 @@ async fn a_declared_destination_on_radarr_is_reached_film_by_film() {
     assert_eq!(recorded.query_strings, ["moveFiles=true", "moveFiles=false"]);
 }
 
+/// A title moved into a declared destination beneath an Arr root folder stays there. The Arr
+/// reports, at every read, the deepest root folder it lists, never the declared one, and the
+/// next sync and simulation must not propose the same move again.
+#[tokio::test]
+async fn a_title_moved_into_a_declared_destination_is_not_proposed_again() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::one_film_to_move(&arr, true).await;
+    app.store_setting("global_dry_run", "false").await;
+    app.execute(&[
+        "UPDATE root_folders SET category = NULL WHERE path = '/movies/anime'",
+        "INSERT INTO root_folders (id, instance_id, path, accessible, category, origin)
+         VALUES ('rf-declared', 'inst-1', '/movies/anime/films', 1, 'anime', 'declared')",
+    ])
+    .await;
+    let simulate = || async {
+        routing::run_simulation(
+            &app.state.pool,
+            &app.state.library_passes,
+            SimulationOptions { persist: true, ..Default::default() },
+        )
+        .await
+        .unwrap()
+    };
+    let proposed = simulate().await.decisions;
+    assert_eq!(proposed[0].target_root_folder.as_deref(), Some("/movies/anime/films"));
+    let report = executor::apply_decisions(
+        &app.state,
+        &[proposed[0].id.clone()],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.applied, 1, "{report:?}");
+    // A later sync: within the second of the move, the sync keeps the path the move wrote.
+    app.execute(&["UPDATE media SET moved_at = datetime('now', '-1 minute')"]).await;
+
+    sync::sync_instance(&app.state, "inst-1", &Attribution::manual(None)).await.unwrap();
+
+    let root: String =
+        sqlx::query_scalar("SELECT current_root_folder FROM media WHERE arr_id = 10")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(root, "/movies/anime/films");
+    assert_eq!(simulate().await.moves_required, 0, "the move is proposed again");
+
+    // A webhook's sync of the one title reads it the same way.
+    app.execute(&["UPDATE media SET current_root_folder = '/movies/anime' WHERE arr_id = 10"])
+        .await;
+    let delivery = serde_json::json!({ "eventType": "Rename", "movie": { "id": 10 } });
+    app.post("/api/v1/webhook/inst-1/tok", delivery).await.assert_ok();
+    super::webhook_settled(&app, "inst-1").await;
+    let root: String =
+        sqlx::query_scalar("SELECT current_root_folder FROM media WHERE arr_id = 10")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(root, "/movies/anime/films", "the webhook read the Arr's root folder back");
+}
+
 /// A title moved twice can only have its latest move undone: the older one would skip the
 /// folder between, and two History buttons would answer to one name. The list says which
 /// move may be reverted, and the server refuses the other without writing.
