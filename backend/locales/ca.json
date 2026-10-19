@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Rellegeix",
   "SourceRefreshed": "{source}: respostes rellegides: {enriched}, fallides: {failed}",
   "SourceRefreshNone": "Cap font per rellegir: les metadades de Radarr i Sonarr arriben amb cada sincronització.",
-  "TermTextTemplate": "Un conjunt de regles a punt per a una divisió habitual de la biblioteca, com ara l'anime o els títols infantils. Un cop afegida, les seves regles són regles corrents, i cadascuna registra la plantilla d'on prové."
+  "TermTextTemplate": "Un conjunt de regles a punt per a una divisió habitual de la biblioteca, com ara l'anime o els títols infantils. Un cop afegida, les seves regles són regles corrents, i cadascuna registra la plantilla d'on prové.",
+  "AuditApplicationKeyExpired": "S'ha enviat la clau d'aplicació caducada {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Una clau d'aplicació caduca aviat",
+  "NotificationMessageApplicationKeyExpiring": "La clau d'aplicació {name} caduca el {date}. Crea una clau nova per a la seva aplicació i revoca aquesta abans d'aquesta data.",
+  "ApplicationExpiry": "Caduca",
+  "ApplicationExpiryIn30Days": "D'aquí a 30 dies",
+  "ApplicationExpiryIn90Days": "D'aquí a 90 dies",
+  "ApplicationExpiryInAYear": "D'aquí a un any",
+  "ApplicationExpiryHelp": "Passada aquesta data, tota crida amb la clau es rebutja fins que la revoquis. Routarr envia una notificació una setmana abans. Una clau no es renova: crea'n una de nova i revoca l'antiga.",
+  "ApplicationExpired": "Caducada",
+  "ApplicationExpiresSoon": "En una setmana",
+  "ApplicationLongUnused": "Sense ús des de fa més de 90 dies"
 }

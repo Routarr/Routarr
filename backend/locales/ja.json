@@ -1794,5 +1794,16 @@
   "SourceRefresh": "再読み取り",
   "SourceRefreshed": "{source}: 再読み取り: {enriched}、失敗: {failed}",
   "SourceRefreshNone": "再読み取りできるソースはありません。Radarr と Sonarr のメタデータは同期のたびに届きます。",
-  "TermTextTemplate": "アニメや子ども向け作品など、よくあるライブラリの分け方に合わせた既製のルールセット。追加後のルールは通常のルールで、それぞれが元のテンプレートを記録しています。"
+  "TermTextTemplate": "アニメや子ども向け作品など、よくあるライブラリの分け方に合わせた既製のルールセット。追加後のルールは通常のルールで、それぞれが元のテンプレートを記録しています。",
+  "AuditApplicationKeyExpired": "有効期限切れのアプリのキー {name} ({id}) が送信されました。",
+  "NotificationHeadlineApplicationKeyExpiring": "アプリのキーがまもなく期限切れになります",
+  "NotificationMessageApplicationKeyExpiring": "アプリのキー {name} の有効期限は {date} です。それまでにそのアプリ用の新しいキーを作成し、このキーを失効させてください。",
+  "ApplicationExpiry": "有効期限",
+  "ApplicationExpiryIn30Days": "30 日後",
+  "ApplicationExpiryIn90Days": "90 日後",
+  "ApplicationExpiryInAYear": "1 年後",
+  "ApplicationExpiryHelp": "この日を過ぎると、失効させるまで、このキーによる呼び出しはすべて拒否されます。Routarr は 1 週間前に通知を送信します。キーは更新できません。新しいキーを作成し、古いキーを失効させてください。",
+  "ApplicationExpired": "期限切れ",
+  "ApplicationExpiresSoon": "1 週間以内",
+  "ApplicationLongUnused": "90 日以上未使用"
 }

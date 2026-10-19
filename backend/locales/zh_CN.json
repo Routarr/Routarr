@@ -1794,5 +1794,16 @@
   "SourceRefresh": "重新读取",
   "SourceRefreshed": "{source}：已重新读取：{enriched}，失败：{failed}",
   "SourceRefreshNone": "没有可重新读取的来源：Radarr 和 Sonarr 的元数据随每次同步而来。",
-  "TermTextTemplate": "针对常见媒体库划分方式的现成规则集，例如动漫或儿童作品。添加后，其规则即为普通规则，且每条规则都会记录其来源模板。"
+  "TermTextTemplate": "针对常见媒体库划分方式的现成规则集，例如动漫或儿童作品。添加后，其规则即为普通规则，且每条规则都会记录其来源模板。",
+  "AuditApplicationKeyExpired": "收到一个已过期的程序密钥 {name}（{id}）。",
+  "NotificationHeadlineApplicationKeyExpiring": "有程序密钥即将到期",
+  "NotificationMessageApplicationKeyExpiring": "程序密钥 {name} 将于 {date} 到期。请在此之前为该程序新建密钥，并吊销此密钥。",
+  "ApplicationExpiry": "到期",
+  "ApplicationExpiryIn30Days": "30 天后",
+  "ApplicationExpiryIn90Days": "90 天后",
+  "ApplicationExpiryInAYear": "一年后",
+  "ApplicationExpiryHelp": "过了这个日期，使用该密钥的所有调用都会被拒绝，直到你将其吊销。Routarr 会提前一周发送通知。密钥不能续期：请新建一个，并吊销旧的。",
+  "ApplicationExpired": "已到期",
+  "ApplicationExpiresSoon": "一周内到期",
+  "ApplicationLongUnused": "超过 90 天未使用"
 }

@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Erneut lesen",
   "SourceRefreshed": "{source}: erneut gelesene Antworten: {enriched}, fehlgeschlagen: {failed}",
   "SourceRefreshNone": "Keine Quelle zum erneuten Lesen: Die Metadaten von Radarr und Sonarr kommen mit jeder Synchronisierung.",
-  "TermTextTemplate": "Ein fertiger Regelsatz für eine übliche Aufteilung der Bibliothek, etwa Anime oder Kindertitel. Nach dem Hinzufügen sind seine Regeln gewöhnliche Regeln, und jede vermerkt die Vorlage, aus der sie stammt."
+  "TermTextTemplate": "Ein fertiger Regelsatz für eine übliche Aufteilung der Bibliothek, etwa Anime oder Kindertitel. Nach dem Hinzufügen sind seine Regeln gewöhnliche Regeln, und jede vermerkt die Vorlage, aus der sie stammt.",
+  "AuditApplicationKeyExpired": "Der abgelaufene App-Schlüssel {name} ({id}) wurde gesendet.",
+  "NotificationHeadlineApplicationKeyExpiring": "Ein App-Schlüssel läuft bald ab",
+  "NotificationMessageApplicationKeyExpiring": "Der App-Schlüssel {name} läuft am {date} ab. Erstellen Sie für die App einen neuen Schlüssel und widerrufen Sie diesen bis dahin.",
+  "ApplicationExpiry": "Läuft ab",
+  "ApplicationExpiryIn30Days": "In 30 Tagen",
+  "ApplicationExpiryIn90Days": "In 90 Tagen",
+  "ApplicationExpiryInAYear": "In einem Jahr",
+  "ApplicationExpiryHelp": "Nach diesem Datum wird jeder Aufruf mit dem Schlüssel abgelehnt, bis Sie ihn widerrufen. Routarr sendet eine Woche vorher eine Benachrichtigung. Ein Schlüssel wird nicht verlängert: Erstellen Sie einen neuen und widerrufen Sie den alten.",
+  "ApplicationExpired": "Abgelaufen",
+  "ApplicationExpiresSoon": "Innerhalb einer Woche",
+  "ApplicationLongUnused": "Seit über 90 Tagen ungenutzt"
 }

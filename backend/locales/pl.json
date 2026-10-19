@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Odczytaj ponownie",
   "SourceRefreshed": "{source}: ponownie odczytane odpowiedzi: {enriched}, nieudane: {failed}",
   "SourceRefreshNone": "Brak źródeł do ponownego odczytu: metadane z Radarra i Sonarra przychodzą z każdą synchronizacją.",
-  "TermTextTemplate": "Gotowy zestaw reguł dla typowego podziału biblioteki, np. anime lub tytułów dla dzieci. Po dodaniu jego reguły są zwykłymi regułami, a każda z nich zapisuje szablon, z którego pochodzi."
+  "TermTextTemplate": "Gotowy zestaw reguł dla typowego podziału biblioteki, np. anime lub tytułów dla dzieci. Po dodaniu jego reguły są zwykłymi regułami, a każda z nich zapisuje szablon, z którego pochodzi.",
+  "AuditApplicationKeyExpired": "Wysłano wygasły klucz aplikacji {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Klucz aplikacji wkrótce wygaśnie",
+  "NotificationMessageApplicationKeyExpiring": "Klucz aplikacji {name} wygasa {date}. Utwórz nowy klucz dla tej aplikacji i unieważnij ten przed tym terminem.",
+  "ApplicationExpiry": "Wygasa",
+  "ApplicationExpiryIn30Days": "Za 30 dni",
+  "ApplicationExpiryIn90Days": "Za 90 dni",
+  "ApplicationExpiryInAYear": "Za rok",
+  "ApplicationExpiryHelp": "Po tej dacie każde wywołanie z tym kluczem jest odrzucane, dopóki go nie unieważnisz. Routarr wysyła powiadomienie tydzień wcześniej. Klucza nie można odnowić: utwórz nowy i unieważnij stary.",
+  "ApplicationExpired": "Wygasł",
+  "ApplicationExpiresSoon": "W ciągu tygodnia",
+  "ApplicationLongUnused": "Nieużywany od ponad 90 dni"
 }

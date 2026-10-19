@@ -57,6 +57,8 @@ pub enum Event {
     /// A scheduled backup could not be written, every time it fails. `error`
     /// is what the system answered, as it answered it.
     BackupFailed { error: String },
+    /// An application key stops being accepted within a week. Sent once per key.
+    ApplicationKeyExpiring { id: String, name: String, expires_at: String },
     /// Sent from Settings to check the address and the format.
     Test,
 }
@@ -70,7 +72,9 @@ impl Event {
             | Event::BackupFailed { .. } => "error",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::MovesSettled { moves, .. } if failed_among(moves) > 0 => "warning",
-            Event::AutoApplyHeld { .. } | Event::RuleTestsFailing { .. } => "warning",
+            Event::AutoApplyHeld { .. }
+            | Event::RuleTestsFailing { .. }
+            | Event::ApplicationKeyExpiring { .. } => "warning",
             _ => "info",
         }
     }
@@ -90,6 +94,7 @@ impl Event {
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
             Event::MovesSettled { .. } => "moves_settled",
+            Event::ApplicationKeyExpiring { .. } => "application_key_expiring",
             Event::Test => "test",
         }
     }
@@ -104,7 +109,9 @@ impl Event {
             | Event::BackupFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::MovesSettled { moves, .. } if failed_among(moves) > 0 => "warning",
-            Event::AutoApplyHeld { .. } | Event::RuleTestsFailing { .. } => "warning",
+            Event::AutoApplyHeld { .. }
+            | Event::RuleTestsFailing { .. }
+            | Event::ApplicationKeyExpiring { .. } => "warning",
             Event::InstanceRecovered { .. }
             | Event::MovesCompleted { .. }
             | Event::MovesSettled { .. } => "success",
@@ -192,6 +199,10 @@ impl Event {
                 );
                 with_titles(counts, moves, *total, localizer)
             }
+            Event::ApplicationKeyExpiring { name, expires_at, .. } => localizer.translate(
+                "NotificationMessageApplicationKeyExpiring",
+                &[("name", name), ("date", expires_at.get(..10).unwrap_or(expires_at))],
+            ),
             Event::Test => localizer.translate("NotificationMessageTest", &[]),
         }
     }
@@ -211,6 +222,7 @@ impl Event {
             Event::MovesCompleted { reverted: false, .. } => "NotificationHeadlineApplyCompleted",
             Event::MovesCompleted { reverted: true, .. } => "NotificationHeadlineRevertCompleted",
             Event::MovesSettled { .. } => "NotificationHeadlineMovesSettled",
+            Event::ApplicationKeyExpiring { .. } => "NotificationHeadlineApplicationKeyExpiring",
             Event::Test => "NotificationHeadlineTest",
         };
         localizer.translate(key, &[])
@@ -247,6 +259,10 @@ impl Event {
             }
             Event::MovesSettled { total, moves } => serde_json::json!({
                 "moves_total": total, "truncated": *total > moves.len(), "moves": moves,
+            }),
+            Event::ApplicationKeyExpiring { id, name, expires_at } => serde_json::json!({
+                "id": id, "name": name,
+                "expires_at": crate::timestamp::written(expires_at),
             }),
             Event::BackupFailed { .. } | Event::Test => serde_json::json!({}),
         }
@@ -444,8 +460,8 @@ pub struct Notification {
     /// What happened, in snake case: `instance_unreachable`,
     /// `instance_recovered`, `auto_apply_failed`, `auto_apply_held`, `rule_tests_failing`,
     /// `sync_failed`, `backup_failed`, `simulation_completed`,
-    /// `apply_completed`, `revert_completed`, or `test` when sent from
-    /// Settings. The list may grow.
+    /// `apply_completed`, `revert_completed`, `moves_settled`, `application_key_expiring`, or
+    /// `test` when sent from Settings. The list may grow.
     pub event: &'static str,
     /// When it happened, in RFC 3339.
     #[schema(format = DateTime)]
@@ -477,7 +493,8 @@ pub struct Notification {
     /// and `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,
     /// tvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or
     /// `failed` and the paths as the Arr holds them. The two first carry `task_id`, which
-    /// `GET /logs?task_id=` lists in full.
+    /// `GET /logs?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`
+    /// and `expires_at`.
     #[schema(value_type = Object)]
     pub data: serde_json::Value,
 }

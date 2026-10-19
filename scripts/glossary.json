@@ -877,5 +877,36 @@
       "zh_CN": "令牌",
       "zh_TW": "權杖"
     }
+  },
+  "revoke": {
+    "en": "\\brevok(e|ed|es|ing)\\b|\\brevocation\\b",
+    "except": [],
+    "words": {
+      "ar": "ب[ً-ْـ]*ط[ً-ْـ]*ا?[ً-ْـ]*ل",
+      "ca": "revoc|revoqu",
+      "cs": "zneplatn",
+      "da": "tilbagekald",
+      "de": "widerruf",
+      "el": "ανακ|ανάκ",
+      "es": "revoc|revoqu",
+      "fi": "mitätö",
+      "fr": "révoqu|révocation",
+      "hu": "érvénytelen",
+      "it": "revoc|revoch",
+      "ja": "失効",
+      "ko": "폐기",
+      "nb_NO": "tilbakekal",
+      "nl": "trek|trok",
+      "pl": "unieważn",
+      "pt": "revog",
+      "ro": "revoc",
+      "ru": "отоз|отзов|отзыв",
+      "sk": "zneplatn",
+      "sv": "återkall",
+      "tr": "geçersiz",
+      "uk": "відкли",
+      "zh_CN": "吊销",
+      "zh_TW": "撤銷"
+    }
   }
 }

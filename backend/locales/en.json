@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Read again",
   "SourceRefreshed": "{source}: answers read again: {enriched}, failed: {failed}",
   "SourceRefreshNone": "No source to read again: Radarr and Sonarr's metadata comes with each sync.",
-  "TermTextTemplate": "A ready-made rule set for a common library split, such as anime or children's titles. Once added, its rules are ordinary rules, and each one records the template it came from."
+  "TermTextTemplate": "A ready-made rule set for a common library split, such as anime or children's titles. Once added, its rules are ordinary rules, and each one records the template it came from.",
+  "AuditApplicationKeyExpired": "The expired application key {name} ({id}) was sent.",
+  "NotificationHeadlineApplicationKeyExpiring": "An application key expires soon",
+  "NotificationMessageApplicationKeyExpiring": "The application key {name} expires on {date}. Make a new key for its application and revoke this one before then.",
+  "ApplicationExpiry": "Expires",
+  "ApplicationExpiryIn30Days": "In 30 days",
+  "ApplicationExpiryIn90Days": "In 90 days",
+  "ApplicationExpiryInAYear": "In a year",
+  "ApplicationExpiryHelp": "Past this date every call with the key is refused, until you revoke it. Routarr sends a notification a week before. A key is not renewed: make a new one and revoke the old.",
+  "ApplicationExpired": "Expired",
+  "ApplicationExpiresSoon": "Within a week",
+  "ApplicationLongUnused": "Unused for over 90 days"
 }

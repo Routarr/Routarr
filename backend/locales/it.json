@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Rileggi",
   "SourceRefreshed": "{source}: risposte rilette: {enriched}, fallite: {failed}",
   "SourceRefreshNone": "Nessuna fonte da rileggere: i metadati di Radarr e Sonarr arrivano con ogni sincronizzazione.",
-  "TermTextTemplate": "Un insieme di regole pronto per una suddivisione comune della libreria, come gli anime o i titoli per bambini. Una volta aggiunto, le sue regole sono regole ordinarie, e ognuna registra il modello da cui proviene."
+  "TermTextTemplate": "Un insieme di regole pronto per una suddivisione comune della libreria, come gli anime o i titoli per bambini. Una volta aggiunto, le sue regole sono regole ordinarie, e ognuna registra il modello da cui proviene.",
+  "AuditApplicationKeyExpired": "È stata inviata la chiave di applicazione scaduta {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Una chiave di applicazione sta per scadere",
+  "NotificationMessageApplicationKeyExpiring": "La chiave di applicazione {name} scade il {date}. Crea una nuova chiave per la sua applicazione e revoca questa prima di quella data.",
+  "ApplicationExpiry": "Scadenza",
+  "ApplicationExpiryIn30Days": "Tra 30 giorni",
+  "ApplicationExpiryIn90Days": "Tra 90 giorni",
+  "ApplicationExpiryInAYear": "Tra un anno",
+  "ApplicationExpiryHelp": "Dopo questa data ogni chiamata con la chiave viene rifiutata, finché non la revochi. Routarr invia una notifica una settimana prima. Una chiave non si rinnova: creane una nuova e revoca la vecchia.",
+  "ApplicationExpired": "Scaduta",
+  "ApplicationExpiresSoon": "Entro una settimana",
+  "ApplicationLongUnused": "Inutilizzata da oltre 90 giorni"
 }

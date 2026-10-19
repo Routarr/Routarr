@@ -737,6 +737,10 @@ export interface Application {
   created_at: string;
   created_by: string | null;
   last_used_at: string | null;
+  /** Null for a key that never expires. */
+  expires_at: string | null;
+  /** Past its expiry, every call refused until it is revoked. */
+  expired: boolean;
 }
 
 export interface NewApplication {
@@ -744,6 +748,8 @@ export interface NewApplication {
   scopes: ApplicationScope[];
   may_confirm: Guardrail[];
   may_move_files: boolean;
+  /** Days the key is accepted for, null for ever. */
+  expires_in_days: number | null;
 }
 
 /** A key just made. The token is in this answer and never again. */

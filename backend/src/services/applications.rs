@@ -19,6 +19,12 @@ use crate::state::AppState;
 /// middleware tells the two apart before it looks anything up.
 pub const TOKEN_PREFIX: &str = "rtr_";
 
+/// The longest life a key may be given, in days.
+pub const EXPIRY_DAYS_MAX: u32 = 3650;
+
+/// How long before its expiry the owner is told a key is about to stop.
+const EXPIRY_NOTICE: &str = "+7 days";
+
 /// The longest name a key may carry. It is written on every task, decision
 /// and pin the application makes, and shown in their tables.
 pub const NAME_MAX: usize = 64;
@@ -84,6 +90,21 @@ pub struct Grant {
     pub scopes: Vec<Scope>,
     pub may_confirm: Vec<String>,
     pub may_move_files: bool,
+    pub expires_at: Option<String>,
+}
+
+/// What a presented token turns out to be.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Resolved {
+    /// No live key, or a secret that does not match.
+    Unknown,
+    /// The right secret for a key past its expiry, which stays refused until revoked.
+    Expired {
+        id: String,
+        name: String,
+        expires_at: String,
+    },
+    Live(Grant),
 }
 
 impl Scope {
@@ -122,6 +143,11 @@ pub struct Application {
     pub created_by: Option<String>,
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     pub last_used_at: Option<String>,
+    /// Null for a key that never expires.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    pub expires_at: Option<String>,
+    /// Whether the key is past its expiry, every call it makes refused.
+    pub expired: bool,
 }
 
 /// What the owner asks for when making a key.
@@ -135,6 +161,9 @@ pub struct NewApplication {
     pub may_confirm: Vec<String>,
     #[serde(default)]
     pub may_move_files: bool,
+    /// How many days the key is accepted for, from 1 to [`EXPIRY_DAYS_MAX`]. None for ever.
+    #[serde(default)]
+    pub expires_in_days: Option<u32>,
 }
 
 /// A key just made, with the token shown this once.
@@ -165,6 +194,8 @@ struct Row {
     created_at: String,
     created_by: Option<String>,
     last_used_at: Option<String>,
+    expires_at: Option<String>,
+    expired: bool,
 }
 
 impl Row {
@@ -178,6 +209,8 @@ impl Row {
             created_at: self.created_at,
             created_by: self.created_by,
             last_used_at: self.last_used_at,
+            expires_at: self.expires_at,
+            expired: self.expired,
         }
     }
 }
@@ -188,10 +221,10 @@ fn parse_list<T: serde::de::DeserializeOwned>(stored: &str) -> Vec<T> {
     serde_json::from_str(stored).unwrap_or_default()
 }
 
-const COLUMNS: &str =
-    "id, name, scopes, may_confirm, may_move_files, created_at, created_by, last_used_at";
+const COLUMNS: &str = "id, name, scopes, may_confirm, may_move_files, created_at, created_by,
+     last_used_at, expires_at, COALESCE(expires_at <= datetime('now'), 0) AS expired";
 
-/// The live keys, newest first.
+/// The keys not revoked, expired ones included, newest first.
 pub async fn list(pool: &SqlitePool) -> AppResult<Vec<Application>> {
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM api_keys WHERE revoked_at IS NULL ORDER BY created_at DESC, name"
@@ -227,6 +260,11 @@ pub async fn create(
             state.localizer().await.translate("ErrorApplicationNameReserved", &[("name", &name)]);
         return Err(AppError::BadRequest(refusal));
     }
+    if new.expires_in_days.is_some_and(|days| !(1..=EXPIRY_DAYS_MAX).contains(&days)) {
+        return Err(AppError::BadRequest(format!(
+            "expires_in_days must be between 1 and {EXPIRY_DAYS_MAX}"
+        )));
+    }
     if let Some(unknown) =
         new.may_confirm.iter().find(|name| !confirm::ALL.contains(&name.as_str()))
     {
@@ -243,9 +281,15 @@ pub async fn create(
 
     let id = crate::crypto::generate_secret()?[..16].to_string();
     let secret = crate::crypto::generate_secret()?;
+    let expires_at = new.expires_in_days.map(|days| {
+        crate::services::routing::format_timestamp(
+            chrono::Utc::now() + chrono::Duration::days(i64::from(days)),
+        )
+    });
     let inserted = sqlx::query(
-        "INSERT INTO api_keys (id, name, secret_hash, scopes, may_confirm, may_move_files, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO api_keys
+            (id, name, secret_hash, scopes, may_confirm, may_move_files, created_by, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&name)
@@ -254,6 +298,7 @@ pub async fn create(
     .bind(serde_json::to_string(&may_confirm)?)
     .bind(new.may_move_files)
     .bind(created_by)
+    .bind(&expires_at)
     .execute(&state.pool)
     .await;
     match inserted {
@@ -299,16 +344,17 @@ pub async fn revoke_all(pool: &SqlitePool) -> AppResult<u64> {
         .rows_affected())
 }
 
-/// What a presented token allows, or `None` when it names no live key.
+/// What a presented token allows. An expiry is told only once the secret matched, so a token
+/// guessed for a known id learns nothing.
 ///
 /// The last use is written at most once a minute, off the request: a caller
 /// polling every second would otherwise put a write behind each read, and a
 /// read that waits on a sync's transaction for a timestamp is a read nobody
 /// asked to slow down.
-pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Option<Grant>> {
+pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Resolved> {
     let Some((id, secret)) = token.strip_prefix(TOKEN_PREFIX).and_then(|rest| rest.split_once('_'))
     else {
-        return Ok(None);
+        return Ok(Resolved::Unknown);
     };
 
     #[derive(sqlx::FromRow)]
@@ -319,20 +365,26 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Option<Grant>>
         may_confirm: String,
         may_move_files: bool,
         last_used_at: Option<String>,
+        expires_at: Option<String>,
+        expired: bool,
     }
     let live: Option<Live> = sqlx::query_as(
-        "SELECT name, secret_hash, scopes, may_confirm, may_move_files, last_used_at
+        "SELECT name, secret_hash, scopes, may_confirm, may_move_files, last_used_at, expires_at,
+                COALESCE(expires_at <= datetime('now'), 0) AS expired
          FROM api_keys WHERE id = ? AND revoked_at IS NULL",
     )
     .bind(id)
     .fetch_optional(pool)
     .await?;
     let Some(live) = live else {
-        return Ok(None);
+        return Ok(Resolved::Unknown);
     };
     let matches: bool = digest(secret).as_bytes().ct_eq(live.secret_hash.as_bytes()).into();
     if !matches {
-        return Ok(None);
+        return Ok(Resolved::Unknown);
+    }
+    if let (true, Some(expires_at)) = (live.expired, live.expires_at.clone()) {
+        return Ok(Resolved::Expired { id: id.to_string(), name: live.name, expires_at });
     }
 
     if last_use_due(live.last_used_at.as_deref(), chrono::Utc::now()) {
@@ -349,13 +401,36 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Option<Grant>>
         });
     }
 
-    Ok(Some(Grant {
+    Ok(Resolved::Live(Grant {
         id: id.to_string(),
         name: live.name,
         scopes: parse_list(&live.scopes),
         may_confirm: parse_list(&live.may_confirm),
         may_move_files: live.may_move_files,
+        expires_at: live.expires_at,
     }))
+}
+
+/// Tell the owner of each key expiring within a week, once per key, and say how many.
+pub async fn warn_of_expiry(state: &AppState) -> AppResult<usize> {
+    let expiring: Vec<(String, String, String)> = sqlx::query_as(
+        "UPDATE api_keys SET expiry_notified_at = datetime('now')
+          WHERE revoked_at IS NULL AND expiry_notified_at IS NULL
+            AND expires_at > datetime('now') AND expires_at <= datetime('now', ?)
+         RETURNING id, name, expires_at",
+    )
+    .bind(EXPIRY_NOTICE)
+    .fetch_all(&state.pool)
+    .await?;
+    for (id, name, expires_at) in &expiring {
+        let event = crate::services::notify::Event::ApplicationKeyExpiring {
+            id: id.clone(),
+            name: name.clone(),
+            expires_at: expires_at.clone(),
+        };
+        crate::services::notify::send_later(state, event);
+    }
+    Ok(expiring.len())
 }
 
 /// The stored form of a secret. One SHA-256 is enough: the secret is 256
@@ -403,6 +478,7 @@ mod tests {
             scopes: scopes.to_vec(),
             may_confirm: vec![confirm::BATCH.into()],
             may_move_files: false,
+            expires_at: None,
         }
     }
 
