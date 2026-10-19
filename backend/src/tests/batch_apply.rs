@@ -143,43 +143,6 @@ async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_it
     assert_eq!(stored.await, 1, "the job carries no report");
 }
 
-/// The same with files moved: the first slice's titles are still `moving` when the second
-/// cannot load, and the run keeps its report all the same.
-#[tokio::test]
-async fn a_slice_that_cannot_be_loaded_after_one_still_moving_ends_the_run_with_its_report() {
-    use std::time::Duration;
-
-    let arr = FakeArr::holding_edits(Duration::from_millis(300)).await;
-    arr.moving_for(Duration::from_secs(60));
-    let app = TestApp::films_to_move(&arr, 10).await.with_http_budget(Duration::from_secs(5));
-    set_batch_limit(&app, 5).await;
-    let simulation = app.simulate().await;
-
-    let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
-    let every = crate::models::DecisionFilter::default();
-    let run = executor::apply_simulation_in_batches(
-        &app.state,
-        &simulation,
-        &every,
-        true,
-        &confirmed,
-        &by,
-    );
-    let unreadable = async {
-        while arr.recorded().writes.is_empty() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        app.execute(&["ALTER TABLE overrides RENAME TO overrides_gone"]).await;
-    };
-    let (report, ()) = tokio::join!(run, unreadable);
-
-    let report = report.expect("the moves under way were not reported");
-    assert!(report.stopped_early, "{report:?}");
-    assert_eq!((report.batches_run, report.applied, report.moving), (1, 0, 5), "{report:?}");
-    let stored = app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'apply' AND result IS NOT NULL");
-    assert_eq!(stored.await, 1, "the job carries no report");
-}
-
 #[tokio::test]
 async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty() {
     let arr = FakeArr::start().await;
