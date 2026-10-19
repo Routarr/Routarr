@@ -43,16 +43,15 @@
     api_key: string;
     enabled: boolean;
     sync_interval_minutes: number;
+    auto_apply: boolean;
   }
 
-  // Empty rather than a guess: a guessed address left in the field is saved by
-  // whoever does not notice it, and `localhost` is Routarr's own container in
-  // Docker. The example shows the shape instead, as a placeholder.
+  // A placeholder, never a value: a guessed address gets saved unnoticed, and `localhost` is
+  // Routarr's own container in Docker.
   const EXAMPLE_URL = { radarr: 'http://radarr:7878', sonarr: 'http://sonarr:8989' } as const;
   const SERVICE = { radarr: 'Radarr', sonarr: 'Sonarr' } as const;
 
-  // The backend clamps an interval outside these bounds, which would store a
-  // figure nobody typed: Save waits for one inside them instead.
+  // Outside these bounds the backend clamps to a figure nobody typed, so Save waits instead.
   const MAX_INTERVAL_MINUTES = 1440;
   const intervalFits = (minutes: number) =>
     Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_INTERVAL_MINUTES;
@@ -64,13 +63,13 @@
     api_key: '',
     enabled: true,
     sync_interval_minutes: 15,
+    auto_apply: true,
   });
 
   const list = createAsync((signal) => api.getInstances(signal));
   const outcome = createOutcome();
   let busyId = $state<string | null>(null);
-  // Stops following a sync when the screen closes. The sync goes on, and the
-  // screen opened again reads what it did.
+  // Closing the screen stops waiting for a sync, which goes on and is read on return.
   const leaving = new AbortController();
   $effect(() => () => {
     leaving.abort();
@@ -91,12 +90,11 @@
 
   const instances = $derived(list.data ?? []);
 
-  // Generic over what the call returns, so the message reads the typed payload
-  // the client already declares: a cast here is a field rename nobody sees.
   // A deleted instance takes its row and its menu with it: the menu of the row
   // now in its place takes the focus, else the one before, else the table.
   const menuId = (index: number) => `instances-menu-${index}`;
 
+  // Generic so `describe` reads the payload the client types: a cast hides a field rename.
   async function act<T>(
     id: string,
     fn: () => Promise<T>,
@@ -108,8 +106,7 @@
     try {
       const result = await fn();
       outcome.succeed(describe(result));
-      // Enabling, disabling or removing an instance changes what the shell
-      // counts, and it has no other way of hearing about it.
+      // The shell counts the instances and hears of a change no other way.
       invalidateStatus();
       await list.reload();
     } catch (err) {
@@ -120,13 +117,11 @@
     }
   }
 
-  // Shown inside the dialog: the page banner sits under a modal that makes
-  // the page inert, dimmed, with a Dismiss nobody can press, and a 400 on the
-  // URL would look like a Save button that did nothing.
+  // Shown inside the dialog: the page banner sits under the modal, inert, and a refused URL
+  // would look like a Save button that did nothing.
   let formError = $state<string | null>(null);
 
-  // What the typed values answered, a success or a failure, kept with the
-  // values it answered for: once one of them changes, the result would vouch
+  // The try's answer, kept with the values it answered for: once one changes, it would vouch
   // for values nobody tried.
   let probe = $state<{
     tried: string;
@@ -144,8 +139,7 @@
   // One refusal at a time, the try's or the save's, whichever came last.
   const refused = $derived(formError ?? (probed && !probed.ok ? probed.text : null));
 
-  // A try waits a full connect timeout on an address that does not answer,
-  // and outlives nothing: the dialog it was for may be gone by then.
+  // A try can wait a full connect timeout, and the dialog it was for may be gone by then.
   let trying: AbortController | null = null;
   function stopTrying() {
     trying?.abort();
@@ -212,8 +206,7 @@
     return host.startsWith('[') || host.includes('.');
   };
 
-  // A second press while the first is in flight would add the same Arr twice,
-  // and the server accepts both: names are not unique.
+  // A second press in flight would add the same Arr twice: names are not unique.
   let saving = $state(false);
 
   async function submit(event: SubmitEvent) {
@@ -249,10 +242,9 @@
     if (firstSync) await syncFirstTime(saved);
   }
 
-  // Left to the scheduler, an instance never synced waits up to a whole pass
-  // with no library and no root folders, and the guide's first step waits with
-  // it. Synced on save, a wrong address or key also shows while the form is
-  // fresh in mind. Saved and not synced is a partial result, not a failure.
+  // Left to the scheduler, a new instance waits up to a whole pass with no library, and the
+  // guide with it. Synced on save, a wrong address or key shows while the form is fresh in
+  // mind. Saved and not synced is a partial result, not a failure.
   async function syncFirstTime(saved: Instance) {
     busyId = saved.id;
     try {
@@ -265,9 +257,8 @@
         }),
       );
     } catch (err) {
-      // The server finishes a sync the browser stopped waiting for, and a
-      // large library outlasts a request. The banner saying the library is
-      // being read stays true, and the list is followed until it is.
+      // A large library outlasts the request, and the server finishes the sync: the banner
+      // stays true, and the list is followed until the sync ends.
       if (err instanceof ApiError && err.kind === 'timeout') {
         following = saved;
         return;
@@ -280,8 +271,7 @@
     await list.reload();
   }
 
-  // The first sync the browser stopped waiting for, until its attempt is
-  // recorded on the instance, which happens once it ends.
+  // The first sync the browser stopped waiting for, until the instance records its attempt.
   let following = $state<Instance | null>(null);
   async function followFirstSync() {
     const awaited = following;
@@ -348,9 +338,8 @@
 
   const webhookAddress = (path: string) => `${window.location.origin}${path}`;
 
-  // Said once the clipboard took it. The clipboard exists on secure origins
-  // only, and a homelab serves plain http more often than not, so a refusal
-  // hands over the URL itself.
+  // The clipboard exists on secure origins only, and a homelab often serves plain http, so a
+  // refusal hands over the URL itself.
   async function copyWebhookUrl(instance: Instance) {
     const url = webhookAddress(instance.webhook_url ?? '');
     try {
@@ -361,8 +350,7 @@
     }
   }
 
-  // A dialog opens on its own form, never on the refusal or the try of the one
-  // before.
+  // A dialog opens on its own form, never on the refusal or the try of the one before.
   function startAdd() {
     stopTrying();
     formError = null;
@@ -394,6 +382,7 @@
       api_key: '',
       enabled: instance.enabled,
       sync_interval_minutes: instance.sync_interval_minutes,
+      auto_apply: instance.auto_apply,
     };
     editing = { id: instance.id, webhook: instance, form, opened: JSON.stringify(form) };
   }
@@ -464,6 +453,9 @@
                       {t('InstanceDisabled')}
                     </span>
                   {/if}
+                  {#if !instance.auto_apply}
+                    <span class="badge badge-info ms-2">{t('InstanceProposalsOnly')}</span>
+                  {/if}
                 </td>
                 <td>
                   <span class="badge badge-kind kind-{instance.instance_type}">
@@ -472,7 +464,6 @@
                 </td>
                 <td class="mono text-sm">
                   {#if opensInBrowser(address)}
-                    <!-- The Arr's own interface, one click from its row. -->
                     <a
                       class="instance-link"
                       href={address}
@@ -489,9 +480,8 @@
                 </td>
                 <td>
                   {#if instance.api_key_set}
-                    <!-- Encrypted is a property of the stored value, not an
-                         outcome, so it is not green: green means "this went
-                         well". -->
+                    <!-- Not green: encrypted is a property of the stored value, and green
+                         means an outcome that went well. -->
                     <span class="badge badge-value muted" title={t('ApiKeyEncryptedHint')}>
                       {t('ApiKeyEncrypted')}
                     </span>
@@ -501,11 +491,8 @@
                   {/if}
                 </td>
                 <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>
-                  <!-- Date and outcome read as one fact, so they share a line
-                       rather than stacking the cell two rows tall.
-                       The date is the last *success*: a failed attempt stamping
-                       it would have the cell read "2 minutes ago" beside an
-                       error badge, describing data two days old. -->
+                  <!-- The date is the last *success*: a failed attempt stamping it would read
+                       "2 minutes ago" beside an error badge, about data two days old. -->
                   <span
                     class="text-muted"
                     title={formatTimestamp(instance.last_sync_at, i18n.language, '')}
@@ -513,9 +500,8 @@
                     {formatRelative(instance.last_sync_at, i18n.language, t('Never'))}
                   </span>
                   {#if instance.last_sync_attempt_at && instance.last_sync_attempt_at !== instance.last_sync_at}
-                    <!-- Only when they differ, which is exactly when a later
-                         attempt failed. The useful thing to say then is when
-                         that was, or the badge looks stale. -->
+                    <!-- They differ only when a later attempt failed, whose date keeps the badge
+                         from looking stale. -->
                     <span
                       class="text-muted text-xs"
                       title={formatTimestamp(instance.last_sync_attempt_at, i18n.language, '')}
@@ -542,9 +528,8 @@
                 </td>
                 <td>
                   <div class="row-actions">
-                    <!-- Two visible, the rest behind the menu: every action as
-                         a button, across two columns, pushes the row off a
-                         desktop screen. -->
+                    <!-- Two visible, the rest behind the menu: every action as a button pushes
+                         the row off a desktop screen. -->
                     <button
                       class="btn btn-secondary btn-sm"
                       disabled={busyId !== null || !instance.enabled}
@@ -661,11 +646,8 @@
           probe = null;
         }}
       />
-      <!-- `novalidate`: the browser's own bubble renders in the *browser's*
-       language whatever `ui_language` says, and fires before the submit
-       handler. Nothing is traded away for it: Save is held until the required
-       fields are filled, so the constraint is enforced before the press rather
-       than complained about after it. -->
+      <!-- `novalidate`: the browser's bubble speaks the browser's language, not `ui_language`.
+           Save is held until the required fields are filled instead. -->
       <form novalidate onsubmit={submit}>
         <div class="form-group">
           <label class="form-label" for="instances-name">{t('Name')}</label>
@@ -749,9 +731,7 @@
           </p>
         </div>
         {#if editing.webhook?.webhook_path && editing.webhook.webhook_url}
-          <!-- Here and not only behind Copy: on a plain http origin the
-               clipboard is closed, and a failed copy would be the one place
-               the URL shows. -->
+          <!-- Here and not only behind Copy: on a plain http origin the clipboard is closed. -->
           <div class="form-group">
             <label class="form-label" for="instances-webhook-path">{t('WebhookUrl')}</label>
             <input
@@ -791,12 +771,27 @@
             </p>
           </div>
         {/if}
-        <label class="flex items-center gap-2 text-base">
-          <input type="checkbox" bind:checked={form.enabled} />
-          {t('EnabledSyncedRouted')}
-        </label>
-        <!-- Mounted before the answer, so filling it is a change a screen
-             reader reports. -->
+        <!-- Apart, so each box keeps the 24px target WCAG 2.2 asks of a control. -->
+        <div class="flex flex-col gap-2">
+          <label class="flex items-center gap-2 text-base">
+            <input type="checkbox" bind:checked={form.enabled} />
+            {t('EnabledSyncedRouted')}
+          </label>
+          <div>
+            <label class="flex items-center gap-2 text-base">
+              <input
+                type="checkbox"
+                bind:checked={form.auto_apply}
+                aria-describedby="instances-auto-apply-help"
+              />
+              {t('InstanceAutoApply')}
+            </label>
+            <p id="instances-auto-apply-help" class="text-muted text-sm mt-1">
+              {t('InstanceAutoApplyHelp')}
+            </p>
+          </div>
+        </div>
+        <!-- Mounted before the answer, so filling it is a change a screen reader reports. -->
         <div role="status">
           {#if probed?.ok}
             <p class="probe-ok">
@@ -813,9 +808,8 @@
             {t('Cancel')}
           </button>
           <div class="flex flex-wrap gap-2">
-            <!-- Never held while a try runs: a focused button that turns
-                 disabled drops the focus to the page, and a second press
-                 starts the try over. -->
+            <!-- Never held while a try runs: a focused button turning disabled drops the focus,
+                 and a second press starts the try over. -->
             <button
               type="button"
               class="btn btn-secondary"

@@ -661,20 +661,35 @@ async fn offline_warnings(
     let (failed, total) = crate::services::rule_tests::failing(&state.pool).await?;
     if failed > 0 {
         let holding = state.bool_setting("auto_apply_enabled").await
-            && !state.bool_setting("global_dry_run").await;
+            && !state.bool_setting("global_dry_run").await
+            && sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM instances WHERE enabled = 1 AND auto_apply = 1)",
+            )
+            .fetch_one(&state.pool)
+            .await?;
         let key = if holding { "WarnRuleTestsFailingHeld" } else { "WarnRuleTestsFailing" };
         let counts = [("failed", failed.to_string()), ("total", total.to_string())];
         let counts: Vec<(&str, &str)> = counts.iter().map(|(k, v)| (*k, v.as_str())).collect();
         warnings.push(Warning::new("rule_tests_failing", localizer.translate(key, &counts)));
     }
 
-    let held = *state.auto_apply_held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((candidates, cap)) = held {
+    let held: Vec<_> = state
+        .auto_apply_held
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .values()
+        .cloned()
+        .collect();
+    for over in held {
         warnings.push(Warning::new(
             "auto_apply_held",
             localizer.translate(
                 "WarnAutoApplyHeld",
-                &[("count", &candidates.to_string()), ("limit", &cap.to_string())],
+                &[
+                    ("instance", &over.instance),
+                    ("count", &over.candidates.to_string()),
+                    ("limit", &over.cap.to_string()),
+                ],
             ),
         ));
     }

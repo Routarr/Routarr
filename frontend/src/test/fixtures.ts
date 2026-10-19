@@ -137,6 +137,7 @@ export function instance(over: Partial<Instance> = {}): Instance {
     api_key_set: true,
     enabled: true,
     sync_interval_minutes: 15,
+    auto_apply: true,
     last_sync_at: null,
     last_sync_attempt_at: null,
     last_sync_status: null,

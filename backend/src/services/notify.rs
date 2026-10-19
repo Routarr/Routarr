@@ -31,13 +31,12 @@ pub enum Event {
     AutoApplyFailed { failed: usize, applied: usize, title: String, error: String },
     /// An unattended pass found more moves than one run may make, and made
     /// none. Sent on the transition only.
-    AutoApplyHeld { candidates: usize, cap: usize },
+    AutoApplyHeld { instance: String, candidates: usize, cap: usize },
     /// A run found rule tests failing where none did, which holds auto-apply.
     RuleTestsFailing { failed: usize, total: usize },
     /// A sync failed, every time it does. Asked for by `notify_sync_failed`.
     SyncFailed { instance_id: String, instance: String, error: String },
-    /// A simulation stored its proposals. Asked for by
-    /// `notify_simulation_completed`.
+    /// A simulation stored its proposals. Asked for by `notify_simulation_completed`.
     SimulationCompleted { simulation_id: String, total: usize, moves: usize },
     /// An apply or a revert finished. Asked for by `notify_moves_completed`.
     MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize, moving: usize },
@@ -125,9 +124,9 @@ impl Event {
                     ("error", &said(error)),
                 ],
             ),
-            Event::AutoApplyHeld { candidates, cap } => localizer.translate(
+            Event::AutoApplyHeld { instance, candidates, cap } => localizer.translate(
                 "NotificationMessageAutoApplyHeld",
-                &[("candidates", &count(candidates)), ("cap", &count(cap))],
+                &[("instance", instance), ("candidates", &count(candidates)), ("cap", &count(cap))],
             ),
             Event::RuleTestsFailing { failed, total } => localizer.translate(
                 "NotificationMessageRuleTestsFailing",
@@ -192,8 +191,8 @@ impl Event {
             Event::AutoApplyFailed { failed, applied, .. } => {
                 serde_json::json!({ "failed": failed, "applied": applied })
             }
-            Event::AutoApplyHeld { candidates, cap } => {
-                serde_json::json!({ "candidates": candidates, "cap": cap })
+            Event::AutoApplyHeld { instance, candidates, cap } => {
+                serde_json::json!({ "instance": instance, "candidates": candidates, "cap": cap })
             }
             Event::RuleTestsFailing { failed, total } => {
                 serde_json::json!({ "failed": failed, "total": total })
@@ -332,8 +331,7 @@ fn payload(event: &Event, at: &str, format: Format, localizer: &Localizer) -> Pa
 }
 
 impl Event {
-    /// Discord's embed colour: red for a failure, amber for a partial apply,
-    /// green for a recovery or a clean run, blue for the rest.
+    /// Discord's embed colour: red for a failure, amber for a warning, green for a success.
     fn colour(&self) -> u32 {
         match self.outcome() {
             "failure" => 0xD7_3A_49,
@@ -545,8 +543,8 @@ async fn webhook_url(state: &AppState, kind: &str) -> Option<String> {
     }
 }
 
-/// One message, tried as many times as it takes, under one id. The address, the format and
-/// the secrets are read again at each attempt: one cleared or replaced since must not be used.
+/// One message, under the same id at every attempt. The address, the format and the secrets
+/// are read again at each one: one cleared or replaced meanwhile must not be used.
 struct Delivery {
     id: String,
     event: Event,
@@ -735,7 +733,6 @@ pub async fn rotate_signing_secret(state: &AppState) -> AppResult<String> {
     Ok(secret)
 }
 
-/// Stop signing.
 pub async fn remove_signing_secrets(state: &AppState) -> AppResult<()> {
     let mut tx = state.pool.begin().await?;
     sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
@@ -760,7 +757,7 @@ mod receivers {
                 title: "Totoro".into(),
                 error: "no".into(),
             },
-            Event::AutoApplyHeld { candidates: 60, cap: 50 },
+            Event::AutoApplyHeld { instance: "Radarr 4K".into(), candidates: 60, cap: 50 },
             Event::RuleTestsFailing { failed: 1, total: 4 },
             Event::SyncFailed {
                 instance_id: "inst-1".into(),
@@ -798,7 +795,11 @@ mod receivers {
             ("instance_unreachable", "error", json!({ "instance": "Radarr" })),
             ("instance_recovered", "info", json!({ "instance": "Radarr" })),
             ("auto_apply_failed", "error", json!({ "failed": 1, "applied": 0 })),
-            ("auto_apply_held", "warning", json!({ "candidates": 60, "cap": 50 })),
+            (
+                "auto_apply_held",
+                "warning",
+                json!({ "instance": "Radarr 4K", "candidates": 60, "cap": 50 }),
+            ),
             ("rule_tests_failing", "warning", json!({ "failed": 1, "total": 4 })),
             ("sync_failed", "error", json!({ "instance_id": "inst-1", "instance": "Radarr" })),
             (

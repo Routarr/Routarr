@@ -63,9 +63,11 @@ pub struct AppState {
     /// whoever synced: one at a time, and waited for at shutdown
     /// (`jobs::scheduler::follow_sync`).
     pub post_sync: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    /// The moves the last unattended pass held back for being more than one
-    /// run may make, and that bound: `(candidates, cap)`.
-    pub auto_apply_held: Arc<std::sync::Mutex<Option<(usize, usize)>>>,
+    /// Per instance id, the moves the last unattended pass held back for being more than one
+    /// run may make.
+    pub auto_apply_held: Arc<
+        std::sync::Mutex<std::collections::BTreeMap<String, crate::services::auto_apply::OverCap>>,
+    >,
     /// The notifications waiting to be sent, in order (`services::notify`).
     pub notifications: Arc<crate::services::notify::Queue>,
     /// The security log, which sums the refusals a caller can send at will.

@@ -2250,6 +2250,10 @@
             "description": "Whether the Arr's key is stored. An instance a configuration import\ncreated waits for its key, which a bundle never carries.",
             "type": "boolean"
           },
+          "auto_apply": {
+            "description": "Whether automatic application may write to this instance. It writes only while the\n`auto_apply_enabled` setting is on and the dry run off as well: off, the instance's\nmoves stay proposals.",
+            "type": "boolean"
+          },
           "base_url": {
             "type": "string"
           },
@@ -2332,7 +2336,8 @@
           "created_at",
           "updated_at",
           "api_key_encrypted",
-          "api_key_set"
+          "api_key_set",
+          "auto_apply"
         ],
         "type": "object"
       },

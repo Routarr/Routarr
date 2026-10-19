@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Type of Arr instance.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstanceType {
     Radarr,
@@ -30,9 +29,9 @@ impl std::str::FromStr for InstanceType {
 /// Column list shared by every `SELECT` on `instances`, kept in one place so a
 /// schema change cannot leave one query out of sync with the struct.
 pub const INSTANCE_COLUMNS: &str = "id, name, instance_type, base_url, api_key, enabled,
-     sync_interval_minutes, last_sync_at, last_sync_attempt_at, last_sync_status, created_at, updated_at, webhook_token";
+     sync_interval_minutes, last_sync_at, last_sync_attempt_at, last_sync_status, created_at,
+     updated_at, webhook_token, auto_apply";
 
-/// An Arr instance (Radarr or Sonarr) configured in Routarr.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Instance {
     pub id: String,
@@ -54,6 +53,8 @@ pub struct Instance {
     /// Secret path segment for this instance's webhook endpoint.
     #[serde(skip_serializing)]
     pub webhook_token: Option<String>,
+    /// Whether automatic application may write here, under the global switch.
+    pub auto_apply: bool,
 }
 
 /// Request body for creating/updating an instance.
@@ -68,6 +69,8 @@ pub struct CreateInstanceRequest {
     pub enabled: bool,
     #[serde(default = "default_sync_interval")]
     pub sync_interval_minutes: i64,
+    #[serde(default = "default_true")]
+    pub auto_apply: bool,
 }
 
 /// An Arr Routarr reads.
@@ -113,15 +116,15 @@ pub struct InstanceResponse {
     /// Whether the Arr's key is stored. An instance a configuration import
     /// created waits for its key, which a bundle never carries.
     pub api_key_set: bool,
+    /// Whether automatic application may write to this instance. It writes only while the
+    /// `auto_apply_enabled` setting is on and the dry run off as well: off, the instance's
+    /// moves stay proposals.
+    pub auto_apply: bool,
 }
 
 impl InstanceResponse {
-    /// Build the response, given where Routarr is mounted.
-    ///
-    /// Not a `From` impl on purpose: the webhook URL is handed to the Arr to call
-    /// back, so it has to carry the sub-path Routarr is served under. A
-    /// conversion that cannot see the configuration would silently produce a URL
-    /// that 404s behind a reverse proxy, and only there.
+    /// Not a `From` impl: the webhook URL handed to the Arr must carry the sub-path Routarr is
+    /// served under, `base_path`, or it 404s behind a reverse proxy, and only there.
     pub fn from_instance(
         i: Instance,
         base_path: &str,
@@ -157,6 +160,7 @@ impl InstanceResponse {
             webhook_token: i.webhook_token,
             api_key_encrypted: true,
             api_key_set: key_set,
+            auto_apply: i.auto_apply,
         }
     }
 }

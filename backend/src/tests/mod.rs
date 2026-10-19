@@ -421,6 +421,22 @@ impl TestApp {
         .unwrap();
     }
 
+    /// A second Radarr, `inst-2` on `arr`, holding its own Totoro (`m-2`, Arr id 10) for the
+    /// anime rule to move, beside [`Self::seed_one_film_to_move`]'s.
+    pub async fn seed_second_film_to_move(&self, arr: &fake_arr::FakeArr) {
+        self.seed_instance_at("inst-2", "radarr", &arr.base_url).await;
+        self.execute(&[
+            "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+             VALUES ('rf-2-anime', 'inst-2', 2, '/movies/anime', 1, 'anime'),
+                    ('rf-2-standard', 'inst-2', 1, '/movies/standard', 1, NULL)",
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+             current_root_folder, monitored, has_files)
+             VALUES ('m-2', 'inst-2', 10, 'movie', 'Totoro', 8392,
+                     '/movies/standard/My Neighbor Totoro (1988)', '/movies/standard', 1, 0)",
+        ])
+        .await;
+    }
+
     /// A library of `count` films the anime rule wants to move off `arr`,
     /// with the global dry run off, ready to apply. Film `n` is `m-n`, Arr id
     /// `100 + n`, in the folder `Film <its Arr id>`, as `arr` holds it.

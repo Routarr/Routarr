@@ -54,8 +54,8 @@ pub(crate) const LATEST: &str = "d.superseded = 0
                        AND (later.decided_at > d.decided_at
                             OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)))";
 
-/// An instance's id, name, last sync outcome, switch, last success and last try.
-type Synced = (String, String, Option<String>, bool, Option<String>, Option<String>);
+/// An instance's id, name, last sync outcome, enabled, last success, last try and auto-apply.
+type Synced = (String, String, Option<String>, bool, Option<String>, Option<String>, bool);
 
 pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
@@ -109,7 +109,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
 
     // Without the sync timestamps, a sync that stopped running would read as up for ever.
     let instances: Vec<Synced> = sqlx::query_as(
-        "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at
+        "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at, auto_apply
            FROM instances",
     )
     .fetch_all(pool)
@@ -135,6 +135,16 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             })
             .collect(),
     });
+    families.push(Family {
+        name: "routarr_instance_auto_apply",
+        help: "1 when automatic application may write to this instance, under the global switch.",
+        samples: instances
+            .iter()
+            .map(|(id, name, .., auto_apply)| {
+                (arr_instance(id, name), if *auto_apply { 1.0 } else { 0.0 })
+            })
+            .collect(),
+    });
     let at = |stamp: &Option<String>| {
         stamp.as_deref().and_then(crate::services::routing::parse_timestamp)
     };
@@ -143,7 +153,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "When a sync of this instance last succeeded, in seconds since the Unix epoch.",
         samples: instances
             .iter()
-            .filter_map(|(id, name, _, _, synced, _)| {
+            .filter_map(|(id, name, _, _, synced, ..)| {
                 Some((arr_instance(id, name), at(synced)?.timestamp() as f64))
             })
             .collect(),
@@ -153,7 +163,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "When a sync of this instance was last tried, in seconds since the Unix epoch.",
         samples: instances
             .iter()
-            .filter_map(|(id, name, _, _, _, tried)| {
+            .filter_map(|(id, name, _, _, _, tried, _)| {
                 Some((arr_instance(id, name), at(tried)?.timestamp() as f64))
             })
             .collect(),

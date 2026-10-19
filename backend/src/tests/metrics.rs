@@ -140,15 +140,17 @@ async fn instance_health_is_a_gauge_worth_alerting_on() {
     );
 }
 
-/// An instance switched off is told apart from one that is down, and each
-/// job outcome is a series of its own, so a run of failed applies can alert.
+/// An instance switched off is told apart from one that is down, one kept to proposals from one
+/// automatic application may write to, and each job outcome is a series of its own, so a run
+/// of failed applies can alert.
 #[tokio::test]
-async fn the_enabled_switch_and_each_job_outcome_are_series() {
+async fn the_instance_switches_and_each_job_outcome_are_series() {
     let app = TestApp::new().await;
     app.seed_library().await;
     app.execute(&[
-        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
-         VALUES ('inst-2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'secret', 0, 'tok2')",
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token,
+                                auto_apply)
+         VALUES ('inst-2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'secret', 0, 'tok2', 0)",
         "INSERT INTO jobs (id, kind, status) VALUES ('j-1', 'sync', 'success'),
                 ('j-2', 'sync', 'success'), ('j-3', 'apply', 'failed'), ('j-4', 'apply', 'success')",
     ])
@@ -159,6 +161,8 @@ async fn the_enabled_switch_and_each_job_outcome_are_series() {
     for line in [
         r#"routarr_instance_enabled{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#,
         r#"routarr_instance_enabled{arr_instance="Sonarr",arr_instance_id="inst-2"} 0"#,
+        r#"routarr_instance_auto_apply{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#,
+        r#"routarr_instance_auto_apply{arr_instance="Sonarr",arr_instance_id="inst-2"} 0"#,
         r#"routarr_jobs{kind="sync",status="success"} 2"#,
         r#"routarr_jobs{kind="apply",status="failed"} 1"#,
         r#"routarr_jobs{kind="apply",status="success"} 1"#,

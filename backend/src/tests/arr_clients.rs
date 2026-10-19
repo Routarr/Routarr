@@ -235,6 +235,7 @@ async fn the_adapter_refuses_an_unknown_instance_type() {
         created_at: String::new(),
         updated_at: String::new(),
         webhook_token: None,
+        auto_apply: true,
     };
 
     assert!(ArrAdapter::for_instance(client(), &instance, "k").is_err());
