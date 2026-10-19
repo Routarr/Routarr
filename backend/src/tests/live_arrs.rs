@@ -224,7 +224,7 @@ async fn move_to(
     .fetch_one(&app.state.pool)
     .await
     .expect("a move proposed");
-    executor::apply_decisions(
+    let report = executor::apply_decisions(
         &app.state,
         &[decision],
         move_files,
@@ -232,7 +232,41 @@ async fn move_to(
         &Attribution::manual(None),
     )
     .await
-    .expect("the apply ran")
+    .expect("the apply ran");
+    if report.skipped > 0 {
+        describe(app, &media_id).await;
+    }
+    report
+}
+
+/// What Routarr holds about a title whose move was skipped, the reason being in these rows.
+async fn describe(app: &TestApp, media_id: &str) {
+    let decisions: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT action || ' ' || status || ' superseded ' || superseded,
+                COALESCE(current_root_folder, '-'), COALESCE(target_root_folder, '-')
+           FROM decisions WHERE media_id = ?",
+    )
+    .bind(media_id)
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    let held: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT current_path, current_root_folder FROM media WHERE id = ?")
+            .bind(media_id)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    let folders: Vec<(String, Option<String>, String)> =
+        sqlx::query_as("SELECT path, category, origin FROM root_folders")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    let targets =
+        crate::services::routing::revalidated_targets(&app.state.pool, &[media_id.to_string()])
+            .await
+            .unwrap();
+    eprintln!("skipped: decisions {decisions:?}\n  media {held:?}\n  folders {folders:?}");
+    eprintln!("  routed now to {targets:?}");
 }
 
 /// Every endpoint a sync reads answers in the shape the adapters parse, on both Arrs.
