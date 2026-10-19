@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Releer",
   "SourceRefreshed": "{source}: respuestas releídas: {enriched}, fallidas: {failed}",
   "SourceRefreshNone": "Ninguna fuente que releer: los metadatos de Radarr y Sonarr llegan con cada sincronización.",
-  "TermTextTemplate": "Un conjunto de reglas listo para una forma habitual de dividir la biblioteca, como el anime o los títulos infantiles. Una vez añadida, sus reglas son reglas normales, y cada una registra la plantilla de la que procede."
+  "TermTextTemplate": "Un conjunto de reglas listo para una forma habitual de dividir la biblioteca, como el anime o los títulos infantiles. Una vez añadida, sus reglas son reglas normales, y cada una registra la plantilla de la que procede.",
+  "AuditApplicationKeyExpired": "Se envió la clave de aplicación caducada {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Una clave de aplicación caduca pronto",
+  "NotificationMessageApplicationKeyExpiring": "La clave de aplicación {name} caduca el {date}. Crea una clave nueva para su aplicación y revoca esta antes de esa fecha.",
+  "ApplicationExpiry": "Caduca",
+  "ApplicationExpiryIn30Days": "En 30 días",
+  "ApplicationExpiryIn90Days": "En 90 días",
+  "ApplicationExpiryInAYear": "En un año",
+  "ApplicationExpiryHelp": "Pasada esta fecha, toda llamada con la clave se rechaza hasta que la revoques. Routarr envía una notificación una semana antes. Una clave no se renueva: crea una nueva y revoca la anterior.",
+  "ApplicationExpired": "Caducada",
+  "ApplicationExpiresSoon": "En una semana",
+  "ApplicationLongUnused": "Sin uso desde hace más de 90 días"
 }

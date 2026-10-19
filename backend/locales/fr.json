@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Relire",
   "SourceRefreshed": "{source} : réponses relues : {enriched}, en échec : {failed}",
   "SourceRefreshNone": "Aucune source à relire : les métadonnées de Radarr et Sonarr arrivent avec chaque synchronisation.",
-  "TermTextTemplate": "Un jeu de règles prêt à l'emploi pour un découpage courant de la bibliothèque, comme les animes ou les titres pour enfants. Une fois ajoutées, ce sont des règles ordinaires, et chacune garde la trace du modèle dont elle vient."
+  "TermTextTemplate": "Un jeu de règles prêt à l'emploi pour un découpage courant de la bibliothèque, comme les animes ou les titres pour enfants. Une fois ajoutées, ce sont des règles ordinaires, et chacune garde la trace du modèle dont elle vient.",
+  "AuditApplicationKeyExpired": "La clé d'application expirée {name} ({id}) a été envoyée.",
+  "NotificationHeadlineApplicationKeyExpiring": "Une clé d'application expire bientôt",
+  "NotificationMessageApplicationKeyExpiring": "La clé d'application {name} expire le {date}. Créez une nouvelle clé pour son application et révoquez celle-ci d'ici là.",
+  "ApplicationExpiry": "Expire",
+  "ApplicationExpiryIn30Days": "Dans 30 jours",
+  "ApplicationExpiryIn90Days": "Dans 90 jours",
+  "ApplicationExpiryInAYear": "Dans un an",
+  "ApplicationExpiryHelp": "Passé cette date, chaque appel avec la clé est refusé, jusqu'à ce que vous la révoquiez. Routarr envoie une notification une semaine avant. Une clé ne se renouvelle pas : créez-en une nouvelle et révoquez l'ancienne.",
+  "ApplicationExpired": "Expirée",
+  "ApplicationExpiresSoon": "Dans la semaine",
+  "ApplicationLongUnused": "Inutilisée depuis plus de 90 jours"
 }

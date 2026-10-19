@@ -1794,5 +1794,16 @@
   "SourceRefresh": "Opnieuw lezen",
   "SourceRefreshed": "{source}: opnieuw gelezen antwoorden: {enriched}, mislukt: {failed}",
   "SourceRefreshNone": "Geen bron om opnieuw te lezen: de metadata van Radarr en Sonarr komt mee met elke synchronisatie.",
-  "TermTextTemplate": "Een kant-en-klare set regels voor een gangbare indeling van de bibliotheek, zoals anime of kindertitels. Na het toevoegen zijn de regels ervan gewone regels, en elke regel onthoudt uit welk sjabloon hij komt."
+  "TermTextTemplate": "Een kant-en-klare set regels voor een gangbare indeling van de bibliotheek, zoals anime of kindertitels. Na het toevoegen zijn de regels ervan gewone regels, en elke regel onthoudt uit welk sjabloon hij komt.",
+  "AuditApplicationKeyExpired": "Er is een verlopen applicatiesleutel verzonden: {name} ({id}).",
+  "NotificationHeadlineApplicationKeyExpiring": "Een applicatiesleutel verloopt binnenkort",
+  "NotificationMessageApplicationKeyExpiring": "De applicatiesleutel {name} verloopt op {date}. Maak voor die tijd een nieuwe sleutel voor de applicatie en trek deze in.",
+  "ApplicationExpiry": "Verloopt",
+  "ApplicationExpiryIn30Days": "Over 30 dagen",
+  "ApplicationExpiryIn90Days": "Over 90 dagen",
+  "ApplicationExpiryInAYear": "Over een jaar",
+  "ApplicationExpiryHelp": "Na deze datum wordt elke aanroep met de sleutel geweigerd, totdat je hem intrekt. Routarr stuurt een week van tevoren een melding. Een sleutel wordt niet verlengd: maak een nieuwe en trek de oude in.",
+  "ApplicationExpired": "Verlopen",
+  "ApplicationExpiresSoon": "Binnen een week",
+  "ApplicationLongUnused": "Meer dan 90 dagen ongebruikt"
 }

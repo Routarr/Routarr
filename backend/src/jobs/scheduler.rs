@@ -347,6 +347,9 @@ pub(crate) async fn tick(
                 error!("Scheduled maintenance failed: {e}");
             }
         }
+        if let Err(e) = crate::services::applications::warn_of_expiry(state).await {
+            error!("Could not warn of the application keys about to expire: {e}");
+        }
     }
 
     Ok(())

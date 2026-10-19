@@ -220,3 +220,31 @@ async fn the_export_says_each_event_in_the_configured_language() {
     assert!(csv.lines().nth(1).is_some_and(|line| line.contains(&french)), "{csv}");
     assert!(csv.contains("203.0.113.21"), "{csv}");
 }
+
+/// An expired key retried is logged by its name and id, so the owner sees which application
+/// still runs on it, and never by its secret.
+#[tokio::test]
+async fn an_expired_application_key_is_logged_by_its_name() {
+    let app = TestApp::new().await;
+    let minted =
+        app.post("/api/v1/applications", json!({ "name": "nightly", "expires_in_days": 1 })).await;
+    let token = minted.assert_ok()["token"].as_str().unwrap().to_string();
+    let (id, secret) = token.strip_prefix("rtr_").unwrap().split_once('_').unwrap();
+    app.execute(&["UPDATE api_keys SET expires_at = datetime('now', '-1 minute')"]).await;
+
+    let request = from(
+        [203, 0, 113, 9],
+        Request::get("/api/v1/status").header("x-api-key", &token),
+        Body::empty(),
+    );
+    let (response, log) = logged(&app, request).await;
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    assert!(log.contains("nightly") && log.contains(id), "{log}");
+    assert!(!log.contains(secret), "the key's secret is in the log:\n{log}");
+
+    let kept = security_log(&app, None, "?kind=application_key").await;
+    let event = &kept["data"][0];
+    assert_eq!(event["message"], "AuditApplicationKeyExpired", "{kept}");
+    assert_eq!(event["outcome"], "refused", "{kept}");
+    assert_eq!(event["params"]["name"], "nightly", "{kept}");
+}

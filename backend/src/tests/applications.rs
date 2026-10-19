@@ -983,3 +983,65 @@ async fn an_operating_key_cannot_push_the_owners_backups_out() {
         "the schedule counts the key's"
     );
 }
+
+/// A key may be given a life of a few days to ten years, and keeps none unless asked. The date
+/// is on the list, and on `/auth/me` for the key itself.
+#[tokio::test]
+async fn a_key_carries_the_expiry_it_was_given_and_reads_it_back() {
+    let app = TestApp::new().await;
+    let lasting = mint(&app, None, json!({ "name": "forever" })).await;
+    let token = mint(&app, None, json!({ "name": "quarterly", "expires_in_days": 90 })).await;
+
+    let listed = send(&app, "GET", "/api/v1/applications", None, None).await;
+    let listed = listed.assert_ok().as_array().unwrap().clone();
+    let quarterly = listed.iter().find(|key| key["name"] == "quarterly").unwrap();
+    let expires_at = quarterly["expires_at"].as_str().unwrap();
+    let in_90_days = chrono::Utc::now() + chrono::Duration::days(90);
+    assert_eq!(&expires_at[..10], in_90_days.format("%Y-%m-%d").to_string(), "{quarterly}");
+    assert_eq!(quarterly["expired"], false);
+    let forever = listed.iter().find(|key| key["name"] == "forever").unwrap();
+    assert!(forever["expires_at"].is_null(), "{forever}");
+
+    let me = send(&app, "GET", "/api/v1/auth/me", Some(&token), None).await;
+    assert_eq!(me.assert_ok()["expires_at"], expires_at);
+    let me = send(&app, "GET", "/api/v1/auth/me", Some(&lasting), None).await;
+    assert!(me.assert_ok()["expires_at"].is_null());
+
+    for days in [0, 3651] {
+        let refused = send(
+            &app,
+            "POST",
+            "/api/v1/applications",
+            None,
+            Some(json!({ "name": format!("bad-{days}"), "expires_in_days": days })),
+        )
+        .await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{days} days were accepted");
+    }
+}
+
+/// Past its expiry a key is refused with a reason a script reads, said only once the secret
+/// matched, and listed as expired until it is revoked.
+#[tokio::test]
+async fn an_expired_key_is_refused_as_expired_and_listed_until_revoked() {
+    let app = TestApp::new().await;
+    let token = mint(&app, None, json!({ "name": "monthly", "expires_in_days": 30 })).await;
+    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
+    app.execute(&["UPDATE api_keys SET expires_at = datetime('now', '-1 minute')"]).await;
+
+    let refused = send(&app, "GET", "/api/v1/status", Some(&token), None).await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(refused.json["reason"], "key_expired", "{}", refused.json);
+    let forged = format!("{}_{}", &token[..token.rfind('_').unwrap()], "0".repeat(64));
+    let guessed = send(&app, "GET", "/api/v1/status", Some(&forged), None).await;
+    assert_eq!(guessed.status, StatusCode::UNAUTHORIZED);
+    assert!(guessed.json["reason"].is_null(), "a wrong secret learnt the key expired");
+
+    let listed = send(&app, "GET", "/api/v1/applications", None, None).await;
+    assert_eq!(listed.assert_ok()[0]["expired"], true);
+    let id = key_id(&token);
+    send(&app, "DELETE", &format!("/api/v1/applications/{id}"), None, None).await.assert_ok();
+    let revoked = send(&app, "GET", "/api/v1/status", Some(&token), None).await;
+    assert_eq!(revoked.status, StatusCode::UNAUTHORIZED);
+    assert!(revoked.json["reason"].is_null(), "a revoked key is still told it expired");
+}

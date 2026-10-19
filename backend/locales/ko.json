@@ -1794,5 +1794,16 @@
   "SourceRefresh": "다시 읽기",
   "SourceRefreshed": "{source}: 다시 읽음: {enriched}, 실패: {failed}",
   "SourceRefreshNone": "다시 읽을 소스가 없습니다: Radarr와 Sonarr의 메타데이터는 동기화할 때마다 함께 들어옵니다.",
-  "TermTextTemplate": "애니메이션이나 어린이 작품처럼 흔히 쓰는 라이브러리 분류 방식에 맞춘 미리 만든 규칙 세트입니다. 추가하면 그 규칙은 일반 규칙이 되며, 각 규칙에는 출처 템플릿이 기록됩니다."
+  "TermTextTemplate": "애니메이션이나 어린이 작품처럼 흔히 쓰는 라이브러리 분류 방식에 맞춘 미리 만든 규칙 세트입니다. 추가하면 그 규칙은 일반 규칙이 되며, 각 규칙에는 출처 템플릿이 기록됩니다.",
+  "AuditApplicationKeyExpired": "만료된 앱 키 {name} ({id})이(가) 전송되었습니다.",
+  "NotificationHeadlineApplicationKeyExpiring": "앱 키가 곧 만료됩니다",
+  "NotificationMessageApplicationKeyExpiring": "앱 키 {name}이(가) {date}에 만료됩니다. 그 전에 해당 앱의 새 키를 만들고 이 키를 폐기하세요.",
+  "ApplicationExpiry": "만료일",
+  "ApplicationExpiryIn30Days": "30일 후",
+  "ApplicationExpiryIn90Days": "90일 후",
+  "ApplicationExpiryInAYear": "1년 후",
+  "ApplicationExpiryHelp": "이 날짜가 지나면 폐기할 때까지 이 키로 하는 모든 호출이 거부됩니다. Routarr는 일주일 전에 알림을 보냅니다. 키는 갱신되지 않습니다. 새 키를 만들고 이전 키를 폐기하세요.",
+  "ApplicationExpired": "만료됨",
+  "ApplicationExpiresSoon": "일주일 이내",
+  "ApplicationLongUnused": "90일 넘게 미사용"
 }
