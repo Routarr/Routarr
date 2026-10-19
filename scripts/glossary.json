@@ -844,5 +844,38 @@
       "zh_CN": "建议",
       "zh_TW": "建議"
     }
+  },
+  "token": {
+    "en": "(?<!-)\\btokens?\\b",
+    "except": [
+      "SettingTmdbKeyHelp"
+    ],
+    "words": {
+      "ar": "رمز",
+      "ca": "testimoni",
+      "cs": "token",
+      "da": "token",
+      "de": "token",
+      "el": "διακριτικ",
+      "es": "token",
+      "fi": "tunniste",
+      "fr": "jeton",
+      "hu": "token",
+      "it": "token",
+      "ja": "トークン",
+      "ko": "토큰",
+      "nb_NO": "token",
+      "nl": "token",
+      "pl": "token",
+      "pt": "token",
+      "ro": "token",
+      "ru": "токен",
+      "sk": "token",
+      "sv": "token",
+      "tr": "belirte",
+      "uk": "токен",
+      "zh_CN": "令牌",
+      "zh_TW": "權杖"
+    }
   }
 }

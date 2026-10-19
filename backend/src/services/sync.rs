@@ -10,7 +10,7 @@ use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::Instance;
 use crate::models::instance::SYNC_FAILED;
 use crate::services::connection::Said;
-use crate::services::notify;
+use crate::services::{notify, webhook_check};
 use crate::state::AppState;
 
 /// Result of syncing one instance.
@@ -259,6 +259,14 @@ async fn do_sync(
         }
     };
 
+    let webhook = match webhook_check::read(state, instance, &adapter, Some(&names.tags)).await {
+        Ok(check) => Some(check),
+        Err(e) => {
+            tracing::warn!(instance = %instance.name, "Could not read the webhook connections: {e}");
+            None
+        }
+    };
+
     info!(
         instance = %instance.name,
         root_folders = root_folders.len(),
@@ -290,6 +298,9 @@ async fn do_sync(
         .bind(asked)
         .execute(&mut *tx)
         .await?;
+    }
+    if let Some(check) = &webhook {
+        webhook_check::store(&mut *tx, instance, check).await?;
     }
     if let Some(version) = &version {
         sqlx::query("UPDATE instances SET arr_version = ? WHERE id = ?")
@@ -793,7 +804,7 @@ async fn store_profiles(
 
 /// The tag catalogue the last good pass stored, for when the Arr fails to answer its own:
 /// resolved against nothing, every `tag_in` rule would stop matching.
-async fn stored_tag_labels(
+pub(crate) async fn stored_tag_labels(
     pool: &SqlitePool,
     instance_id: &str,
 ) -> AppResult<std::collections::HashMap<i64, String>> {

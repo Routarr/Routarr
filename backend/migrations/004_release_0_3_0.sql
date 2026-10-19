@@ -52,6 +52,10 @@ ALTER TABLE instances ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 1 CHECK (au
 ALTER TABLE instances ADD COLUMN last_webhook_at TEXT;
 ALTER TABLE instances ADD COLUMN last_webhook_event TEXT;
 ALTER TABLE instances ADD COLUMN webhook_token_at TEXT;
+-- The Arr's webhook connection to the instance as last read, JSON, cleared when the address or
+-- the token changes.
+ALTER TABLE instances ADD COLUMN webhook_check TEXT;
+ALTER TABLE instances ADD COLUMN webhook_checked_at TEXT;
 
 -- The task a move or a revert ran in, so a notification naming the task leads to every title it
 -- moved.

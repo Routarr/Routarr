@@ -163,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(TAGS)
         if path == "/api/v3/qualityprofile":
             return self._send(QUALITY_PROFILES)
+        if path == "/api/v3/notification":
+            return self._send([])
         if path == "/api/v3/config/metadata":
             return self._send({"certificationCountry": "us"})
         if path == "/api/v3/filesystem":

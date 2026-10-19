@@ -17,7 +17,7 @@
     inClearPastHome,
     withoutCredentials,
   } from '../api/format';
-  import type { Instance } from '../api/types';
+  import type { Instance, WebhookCheck } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { takeQueryFlag } from '../api/onboarding';
@@ -128,6 +128,7 @@
     ok: boolean;
     text: string;
     warning?: string | null;
+    webhook?: WebhookCheck | null;
   } | null>(null);
   let probing = $state(false);
   const typed = $derived(
@@ -173,6 +174,7 @@
           folders: answer.root_folders,
         }),
         warning: answer.warning,
+        webhook: answer.webhook,
       };
     } catch (err) {
       if (attempt.signal.aborted) return;
@@ -537,6 +539,12 @@
                   {#if instance.last_webhook_event}
                     <span class="text-muted text-xs">{instance.last_webhook_event}</span>
                   {/if}
+                  <!-- The badge alone: what to change takes sentences, which the form holds. -->
+                  {#if instance.webhook_check?.state === 'misconfigured'}
+                    <span class="badge badge-warning">{t('WebhookMisconfigured')}</span>
+                  {:else if instance.webhook_check?.state === 'absent' && !instance.last_webhook_at}
+                    <span class="badge badge-info">{t('WebhookNotSetUp')}</span>
+                  {/if}
                 </td>
                 <td>
                   <div class="row-actions">
@@ -743,16 +751,40 @@
           </p>
         </div>
         {#if editing.webhook?.webhook_path && editing.webhook.webhook_url}
-          <p class="text-sm">
-            {#if editing.webhook.last_webhook_at}
-              {t('WebhookLastDelivery', {
-                event: editing.webhook.last_webhook_event ?? '',
-                when: formatRelative(editing.webhook.last_webhook_at, i18n.language, ''),
-              })}
-            {:else}
-              {t('WebhookNoDeliveryYet', { service: SERVICE[form.instance_type] })}
+          <!-- The try's reading of the connection is the newer one while it stands. -->
+          {@const check = probed?.webhook ?? editing.webhook.webhook_check}
+          <div class="webhook-status">
+            <p>
+              {#if editing.webhook.last_webhook_at}
+                {t('WebhookLastDelivery', {
+                  event: editing.webhook.last_webhook_event ?? '',
+                  when: formatRelative(editing.webhook.last_webhook_at, i18n.language, ''),
+                })}
+              {:else}
+                {t('WebhookNoDeliveryYet', { service: SERVICE[form.instance_type] })}
+              {/if}
+            </p>
+            {#if check}
+              {#if check.state === 'ok'}
+                <p class="text-success">
+                  {t('WebhookCheckOk', { instance: editing.webhook.name })}
+                </p>
+              {:else if check.state === 'absent'}
+                <p>{t('WebhookCheckAbsent', { instance: editing.webhook.name })}</p>
+              {/if}
+              {#each check.problems as problem (problem)}
+                <p class="text-warning">{problem}</p>
+              {/each}
+              {#each check.notes as note (note)}
+                <p class="text-muted">{note}</p>
+              {/each}
+              <p class="text-muted">
+                {t('WebhookCheckedAt', {
+                  when: formatRelative(check.checked_at, i18n.language, ''),
+                })}
+              </p>
             {/if}
-          </p>
+          </div>
           <!-- Here and not only behind Copy: on a plain http origin the clipboard is closed. -->
           <div class="form-group">
             <label class="form-label" for="instances-webhook-path">{t('WebhookUrl')}</label>
@@ -765,9 +797,9 @@
             />
             <p id="instances-webhook-path-help" class="text-muted text-sm mt-1">
               {t('WebhookUrlHelp', { service: SERVICE[form.instance_type] })}
-              {t(
-                form.instance_type === 'radarr' ? 'WebhookTriggersRadarr' : 'WebhookTriggersSonarr',
-              )}
+              {t('WebhookTriggers', {
+                triggers: editing.webhook.webhook_triggers.join(t('ListSeparator')),
+              })}
             </p>
           </div>
           <div class="form-group">

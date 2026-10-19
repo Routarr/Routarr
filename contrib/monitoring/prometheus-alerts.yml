@@ -31,6 +31,14 @@ groups:
         annotations:
           summary: "An instance armed for automatic application never sent a webhook"
           description: "New titles wait for the next sync. Routarr's Instances screen names it."
+      - alert: RoutarrWebhookMisconfigured
+        expr: routarr_warnings{code="webhook_misconfigured"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The webhook in an armed instance's Arr needs a fix"
+          description: "An old token, the PUT method or an unticked event keeps changes from reaching Routarr. Its Instances screen says what to change."
       - alert: RoutarrAutoApplyHeld
         expr: routarr_warnings{code="auto_apply_held"} > 0
         labels:

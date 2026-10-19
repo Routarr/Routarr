@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod anilist;
 pub mod arr_moves;
+pub mod arr_webhook;
 pub mod certification;
 pub mod language;
 pub mod omdb;

@@ -16,7 +16,7 @@ use crate::jobs::{Detail, JobKind};
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::connection::{self, Cause};
-use crate::services::sync;
+use crate::services::{sync, webhook_check};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 
@@ -170,6 +170,13 @@ pub async fn update(
         .bind(&id)
         .execute(&mut *tx)
         .await?;
+        // Read from the Arr no longer named.
+        sqlx::query(
+            "UPDATE instances SET webhook_check = NULL, webhook_checked_at = NULL WHERE id = ?",
+        )
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
 
@@ -263,6 +270,8 @@ pub struct TestConnectionResponse {
     pub inaccessible_root_folders: usize,
     /// What this release of the Arr lacks, below the oldest Routarr supports.
     pub warning: Option<String>,
+    /// The Arr's webhook connection to the instance tested. Null for values not saved yet.
+    pub webhook: Option<WebhookCheckResponse>,
 }
 
 pub async fn test(
@@ -272,7 +281,10 @@ pub async fn test(
     let instance = state.instance(&id).await?;
     let adapter = state.adapter(&instance)?;
     let localizer = state.localizer().await;
-    Ok(Json(check(&adapter, &instance.instance_type, &instance.base_url, &localizer).await?))
+    let mut answer =
+        check(&adapter, &instance.instance_type, &instance.base_url, &localizer).await?;
+    answer.webhook = webhook_check::checked(&state, &instance, &adapter, &localizer).await;
+    Ok(Json(answer))
 }
 
 /// Values typed in the instance form, tried before anything is saved.
@@ -317,7 +329,12 @@ pub async fn probe(
         (typed, _) => typed.to_string(),
     };
     let adapter = ArrAdapter::new(state.http.clone(), &kind, &base_url, &api_key)?;
-    Ok(Json(check(&adapter, &kind, &base_url, &localizer).await?))
+    let mut answer = check(&adapter, &kind, &base_url, &localizer).await?;
+    // The saved instance's Arr: its webhook connection is read as a test of it would read it.
+    if let Some(saved) = saved.filter(|s| s.instance_type == kind && s.base_url == base_url) {
+        answer.webhook = webhook_check::checked(&state, &saved, &adapter, &localizer).await;
+    }
+    Ok(Json(answer))
 }
 
 /// Reach the Arr as a sync would, and say what to change when it does not answer
@@ -344,6 +361,7 @@ async fn check(
         app_name: status.app_name,
         root_folders: root_folders.len(),
         inaccessible_root_folders: root_folders.iter().filter(|rf| !rf.accessible).count(),
+        webhook: None,
     })
 }
 
@@ -514,7 +532,8 @@ pub async fn rotate_webhook_token(
 
     sqlx::query(
         "UPDATE instances SET webhook_token = ?, webhook_token_at = datetime('now'),
-         last_webhook_at = NULL, last_webhook_event = NULL, updated_at = datetime('now')
+         last_webhook_at = NULL, last_webhook_event = NULL, webhook_check = NULL,
+         webhook_checked_at = NULL, updated_at = datetime('now')
          WHERE id = ?",
     )
     .bind(Uuid::new_v4().to_string())

@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { instance } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
+import type { WebhookCheck } from '../api/types';
 import { statusRevision } from '../lib/status.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
@@ -13,6 +14,20 @@ import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
 import { readBackend } from '../test/backend';
+
+const readOf = (over: Partial<WebhookCheck> = {}): WebhookCheck => ({
+  state: 'ok',
+  token: 'ok',
+  missing_triggers: [],
+  method: null,
+  tags: [],
+  other_instance: null,
+  problems: [],
+  notes: [],
+  checked_at: new Date(Date.now() - 60_000).toISOString(),
+  ...over,
+});
+const MISSES_RENAME = 'The webhook in Radarr leaves On Rename unticked.';
 
 const show = (list: ReturnType<typeof instance>[]) => {
   vi.spyOn(api, 'getInstances').mockResolvedValue(list);
@@ -401,6 +416,75 @@ describe('Instances', () => {
     ).toBeTruthy();
   });
 
+  /**
+   * A connection needing a fix is marked in its row. One not found reads "Not set up" only while
+   * nothing arrived: a proxy rewriting the path hides a working one from the check.
+   */
+  it('marks a webhook needing a fix in its row, and one missing while none arrived', async () => {
+    const heard = new Date(Date.now() - 120_000).toISOString();
+    show([
+      instance({
+        id: 'i1',
+        name: 'Radarr',
+        webhook_check: readOf({
+          state: 'misconfigured',
+          missing_triggers: ['On Rename'],
+          problems: [MISSES_RENAME],
+        }),
+      }),
+      instance({ id: 'i2', name: 'Radarr 4K', webhook_check: readOf({ state: 'absent' }) }),
+      instance({
+        id: 'i3',
+        name: 'Radarr Kids',
+        last_webhook_at: heard,
+        last_webhook_event: 'Test',
+        webhook_check: readOf({ state: 'absent' }),
+      }),
+    ]);
+
+    const faulty = (await screen.findByText('Needs a fix')).closest('tr') as HTMLElement;
+    expect(within(faulty).getByText('Radarr')).toBeTruthy();
+    expect(within(faulty).getByText('Needs a fix').classList.contains('badge-warning')).toBe(true);
+    const missing = screen.getByText('Radarr 4K').closest('tr') as HTMLElement;
+    expect(within(missing).getByText('Not set up')).toBeTruthy();
+    const proxied = screen.getByText('Radarr Kids').closest('tr') as HTMLElement;
+    expect(within(proxied).queryByText('Not set up')).toBeNull();
+  });
+
+  /** The editor says how the Arr's connection reads, and a try's newer reading replaces it. */
+  it("reads the Arr's connection in the editor, a try's reading over the stored one", async () => {
+    const tried = vi.spyOn(api, 'probeInstance').mockResolvedValue({
+      ...PROBED,
+      webhook: readOf({ state: 'misconfigured', problems: [MISSES_RENAME], notes: ['Tagged.'] }),
+    });
+    show([
+      instance({
+        webhook_url: '/api/v1/webhook/i1/tok',
+        webhook_path: '/api/v1/webhook/i1',
+        webhook_token: 'tok',
+        webhook_check: readOf(),
+      }),
+    ]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText('The webhook in Radarr sends every event Routarr acts on.'),
+    ).toBeTruthy();
+    expect(within(dialog).getByText('Checked 1 minute ago.')).toBeTruthy();
+    expect(within(dialog).getByLabelText('Webhook URL')).toHaveAccessibleDescription(
+      /Tick On File Import, On Rename, On Movie Added, On Movie Delete, On Movie File Delete\./,
+    );
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
+    await waitFor(() => expect(tried).toHaveBeenCalledTimes(1));
+    expect(await within(dialog).findByText(MISSES_RENAME)).toBeTruthy();
+    expect(within(dialog).getByText('Tagged.')).toBeTruthy();
+    expect(
+      within(dialog).queryByText('The webhook in Radarr sends every event Routarr acts on.'),
+    ).toBeNull();
+  });
+
   /** A dialog opens on its own form, never on the refusal of the one before. */
   it.each(['Edit – Radarr', 'Add instance'])(
     'opens %s without the refusal of the last dialog',
@@ -690,6 +774,7 @@ describe('Instances', () => {
     root_folders: 2,
     inaccessible_root_folders: 0,
     warning: null,
+    webhook: null,
   };
   const CONNECTED = 'Radarr: connected (v5.2.6), root folders: 2';
 
@@ -1091,6 +1176,7 @@ it('tests the connection of the instance whose row was used', async () => {
     root_folders: 2,
     inaccessible_root_folders: 0,
     warning: null,
+    webhook: null,
   });
 
   await fireEvent.click(await screen.findByRole('button', { name: /Actions – Sonarr/ }));

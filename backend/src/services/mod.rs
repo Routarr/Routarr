@@ -20,6 +20,7 @@ pub mod rule_tests;
 pub mod settings;
 pub mod sync;
 pub mod templates;
+pub mod webhook_check;
 
 #[cfg(test)]
 mod tests {

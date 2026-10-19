@@ -216,6 +216,16 @@ impl ArrAdapter {
         Ok(tags.into_iter().map(|t| ArrTag { arr_id: t.id, label: t.label }).collect())
     }
 
+    /// The Arr's webhook connections addressed to a Routarr instance.
+    pub async fn webhook_connections(
+        &self,
+    ) -> AppResult<Vec<super::arr_webhook::RoutarrConnection>> {
+        match self {
+            Self::Radarr(c) => c.webhook_connections().await,
+            Self::Sonarr(c) => c.webhook_connections().await,
+        }
+    }
+
     /// Get the instance's quality profiles, so a media row's id can be named.
     pub async fn get_quality_profiles(&self) -> AppResult<Vec<ArrQualityProfile>> {
         let profiles = match self {
