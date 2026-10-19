@@ -932,9 +932,9 @@ function tokensOf(pattern) {
 if (/@media\s*\(prefers-color-scheme[^)]*\)\s*\{[^{]*\{[^}]*--bg:/.test(css)) {
   fail('site.css redefines the palette under prefers-color-scheme: every page opens dark, and light is a stamped choice');
 }
-const explicit = tokensOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
-if (Object.keys(explicit).length < 10) {
-  fail(`the dark palette reads ${Object.keys(explicit).length} token(s), so this check is reading nothing`);
+const dark = tokensOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
+if (Object.keys(dark).length < 10) {
+  fail(`the dark palette reads ${Object.keys(dark).length} token(s), so this check is reading nothing`);
 }
 // A colour the light palette sets and the dark one leaves alone shows its light
 // value on a dark page, which the contrast pairs below may never measure.
@@ -942,9 +942,9 @@ const lightPalette = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 const colours = (palette) =>
   Object.keys(palette).filter((token) => /^(#|rgb|hsl|oklch|color-mix)/.test(palette[token]));
 for (const token of colours(lightPalette)) {
-  if (!(token in explicit)) fail(`site.css: the dark palette leaves ${token} at its light value`);
+  if (!(token in dark)) fail(`site.css: the dark palette leaves ${token} at its light value`);
 }
-for (const token of colours(explicit)) {
+for (const token of colours(dark)) {
   if (!(token in lightPalette)) fail(`site.css: the dark palette sets ${token}, which the light one never defines`);
 }
 
@@ -968,7 +968,7 @@ function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
-// The bare `:root` block is the light palette, `explicit` the dark one every page opens in.
+// The bare `:root` block is the light palette, `dark` the one every page opens in.
 const light = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 // `--accent` is decorative only (borders, glows) and is exempt. The tokens that
 // carry text are `--accent-text` (amber as text) and `--accent-ink` over both
@@ -978,7 +978,7 @@ const light = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 // it against everything it can land on.
 const TEXT_PAIRS = [['--text', '--bg'], ['--text-soft', '--bg'], ['--text-muted', '--bg'], ['--text-muted', '--bg-card'], ['--accent-text', '--bg'], ['--accent-text', '--bg-card'], ['--accent-ink', '--accent-fill'], ['--accent-ink', '--accent-fill-hi']];
 const STATE_PAIRS = [['--focus', '--bg', 3], ['--focus', '--bg-card', 3]];
-for (const [label, palette] of [['light', light], ['dark', explicit]]) {
+for (const [label, palette] of [['light', light], ['dark', dark]]) {
   for (const [fg, bg, floor = 4.5] of [...TEXT_PAIRS, ...STATE_PAIRS]) {
     const a = palette[fg];
     const b = palette[bg];
@@ -1016,7 +1016,7 @@ for (const [what, tint, grounds, texts] of TINTED) {
     fail(`the ground of ${what} cannot be read out of its rule`);
     continue;
   }
-  for (const [label, palette] of [['light', light], ['dark', explicit]]) {
+  for (const [label, palette] of [['light', light], ['dark', dark]]) {
     for (const base of grounds) {
       const ground = tinted(palette[base], palette['--accent'], tint / 100);
       for (const fg of texts) {
@@ -1061,11 +1061,11 @@ if (planCellsRead < 40) fail(`read ${planCellsRead} plan cell(s), so the plan ch
 for (const [file, html] of Object.entries(pages)) {
   if (!/<html[^>]* data-theme="dark"/.test(html)) fail(`${file}: <html> does not open in the dark theme`);
   const colours = [...html.matchAll(/<meta name="theme-color"([^>]*)>/g)].map((m) => m[1]);
-  if (colours.length !== 1 || !colours[0].includes(`content="${explicit['--bg']}"`) || colours[0].includes('media=')) {
-    fail(`${file}: theme-color must be one tag reading the dark ground ${explicit['--bg']}, found ${colours.length}`);
+  if (colours.length !== 1 || !colours[0].includes(`content="${dark['--bg']}"`) || colours[0].includes('media=')) {
+    fail(`${file}: theme-color must be one tag reading the dark ground ${dark['--bg']}, found ${colours.length}`);
   }
 }
-for (const ground of [light['--bg'], explicit['--bg']]) {
+for (const ground of [light['--bg'], dark['--bg']]) {
   if (!siteScript.includes(`'${ground}'`)) fail(`site.js never writes the ground ${ground} into theme-color`);
 }
 
