@@ -1,0 +1,73 @@
+name: Live Arrs
+
+# Apart from ci.yml on purpose: it drives a real Radarr and Sonarr, which no pull request may
+# wait on, and adding a title asks their metadata servers, which can fail. Every fake answers as
+# Routarr expects, and only a real Arr says otherwise. It gates nothing: `release-runs.py`
+# reads ci.yml and docker.yml alone.
+on:
+  schedule:
+    # Wednesdays at 04:23 UTC, off the hour and away from the other weekly runs.
+    - cron: '23 4 * * 3'
+  workflow_dispatch:
+  pull_request:
+
+permissions: {}
+
+# One run at a time: both Arrs bind their usual ports on the runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  LIVE_ARRS_REQUIRED: "1"
+
+jobs:
+  live:
+    name: A real Radarr and Sonarr
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: backend
+
+      # Each key is made here and masked, never written: gitleaks fails on a literal one.
+      - name: Start the Arrs
+        run: |
+          set -euo pipefail
+          for arr in RADARR SONARR; do
+            key=$(openssl rand -hex 16)
+            echo "::add-mask::$key"
+            echo "${arr}_API_KEY=$key" >>"$GITHUB_ENV"
+            export "${arr}_API_KEY=$key"
+          done
+          LIVE_ARRS_MEDIA="$RUNNER_TEMP/media"
+          mkdir -p "$LIVE_ARRS_MEDIA"
+          echo "LIVE_ARRS_MEDIA=$LIVE_ARRS_MEDIA" >>"$GITHUB_ENV"
+          PUID=$(id -u) PGID=$(id -g) LIVE_ARRS_MEDIA="$LIVE_ARRS_MEDIA" \
+            docker compose -f scripts/live-arrs/compose.yml up -d --quiet-pull
+          for url in http://127.0.0.1:7878 http://127.0.0.1:8989; do
+            for _ in $(seq 1 90); do
+              curl -fsS "$url/ping" >/dev/null 2>&1 && break
+              sleep 2
+            done
+            curl -fsS "$url/ping"
+          done
+          echo "RADARR_URL=http://127.0.0.1:7878" >>"$GITHUB_ENV"
+          echo "SONARR_URL=http://127.0.0.1:8989" >>"$GITHUB_ENV"
+
+      - name: Drive them through Routarr
+        working-directory: backend
+        run: cargo test --locked live_arrs -- --ignored --nocapture --test-threads=1
+
+      - name: Show the Arrs' logs
+        if: failure()
+        run: |
+          PUID=0 PGID=0 LIVE_ARRS_MEDIA=/tmp RADARR_API_KEY=x SONARR_API_KEY=x \
+            docker compose -f scripts/live-arrs/compose.yml logs --no-color --tail 200
