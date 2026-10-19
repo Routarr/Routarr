@@ -821,14 +821,94 @@ async fn an_apply_and_a_revert_are_announced_apart_once_asked_for() {
     executor::revert_decisions(&app.state, &quiet, false, &Confirmed::all(), &by).await.unwrap();
     let reverted = &receiver.arrived(1).await[0];
     assert_eq!(reverted["event"], "revert_completed");
-    let done = serde_json::json!({ "applied": 1, "failed": 0, "skipped": 0, "moving": 0 });
-    assert_eq!(reverted["data"], done);
+    let moved = |from: &str, to: &str| {
+        serde_json::json!([{
+            "title": "Film 000", "media_type": "movie", "instance": "Fake radarr",
+            "instance_id": "inst-1", "tmdb_id": 8392, "tvdb_id": null, "imdb_id": null,
+            "from_path": from, "to_path": to, "status": "applied",
+        }])
+    };
+    let (standard, anime) = ("/movies/standard/Film 100", "/movies/anime/Film 100");
+    let task = reverted["data"]["task_id"].as_str().expect("a task named").to_string();
+    let done = |moves: serde_json::Value| {
+        serde_json::json!({
+            "applied": 1, "failed": 0, "skipped": 0, "moving": 0, "task_id": task,
+            "moves_total": 1, "truncated": false, "moves": moves,
+        })
+    };
+    assert_eq!(reverted["data"], done(moved(anime, standard)));
+    // A receiver handed a task reads each title it moved from the log.
+    let logged = app.get(&format!("/api/v1/logs?task_id={task}")).await;
+    let rows = logged.assert_ok()["data"].as_array().unwrap().clone();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["media_title"], "Film 000");
 
     let again = pending().await;
     executor::apply_decisions(&app.state, &again, false, &Confirmed::all(), &by).await.unwrap();
     let applied = &receiver.arrived(2).await[1];
     assert_eq!(applied["event"], "apply_completed");
-    assert_eq!(applied["data"], done);
+    let task = applied["data"]["task_id"].as_str().unwrap().to_string();
+    let mut expected = done(moved(standard, anime));
+    expected["task_id"] = serde_json::json!(task);
+    assert_eq!(applied["data"], expected);
+}
+
+/// A long apply names its first fifty titles and how many it moved in all: a receiver reads the
+/// rest from the task's log, and the message stays a size every receiver takes.
+#[tokio::test]
+async fn a_long_apply_names_fifty_titles_and_counts_them_all() {
+    use crate::services::executor::{self, Confirmed};
+
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 55).await;
+    app.store_setting("batch_limit", "100").await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    app.save_setting("notify_moves_completed", "true").await.assert_ok();
+    app.simulate().await;
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM decisions WHERE status = 'pending'")
+        .fetch_all(&app.state.pool)
+        .await
+        .unwrap();
+    let by = crate::jobs::Attribution::manual(None);
+
+    executor::apply_decisions(&app.state, &ids, false, &Confirmed::all(), &by).await.unwrap();
+
+    let data = &receiver.arrived(1).await[0]["data"];
+    assert_eq!(data["applied"], 55);
+    assert_eq!((data["moves_total"].clone(), data["truncated"].clone()), (55.into(), true.into()));
+    assert_eq!(data["moves"].as_array().unwrap().len(), 50);
+}
+
+/// A move whose files were still on their way is announced `moving`, and again once the sync
+/// that finds them in place settles it, so a media server scans the folder when the files are
+/// there.
+#[tokio::test]
+async fn a_move_still_moving_is_announced_again_once_settled() {
+    let arr = FakeArr::start().await;
+    arr.moving_for(std::time::Duration::from_millis(600));
+    let (app, decision_id) = super::one_move_ready(&arr).await;
+    let app = app.with_move_wait(std::time::Duration::from_millis(150));
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    app.save_setting("notify_moves_completed", "true").await.assert_ok();
+    let by = crate::jobs::Attribution::manual(None);
+    let confirmed = crate::services::executor::Confirmed::all();
+
+    crate::services::executor::apply_decisions(&app.state, &[decision_id], true, &confirmed, &by)
+        .await
+        .unwrap();
+    let sent = &receiver.arrived(1).await[0];
+    assert_eq!(sent["data"]["moves"][0]["status"], "moving", "{sent}");
+
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    crate::services::sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+    let settled = &receiver.arrived(2).await[1];
+    assert_eq!(settled["event"], "moves_settled");
+    let moved = &settled["data"]["moves"][0];
+    assert_eq!(moved["title"], "Totoro");
+    assert_eq!(moved["status"], "applied");
+    assert_eq!(moved["to_path"], "/movies/anime/My Neighbor Totoro (1988)");
 }
 
 /// A failed sync is told every time once asked for, beside the one message

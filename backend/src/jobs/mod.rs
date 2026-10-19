@@ -3,15 +3,9 @@ pub mod scheduler;
 
 pub use registry::{Detail, JobHandle, JobKind, JobLock, JobRegistry, Progress, Stop, announcing};
 
-/// Run work that writes on a task of its own, and wait for it.
-///
-/// A request future is dropped the moment the client hangs up (a browser
-/// navigating away, a proxy timing out, an Arr whose webhook timed out), at
-/// its next await. Work that writes must reach its end whatever the caller
-/// does: an apply the Arr has performed is recorded, a sync that read the
-/// library stores it. Spawned, the work keeps its lock and its job handle, so
-/// the next caller still waits its turn and the Tasks screen sees it finish.
-/// The registry tracks it, so a stop of the server waits for it too.
+/// Run work that writes on a task of its own, and wait for it: a request future is dropped at
+/// its next await once the client hangs up. Spawned, the work keeps its lock and job handle,
+/// and the registry tracks it, so a server stop waits for it too.
 pub async fn detached<T, F>(jobs: &JobRegistry, work: F) -> crate::error::AppResult<T>
 where
     F: std::future::Future<Output = crate::error::AppResult<T>> + Send + 'static,
@@ -35,29 +29,19 @@ pub const TRIGGER_API: &str = "api";
 /// the sync off, when somebody did.
 pub const TRIGGER_AUTO: &str = "auto";
 
-/// The longest interval an instance may be synced on, in minutes: a day.
-///
-/// Every writer of `sync_interval_minutes` clamps to it and `scheduler::is_due`
-/// reads it, so the stored interval is the one compared. The sync itself runs
-/// on the first scheduler tick past it, so the tick is its grain. Written once
-/// because another site with its own `1440` is how the two drift apart.
+/// The longest interval an instance may be synced on, in minutes: a day. Every writer of
+/// `sync_interval_minutes` clamps to it and `scheduler::is_due` reads it, so the stored interval
+/// is the one compared. The sync runs on the first scheduler tick past it.
 pub const MAX_SYNC_INTERVAL_MINUTES: i64 = 24 * 60;
 
-/// The lock key a library-wide simulation holds.
-///
-/// Two full passes at once evaluate the whole library twice, and only the one
-/// that read it last is kept. Only *full* passes take it: the webhook evaluates
-/// one item and `routing::store_run` touches only what it evaluated, so a
-/// season import must never queue behind a sweep. How many passes *load*
-/// at once is another question, answered by `routing::LibraryPasses`.
+/// The lock key a library-wide simulation holds: two at once evaluate the library twice and keep
+/// the later read. A one-item pass takes none, since `routing::store_run` writes only what it
+/// evaluated, so a season import never queues behind a sweep. How many passes load at once is
+/// `routing::LibraryPasses`'s question.
 pub const FULL_SIMULATION: &str = "simulate";
 
-/// What caused a write, and who asked for it.
-///
-/// The trigger answers "did the nightly sweep do this, or did somebody". The
-/// subject answers which somebody, which only has an answer once a mode
-/// vouches for a name. Carried together because every writer needs both and
-/// two parallel parameters is how one of them gets forgotten at a call site.
+/// What caused a write, and who asked for it, carried together since every writer needs both
+/// and two parallel parameters is how one gets forgotten at a call site.
 #[derive(Debug, Clone)]
 pub struct Attribution {
     /// One of the `TRIGGER_*` constants.
@@ -68,6 +52,8 @@ pub struct Attribution {
     /// The application key that asked, when one did: its name can be given
     /// again once it is revoked, and what it wrote stays its own.
     pub key: Option<String>,
+    /// The task the work runs in, which each move it logs names.
+    pub job: Option<String>,
 }
 
 impl Attribution {
@@ -77,12 +63,13 @@ impl Attribution {
             trigger: TRIGGER_MANUAL.to_string(),
             subject: subject.map(str::to_string),
             key: None,
+            job: None,
         }
     }
 
     /// Nobody asked: the scheduler, or an Arr's webhook.
     pub fn unattended(trigger: &str) -> Self {
-        Self { trigger: trigger.to_string(), subject: None, key: None }
+        Self { trigger: trigger.to_string(), subject: None, key: None, job: None }
     }
 
     /// An application asked, with the key `key` that names it.
@@ -91,11 +78,21 @@ impl Attribution {
             trigger: TRIGGER_API.to_string(),
             subject: Some(name.to_string()),
             key: Some(key.to_string()),
+            job: None,
         }
     }
 
     /// The automation, after a sync `by` set off.
     pub fn automatic(by: &Attribution) -> Self {
-        Self { trigger: TRIGGER_AUTO.to_string(), subject: by.subject.clone(), key: by.key.clone() }
+        Self {
+            trigger: TRIGGER_AUTO.to_string(),
+            subject: by.subject.clone(),
+            key: by.key.clone(),
+            job: None,
+        }
+    }
+
+    pub fn in_job(&self, job: &str) -> Self {
+        Self { job: Some(job.to_string()), ..self.clone() }
     }
 }

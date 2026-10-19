@@ -42,6 +42,8 @@ pub struct LogEntry {
     pub subject: Option<String>,
     #[serde(skip)]
     pub subject_key: Option<String>,
+    /// The task the write ran in, as `/jobs` lists it and a move notification names it.
+    pub task_id: Option<String>,
     /// When the write was made, in UTC.
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
     #[schema(format = DateTime)]
@@ -53,6 +55,8 @@ pub struct LogEntry {
 #[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
 pub struct LogQuery {
+    /// Only the writes of this task, as a move notification names it.
+    pub task_id: Option<String>,
     /// Only the writes on this instance.
     pub instance_id: Option<String>,
     /// Only the writes of this title.
@@ -71,11 +75,13 @@ pub struct LogQuery {
 
 /// What the export is filtered by: the filters of a page, without the paging.
 // Its own fields rather than flattened into `LogQuery`: a flattened query
-// reads every value as text, and `success` no longer parses.
+// reads every value as text, and `success` would not parse.
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
 pub struct LogFilter {
+    /// Only the writes of this task, as a move notification names it.
+    pub task_id: Option<String>,
     /// Only the writes on this instance.
     pub instance_id: Option<String>,
     /// Only the writes of this title.
@@ -91,6 +97,7 @@ pub struct LogFilter {
 impl LogQuery {
     fn filter(&self) -> LogFilter {
         LogFilter {
+            task_id: self.task_id.clone(),
             instance_id: self.instance_id.clone(),
             media_id: self.media_id.clone(),
             action: self.action.clone(),
@@ -101,7 +108,8 @@ impl LogQuery {
 }
 
 const COLUMNS: &str = "id, decision_id, action, details, success, error_message,
-     instance_id, media_id, media_title, actor, subject, subject_key, executed_at";
+     instance_id, media_id, media_title, actor, subject, subject_key, job_id AS task_id,
+     executed_at";
 
 pub async fn list(
     State(state): State<AppState>,
@@ -174,11 +182,9 @@ const EXPORT_PAGE: i64 = 1_000;
 
 type Chunk = Result<String, std::io::Error>;
 
-/// The export's rows as CSV, a page at a time, newest first, until the reader
-/// goes away. Each page starts after the last row sent, so a row written
-/// meanwhile is neither sent twice nor shifts what follows. A failed read ends
-/// the body in an error, which the client sees as a cut download rather than
-/// a file that looks whole.
+/// The export's rows as CSV, newest first, each page after the last row sent: a row written
+/// meanwhile is neither sent twice nor shifts what follows. A failed read ends the body in an
+/// error, so the client sees a cut download rather than a file that looks whole.
 async fn write_csv(
     pool: sqlx::SqlitePool,
     identity: Identity,
@@ -260,6 +266,10 @@ fn build_filters(query: &LogFilter) -> (String, Vec<String>) {
     let mut filters = String::new();
     let mut binds = Vec::new();
 
+    if let Some(v) = &query.task_id {
+        filters.push_str(" AND job_id = ?");
+        binds.push(v.clone());
+    }
     if let Some(v) = &query.instance_id {
         filters.push_str(" AND instance_id = ?");
         binds.push(v.clone());
@@ -285,20 +295,10 @@ fn build_filters(query: &LogFilter) -> (String, Vec<String>) {
     (filters, binds)
 }
 
-/// Quote a field, and stop a spreadsheet from executing it.
-///
-/// The quoting is RFC 4180 and the obvious half: log details carry file paths
-/// and upstream error bodies, and an unescaped comma or newline would shift
-/// every following column. The other half is that a cell whose first character
-/// is `=`, `+`, `-`, `@`, a tab or a carriage return is a
-/// *formula* to Excel, LibreOffice and Sheets: they strip the quotes and then
-/// evaluate, so escaping does not help. `=HYPERLINK("http://…"&A1,"click")` in
-/// a media title would fire the moment the operator opens the export.
-///
-/// The titles here come from the Arrs, which get them from public metadata
-/// databases and from filenames: nothing the operator wrote and nothing this
-/// application validates. A leading apostrophe is the standard defusal: the
-/// spreadsheet reads the rest as text and does not display the quote.
+/// Quote a field (RFC 4180), since details carry paths and upstream bodies whose commas and
+/// newlines would shift every column. A title comes from public metadata or a filename, and one
+/// starting with `=`, `+`, `-`, `@` or a tab is a formula to Excel, LibreOffice and Sheets even
+/// quoted: a leading apostrophe makes it text and does not show.
 pub(crate) fn csv_field(value: &str) -> String {
     let escaped = value.replace('"', "\"\"").replace(['\n', '\r'], " ");
     let escaped = match escaped.chars().next() {
@@ -319,8 +319,6 @@ mod tests {
         assert_eq!(csv_field("line1\nline2"), r#""line1 line2""#);
     }
 
-    /// A media title is not something this application wrote: it arrives from
-    /// the Arrs, which take it from public metadata or from a filename.
     #[test]
     fn a_field_that_would_be_a_formula_is_defused() {
         for hostile in
@@ -330,8 +328,7 @@ mod tests {
             assert!(field.starts_with("\"'"), "a spreadsheet would evaluate this: {field}");
         }
 
-        // And an ordinary title is untouched: the defusal must not put an
-        // apostrophe in front of every row.
+        // The positive control: the defusal must not mark every row.
         assert_eq!(csv_field("Akira"), r#""Akira""#);
         assert_eq!(csv_field("2 Fast 2 Furious"), r#""2 Fast 2 Furious""#);
     }

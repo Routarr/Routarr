@@ -5,10 +5,10 @@ use std::time::Duration;
 use tracing::warn;
 
 use super::record::{count_failure, record_confirmed, record_failure, record_held};
-use super::{ApplyReport, MoveDirection, PendingMove};
+use super::{ApplyReport, MoveDirection, Moved, PendingMove};
 use crate::error::AppResult;
 use crate::integrations::adapter::{ArrAdapter, ArrMedia};
-use crate::integrations::arr_moves::{CommandState, MoveCommand};
+use crate::integrations::arr_moves::{CommandState, MoveCommand, under};
 use crate::jobs::Attribution;
 use crate::localization::Told;
 use crate::services::connection::Said;
@@ -18,6 +18,15 @@ use crate::state::AppState;
 pub(super) struct Sent {
     pub(super) mv: PendingMove,
     pub(super) path: String,
+    /// Where the Arr held the title before the move.
+    pub(super) from: Option<String>,
+}
+
+impl Sent {
+    pub(super) fn moved(&self, instance: &str, status: &'static str) -> Moved {
+        let to = (status != "failed").then(|| self.path.clone());
+        Moved::of(&self.mv, Some(instance), self.from.clone(), to, status)
+    }
 }
 
 /// The moves with files one instance took, followed together.
@@ -80,6 +89,7 @@ pub(super) async fn follow(
                     None => {
                         record_confirmed(&state.pool, &sent.mv, direction).await;
                         report.applied += 1;
+                        report.note(sent.moved(&instance.arr, "applied"));
                     }
                     Some(reason) => {
                         let failed = Said::told(&reason, &localizer);
@@ -88,6 +98,7 @@ pub(super) async fn follow(
                             record_held(&state.pool, &sent.mv, held).await;
                         }
                         count_failure(report, &sent.mv, &failed);
+                        report.note(sent.moved(&instance.arr, "failed"));
                     }
                 }
             }
@@ -99,6 +110,11 @@ pub(super) async fn follow(
         }
         if tokio::time::Instant::now() >= deadline {
             report.moving += left;
+            for instance in &following {
+                for sent in &instance.sent {
+                    report.note(sent.moved(&instance.arr, "moving"));
+                }
+            }
             return;
         }
         tokio::time::sleep(pause).await;
@@ -122,10 +138,9 @@ pub(super) fn latest_move<'a>(
         .max_by_key(|command| command.id)
 }
 
-/// Why a move the Arr took did not happen, `None` when it did: its command
-/// failed, or the title is elsewhere than `target`, which `elsewhere` words,
-/// or gone. `held` is the title as the Arr holds it now, `Some(None)` once it
-/// holds it no more.
+/// Why a move the Arr took did not happen, `None` when it did: its command failed, or the title
+/// is gone or elsewhere than `target`, worded by `elsewhere`. `held` is the title as the Arr
+/// holds it, `Some(None)` once it holds it no more.
 pub(super) fn undone(
     arr: &str,
     command: Option<&MoveCommand>,
@@ -151,11 +166,10 @@ pub(super) fn undone(
     }
 }
 
-/// How a move the Arr took and then undid is worded: its files could not
-/// follow. A sync finding a requested move undone cannot tell whether it was
-/// ever made, and says so.
+/// How a move the Arr took and then undid is worded: its files could not follow.
 pub(super) const UNDONE: &str = "ErrorMoveUndone";
 
+/// How a sync words a requested move it finds undone: it cannot tell whether it was ever made.
 pub(super) const NOT_MADE: &str = "ErrorMoveNotMade";
 
 /// A move an apply left `requested`, as a sync settles it.
@@ -169,12 +183,16 @@ pub(super) struct RequestedRow {
     reverting: bool,
     /// `None` once the sync has removed the title the Arr no longer holds.
     arr_id: Option<i64>,
+    current_path: Option<String>,
+    media_type: Option<String>,
+    tmdb_id: Option<i64>,
+    tvdb_id: Option<i64>,
+    imdb_id: Option<String>,
 }
 
-/// Settle the moves an apply left `requested` on `instance` once a sync has
-/// run: a title the Arr holds in its target with no move running is applied,
-/// one elsewhere or gone failed. Each title is read from the Arr rather than
-/// from its row, which keeps a move made within the second of the sync's read.
+/// Settle the moves an apply left `requested` on `instance` after a sync: one in its target with
+/// no move running is applied, one elsewhere or gone failed. Each title is read from the Arr
+/// rather than from its row, which keeps a move made within the second of the sync's read.
 pub async fn settle_requested(
     state: &AppState,
     instance: &crate::models::Instance,
@@ -182,7 +200,8 @@ pub async fn settle_requested(
 ) -> AppResult<()> {
     let rows: Vec<RequestedRow> = sqlx::query_as(
         "SELECT d.id AS decision_id, d.media_id, d.media_title, d.current_root_folder,
-                d.target_root_folder, d.reverted_at IS NOT NULL AS reverting, m.arr_id
+                d.target_root_folder, d.reverted_at IS NOT NULL AS reverting, m.arr_id,
+                m.current_path, m.media_type, m.tmdb_id, m.tvdb_id, m.imdb_id
            FROM decisions d
            LEFT JOIN media m ON m.id = d.media_id
           WHERE d.instance_id = ? AND d.status = 'requested'",
@@ -200,6 +219,7 @@ pub async fn settle_requested(
     let adapter = state.adapter(instance)?;
     let commands = adapter.move_commands().await?;
     let localizer = state.localizer().await;
+    let mut settled = Vec::new();
 
     for row in rows {
         let (direction, from, to) = if row.reverting {
@@ -216,7 +236,16 @@ pub async fn settle_requested(
             arr_id: row.arr_id.unwrap_or_default(),
             from,
             to,
+            media_type: row.media_type.unwrap_or_default(),
+            tmdb_id: row.tmdb_id,
+            tvdb_id: row.tvdb_id,
+            imdb_id: row.imdb_id,
         };
+        // The row holds the path the move wrote, and the title left its folder under `from`.
+        let to_path = row.current_path;
+        let from_path =
+            mv.from.as_deref().zip(to_path.as_deref()).map(|(root, at)| under(root, at));
+        let named = Some(instance.name.as_str());
         let command = row.arr_id.and_then(|item| latest_move(&commands, item, None));
         let held = match (row.arr_id, command.map(|c| &c.state)) {
             (_, Some(CommandState::Running)) => continue,
@@ -231,14 +260,26 @@ pub async fn settle_requested(
             },
         };
         match undone(&instance.name, command, held.as_ref(), &mv.to, NOT_MADE) {
-            None => record_confirmed(&state.pool, &mv, direction).await,
+            None => {
+                record_confirmed(&state.pool, &mv, direction).await;
+                settled.push(Moved::of(&mv, named, from_path, to_path, "applied"));
+            }
             Some(reason) => {
                 record_failure(state, &mv, &Said::told(&reason, &localizer), direction, by).await;
                 if let Some(Some(held)) = &held {
                     record_held(&state.pool, &mv, held).await;
                 }
+                settled.push(Moved::of(&mv, named, from_path, None, "failed"));
             }
         }
+    }
+    if !settled.is_empty() {
+        let total = settled.len();
+        settled.truncate(super::MOVED_LISTED);
+        crate::services::notify::send_later(
+            state,
+            crate::services::notify::Event::MovesSettled { total, moves: settled },
+        );
     }
     Ok(())
 }

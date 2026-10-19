@@ -2654,6 +2654,13 @@
           "success": {
             "description": "Whether the Arr took the write.",
             "type": "boolean"
+          },
+          "task_id": {
+            "description": "The task the write ran in, as `/jobs` lists it and a move notification names it.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -3322,7 +3329,7 @@
             "type": "string"
           },
           "data": {
-            "description": "Ids and counts for a program: the instance, the simulation, how many\ntitles moved.",
+            "description": "Ids and counts for a program: the instance, the simulation, how many titles moved. For\n`apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`\nand `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,\ntvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or\n`failed` and the paths as the Arr holds them. The two first carry `task_id`, which\n`GET /logs?task_id=` lists in full.",
             "type": "object"
           },
           "event": {
@@ -6778,6 +6785,15 @@
         "operationId": "list_logs",
         "parameters": [
           {
+            "description": "Only the writes of this task, as a move notification names it.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "Only the writes on this instance.",
             "in": "query",
             "name": "instance_id",
@@ -6878,6 +6894,15 @@
         "description": "The filters of `/logs` without its paging, up to the newest 50 000 rows. A cell that\nwould start a spreadsheet formula starts with an apostrophe, read as text.",
         "operationId": "export_logs",
         "parameters": [
+          {
+            "description": "Only the writes of this task, as a move notification names it.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "description": "Only the writes on this instance.",
             "in": "query",

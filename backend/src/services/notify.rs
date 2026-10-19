@@ -15,6 +15,7 @@ use tracing::{debug, error, warn};
 use crate::error::{AppError, AppResult};
 use crate::integrations::send_ok;
 use crate::localization::Localizer;
+use crate::services::executor::Moved;
 use crate::state::AppState;
 
 /// Something worth telling. A failure is sent whenever a webhook is set, a success only when
@@ -38,8 +39,21 @@ pub enum Event {
     SyncFailed { instance_id: String, instance: String, error: String },
     /// A simulation stored its proposals. Asked for by `notify_simulation_completed`.
     SimulationCompleted { simulation_id: String, total: usize, moves: usize },
-    /// An apply or a revert finished. Asked for by `notify_moves_completed`.
-    MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize, moving: usize },
+    /// An apply or a revert finished in task `task_id`, naming its first titles. Asked for by
+    /// `notify_moves_completed`.
+    MovesCompleted {
+        reverted: bool,
+        applied: usize,
+        failed: usize,
+        skipped: usize,
+        moving: usize,
+        task_id: String,
+        moves: Vec<Moved>,
+    },
+    /// A sync found where the moves an apply left `moving` ended, `total` of them, the first
+    /// named. Asked for by `notify_moves_completed`, so a media server scans once the files are
+    /// there.
+    MovesSettled { total: usize, moves: Vec<Moved> },
     /// A scheduled backup could not be written, every time it fails. `error`
     /// is what the system answered, as it answered it.
     BackupFailed { error: String },
@@ -55,6 +69,7 @@ impl Event {
             | Event::SyncFailed { .. }
             | Event::BackupFailed { .. } => "error",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
+            Event::MovesSettled { moves, .. } if failed_among(moves) > 0 => "warning",
             Event::AutoApplyHeld { .. } | Event::RuleTestsFailing { .. } => "warning",
             _ => "info",
         }
@@ -74,6 +89,7 @@ impl Event {
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
+            Event::MovesSettled { .. } => "moves_settled",
             Event::Test => "test",
         }
     }
@@ -87,8 +103,11 @@ impl Event {
             | Event::SyncFailed { .. }
             | Event::BackupFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
+            Event::MovesSettled { moves, .. } if failed_among(moves) > 0 => "warning",
             Event::AutoApplyHeld { .. } | Event::RuleTestsFailing { .. } => "warning",
-            Event::InstanceRecovered { .. } | Event::MovesCompleted { .. } => "success",
+            Event::InstanceRecovered { .. }
+            | Event::MovesCompleted { .. }
+            | Event::MovesSettled { .. } => "success",
             Event::SimulationCompleted { .. } | Event::Test => "info",
         }
     }
@@ -99,7 +118,9 @@ impl Event {
         match self {
             Event::SyncFailed { .. } => Some("notify_sync_failed"),
             Event::SimulationCompleted { .. } => Some("notify_simulation_completed"),
-            Event::MovesCompleted { .. } => Some("notify_moves_completed"),
+            Event::MovesCompleted { .. } | Event::MovesSettled { .. } => {
+                Some("notify_moves_completed")
+            }
             _ => None,
         }
     }
@@ -143,13 +164,13 @@ impl Event {
                 "NotificationMessageSimulationCompleted",
                 &[("total", &count(total)), ("moves", &count(moves))],
             ),
-            Event::MovesCompleted { reverted, applied, failed, skipped, moving } => {
+            Event::MovesCompleted { reverted, applied, failed, skipped, moving, moves, .. } => {
                 let key = if *reverted {
                     "NotificationMessageRevertCompleted"
                 } else {
                     "NotificationMessageApplyCompleted"
                 };
-                localizer.translate(
+                let counts = localizer.translate(
                     key,
                     &[
                         ("applied", &count(applied)),
@@ -157,7 +178,19 @@ impl Event {
                         ("failed", &count(failed)),
                         ("skipped", &count(skipped)),
                     ],
-                )
+                );
+                with_titles(counts, moves, applied + failed + moving, localizer)
+            }
+            Event::MovesSettled { total, moves } => {
+                let failed = failed_among(moves);
+                let counts = localizer.translate(
+                    "NotificationMessageMovesSettled",
+                    &[
+                        ("applied", &count(&(total.saturating_sub(failed)))),
+                        ("failed", &count(&failed)),
+                    ],
+                );
+                with_titles(counts, moves, *total, localizer)
             }
             Event::Test => localizer.translate("NotificationMessageTest", &[]),
         }
@@ -177,6 +210,7 @@ impl Event {
             Event::SimulationCompleted { .. } => "NotificationHeadlineSimulationCompleted",
             Event::MovesCompleted { reverted: false, .. } => "NotificationHeadlineApplyCompleted",
             Event::MovesCompleted { reverted: true, .. } => "NotificationHeadlineRevertCompleted",
+            Event::MovesSettled { .. } => "NotificationHeadlineMovesSettled",
             Event::Test => "NotificationHeadlineTest",
         };
         localizer.translate(key, &[])
@@ -203,12 +237,45 @@ impl Event {
             Event::SimulationCompleted { simulation_id, total, moves } => serde_json::json!({
                 "simulation_id": simulation_id, "total": total, "moves": moves
             }),
-            Event::MovesCompleted { applied, failed, skipped, moving, .. } => serde_json::json!({
-                "applied": applied, "failed": failed, "skipped": skipped, "moving": moving
+            Event::MovesCompleted { applied, failed, skipped, moving, task_id, moves, .. } => {
+                let total = applied + failed + moving;
+                serde_json::json!({
+                    "applied": applied, "failed": failed, "skipped": skipped, "moving": moving,
+                    "task_id": task_id, "moves_total": total, "truncated": total > moves.len(),
+                    "moves": moves,
+                })
+            }
+            Event::MovesSettled { total, moves } => serde_json::json!({
+                "moves_total": total, "truncated": *total > moves.len(), "moves": moves,
             }),
             Event::BackupFailed { .. } | Event::Test => serde_json::json!({}),
         }
     }
+}
+
+/// How many of `moves` failed.
+fn failed_among(moves: &[Moved]) -> usize {
+    moves.iter().filter(|moved| moved.status == "failed").count()
+}
+
+/// How many titles a message for a person names, the payload's `moves` carrying the rest.
+const TITLES_SAID: usize = 5;
+
+/// `counts`, then the first titles of `moves` and how many more of `total` there are.
+fn with_titles(counts: String, moves: &[Moved], total: usize, localizer: &Localizer) -> String {
+    let shown: Vec<&str> = moves.iter().take(TITLES_SAID).map(|m| m.title.as_str()).collect();
+    if shown.is_empty() {
+        return counts;
+    }
+    let titles = shown.join(&localizer.translate("ListSeparator", &[]));
+    let line = match total.saturating_sub(shown.len()) {
+        0 => localizer.translate("NotificationTitles", &[("titles", &titles)]),
+        more => localizer.translate(
+            "NotificationTitlesMore",
+            &[("titles", &titles), ("count", &more.to_string())],
+        ),
+    };
+    format!("{counts}\n{line}")
 }
 
 /// The values `notification_format` may hold: `auto` reads the format off the
@@ -405,8 +472,12 @@ pub struct Notification {
     pub allowed_mentions: AllowedMentions,
     /// The message again, where Apprise reads it.
     pub body: String,
-    /// Ids and counts for a program: the instance, the simulation, how many
-    /// titles moved.
+    /// Ids and counts for a program: the instance, the simulation, how many titles moved. For
+    /// `apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`
+    /// and `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,
+    /// tvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or
+    /// `failed` and the paths as the Arr holds them. The two first carry `task_id`, which
+    /// `GET /logs?task_id=` lists in full.
     #[schema(value_type = Object)]
     pub data: serde_json::Value,
 }
@@ -765,11 +836,44 @@ mod receivers {
                 error: "refused".into(),
             },
             Event::SimulationCompleted { simulation_id: "s-1".into(), total: 3, moves: 1 },
-            Event::MovesCompleted { reverted: false, applied: 1, failed: 1, skipped: 0, moving: 0 },
-            Event::MovesCompleted { reverted: true, applied: 1, failed: 0, skipped: 0, moving: 0 },
+            Event::MovesCompleted {
+                reverted: false,
+                applied: 1,
+                failed: 1,
+                skipped: 0,
+                moving: 0,
+                task_id: "t-1".into(),
+                moves: vec![moved("Akira", "applied"), moved("Totoro", "failed")],
+            },
+            Event::MovesCompleted {
+                reverted: true,
+                applied: 1,
+                failed: 0,
+                skipped: 0,
+                moving: 0,
+                task_id: "t-2".into(),
+                moves: vec![moved("Akira", "applied")],
+            },
+            Event::MovesSettled { total: 1, moves: vec![moved("Akira", "applied")] },
             Event::BackupFailed { error: "disk full".into() },
             Event::Test,
         ]
+    }
+
+    /// A film of `title` moved from the standard folder to the anime one.
+    fn moved(title: &str, status: &'static str) -> Moved {
+        Moved {
+            title: title.into(),
+            media_type: "movie".into(),
+            instance: Some("Radarr".into()),
+            instance_id: "inst-1".into(),
+            tmdb_id: Some(149),
+            tvdb_id: None,
+            imdb_id: Some("tt0094625".into()),
+            from_path: Some(format!("/movies/standard/{title} (1988)")),
+            to_path: (status != "failed").then(|| format!("/movies/anime/{title} (1988)")),
+            status,
+        }
     }
 
     const AT: &str = "2026-10-04T12:00:00Z";
@@ -810,12 +914,26 @@ mod receivers {
             (
                 "apply_completed",
                 "warning",
-                json!({ "applied": 1, "failed": 1, "skipped": 0, "moving": 0 }),
+                json!({
+                    "applied": 1, "failed": 1, "skipped": 0, "moving": 0, "task_id": "t-1",
+                    "moves_total": 2, "truncated": false,
+                    "moves": [as_json(&moved("Akira", "applied")), as_json(&moved("Totoro", "failed"))],
+                }),
             ),
             (
                 "revert_completed",
                 "info",
-                json!({ "applied": 1, "failed": 0, "skipped": 0, "moving": 0 }),
+                json!({
+                    "applied": 1, "failed": 0, "skipped": 0, "moving": 0, "task_id": "t-2",
+                    "moves_total": 1, "truncated": false, "moves": [as_json(&moved("Akira", "applied"))],
+                }),
+            ),
+            (
+                "moves_settled",
+                "info",
+                json!({
+                    "moves_total": 1, "truncated": false, "moves": [as_json(&moved("Akira", "applied"))],
+                }),
             ),
             ("backup_failed", "error", json!({})),
             ("test", "info", json!({})),
@@ -834,7 +952,7 @@ mod receivers {
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
         let outcomes = [
             "failure", "success", "failure", "warning", "warning", "failure", "info", "warning",
-            "success", "failure", "info",
+            "success", "success", "failure", "info",
         ];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
@@ -880,12 +998,41 @@ mod receivers {
         }
     }
 
-    /// ntfy publishes any body posted to a topic as its text, and turns one
-    /// over 4096 bytes into an attachment nobody reads in the notification.
+    fn as_json(moved: &Moved) -> serde_json::Value {
+        serde_json::to_value(moved).unwrap()
+    }
+
+    /// Fifty titles, the most a move notification lists, stay readable where a person reads them:
+    /// ntfy's text under 4096 bytes, Discord's content under 2000 characters, five titles named.
     #[test]
-    fn ntfy_shows_routarrs_json_for_every_event_as_text() {
+    fn a_long_move_list_stays_readable_in_every_format_a_person_reads() {
+        let titles: Vec<String> =
+            (0..50).map(|n| format!("A film with a long title, number {n}")).collect();
+        let event = Event::MovesCompleted {
+            reverted: false,
+            applied: 120,
+            failed: 0,
+            skipped: 0,
+            moving: 0,
+            task_id: "t-1".into(),
+            moves: titles.iter().map(|title| moved(title, "applied")).collect(),
+        };
+
+        let ntfy = payload(&event, AT, Format::Ntfy, &english()).body;
+        assert!(ntfy.len() <= 4096, "{} bytes", ntfy.len());
+        assert!(ntfy.contains("Others: 115"), "{ntfy}");
+        let content = sent(&event)["content"].as_str().unwrap().to_string();
+        assert!(content.chars().count() <= 2000, "{content}");
+        assert!(content.contains("number 4") && !content.contains("number 5"), "{content}");
+        assert_eq!(sent(&event)["data"]["moves"].as_array().unwrap().len(), 50);
+    }
+
+    /// ntfy publishes a body posted to a topic as its text, and turns one over 4096 bytes into an
+    /// attachment nobody reads in the notification: the ntfy format stays under it.
+    #[test]
+    fn ntfy_shows_every_event_as_text() {
         for event in every_event() {
-            let sent = serde_json::to_string(&notification(&event, AT, &english())).unwrap();
+            let sent = payload(&event, AT, Format::Ntfy, &english()).body;
             assert!(sent.len() <= 4096, "{} bytes", sent.len());
         }
     }
@@ -988,7 +1135,7 @@ mod receivers {
             .iter()
             .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
             .collect();
-        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 8, 2]);
+        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 2, 8, 2]);
         for event in every_event() {
             let sent = posted(&event, Format::Gotify);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");

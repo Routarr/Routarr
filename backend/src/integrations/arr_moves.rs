@@ -22,30 +22,26 @@ impl Api<'_> {
         self.client.get(format!("{}{path}", self.base_url)).header("X-Api-Key", self.api_key)
     }
 
-    /// Point the title `resource/id` (`movie/10`, `series/20`) at `root`,
-    /// keeping its folder name, and answer the path it now has.
-    ///
-    /// The whole record is read, patched and sent back, since a PUT drops
-    /// the fields it leaves out. The path goes in full: both editors name the
-    /// folder from the Arr's naming format, which renames it on disk under
-    /// every tool reading the library by path, and Radarr's refuses a root
-    /// folder Radarr does not list, which a declared destination never is.
+    /// Point the title `resource/id` (`movie/10`, `series/20`) at `root` under its folder name,
+    /// and answer its path before and after. The whole record goes back, since a PUT drops the
+    /// fields it leaves out. The path is written in full, not through the editors: they rename
+    /// the folder on disk from the naming format, and Radarr's refuses a root folder it does not
+    /// list, which a declared destination never is.
     pub async fn repoint(
         &self,
         resource: &str,
         id: i64,
         root: &str,
         move_files: bool,
-    ) -> AppResult<String> {
+    ) -> AppResult<Repointed> {
         let mut record: Value =
             send_json(self.service, self.get(&format!("/api/v3/{resource}/{id}"))).await?;
-        // Assigning a key of a `Value` that is not an object panics. A proxy
-        // answering 200 with a cached `[]`, or a base URL pointing at another
-        // service on the same host, is enough to get one.
+        // Assigning a key of a non-object `Value` panics, and a proxy's cached `[]` is one.
         if !record.is_object() {
             let said = format!("{resource} {id} came back as {}, not an object", kind_of(&record));
             return Err(super::upstream(self.service, 0, crate::error::Upstream::Unreadable, said));
         }
+        let from = record.get("path").and_then(Value::as_str).map(str::to_string);
         let path = join_path(root, &folder_name(&record));
         record["rootFolderPath"] = Value::String(root.to_string());
         record["path"] = Value::String(path.clone());
@@ -58,7 +54,7 @@ impl Api<'_> {
                 .json(&record),
         )
         .await?;
-        Ok(path)
+        Ok(Repointed { from, to: path })
     }
 
     /// The moves among the commands the Arr lists: queued, running, and
@@ -110,8 +106,7 @@ impl CommandDto {
             "failed" | "aborted" | "cancelled" | "orphaned" => {
                 CommandState::Ended(self.status.to_ascii_lowercase())
             }
-            // Queued, started, or a state a later release adds: the title is
-            // still the Arr's to settle.
+            // Queued, started, or a state a later release adds: still the Arr's to settle.
             _ => CommandState::Running,
         };
         let one = |key: &str| {
@@ -167,6 +162,12 @@ fn folder_name(record: &Value) -> String {
         .to_string()
 }
 
+/// Where a title now at `path` stood under `root`: a move keeps its folder name.
+pub fn under(root: &str, path: &str) -> String {
+    let name = path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or_default();
+    join_path(root, name)
+}
+
 fn join_path(root: &str, name: &str) -> String {
     let separator = if root.contains('\\') && !root.contains('/') { '\\' } else { '/' };
     format!("{}{separator}{name}", root.trim_end_matches(['/', '\\']))
@@ -199,9 +200,8 @@ mod tests {
         assert_eq!(join_path("D:\\tv\\anime", "Dark"), "D:\\tv\\anime\\Dark");
     }
 
-    /// Each title a command carries, single or bulk, with the command's
-    /// state. Commands that move nothing are left out. The first two are
-    /// `/api/v3/command` entries in full, as Radarr and Sonarr list them.
+    /// Commands that move nothing are left out. The first two entries are in full, as Radarr and
+    /// Sonarr list them on `/api/v3/command`.
     #[test]
     fn every_title_a_move_command_carries_is_read() {
         let listed: Vec<CommandDto> = serde_json::from_value(json!([
@@ -248,4 +248,12 @@ mod tests {
         );
         assert_eq!(moves[1].message.as_deref(), Some("disk full"));
     }
+}
+
+/// Where a moved title was and where it now is, as the Arr holds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Repointed {
+    /// `None` when the Arr's record named no path.
+    pub from: Option<String>,
+    pub to: String,
 }

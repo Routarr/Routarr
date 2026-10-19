@@ -13,9 +13,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("001_release_0_1_5", include_str!("../migrations/001_release_0_1_5.sql")),
     ("002_release_0_2_0", include_str!("../migrations/002_release_0_2_0.sql")),
     ("003_rule_template", include_str!("../migrations/003_rule_template.sql")),
-    ("004_rule_test_verdicts", include_str!("../migrations/004_rule_test_verdicts.sql")),
-    ("005_arr_payload_fields", include_str!("../migrations/005_arr_payload_fields.sql")),
-    ("006_sources_and_automation", include_str!("../migrations/006_sources_and_automation.sql")),
+    ("004_release_0_3_0", include_str!("../migrations/004_release_0_3_0.sql")),
 ];
 
 /// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5` builds, in the

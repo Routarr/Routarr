@@ -139,10 +139,8 @@ pub(super) fn moved_between(mv: &PendingMove) -> String {
     format!("{} → {}", mv.from.as_deref().unwrap_or("(unknown)"), mv.to)
 }
 
-/// Mark the decision applied *and* update the local media row.
-///
-/// Without the second write the next simulation would keep proposing the same
-/// move until the following sync, and the UI would show the media as misplaced.
+/// Record a move the Arr made, the decision and the title's row together: an `applied` decision
+/// beside a stale path proposes the same move again and shows the title as misplaced.
 pub(super) async fn record_success(
     state: &AppState,
     mv: &PendingMove,
@@ -153,8 +151,6 @@ pub(super) async fn record_success(
     let now = format_timestamp(chrono::Utc::now());
     let pool = &state.pool;
 
-    // The decision and the media row in one transaction: an `applied` decision
-    // beside a stale path reproposes a move that already happened.
     if let Err(e) = record_outcome(pool, mv, new_path, &now, direction).await {
         error!(decision = %mv.decision_id, "The move succeeded but recording it failed: {e}");
     }
@@ -162,14 +158,10 @@ pub(super) async fn record_success(
     log_execution(pool, by, direction.action(), &moved_between(mv), true, None, mv).await;
 }
 
-/// The two rows a successful move changes, written together, and on the disk
-/// before this returns.
-///
-/// `moved_at` is what stops a synchronisation that read the Arr *before* this
-/// move from putting the old path back (`upsert_media` in `services/sync.rs`).
-/// Under the pool's `synchronous = NORMAL`, a power cut can roll back the last
-/// commits, and the record of a move the Arr has made, and with it its revert,
-/// would be lost: this one commit waits for the disk.
+/// The two rows a successful move changes, in one commit that waits for the disk: under the
+/// pool's `synchronous = NORMAL` a power cut can roll it back, losing a move the Arr made and its
+/// revert. `moved_at` stops a sync that read the Arr before the move from putting the old path
+/// back (`upsert_media` in `services/sync.rs`).
 pub(super) async fn record_outcome(
     pool: &SqlitePool,
     mv: &PendingMove,
@@ -231,8 +223,7 @@ pub(super) async fn record_failure(
              WHERE id = ?",
         )
         .bind(&failed.stored),
-        // A revert that fails leaves the move it tried to undo in place: the
-        // decision is applied again, so the next Revert still finds it.
+        // A failed revert leaves the move in place: applied again, the next Revert finds it.
         MoveDirection::Revert => {
             sqlx::query("UPDATE decisions SET status = 'applied', reverted_at = NULL WHERE id = ?")
         }
@@ -245,12 +236,9 @@ pub(super) async fn record_failure(
     log_execution(&state.pool, by, direction.action(), "failed", false, stored, mv).await;
 }
 
-/// One line of the audit trail for a move or a revert.
-///
-/// Mind the column names: `actor` holds the trigger (`manual`, `api`, `auto`
-/// and so on), and `subject` the person the authentication mode named, which
-/// `Identity::actor()` supplies. `NULL` in `subject` means nobody asked, or the
-/// mode names nobody.
+/// One execution log line for a move or a revert. Mind the names: `actor` holds the trigger,
+/// and `subject` the name `Identity::actor()` gives, `NULL` when nobody asked or the mode names
+/// nobody.
 pub(super) async fn log_execution(
     pool: &SqlitePool,
     by: &Attribution,
@@ -262,8 +250,8 @@ pub(super) async fn log_execution(
 ) {
     let written = sqlx::query(
         "INSERT INTO execution_logs (id, decision_id, action, details, success, error_message,
-         instance_id, media_id, media_title, actor, subject, subject_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         instance_id, media_id, media_title, actor, subject, subject_key, job_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(&mv.decision_id)
@@ -277,6 +265,7 @@ pub(super) async fn log_execution(
     .bind(&by.trigger)
     .bind(&by.subject)
     .bind(&by.key)
+    .bind(&by.job)
     .execute(pool)
     .await;
     if let Err(e) = written {

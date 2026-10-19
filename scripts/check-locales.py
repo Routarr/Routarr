@@ -76,7 +76,7 @@ NOT_COUNTS = {
     "number", "observed", "opened", "origin", "path", "paths", "provider", "query", "reason",
     "reasons", "template", "regions", "route", "rule", "scale", "schema", "scope", "scopes", "screen", "second",
     "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
-    "tab", "terms", "title", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
+    "tab", "terms", "title", "titles", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
 }
 
 

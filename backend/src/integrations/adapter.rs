@@ -233,7 +233,7 @@ impl ArrAdapter {
         arr_id: i64,
         root_folder_path: &str,
         move_files: bool,
-    ) -> AppResult<String> {
+    ) -> AppResult<super::arr_moves::Repointed> {
         match self {
             Self::Radarr(c) => c.update_movie_path(arr_id, root_folder_path, move_files).await,
             Self::Sonarr(c) => c.update_series_path(arr_id, root_folder_path, move_files).await,
