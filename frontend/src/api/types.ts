@@ -32,6 +32,10 @@ export interface Instance {
   last_webhook_at: string | null;
   /** The event that delivery carried, as `Test`. */
   last_webhook_event: string | null;
+  /** The Arr's webhook connection as last read, null until a sync or a test reads it. */
+  webhook_check: WebhookCheck | null;
+  /** The switches that connection needs ticked, as the Arr's interface names them. */
+  webhook_triggers: string[];
   /** When a sync last *succeeded*. Null while none ever has. */
   last_sync_at: string | null;
   /** When one was last attempted, successful or not. */
@@ -44,6 +48,24 @@ export interface Instance {
   webhook_token: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** The Arr's webhook connection to an instance, as Routarr last read it. */
+export interface WebhookCheck {
+  state: 'ok' | 'absent' | 'misconfigured';
+  /** Null when no connection names the instance. */
+  token: 'ok' | 'stale' | 'missing' | 'unchecked' | null;
+  missing_triggers: string[];
+  /** The method, when Routarr refuses it. */
+  method: string | null;
+  tags: string[];
+  /** The instance a connection on this Arr names instead. */
+  other_instance: string | null;
+  /** What to fix, each a sentence in the interface language. */
+  problems: string[];
+  /** What is worth knowing and stops nothing. */
+  notes: string[];
+  checked_at: string;
 }
 
 export interface RootFolder {
@@ -868,6 +890,8 @@ export interface TestConnectionResponse {
   inaccessible_root_folders: number;
   /** What this release of the Arr lacks, below the oldest Routarr supports. */
   warning: string | null;
+  /** The webhook connection of the saved instance tried. Null for values not saved yet. */
+  webhook: WebhookCheck | null;
 }
 
 /** What a pass reading a source's answers again did. */

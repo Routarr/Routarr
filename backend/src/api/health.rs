@@ -14,7 +14,7 @@ use sqlx::AssertSqlSafe;
 use super::onboarding::step;
 use crate::error::AppResult;
 use crate::localization::Localizer;
-use crate::models::Instance;
+use crate::models::{Instance, WebhookCheck, WebhookState};
 use crate::services::metadata;
 use crate::state::{AppState, Settings};
 
@@ -55,8 +55,8 @@ pub struct Warning {
     /// `backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
-    /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing` or
-    /// `webhook_never_delivered`. The list may grow.
+    /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,
+    /// `webhook_never_delivered` or `webhook_misconfigured`. The list may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -828,22 +828,36 @@ async fn offline_warnings(
         ));
     }
 
-    // An armed instance its Arr never reached leaves each new title to the next sync, unsaid.
+    // An armed instance its Arr cannot reach leaves each new title to the next sync, unsaid. An
+    // absent connection may hide behind a proxy rewriting the path, so only silence warns of it.
     if state.bool_setting("auto_apply_enabled").await && !state.bool_setting("global_dry_run").await
     {
-        let silent: Vec<(String,)> = sqlx::query_as(
-            "SELECT name FROM instances
-              WHERE enabled = 1 AND auto_apply = 1 AND last_webhook_at IS NULL
-                AND COALESCE(webhook_token_at, created_at) <= datetime('now', '-1 hour')
+        let armed: Vec<(String, bool, Option<String>)> = sqlx::query_as(
+            "SELECT name,
+                    last_webhook_at IS NULL
+                      AND COALESCE(webhook_token_at, created_at) <= datetime('now', '-1 hour'),
+                    webhook_check
+               FROM instances
+              WHERE enabled = 1 AND auto_apply = 1
               ORDER BY name",
         )
         .fetch_all(&state.pool)
         .await?;
-        for (name,) in silent {
-            warnings.push(Warning::new(
-                "webhook_never_delivered",
-                localizer.translate("WarnWebhookNeverDelivered", &[("instance", &name)]),
-            ));
+        for (name, silent, check) in armed {
+            let check = check.and_then(|check| serde_json::from_str::<WebhookCheck>(&check).ok());
+            match check.filter(|check| check.state == WebhookState::Misconfigured) {
+                Some(check) => warnings.extend(
+                    check
+                        .problems(&name, localizer)
+                        .into_iter()
+                        .map(|problem| Warning::new("webhook_misconfigured", problem)),
+                ),
+                None if silent => warnings.push(Warning::new(
+                    "webhook_never_delivered",
+                    localizer.translate("WarnWebhookNeverDelivered", &[("instance", &name)]),
+                )),
+                None => {}
+            }
         }
     }
 

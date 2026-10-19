@@ -1754,6 +1754,18 @@ td * {
   color: var(--status-success);
 }
 
+/* The webhook's last delivery and what the Arr's connection lacks, one line each. */
+.webhook-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  font-size: 12px;
+}
+.webhook-status > p {
+  margin: 0;
+}
+
 /* Underlined, since its colour alone does not set a link apart from the words around it. */
 .text-link {
   color: var(--accent-strong);

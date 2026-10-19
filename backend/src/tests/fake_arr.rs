@@ -135,6 +135,8 @@ struct FakeState {
     /// The country Radarr's metadata settings rate films for, as its
     /// `/config/metadata` answers it.
     certification_country: Arc<Mutex<String>>,
+    /// What `/notification` answers: the connections, or a status for a failing read.
+    connections: Arc<Mutex<Result<serde_json::Value, u16>>>,
     /// Whether the Arr runs on Windows: every path it writes is under
     /// `D:\Media`, with backslashes, and a root folder ends with one, as a
     /// Windows Radarr or Sonarr writes it.
@@ -160,6 +162,7 @@ pub struct FakeArr {
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     asleep: Arc<Mutex<Vec<String>>>,
     certification_country: Arc<Mutex<String>>,
+    connections: Arc<Mutex<Result<serde_json::Value, u16>>>,
     /// Serving until the fake is dropped.
     _server: super::Served,
 }
@@ -306,6 +309,16 @@ impl FakeArr {
         *self.certification_country.lock().expect("lock") = country.to_string();
     }
 
+    /// From now on `/notification` lists `connections`, as the Arr's Settings, Connect holds them.
+    pub fn hold_connections(&self, connections: serde_json::Value) {
+        *self.connections.lock().expect("lock") = Ok(connections);
+    }
+
+    /// From now on `/notification` answers `status`.
+    pub fn break_connection_listing(&self, status: u16) {
+        *self.connections.lock().expect("lock") = Err(status);
+    }
+
     /// The most requests this fake ever had open at once. One means the caller was sequential.
     pub fn max_concurrent(&self) -> usize {
         self.max_in_flight.load(Ordering::SeqCst)
@@ -362,6 +375,7 @@ impl FakeArr {
             Arc::new(Mutex::new(Vec::new()));
         let asleep: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let certification_country = Arc::new(Mutex::new("us".to_string()));
+        let connections = Arc::new(Mutex::new(Ok(serde_json::json!([]))));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             fail_with,
@@ -385,6 +399,7 @@ impl FakeArr {
             more_root_folders: Arc::clone(&more_root_folders),
             asleep: Arc::clone(&asleep),
             certification_country: Arc::clone(&certification_country),
+            connections: Arc::clone(&connections),
             windows,
         };
 
@@ -396,6 +411,7 @@ impl FakeArr {
             .route("/api/v3/filesystem", get(filesystem))
             .route("/api/v3/tag", get(tags))
             .route("/api/v3/qualityprofile", get(quality_profiles))
+            .route("/api/v3/notification", get(notifications))
             .route("/api/v3/movie", get(movies))
             .route("/api/v3/movie/lookup/tmdb", get(movie_lookup_tmdb))
             .route("/api/v3/movie/lookup/imdb", get(movie_lookup_imdb))
@@ -428,6 +444,7 @@ impl FakeArr {
             more_root_folders,
             asleep,
             certification_country,
+            connections,
             _server: server,
         }
     }
@@ -473,6 +490,15 @@ async fn system_status(
     record_key(&state, &headers);
     let (version, app) = state.status.lock().expect("lock").clone();
     Json(serde_json::json!({ "version": version, "appName": app }))
+}
+
+async fn notifications(State(state): State<FakeState>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    record_read(&state, "/api/v3/notification");
+    match state.connections.lock().expect("lock").clone() {
+        Ok(connections) => Json(connections).into_response(),
+        Err(status) => StatusCode::from_u16(status).expect("a status").into_response(),
+    }
 }
 
 async fn root_folders(

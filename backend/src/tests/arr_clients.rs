@@ -240,6 +240,8 @@ async fn the_adapter_refuses_an_unknown_instance_type() {
         last_webhook_at: None,
         last_webhook_event: None,
         webhook_token_at: None,
+        webhook_check: None,
+        webhook_checked_at: None,
     };
 
     assert!(ArrAdapter::for_instance(client(), &instance, "k").is_err());

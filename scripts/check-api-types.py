@@ -16,6 +16,7 @@ TYPES = ROOT / "frontend" / "src" / "api" / "types.ts"
 # Rust struct -> TypeScript interface. A new response type needs its line here.
 PAIRS: dict[str, str] = {
     "InstanceResponse": "Instance",
+    "WebhookCheckResponse": "WebhookCheck",
     "RootFolderWithInstance": "RootFolder",
     "CategoryWithUsage": "Category",
     "OverrideWithMedia": "OverrideEntry",

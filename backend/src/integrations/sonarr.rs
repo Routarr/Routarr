@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::arr_moves::{Api, MoveCommand};
+use super::arr_webhook::RoutarrConnection;
 use super::{send_json, send_json_within};
 use crate::error::AppResult;
 use crate::models::ExternalId;
@@ -184,6 +185,12 @@ impl SonarrClient {
     /// Get the tag catalogue: a media row only carries numeric ids.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTagDto>> {
         send_json(SERVICE, self.get("/api/v3/tag")).await
+    }
+
+    /// The webhook connections addressed to a Routarr instance.
+    pub async fn webhook_connections(&self) -> AppResult<Vec<RoutarrConnection>> {
+        let listed = send_json(SERVICE, self.get("/api/v3/notification")).await?;
+        Ok(super::arr_webhook::routarr_connections(listed))
     }
 
     /// Get the quality profiles, which a media row names by id.

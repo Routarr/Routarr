@@ -15,6 +15,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::arr_webhook::{self, TOKEN_HEADER};
 use crate::jobs::registry::WaitingPlace;
 use crate::models::Instance;
 use crate::services::auto_apply::{self, AutoApplyOutcome};
@@ -36,9 +37,6 @@ pub struct ArrWebhookMedia {
     pub title: Option<String>,
 }
 
-/// The header an Arr that sends custom headers carries the token in.
-pub const TOKEN_HEADER: &str = "X-Routarr-Token";
-
 /// How long a delivery waits for the one before it, on its own task. A
 /// season import arrives one file at a time, each answered before the next is
 /// sent, so it never reaches it.
@@ -48,20 +46,6 @@ pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 /// time, and four leave room for a retrying proxy. Unbounded, the waiters would hand an
 /// unauthenticated caller a task each. Past the bound a delivery is acknowledged without work.
 pub const MAX_WAITING_DELIVERIES: usize = 4;
-
-/// The events that can change where a title belongs, lower-cased since both Arrs warn their case
-/// may change. A file deletion counts: removing the last file flips `has_files`, which a rule
-/// may read.
-const ACTED_ON: [&str; 8] = [
-    "download",
-    "movieadded",
-    "seriesadd",
-    "rename",
-    "moviefiledelete",
-    "episodefiledelete",
-    "moviedelete",
-    "seriesdelete",
-];
 
 /// The events that report an item is gone rather than changed.
 const DELETE_EVENTS: [&str; 2] = ["moviedelete", "seriesdelete"];
@@ -160,7 +144,7 @@ async fn deliver(
         return answered(serde_json::json!({ "ok": true, "message": "Webhook reachable" }));
     }
 
-    if !ACTED_ON.contains(&kind.as_str()) {
+    if !arr_webhook::acted_on(&kind) {
         let first = IGNORED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(kind);
         if first {
             info!(instance = %instance.name, event = %event, "Ignoring this webhook event");
