@@ -218,7 +218,8 @@ async fn move_to(
     app.post("/api/v1/overrides", pinned).await.assert_ok();
     app.simulate().await;
     let decision: String = sqlx::query_scalar(
-        "SELECT id FROM decisions WHERE media_id = ? AND action = 'move' AND superseded = 0",
+        "SELECT id FROM decisions
+          WHERE media_id = ? AND action = 'move' AND status = 'pending' AND superseded = 0",
     )
     .bind(&media_id)
     .fetch_one(&app.state.pool)
@@ -307,6 +308,8 @@ async fn a_title_moved_into_a_declared_destination_is_not_proposed_again() {
         let path = held["path"].as_str().unwrap();
         assert!(crate::paths::within(path, destination.1), "Radarr holds {path}");
 
+        // A later sync: within the second of the move, the sync keeps the path the move wrote.
+        tokio::time::sleep(Duration::from_millis(1100)).await;
         sync(&app, "radarr").await;
         let (_, root) = row(&app, "radarr", arr_id).await.unwrap();
         assert!(crate::paths::same(&root, destination.1), "read back as {root}");
