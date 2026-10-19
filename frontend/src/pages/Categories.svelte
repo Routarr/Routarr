@@ -78,9 +78,33 @@
     () => t('ConfirmLeaveUnsavedMappings', { count: unsavedPicks }),
   );
 
+  /** The other folders of `folder`'s instance that `category` already leads to. */
+  const sharing = (folder: RootFolder, category: string) =>
+    folders.filter(
+      (other) =>
+        other.id !== folder.id &&
+        other.instance_id === folder.instance_id &&
+        category !== '' &&
+        other.category === category,
+    );
+
   async function saveCategory(folder: RootFolder) {
     const category = pickedFor(folder);
-    await act(() => api.updateRootFolderCategory(folder.id, category || null), t('MappingUpdated'));
+    const others = sharing(folder, category);
+    // Joining a category another folder holds shares its new titles: asked, never assumed.
+    if (others.length > 0) {
+      const question = t('ConfirmAddToFolderSet', {
+        category,
+        instance: folder.instance_name,
+        folders: others.map((other) => other.path).join(t('ListSeparator')),
+        folder: folder.path,
+      });
+      if (!(await askConfirmation(question, 'AddFolderToCategory', false))) return;
+    }
+    await act(
+      () => api.updateRootFolderCategory(folder.id, category || null, others.length > 0),
+      t('MappingUpdated'),
+    );
     // Written or refused, the row reads what the server now holds.
     delete picked[folder.id];
     // Save turns disabled once nothing is pending, and a disabled button
@@ -285,6 +309,15 @@
                       {t('Save')}
                     </button>
                   </div>
+                  {#if folder.category && sharing(folder, folder.category).length > 0}
+                    <span class="status-reason">
+                      {t('MappingSharedWith', {
+                        folders: sharing(folder, folder.category)
+                          .map((other) => other.path)
+                          .join(t('ListSeparator')),
+                      })}
+                    </span>
+                  {/if}
                 </td>
                 <td>
                   <!-- Only what Routarr owns. A folder the instance reports

@@ -432,25 +432,6 @@ pub async fn import(
             continue;
         }
 
-        // One folder per category and instance, as the mapping route insists.
-        let taken: Option<String> = sqlx::query_scalar(
-            "SELECT path FROM root_folders
-              WHERE category = ?
-                AND instance_id = (SELECT id FROM instances WHERE lower(name) = lower(trim(?)))
-                AND path <> ? COLLATE path
-              LIMIT 1",
-        )
-        .bind(&category)
-        .bind(&mapping.instance_name)
-        .bind(&mapping.path)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some(other) = taken {
-            let values = [mapped.as_slice(), &[("folder", other.as_str())]].concat();
-            report.skipped.push(skip("ImportSkippedMappingTaken", &values));
-            continue;
-        }
-
         let affected = sqlx::query(
             "UPDATE root_folders SET category = ?
               WHERE path = ? COLLATE path

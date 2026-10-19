@@ -151,21 +151,6 @@ pub async fn keep(
     let Some(category) = folder_category(&mut *tx, &instance_id, &folder).await? else {
         return Err(refused("folder_unmapped", "ErrorKeepFolderUnmapped", &[("folder", &folder)]));
     };
-    // A second folder of the instance leading to the category is where the pin could send it.
-    let folders: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM root_folders WHERE instance_id = ? AND category = ?",
-    )
-    .bind(&instance_id)
-    .bind(&category)
-    .fetch_one(&mut *tx)
-    .await?;
-    if folders > 1 {
-        return Err(refused(
-            "category_ambiguous",
-            "ErrorKeepCategoryAmbiguous",
-            &[("category", &category)],
-        ));
-    }
     crate::race::checked("overrides::keep", &id).await;
     let by = identity.attribution();
     pin_in(&mut tx, std::slice::from_ref(&id), &category, req.reason.as_deref(), &by, &localizer)

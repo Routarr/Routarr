@@ -418,10 +418,10 @@ export const api = {
     request<unknown>(`/root-folders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getMappingConflicts: (signal?: AbortSignal) =>
     request<MappingConflict[]>('/root-folders/conflicts', { signal }),
-  updateRootFolderCategory: (id: string, category: string | null) =>
+  updateRootFolderCategory: (id: string, category: string | null, addToSet = false) =>
     request<unknown>(`/root-folders/${id}/category`, {
       method: 'PUT',
-      body: body({ category }),
+      body: body(addToSet ? { category, add_to_set: true } : { category }),
     }),
 
   getCategories: (signal?: AbortSignal) => request<Category[]>('/categories', { signal }),

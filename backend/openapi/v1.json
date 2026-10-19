@@ -2727,7 +2727,7 @@
             ]
           },
           "kind": {
-            "description": "An open list. `duplicate_mapping`: two folders of one instance claim\none category. `unmapped_category`: an enabled rule targets a category\nno folder holds on an instance the rule reaches. `unreachable_root_folder`:\nthe Arr did not reach a folder on its last look, mapped or not.\n`orphaned_mapping`: a folder is mapped to a category that no longer\nexists.",
+            "description": "An open list. `unmapped_category`: an enabled rule targets a category no folder holds on\nan instance the rule reaches. `unreachable_root_folder`: the Arr did not reach a folder on\nits last look, mapped or not. `orphaned_mapping`: a folder is mapped to a category that no\nlonger exists.",
             "type": "string"
           },
           "message": {
@@ -5359,6 +5359,10 @@
         "additionalProperties": false,
         "description": "Request to update a root folder's category mapping.",
         "properties": {
+          "add_to_set": {
+            "description": "Join the folders the category already leads to on this instance, refused with\n`category_mapped` otherwise. A title in any of them stays, and one entering the category\ngoes to the folder with the most room.",
+            "type": "boolean"
+          },
           "category": {
             "description": "The category the folder receives, or null to unmap it. Required: a body\nthat leaves it out, or misspells it, would otherwise unmap the folder.",
             "type": [
@@ -7400,7 +7404,7 @@
                 }
               }
             },
-            "description": "`reason` is `no_current_folder`, `folder_unmapped` when the folder leads to no category, or `category_ambiguous` when another folder of the instance leads to the same one."
+            "description": "`reason` is `no_current_folder`, or `folder_unmapped` when the folder leads to no category."
           },
           "default": {
             "content": {
@@ -8027,6 +8031,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`reason` is `category_mapped` when another folder of the instance already leads to the category and `add_to_set` is not true."
           },
           "default": {
             "content": {

@@ -61,12 +61,10 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<RootFolde
 /// A mapping problem the user should resolve.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MappingConflict {
-    /// An open list. `duplicate_mapping`: two folders of one instance claim
-    /// one category. `unmapped_category`: an enabled rule targets a category
-    /// no folder holds on an instance the rule reaches. `unreachable_root_folder`:
-    /// the Arr did not reach a folder on its last look, mapped or not.
-    /// `orphaned_mapping`: a folder is mapped to a category that no longer
-    /// exists.
+    /// An open list. `unmapped_category`: an enabled rule targets a category no folder holds on
+    /// an instance the rule reaches. `unreachable_root_folder`: the Arr did not reach a folder on
+    /// its last look, mapped or not. `orphaned_mapping`: a folder is mapped to a category that no
+    /// longer exists.
     pub kind: String,
     /// `error` for what routing cannot settle, `warning` for the rest.
     pub severity: String,
@@ -84,30 +82,6 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
     let pool = &state.pool;
     let localizer = state.localizer().await;
     let mut conflicts = Vec::new();
-
-    // Two root folders on the same instance claiming the same category: the
-    // routing engine would pick one arbitrarily.
-    let duplicates: Vec<(String, String, i64)> = sqlx::query_as(
-        "SELECT i.name, rf.category, COUNT(*) FROM root_folders rf
-         JOIN instances i ON i.id = rf.instance_id
-         WHERE rf.category IS NOT NULL AND rf.category != ''
-         GROUP BY rf.instance_id, rf.category HAVING COUNT(*) > 1",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    for (instance, category, count) in duplicates {
-        conflicts.push(MappingConflict {
-            kind: "duplicate_mapping".into(),
-            severity: "error".into(),
-            instance_name: Some(instance.clone()),
-            category: Some(category.clone()),
-            message: localizer.translate(
-                "ConflictDuplicateMapping",
-                &[("count", &count.to_string()), ("instance", &instance), ("category", &category)],
-            ),
-        });
-    }
 
     // Root folders the Arr did not reach on its last look.
     //
@@ -389,8 +363,8 @@ pub async fn update_category(
     if let Some(ref cat) = category {
         super::categories::ensure_exists(&mut tx, cat, &localizer).await?;
 
-        // Two folders on one instance answering to the same category makes the
-        // target ambiguous, so refuse it up front rather than routing at random.
+        // A second folder for a category only when asked: written by mistake, it would share
+        // the category's new titles without a word.
         let taken: Option<String> = sqlx::query_scalar(
             "SELECT rf.path FROM root_folders rf
              WHERE rf.category = ?
@@ -403,7 +377,7 @@ pub async fn update_category(
         .fetch_optional(&mut *tx)
         .await?;
 
-        if let Some(path) = taken {
+        if let Some(path) = taken.filter(|_| !req.add_to_set) {
             return Err(AppError::Conflict {
                 reason: "category_mapped",
                 message: localizer

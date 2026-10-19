@@ -609,9 +609,8 @@ fn set_exception() {}
     responses(
         (status = 201, body = OverrideEntry,
 headers(("Location" = String, description = "Where the exception is found."))),
-        (status = 409, description = "`reason` is `no_current_folder`, `folder_unmapped` when \
-the folder leads to no category, or `category_ambiguous` when another folder of the instance \
-leads to the same one.", body = ErrorResponse),
+        (status = 409, description = "`reason` is `no_current_folder`, or `folder_unmapped` when \
+the folder leads to no category.", body = ErrorResponse),
     )
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -1189,7 +1188,11 @@ fn remove_destination() {}
     tag = "categories",
     params(("id" = String, Path, description = "The folder's id.")),
     request_body = UpdateRootFolderCategory,
-    responses((status = 200, body = Mapped))
+    responses(
+        (status = 200, body = Mapped),
+        (status = 409, description = "`reason` is `category_mapped` when another folder of the \
+instance already leads to the category and `add_to_set` is not true.", body = ErrorResponse),
+    )
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn map_folder() {}
