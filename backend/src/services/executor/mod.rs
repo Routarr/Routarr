@@ -461,8 +461,8 @@ async fn run_in_slices(
                         break;
                     }
                 }
-                // Earlier slices moved titles, which a bare error would leave unreported.
-                Err(e) if report.applied > 0 => {
+                // Earlier slices wrote to the Arr, which a bare error would leave unreported.
+                Err(e) if report.applied + report.moving + report.failed > 0 => {
                     error!(slices = report.batches_run, "A run in slices stopped: {e}");
                     report.stopped_early = true;
                     break;

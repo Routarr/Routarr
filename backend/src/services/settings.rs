@@ -10,13 +10,11 @@ use crate::localization::Localizer;
 /// The values the `onboarding` setting may hold.
 pub const ONBOARDING_STATES: [&str; 3] = ["pending", "dismissed", "done"];
 
-/// The most backups that may be kept.
-///
-/// A ceiling rather than a matter of taste: this is the length of a list the
-/// interface renders in full, and the number of archives a disk has to hold.
 /// The longest retention in days a setting may hold.
 const MAX_RETENTION_DAYS: i64 = 3_650;
 
+/// The most backups that may be kept: the length of a list the interface renders in full, and
+/// the number of archives a disk has to hold.
 const MAX_BACKUPS_KEPT: i64 = 50;
 
 /// Settings Routarr knows about, with the validation each one requires.
