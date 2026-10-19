@@ -76,8 +76,11 @@ impl Default for SimulationOptions {
 struct RoutingContext {
     rules: Vec<Rule>,
     overrides: HashMap<String, String>,
-    /// (instance_id, category) -> root folder path
-    root_folders: HashMap<(String, String), String>,
+    /// (instance_id, category) -> the root folders leading to it, in `paths::key` order
+    root_folders: HashMap<(String, String), Vec<String>>,
+    /// media_id -> the folder a pending move already proposes, which holds while it stays in
+    /// the category's set: free space changes at every sync.
+    proposed: HashMap<String, String>,
     /// (instance_id, `paths::key` of a root folder) -> the category it leads to
     folder_categories: HashMap<(String, String), String>,
     /// (instance_id, normalised path) -> free bytes the Arr last reported, or
@@ -351,10 +354,11 @@ fn evaluate_pass(
         items: usize,
     }
     let mut incoming: HashMap<(String, String), Incoming> = HashMap::new();
+    let mut planned = Planned::new();
 
     for (index, media) in library.media.iter().enumerate() {
         evaluated.store(index, Ordering::Relaxed);
-        let route = route(ctx, media, rules, now);
+        let route = route(ctx, media, rules, now, &planned);
 
         match &route.evaluation.winner {
             Some(winner) if winner.rule_id == OVERRIDE_RULE_ID => counters.overrides_applied += 1,
@@ -384,6 +388,8 @@ fn evaluate_pass(
                     entry.same_filesystem_bytes += size;
                 } else {
                     entry.bytes += size;
+                    let key = (media.instance_id.clone(), crate::paths::key(target));
+                    *planned.entry(key).or_default() += size;
                 }
             }
             (DecisionAction::None, _) => counters.already_correct += 1,
@@ -542,10 +548,19 @@ pub struct Route {
     pub action: DecisionAction,
 }
 
+/// Bytes a pass already sends into a folder, by (instance_id, `paths::key` of the folder).
+type Planned = HashMap<(String, String), i64>;
+
 /// Decide one item: its metadata, the rules, its override and the mappings.
 /// The simulation, the apply, the rule report and the explanation all call it,
-/// so they agree on where an item goes.
-fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateTime<Utc>) -> Route {
+/// so they agree on where an item goes. `planned` is what the pass already sends.
+fn route(
+    ctx: &RoutingContext,
+    media: &Media,
+    rules: &[Rule],
+    now: chrono::DateTime<Utc>,
+    planned: &Planned,
+) -> Route {
     let metadata = resolve_metadata(
         media,
         &ctx.providers,
@@ -563,19 +578,40 @@ fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateT
         .winner
         .as_ref()
         .map_or_else(|| ctx.default_category.clone(), |winner| winner.category.clone());
-    let target = ctx.root_folders.get(&(media.instance_id.clone(), category.clone())).cloned();
-    let action = match &target {
-        None => DecisionAction::Skip,
-        Some(target) => {
-            let current = media.current_root_folder.as_deref().unwrap_or("");
-            if crate::paths::key(current) == crate::paths::key(target) {
-                DecisionAction::None
-            } else {
-                DecisionAction::Move
+    let set = ctx.root_folders.get(&(media.instance_id.clone(), category.clone()));
+    let (target, action) = match set.filter(|set| !set.is_empty()) {
+        None => (None, DecisionAction::Skip),
+        Some(set) => {
+            let current = crate::paths::key(media.current_root_folder.as_deref().unwrap_or(""));
+            match set.iter().find(|folder| crate::paths::key(folder) == current) {
+                Some(here) => (Some(here.clone()), DecisionAction::None),
+                None => (Some(destination(ctx, media, set, planned)), DecisionAction::Move),
             }
         }
     };
     Route { metadata, evaluation, category, target, action }
+}
+
+/// The folder of `set` a title entering it goes to: the one its pending proposal names, else
+/// the one with the most room once this pass's moves are counted. Room unknown, as on a NAS
+/// asleep, comes last, and the path breaks a tie, so every caller picks the same folder.
+fn destination(ctx: &RoutingContext, media: &Media, set: &[String], planned: &Planned) -> String {
+    let in_set =
+        |path: &str| set.iter().find(|folder| crate::paths::key(folder) == crate::paths::key(path));
+    if let Some(kept) = ctx.proposed.get(&media.id).and_then(|proposed| in_set(proposed)) {
+        return kept.clone();
+    }
+    let room = |folder: &String| -> Option<i64> {
+        let key = (media.instance_id.clone(), crate::paths::key(folder));
+        let free = ctx.free_space.get(&key).copied().flatten()?;
+        Some(free - planned.get(&key).copied().unwrap_or(0))
+    };
+    set.iter()
+        .max_by(|a, b| {
+            room(a).cmp(&room(b)).then_with(|| crate::paths::key(b).cmp(&crate::paths::key(a)))
+        })
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// One item decided as the simulation decides it, with the rules it read.
@@ -623,7 +659,7 @@ pub async fn route_one_with(
     for (key, external) in fresh.identifiers {
         ctx.identifiers.entry(key).or_insert(external);
     }
-    let route = route(&ctx, media, &ctx.rules, now);
+    let route = route(&ctx, media, &ctx.rules, now, &Planned::new());
     let override_category = ctx.overrides.get(&media.id).cloned();
     Ok(ItemRoute { rules: ctx.rules, override_category, route })
 }
@@ -649,7 +685,7 @@ pub async fn revalidated_targets(
     Ok(media
         .into_iter()
         .map(|item| {
-            let Route { target, .. } = route(&ctx, &item, &ctx.rules, now);
+            let Route { target, .. } = route(&ctx, &item, &ctx.rules, now, &Planned::new());
             (item.id, target)
         })
         .collect())
@@ -795,7 +831,7 @@ pub async fn compare(
             .take(sample)
             .map(|&index| {
                 let media = &loaded.media[index];
-                let route = route(&loaded.ctx, media, &after, now);
+                let route = route(&loaded.ctx, media, &after, now, &Planned::new());
                 (
                     first.verdicts[index].category.clone(),
                     decide(&loaded.ctx, media, route, &wording, now),
@@ -853,7 +889,7 @@ pub async fn reach(
         // By what becomes of them, so the sample shows moves first.
         let mut kept: [Vec<(&Media, Route)>; 3] = Default::default();
         for media in &loaded.media {
-            let route = route(&loaded.ctx, media, &rules, now);
+            let route = route(&loaded.ctx, media, &rules, now, &Planned::new());
             let Some(winner) = &route.evaluation.winner else { continue };
             if watched.contains(&winner.rule_id) {
                 reach.titles += 1;
@@ -921,7 +957,7 @@ pub async fn evaluate_library(
             .iter()
             .map(|media| {
                 // Through `route`, so a pinned item counts against no rule it never consulted.
-                let evaluation = route(ctx, media, &ctx.rules, now).evaluation;
+                let evaluation = route(ctx, media, &ctx.rules, now, &Planned::new()).evaluation;
                 LibraryOutcome {
                     winner: evaluation.winner.map(|m| m.rule_id),
                     alternatives: evaluation.alternatives.into_iter().map(|m| m.rule_id).collect(),
@@ -1019,10 +1055,39 @@ async fn load_context(
             ((instance_id.clone(), crate::paths::key(path)), category.clone())
         })
         .collect();
-    let root_folders: HashMap<(String, String), String> = mapped
-        .into_iter()
-        .map(|(instance_id, category, path)| ((instance_id, category), path))
-        .collect();
+    let mut root_folders: HashMap<(String, String), Vec<String>> = HashMap::new();
+    for (instance_id, category, path) in mapped {
+        root_folders.entry((instance_id, category)).or_default().push(path);
+    }
+    for set in root_folders.values_mut() {
+        set.sort_by_key(|path| crate::paths::key(path));
+    }
+
+    const PROPOSED: &str = "SELECT media_id, target_root_folder FROM decisions
+         WHERE status = 'pending' AND superseded = 0 AND action = 'move'
+           AND target_root_folder IS NOT NULL";
+    let proposed: HashMap<String, String> = match scope {
+        Scope::Library => sqlx::query_as::<_, (String, String)>(PROPOSED)
+            .fetch_all(&mut *snapshot)
+            .await?
+            .into_iter()
+            .collect(),
+        Scope::Items(media) => {
+            let mut proposed = HashMap::new();
+            for chunk in media.chunks(BIND_CHUNK) {
+                let sql = format!(
+                    "{PROPOSED} AND media_id IN ({})",
+                    crate::db::placeholders(chunk.len())
+                );
+                let mut query = sqlx::query_as::<_, (String, String)>(AssertSqlSafe(sql.as_str()));
+                for item in chunk {
+                    query = query.bind(&item.id);
+                }
+                proposed.extend(query.fetch_all(&mut *snapshot).await?);
+            }
+            proposed
+        }
+    };
 
     let free_space: HashMap<(String, String), Option<i64>> =
         sqlx::query_as::<_, (String, String, Option<i64>)>(
@@ -1082,6 +1147,7 @@ async fn load_context(
         rules,
         overrides,
         root_folders,
+        proposed,
         folder_categories,
         free_space,
         instance_names,

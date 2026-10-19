@@ -89,6 +89,42 @@ describe('Categories', () => {
   });
 
   /**
+   * A category another folder of the instance holds is joined only once asked: the folders then
+   * share its new titles. Each folder of the set names the others it shares with.
+   */
+  it('asks before a folder joins a category another folder holds, then says they share it', async () => {
+    const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
+    show(
+      [
+        folder({ id: 'rf1', path: '/data/anime', category: 'anime' }),
+        folder({ id: 'rf2', path: '/data/anime2', category: null }),
+      ],
+      [category({ name: 'anime' })],
+    );
+    const picker = await screen.findByLabelText('Category for /data/anime2');
+
+    await userEvent.selectOptions(picker, 'anime');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime2' }));
+    expect(await answerConfirmation(null)).toContain('/data/anime');
+    expect(update).not.toHaveBeenCalled();
+
+    await userEvent.selectOptions(picker, 'anime');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime2' }));
+    await answerConfirmation('confirm');
+    await waitFor(() => expect(update).toHaveBeenCalledWith('rf2', 'anime', true));
+
+    show(
+      [
+        folder({ id: 'rf1', path: '/data/anime', category: 'anime' }),
+        folder({ id: 'rf2', path: '/data/anime2', category: 'anime' }),
+      ],
+      [category({ name: 'anime' })],
+    );
+    expect(await screen.findByText('Shared with /data/anime2')).toBeTruthy();
+    expect(screen.getByText('Shared with /data/anime')).toBeTruthy();
+  });
+
+  /**
    * An arrow key on a closed select fires `change` on Windows and Linux, so writing on `change`
    * would send every category passed on the way.
    */
@@ -103,7 +139,7 @@ describe('Categories', () => {
     expect(update).not.toHaveBeenCalled();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime'));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime', false));
   });
 
   /** A category picked and not saved is dropped by leaving, so leaving asks first. */
@@ -380,7 +416,7 @@ describe('Categories', () => {
     await userEvent.selectOptions(await screen.findByLabelText('Category for /data/films'), '');
     await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/films' }));
 
-    await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', null));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', null, false));
   });
 
   /** One banner a severity, as the dashboard draws its warnings. */

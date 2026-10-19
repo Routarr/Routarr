@@ -43,6 +43,11 @@ pub struct UpdateRootFolderCategory {
     #[serde(deserialize_with = "Option::deserialize")]
     #[schema(required = true)]
     pub category: Option<String>,
+    /// Join the folders the category already leads to on this instance, refused with
+    /// `category_mapped` otherwise. A title in any of them stays, and one entering the category
+    /// goes to the folder with the most room.
+    #[serde(default)]
+    pub add_to_set: bool,
 }
 
 /// Root folder with instance info for display.

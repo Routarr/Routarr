@@ -49,7 +49,7 @@ async fn a_proposal_names_the_category_of_the_folder_its_title_is_in() {
 }
 
 #[tokio::test]
-async fn a_title_whose_folder_leads_nowhere_or_to_two_places_is_not_kept() {
+async fn a_title_whose_folder_leads_nowhere_is_not_kept() {
     let app = proposed_to_move().await;
     let refused = |reason: &'static str| {
         let app = &app;
@@ -63,10 +63,6 @@ async fn a_title_whose_folder_leads_nowhere_or_to_two_places_is_not_kept() {
         async move { sqlx::query(sql).execute(&app.state.pool).await.unwrap() }
     };
 
-    set("INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-3', 'inst-1', 3, '/movies/more', 1, 'standard')")
-    .await;
-    refused("category_ambiguous").await;
     set("UPDATE root_folders SET category = NULL WHERE id = 'rf-1'").await;
     refused("folder_unmapped").await;
     set("UPDATE media SET current_root_folder = NULL WHERE id = 'm-1'").await;

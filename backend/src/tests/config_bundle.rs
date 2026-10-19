@@ -773,11 +773,10 @@ async fn a_bundle_names_an_instance_whatever_the_case_and_spaces() {
     assert_eq!(stored.as_deref(), Some("kids"));
 }
 
-/// One category, one folder per instance, as `PUT /root-folders/{id}/category`
-/// insists: two folders answering to one category leave the target ambiguous,
-/// and the simulation and the explanation each pick their own.
+/// A bundle carries a category spread over two folders of an instance as it is: the set was
+/// chosen where the bundle was made.
 #[tokio::test]
-async fn a_bundle_cannot_map_one_category_to_two_folders_of_an_instance() {
+async fn a_bundle_carries_a_category_spread_over_two_folders() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
@@ -797,9 +796,8 @@ async fn a_bundle_cannot_map_one_category_to_two_folders_of_an_instance() {
             .fetch_all(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(mapped, ["/movies/anime"], "the category now answers for two folders");
-    assert_eq!(report["root_folders"], 0);
-    assert!(report["skipped"].to_string().contains("/movies/anime"), "{}", report["skipped"]);
+    assert_eq!(mapped, ["/movies/anime", "/movies/standard"]);
+    assert_eq!(report["root_folders"], 1, "{report}");
 }
 
 /// Categories are joined by value with no foreign key, so the database would
