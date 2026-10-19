@@ -54,7 +54,8 @@ npm run test:e2e:auth        # the specs tagged @forms and @oidc, each against a
 npm audit --omit=dev --audit-level=high
 ```
 
-The site's commands are in `.claude/rules/site.md`.
+From the repository root, `bash scripts/check.sh` runs what CI runs for the areas the branch
+changed (`--list` shows each step). The site's commands are in `.claude/rules/site.md`.
 
 The Rust build tree is under `/ramdisk` (`CARGO_TARGET_DIR`), a RAM tmpfs or, on a small machine,
 a link to disk, so nothing may assume where the binary is. `.devcontainer/prune.sh` runs at every
