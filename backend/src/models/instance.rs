@@ -30,7 +30,7 @@ impl std::str::FromStr for InstanceType {
 /// schema change cannot leave one query out of sync with the struct.
 pub const INSTANCE_COLUMNS: &str = "id, name, instance_type, base_url, api_key, enabled,
      sync_interval_minutes, last_sync_at, last_sync_attempt_at, last_sync_status, created_at,
-     updated_at, webhook_token, auto_apply";
+     updated_at, webhook_token, auto_apply, last_webhook_at, last_webhook_event, webhook_token_at";
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Instance {
@@ -55,6 +55,11 @@ pub struct Instance {
     pub webhook_token: Option<String>,
     /// Whether automatic application may write here, under the global switch.
     pub auto_apply: bool,
+    /// When a webhook with the valid token last arrived, at most once a minute.
+    pub last_webhook_at: Option<String>,
+    pub last_webhook_event: Option<String>,
+    /// When the token was rotated. Null for the one the instance was created with.
+    pub webhook_token_at: Option<String>,
 }
 
 /// Request body for creating/updating an instance.
@@ -120,6 +125,13 @@ pub struct InstanceResponse {
     /// `auto_apply_enabled` setting is on and the dry run off as well: off, the instance's
     /// moves stay proposals.
     pub auto_apply: bool,
+    /// When a webhook with this instance's token last arrived, recorded at most once a minute.
+    /// Null while none has since the instance was added or its token rotated.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
+    pub last_webhook_at: Option<String>,
+    /// The `eventType` that delivery carried, as `Test` or `MovieAdded`.
+    pub last_webhook_event: Option<String>,
 }
 
 impl InstanceResponse {
@@ -161,6 +173,8 @@ impl InstanceResponse {
             api_key_encrypted: true,
             api_key_set: key_set,
             auto_apply: i.auto_apply,
+            last_webhook_at: i.last_webhook_at,
+            last_webhook_event: i.last_webhook_event,
         }
     }
 }

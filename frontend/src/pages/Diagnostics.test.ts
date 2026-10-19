@@ -153,6 +153,24 @@ describe('Diagnostics', () => {
     expect(within(row).queryByText('Connected')).toBeNull();
   });
 
+  it('says when each instance last sent a webhook, and which event', async () => {
+    const heard = new Date(Date.now() - 120_000).toISOString();
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      health({
+        instances: [
+          healthInstance({ last_webhook_at: heard, last_webhook_event: 'MovieAdded' }),
+          healthInstance({ id: 'i2', name: 'Radarr 4K' }),
+        ],
+      }),
+    );
+    show();
+
+    const heardCell = (await screen.findByText('MovieAdded')).closest('td') as HTMLElement;
+    expect(heardCell).toHaveTextContent('2 minutes ago');
+    const silent = screen.getByText('Radarr 4K').closest('tr') as HTMLElement;
+    expect(within(silent).getAllByText('Never').length).toBeGreaterThan(0);
+  });
+
   it('reports an instance failure in its words, and what the server ran into beside them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({

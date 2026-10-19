@@ -16,9 +16,8 @@
   import InstanceStatus from '../components/InstanceStatus.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
-  // A probe records what it finds, and the shell counts that among its
-  // warnings without probing itself. Opening the screen reads a probe of the
-  // last moments again, and a recheck asks every Arr and source anew.
+  // The shell counts what a probe records without probing. Opening the screen reads a recent
+  // probe again, and a recheck asks every Arr and source anew.
   let fresh = false;
   const report = createAsync(async (signal) => {
     const found = await api.getHealth({ fresh }, signal);
@@ -94,11 +93,12 @@
                 <th>{t('Media')}</th>
                 <th>{t('MappedFolders')}</th>
                 <th>{t('LastSync')}</th>
+                <th>{t('LastWebhook')}</th>
               </tr>
             </thead>
             <tbody>
               {#if health.instances.length === 0}
-                <tr><td colspan="7"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
+                <tr><td colspan="8"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
               {:else}
                 {#each health.instances as instance (instance.id)}
                   <tr>
@@ -120,6 +120,15 @@
                     >
                       {formatRelative(instance.last_sync, i18n.language, t('Never'))}
                     </td>
+                    <td
+                      class="cell-timestamp"
+                      title={formatTimestamp(instance.last_webhook_at, i18n.language, '')}
+                    >
+                      {formatRelative(instance.last_webhook_at, i18n.language, t('Never'))}
+                      {#if instance.last_webhook_event}
+                        <span class="text-muted text-xs">{instance.last_webhook_event}</span>
+                      {/if}
+                    </td>
                   </tr>
                 {/each}
               {/if}
@@ -133,18 +142,15 @@
           <CardTitle card="HealthMetadataSources">{t('SettingMetadataProviders')}</CardTitle>
         </div>
 
-        <!-- A list, not a grid of `Stat` tiles. Those are built for numbers, so
-             the state would land in the figure slot and the source name in the
-             caption, reading "connected / AniList" instead of "AniList,
-             connected". The name is the information, and the state qualifies
-             it. -->
+        <!-- A list, not `Stat` tiles: those would read "connected / AniList", the state in the
+             figure slot, where the name is the information. -->
         <div class="source-list">
           {#each health.metadata.providers as provider (provider.id)}
             {@const waiting = !provider.configured}
             {@const broken = provider.connected === false}
             <div class="source-row{waiting ? ' waiting' : ''}">
               <!-- Name only: this screen answers "is it working". What a source
-                   brings, and which variable it waits for, belongs to Settings. -->
+                   brings, and which variable it waits for, belongs to the Sources screen. -->
               <div class="source-name">{provider.display_name}</div>
               <span
                 class="badge {broken
@@ -167,8 +173,8 @@
           {/each}
         </div>
 
-        <!-- Apart from the sources: counts and a database probe among them
-             would be three kinds of fact in one grid. The counts are counts. -->
+        <!-- Apart from the sources: counts and a database probe among them would mix three
+             kinds of fact in one list. -->
         <div class="source-footer">
           <span
             >{t('CachedEntries')}

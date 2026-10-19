@@ -107,6 +107,24 @@ fn header_token(headers: &HeaderMap) -> Option<String> {
     Some(password)
 }
 
+/// Record that `instance` heard from its Arr, at most once a minute: a season sends one delivery
+/// per episode. The stamp leaves `updated_at` alone, which the probe reuse reads.
+async fn stamp_delivery(state: &AppState, instance: &str, event: &str) {
+    let event: String = event.chars().take(64).collect();
+    let stamped = sqlx::query(
+        "UPDATE instances SET last_webhook_at = datetime('now'), last_webhook_event = ?
+          WHERE id = ?
+            AND (last_webhook_at IS NULL OR last_webhook_at <= datetime('now', '-1 minute'))",
+    )
+    .bind(event)
+    .bind(instance)
+    .execute(&state.pool)
+    .await;
+    if let Err(e) = stamped {
+        warn!("Could not record a webhook delivery: {e}");
+    }
+}
+
 async fn deliver(
     state: AppState,
     instance_id: &str,
@@ -125,6 +143,7 @@ async fn deliver(
         warn!(instance = %instance.name, "Rejected a webhook with an invalid token");
         return Err(AppError::NotFound("Unknown webhook".into()));
     }
+    stamp_delivery(&state, &instance.id, payload.event_type.as_deref().unwrap_or("Unknown")).await;
 
     // No back door into an instance switched off. Acknowledged, not refused: the Arr is
     // configured correctly, and a refusal would only fill its log.

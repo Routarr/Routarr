@@ -28,6 +28,10 @@ export interface Instance {
   sync_interval_minutes: number;
   /** Whether automatic application may write here, under the global switch. */
   auto_apply: boolean;
+  /** When a webhook from it last arrived, null while none has since it was added or rotated. */
+  last_webhook_at: string | null;
+  /** The event that delivery carried, as `Test`. */
+  last_webhook_event: string | null;
   /** When a sync last *succeeded*. Null while none ever has. */
   last_sync_at: string | null;
   /** When one was last attempted, successful or not. */
@@ -812,6 +816,8 @@ export interface Health {
     last_sync_status: string | null;
     media_count: number;
     mapped_root_folders: number;
+    last_webhook_at: string | null;
+    last_webhook_event: string | null;
   }[];
   metadata: {
     providers: {

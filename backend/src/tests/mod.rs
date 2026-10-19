@@ -57,6 +57,7 @@ mod startup;
 mod stopped_runs;
 mod sync;
 mod templates;
+mod webhook_deliveries;
 mod webhook_fuzz;
 mod windows;
 
