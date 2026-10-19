@@ -73,7 +73,7 @@ async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
     app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG-13"] })).await;
     assert_eq!(app.decided_category().await, "anime", "the Arr is listed first");
 
-    app.store_setting("metadata_providers", "jikan,arr,tmdb").await;
+    app.store_setting("metadata_providers", "tenrai,arr,tmdb").await;
     assert_ne!(app.decided_category().await, "anime", "MyAnimeList is listed first");
 }
 
@@ -222,14 +222,14 @@ async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
     app.seed_library().await;
     app.execute(&[
         "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
-         VALUES ('jikan', 'movie', 'tmdb:8392', '523')",
-        "UPDATE settings SET value = 'arr,tmdb,jikan' WHERE key = 'metadata_providers'",
+         VALUES ('tenrai', 'movie', 'tmdb:8392', '523')",
+        "UPDATE settings SET value = 'arr,tmdb,tenrai' WHERE key = 'metadata_providers'",
     ])
     .await;
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
          origin_countries, certification, certification_scale)
-         VALUES ('jikan', '523', 'movie', '[]', '[]', '[]', ?, 'MAL')",
+         VALUES ('tenrai', '523', 'movie', '[]', '[]', '[]', ?, 'MAL')",
     )
     .bind(code)
     .execute(&app.state.pool)
@@ -306,8 +306,8 @@ async fn an_upgrade_keeps_the_ratings_it_can_place_and_asks_again_for_the_rest()
     };
     let (mal, us) = (rated("R+", "MAL"), rated("PG-13", "US"));
     let expected: Vec<Row> = vec![
-        ("jikan:5".into(), "{}".into(), mal.0, mal.1, true),
         ("omdb:tt1".into(), "{}".into(), us.0, us.1, true),
+        ("tenrai:5".into(), "{}".into(), mal.0, mal.1, true),
         ("tmdb:4".into(), "{}".into(), None, None, true),
         ("tmdb:8".into(), "{}".into(), None, None, true),
         ("tvdb:9".into(), "{}".into(), None, None, true),

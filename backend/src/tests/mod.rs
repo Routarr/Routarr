@@ -455,7 +455,7 @@ impl TestApp {
 
         let mut config = crate::config::Config::for_tests();
         config.anilist_base_url = sources.anilist_url();
-        config.jikan_base_url = sources.jikan_url();
+        config.tenrai_base_url = sources.tenrai_url();
         config.omdb_base_url = sources.omdb_url();
         config.omdb_api_key = Some(fake_sources::OMDB_KEY.into());
         config.tvdb_base_url = sources.tvdb_url();

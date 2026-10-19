@@ -2,7 +2,6 @@ use crate::error::{AppError, AppResult};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Public TMDB API root.
 pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 
 /// `ROUTARR_HTTP_TIMEOUT_SECS` when unset.
@@ -11,21 +10,16 @@ pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 /// `ROUTARR_MAX_LIBRARY_MIB` when unset.
 pub(crate) const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
 
-/// How long an apply follows the Arr's moves of files. A move within one
-/// filesystem is a rename the Arr ends in a second. One copying across disks
-/// takes minutes a film, longer than anyone watches an apply, and is left to
-/// the next sync.
+/// How long an apply follows the Arr's moves of files. A rename within one filesystem ends in a
+/// second, a copy across disks takes minutes a film and is left to the next sync.
 const MOVE_WAIT: Duration = Duration::from_secs(60);
 
 /// How long a webhook delivery is answered within, under the timeout an Arr
 /// gives a notification.
 const WEBHOOK_ANSWER_WAIT: Duration = Duration::from_secs(20);
 
-/// The directory a database file lives in.
-///
-/// One place for every caller: `Path::new(":memory:").parent()` is `Some("")`,
-/// an *empty* path, which `unwrap_or` never catches and which `join` turns into
-/// a path relative to the working directory.
+/// The directory a database file lives in. The parent of `:memory:` is `Some("")`, an empty
+/// path that `unwrap_or` never catches and `join` turns into one relative to the working directory.
 fn data_dir_for(db_path: &Path) -> PathBuf {
     match db_path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
@@ -33,17 +27,15 @@ fn data_dir_for(db_path: &Path) -> PathBuf {
     }
 }
 
-/// Where the image keeps the database: `/config`, as Radarr and Sonarr keep
-/// theirs.
+/// Where the image keeps the database, as Radarr and Sonarr keep theirs.
 const IMAGE_DB_PATH: &str = "/config/routarr.db";
 
 /// Where a container that mounts `/data` and not `/config` holds its database.
 const DATA_DB_PATH: &str = "/data/routarr.db";
 
-/// The database to open: `configured`, unless it is the image's own path,
-/// holds nothing yet, and `/data` holds a database. A volume mounted at
-/// `/data` keeps its library then, and the note says how to follow the
-/// image's layout, rather than an empty library opened in its place.
+/// The database to open: `configured`, unless it is the image's own path, holds nothing yet,
+/// and `/data` holds a database, which is opened rather than an empty library in its place.
+/// The note says how to follow the image's layout.
 fn settled_db_path(
     configured: PathBuf,
     exists: impl Fn(&Path) -> bool,
@@ -59,44 +51,31 @@ fn settled_db_path(
     (configured, None)
 }
 
-/// How a caller proves who it is.
-///
-/// The names follow the Servarr applications, which offer `None`, `Forms` and
-/// `External` beside the API key every machine client uses.
+/// How a caller proves who it is, named after the Servarr applications' `None`, `Forms` and
+/// `External`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMode {
     /// No credential asked for. Only reachable by asking for it.
     None,
     /// The API key, in `X-Api-Key` or `Authorization: Bearer`.
     ApiKey,
-    /// A username and a password, exchanged for a session cookie.
-    ///
-    /// The API key keeps working beside it, as it does in Servarr: a machine
-    /// client cannot hold a cookie, and a header is immune to the cross-site
-    /// request forgery a cookie invites.
+    /// A username and a password, exchanged for a session cookie. The API key keeps
+    /// working beside it: a machine client cannot hold a cookie, and a header is immune to
+    /// the cross-site request forgery a cookie invites.
     Forms,
-    /// An OpenID Connect provider authenticates, and Routarr lets in the
-    /// subjects and the groups the operator names.
-    ///
-    /// One level of access, and no user table to keep: what it records is the
-    /// subject, as the actor on every decision and write.
+    /// An OpenID Connect provider authenticates, and Routarr lets in the subjects and the
+    /// groups the operator names. One level of access and no user table: what it records is
+    /// the subject, as the actor on every decision and write.
     Oidc,
-    /// A reverse proxy authenticates, and Routarr asks for nothing.
-    ///
-    /// It reads no identity header, exactly as Radarr's own `External` does:
-    /// there is no header to forge, and nothing to get wrong about a trust
-    /// boundary. What it demands instead is that nothing reach the port except
-    /// through the proxy, which is the operator's to guarantee and Routarr's
-    /// to state loudly at startup.
+    /// A reverse proxy authenticates, and Routarr asks for nothing. It reads no identity
+    /// header, as Radarr's `External` does, so there is none to forge: nothing may reach the
+    /// port but through the proxy, which the operator guarantees and the start states.
     External,
 }
 
 impl AuthMode {
-    /// The name `ROUTARR_AUTH` takes, which is also what a session records.
-    ///
-    /// Stated once because a session is only honoured by the mode whose name it
-    /// carries: two spellings of that name would refuse every session the day
-    /// they drifted apart.
+    /// The name `ROUTARR_AUTH` takes and a session records. Stated once: a session is honoured
+    /// only by the mode whose name it carries, so two spellings would refuse every session.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -107,10 +86,8 @@ impl AuthMode {
         }
     }
 
-    /// The mode a value of `ROUTARR_AUTH` names, and whether it named none.
-    ///
-    /// Anything unrecognised falls back to the API key rather than to nothing:
-    /// a typo must not be the way an installation ends up open.
+    /// The mode a value of `ROUTARR_AUTH` names, and whether it named none. Anything else falls
+    /// back to the API key: a typo must not be the way an installation ends up open.
     pub fn parse(raw: &str) -> (Self, bool) {
         match raw.trim().to_ascii_lowercase().as_str() {
             "none" => (Self::None, false),
@@ -224,23 +201,12 @@ fn validate_source_root(variable: &str, root: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
-///
-/// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
-/// tower-http compares the header against these values verbatim. So anything
-/// that is not exactly that shape can never match. Accepted in silence, it
-/// would be counted in the startup line and leave the operator with CORS that
-/// looks configured and does nothing.
-///
-/// `*` is refused outright rather than translated: this layer sends
-/// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
-/// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
-/// panic, so an installation that set it would never start at all.
+/// One entry of `ROUTARR_CORS_ORIGINS`, as a browser sends it: `scheme://host[:port]`, which
+/// tower-http compares verbatim, so any other shape would look configured and never match.
+/// `*` is refused: this layer sends credentials, which the Fetch standard forbids beside a
+/// wildcard, and `AllowOrigin::list` panics on one.
 fn validate_origin(origin: &str) -> AppResult<()> {
-    // Named through a constant rather than inline: the sample-env check scans
-    // this file for a quoted `ROUTARR_*` and reads the whole literal as a
-    // variable, so a message beginning with the name would be reported as an
-    // undocumented variable of its own. Same reason as `Config::from_env`.
+    // Named apart from the message, as in `Config::from_env`.
     const VARIABLE: &str = "ROUTARR_CORS_ORIGINS";
     let bad = |why: &str| AppError::Config(format!("{VARIABLE}: '{origin}' {why}"));
 
@@ -258,19 +224,16 @@ fn validate_origin(origin: &str) -> AppResult<()> {
     if url.host_str().is_none() {
         return Err(bad("names no host"));
     }
-    // `Url::parse` gives a bare origin the path "/", which the trailing-slash
-    // trim in `from_env` has already removed from the stored string. Anything
-    // longer is a path, and a browser never sends one.
+    // `Url::parse` gives a bare origin the path "/": anything longer is a path no browser sends.
     if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
         return Err(bad("must be an origin (scheme, host and port, with no path)"));
     }
     Ok(())
 }
 
-/// The origins of `ROUTARR_CORS_ORIGINS`, each written as a browser sends it:
-/// scheme and host in lower case, the scheme's default port dropped, since the
-/// comparison is verbatim. A value that is no origin stays as written, for
-/// `validate_origin` to name.
+/// The origins of `ROUTARR_CORS_ORIGINS` as a browser sends them, since the comparison is
+/// verbatim: scheme and host in lower case, the default port dropped. A value that is no
+/// origin stays as written, for `validate_origin` to name.
 fn origins_from(raw: Option<String>) -> Vec<String> {
     raw.unwrap_or_default()
         .split(',')
@@ -314,22 +277,13 @@ pub struct Config {
     pub startup_notes: Vec<String>,
     pub frontend_dir: PathBuf,
     pub tmdb_api_key: Option<String>,
-    /// `ROUTARR_API_KEY`, which pins the key and wins over the stored one.
-    ///
-    /// Only the environment's value: the key in force is `AppState::api_key`,
-    /// which also holds one generated at startup or minted from the interface.
+    /// `ROUTARR_API_KEY`, which wins over the stored key. The key in force is
+    /// `AppState::api_key`, which also holds one generated at startup or minted from the interface.
     pub api_key: Option<String>,
-    /// How a caller proves who it is.
-    ///
-    /// Radarr and Sonarr made authentication mandatory in v4 and Routarr
-    /// follows: it has to be turned off deliberately, never obtained by
-    /// forgetting to set a key.
+    /// Turned off only deliberately, never by forgetting to set a key, as in Radarr and Sonarr.
     pub auth_mode: AuthMode,
-    /// The OpenID Connect provider, as an issuer URL to discover from.
-    ///
-    /// Discovery rather than four endpoints: a provider states its own
-    /// addresses at a well-known path, and copying them by hand is four more
-    /// values to keep in step with somebody else's deployment.
+    /// The OpenID Connect provider's issuer URL, whose well-known path states its endpoints:
+    /// copied by hand, they are four more values to keep in step with another deployment.
     pub oidc_issuer: Option<String>,
     pub oidc_client_id: Option<String>,
     pub oidc_client_secret: Option<String>,
@@ -378,10 +332,8 @@ pub struct Config {
     /// Lets a start make a new master key although the database holds values
     /// sealed with the one it had, which then have to be entered again.
     pub allow_new_master_key: bool,
-    /// Max concurrent outbound requests per metadata source during enrichment.
-    ///
-    /// A ceiling, not a target: `services::rate_limit` additionally paces each
-    /// source to its published rate, and a source may lower this on its own.
+    /// Max requests in flight per metadata source during enrichment, a ceiling: `rate_limit`
+    /// paces how many are made, and a source may lower this on its own.
     pub metadata_concurrency: usize,
     /// TMDB API root. Overridable for a mirror, a caching proxy, or tests.
     pub tmdb_base_url: String,
@@ -392,13 +344,11 @@ pub struct Config {
     pub tvdb_api_key: Option<String>,
     pub tvdb_pin: Option<String>,
     pub tvdb_base_url: String,
-    /// AniList and Jikan authenticate nothing, so they carry a root and no key.
+    /// AniList and Tenrai authenticate nothing, so they carry a root and no key.
     pub anilist_base_url: String,
-    pub jikan_base_url: String,
-    /// Sub-path Routarr is mounted under, Servarr's "URL base".
-    ///
-    /// Normalised to either an empty string or `/something` with no trailing
-    /// slash, so callers can always concatenate without guessing.
+    pub tenrai_base_url: String,
+    /// Sub-path Routarr is mounted under, Servarr's "URL base": empty or `/something` with no
+    /// trailing slash, so callers concatenate without guessing.
     pub base_path: String,
 }
 
@@ -446,7 +396,7 @@ impl std::fmt::Debug for Config {
             tvdb_pin,
             tvdb_base_url,
             anilist_base_url,
-            jikan_base_url,
+            tenrai_base_url,
             base_path,
         } = self;
         let hidden = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
@@ -490,18 +440,12 @@ impl std::fmt::Debug for Config {
             .field("tvdb_pin", &hidden(tvdb_pin))
             .field("tvdb_base_url", tvdb_base_url)
             .field("anilist_base_url", anilist_base_url)
-            .field("jikan_base_url", jikan_base_url)
+            .field("tenrai_base_url", tenrai_base_url)
             .field("base_path", base_path)
             .finish()
     }
 }
 
-/// Turn whatever the user wrote into either `""` or `/segment[/segment…]`.
-///
-/// People write `routarr`, `/routarr`, `/routarr/` and `routarr/` and expect all
-/// four to work. Getting this wrong produces a double slash or a missing one in
-/// every generated URL, which is the kind of bug that only shows up behind the
-/// proxy, the one place it cannot be debugged comfortably.
 /// The most requests in flight per source a pass may hold.
 const MAX_METADATA_CONCURRENCY: usize = 16;
 
@@ -532,20 +476,15 @@ fn validate_base_path(base_path: &str) -> AppResult<()> {
     )))
 }
 
+/// The mount point as `""` or `/segment[/segment…]`, however it is written: `routarr`,
+/// `/routarr/` and `routarr/` give no double or missing slash in a generated URL.
 pub fn normalise_base_path(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches('/');
     if trimmed.is_empty() { String::new() } else { format!("/{trimmed}") }
 }
 
-/// Where the built interface is, when nobody said.
-///
-/// Two layouts, both real: in the image the binary sits at `/app` beside
-/// `/app/frontend/dist`, while `cargo run` from `backend/` has to look one
-/// level up. Without the fallback the second gives a 404 on every route and an
-/// "API-only mode" line nobody thinks to read.
-///
-/// Falling back rather than changing the default keeps the image's layout
-/// first, at one `exists()` per startup.
+/// Where the built interface is, when nobody said: beside the binary in the image, one level
+/// up under `cargo run` from `backend/`, which otherwise answers a 404 on every route.
 fn default_frontend_dir() -> PathBuf {
     let here = PathBuf::from("./frontend/dist");
     if here.exists() {
@@ -559,18 +498,14 @@ fn default_frontend_dir() -> PathBuf {
 }
 
 impl Config {
-    /// Load configuration from environment variables with sensible defaults.
-    ///
-    /// A value that cannot be read is an error naming the variable, never the
-    /// default in its place: with the default, `ROUTARR_PORT=987 6` would run
-    /// on 9876 while the operator believes their port is in force.
+    /// The configuration the environment sets. A value that cannot be read is an error naming
+    /// its variable, never the default: `ROUTARR_PORT=987 6` would run on 9876 unnoticed.
     pub fn from_env() -> AppResult<Self> {
         let configured =
             path_or(std::env::var("ROUTARR_DB_PATH").ok(), || PathBuf::from("./data/routarr.db"));
         let (db_path, settled) = settled_db_path(configured, Path::exists);
-        // Each variable is named apart from its value: the sample-env check
-        // scans this file for a quoted `ROUTARR_*` and would read a message
-        // beginning with the name as a variable of its own.
+        // Each variable is named apart from its message: the sample-env test reads a quoted
+        // `ROUTARR_*` as a variable, the whole literal when a message begins with the name.
         let mut startup_notes: Vec<String> = settled.into_iter().collect();
         let raw_auth = env_or("ROUTARR_AUTH", "apikey");
         let (auth_mode, unknown) = AuthMode::parse(&raw_auth);
@@ -668,8 +603,6 @@ impl Config {
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
             allow_new_master_key: env_parse("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
-            // Bounds how many requests are *open* per source, and `rate_limit`
-            // bounds how many are made.
             metadata_concurrency,
             tmdb_base_url: env_or("ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
                 .trim_end_matches('/')
@@ -695,9 +628,9 @@ impl Config {
             )
             .trim_end_matches('/')
             .to_string(),
-            jikan_base_url: env_or(
-                "ROUTARR_JIKAN_BASE_URL",
-                crate::integrations::jikan::DEFAULT_BASE_URL,
+            tenrai_base_url: env_or(
+                "ROUTARR_TENRAI_BASE_URL",
+                crate::integrations::tenrai::DEFAULT_BASE_URL,
             )
             .trim_end_matches('/')
             .to_string(),
@@ -713,7 +646,7 @@ impl Config {
             ("ROUTARR_OMDB_BASE_URL", &self.omdb_base_url, true),
             ("ROUTARR_TVDB_BASE_URL", &self.tvdb_base_url, true),
             ("ROUTARR_ANILIST_BASE_URL", &self.anilist_base_url, false),
-            ("ROUTARR_JIKAN_BASE_URL", &self.jikan_base_url, false),
+            ("ROUTARR_TENRAI_BASE_URL", &self.tenrai_base_url, false),
         ]
     }
 
@@ -734,7 +667,6 @@ impl Config {
             .collect()
     }
 
-    /// Returns the socket address to bind to.
     pub fn bind_address(&self) -> String {
         format!("{}:{}", bracketed(&self.host), self.port)
     }
@@ -747,7 +679,7 @@ impl Config {
     }
 
     /// The address the probe reaches the server at: the loopback when it binds
-    /// every address, which only a client can not name.
+    /// every address, which a client cannot name.
     fn probe_host(&self) -> String {
         match self.host.trim() {
             "" | "0.0.0.0" => "127.0.0.1".into(),
@@ -756,12 +688,8 @@ impl Config {
         }
     }
 
-    /// Point the configuration at a database, moving its data directory with
-    /// it.
-    ///
-    /// The two are one setting expressed as two fields, so assigning `db_path`
-    /// alone leaves the key files and the backups behind at the old location.
-    /// Production sets both in `from_env`, and only tests relocate a live config.
+    /// Point the configuration at a database and its data directory with it: assigning
+    /// `db_path` alone leaves the key files and the backups at the old location.
     #[cfg(test)]
     pub fn set_db_path(&mut self, path: PathBuf) {
         self.data_dir = data_dir_for(&path);
@@ -773,19 +701,15 @@ impl Config {
         self.data_dir.join("routarr.key")
     }
 
-    /// Where the generated password is written on first start.
-    ///
-    /// Beside the database and the API key, 0600, for the same reason: it is
-    /// printed once and an operator who missed the line needs it back.
+    /// Where the generated password is written on first start, 0600: it is printed once, and
+    /// an operator who missed the line needs it back.
     pub fn password_path(&self) -> PathBuf {
         self.data_dir.join("routarr.password")
     }
 
-    /// Refuse a configuration the server cannot honour, before it serves.
-    ///
-    /// Called once by `main`, so a value that would fail later fails at the
-    /// start with a sentence naming the variable, rather than as a panic from
-    /// a dependency, or as a feature that silently does nothing.
+    /// Refuse a configuration the server cannot honour before it serves: a value that would
+    /// fail later fails at the start, naming its variable, rather than as a panic from a
+    /// dependency or a feature that does nothing.
     pub fn validate(&self) -> AppResult<()> {
         validate_base_path(&self.base_path)?;
         for origin in &self.cors_origins {
@@ -808,8 +732,7 @@ impl Config {
         if matches!(self.auth_mode, AuthMode::Oidc) {
             self.validate_oidc()?;
         }
-        // Zero is not "no timeout": every outbound call fails at once as
-        // unreachable, and nothing on screen says why.
+        // Zero is not "no timeout": every outbound call would fail at once as unreachable.
         if self.http_timeout.is_zero() {
             return Err(AppError::Config(
                 "ROUTARR_HTTP_TIMEOUT_SECS: 0 would make every call to an Arr or a source fail \
@@ -834,14 +757,9 @@ impl Config {
         Ok(())
     }
 
-    /// The four an OIDC sign-in needs, and its two URLs over TLS.
-    ///
-    /// The flow does not verify the ID token's signature (see
-    /// `services::oidc`) because the exchange happens over TLS. A provider
-    /// reached in the clear voids that, so it is refused here rather than
-    /// trusted at sign-in. Missing values are refused here too: each of the
-    /// four is needed before anyone can sign in, and a start that names the
-    /// missing one beats a 500 on the first attempt.
+    /// The four values an OIDC sign-in needs, and its two URLs over TLS: the flow trusts the
+    /// TLS channel in place of the ID token's signature (`services::oidc`), so a provider in
+    /// the clear is refused here, as a missing value is, rather than at the first sign-in.
     fn validate_oidc(&self) -> AppResult<()> {
         const ISSUER: &str = "ROUTARR_OIDC_ISSUER";
         const CLIENT_ID: &str = "ROUTARR_OIDC_CLIENT_ID";
@@ -882,10 +800,8 @@ impl Config {
         Ok(())
     }
 
-    /// Path of the auto-generated API key, kept next to the database.
-    ///
-    /// A separate file from the master key on purpose: this one is meant to be
-    /// read and copied into a client, the other must never leave the host.
+    /// Path of the generated API key, next to the database and apart from the master key: this
+    /// one is copied into a client, the other never leaves the host.
     pub fn api_key_path(&self) -> PathBuf {
         self.data_dir.join("routarr.api_key")
     }
@@ -899,10 +815,7 @@ impl Config {
             host: "127.0.0.1".into(),
             port: 0,
             db_path: PathBuf::from(":memory:"),
-            // `:memory:` is not a file, so there is no directory beside it.
-            // Deriving one anyway yields a *relative* path, and a test that
-            // reaches the backup stage would create `backups/` in whatever
-            // directory `cargo test` runs from.
+            // Not derived: from `:memory:` it is relative, and a backup would land in the sources.
             data_dir: test_data_dir(),
             log_level: "error".into(),
             log_format: "text".into(),
@@ -911,9 +824,7 @@ impl Config {
             frontend_dir: PathBuf::from("/nonexistent"),
             tmdb_api_key: None,
             api_key: None,
-            // Tests drive the middleware directly and set a key when they mean
-            // to. Generating one here would make every unauthenticated case
-            // untestable.
+            // Off, so every unauthenticated case is testable: a test that checks a key sets one.
             auth_mode: AuthMode::None,
             oidc_issuer: None,
             oidc_client_id: None,
@@ -935,10 +846,8 @@ impl Config {
             previous_secret_key: None,
             allow_new_master_key: false,
             metadata_concurrency: 2,
-            // Port 1 on the loopback, where nothing listens: a test that lists
-            // a keyless source, or sets a key, and then probes or enriches is
-            // refused at once instead of reaching the real service. A test
-            // that means to reach one points the source at a stand-in.
+            // Port 1 on the loopback, where nothing listens: a test that probes or enriches is
+            // refused at once rather than reaching the real service, unless it sets a stand-in.
             tmdb_base_url: UNREACHABLE_SOURCE.to_string(),
             omdb_api_key: None,
             omdb_base_url: UNREACHABLE_SOURCE.to_string(),
@@ -946,7 +855,7 @@ impl Config {
             tvdb_pin: None,
             tvdb_base_url: UNREACHABLE_SOURCE.to_string(),
             anilist_base_url: UNREACHABLE_SOURCE.to_string(),
-            jikan_base_url: UNREACHABLE_SOURCE.to_string(),
+            tenrai_base_url: UNREACHABLE_SOURCE.to_string(),
         }
     }
 }
@@ -997,10 +906,9 @@ fn list(key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The passphrase `routarr restore` and `routarr decrypt-backup` open an
-/// encrypted archive with, when the database in place does not hold it. Read
-/// by those commands alone, and kept out of `Config`, which the server holds
-/// for as long as it runs.
+/// The passphrase `routarr restore` and `routarr decrypt-backup` open an encrypted archive
+/// with when the database in place does not hold it. Kept out of `Config`, which the server
+/// holds for as long as it runs.
 pub fn archive_passphrase() -> Option<String> {
     non_empty("ROUTARR_BACKUP_PASSPHRASE")
 }
@@ -1026,10 +934,8 @@ fn parse_setting<T: std::str::FromStr>(key: &str, raw: Option<String>, default: 
     }
 }
 
-/// The data folder of this test run, named by its process. The ones runs
-/// before it left are removed on first use, once the process that made each
-/// is gone: no hook runs after the last test, and the folder of a run still
-/// going is its own.
+/// The data folder of this test run, named by its process. Those of finished runs go on first
+/// use, since no hook runs after the last test, and a run still going keeps its own.
 #[cfg(test)]
 fn test_data_dir() -> PathBuf {
     static SWEPT: std::sync::Once = std::sync::Once::new();
@@ -1069,9 +975,6 @@ mod tests {
         );
     }
 
-    /// A value read and set aside is said once logging is up: a typo in the
-    /// mode keeps the API key and says so, `warning` is the level it names,
-    /// and an unknown level or format falls back with a word.
     #[test]
     fn a_mount_point_the_router_cannot_serve_is_refused_by_name() {
         let mut config = Config::for_tests();
@@ -1086,6 +989,9 @@ mod tests {
         }
     }
 
+    /// A value read and set aside is said once logging is up: a typo in the
+    /// mode keeps the API key and says so, `warning` is the level it names,
+    /// and an unknown level or format falls back with a word.
     #[test]
     fn a_value_not_understood_is_said_rather_than_swallowed() {
         assert_eq!(AuthMode::parse("nome"), (AuthMode::ApiKey, true));
@@ -1159,14 +1065,9 @@ mod tests {
         }
     }
 
-    /// `.env.example` is the only place most people will ever read the list of
-    /// knobs, so a variable the code honours but the sample omits is invisible,
-    /// `ROUTARR_BASE_PATH` among them, the one people need when the app
-    /// misbehaves behind a reverse proxy, the hardest place to guess.
-    ///
-    /// Read at run time rather than `include_str!`'d: the Docker build copies
-    /// only `src`, `migrations` and `locales`, so embedding the sample would
-    /// make the image unbuildable.
+    /// `.env.example` is where people read the list of variables, so one the code reads and the
+    /// sample omits is invisible. Read at run time, not `include_str!`'d: the Docker build
+    /// copies only `src`, `migrations` and `locales`.
     #[test]
     fn every_environment_variable_the_code_reads_is_in_the_sample_env() {
         let root = env!("CARGO_MANIFEST_DIR");
@@ -1175,8 +1076,6 @@ mod tests {
 
         let mut read: Vec<String> = Vec::new();
         for line in source.lines() {
-            // Every quoted name with a known prefix, the `env_or("NAME", …)` and
-            // `non_empty("NAME")` call sites among them.
             for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"] {
                 let Some(at) = line.find(&format!("\"{prefix}")) else { continue };
                 let rest = &line[at + 1..];
@@ -1186,24 +1085,16 @@ mod tests {
         }
         read.sort();
         read.dedup();
-        // The guard on the scan: stop matching and the assertion below passes
-        // having read nothing at all.
+        // Without this guard, a scan that matched nothing would pass.
         assert!(read.len() >= 15, "only {} variable(s) found in config.rs", read.len());
 
         let missing: Vec<&String> = read.iter().filter(|name| !sample.contains(*name)).collect();
         assert!(missing.is_empty(), "undocumented in .env.example: {missing:?}");
     }
 
-    /// And nothing is documented that the code does not read.
-    ///
-    /// The other direction, and it fails differently: an operator sets a
-    /// variable the sample still advertises, nothing happens, and nothing says
-    /// so. A setting that silently does nothing is worse than one that is
-    /// missing, because the sample is where people look for what exists.
-    ///
-    /// `config.rs` is the only file outside the tests that reads the
-    /// environment (`grep 'env::var'` finds only `tests/live_sources.rs`
-    /// elsewhere), which is what makes scanning this one file enough.
+    /// Nothing is advertised that the code does not read: an operator would set it and nothing
+    /// would happen. Scanning this file is enough, since it alone reads the environment outside
+    /// the tests.
     #[test]
     fn every_variable_the_sample_env_advertises_is_one_the_code_reads() {
         let root = env!("CARGO_MANIFEST_DIR");
@@ -1238,10 +1129,7 @@ mod tests {
 
     #[test]
     fn an_in_memory_database_never_derives_a_relative_data_directory() {
-        // `Path::new(":memory:").parent()` is `Some("")`, so the obvious
-        // derivation yields `backups`, `routarr.key` and `routarr.api_key`
-        // relative to the working directory, and a test that reaches the
-        // backup stage would leave a directory in the source tree.
+        // Derived from `parent()`, the key files and the backups would land in the sources.
         assert_eq!(data_dir_for(Path::new(":memory:")), PathBuf::from("."));
 
         let config = Config::for_tests();
@@ -1265,11 +1153,9 @@ mod tests {
         assert_eq!(data_dir_for(Path::new("routarr.db")), PathBuf::from("."));
     }
 
-    /// Everything on disk hangs off `data_dir`, and `set_db_path` is the only
-    /// thing that moves it. Assigning `db_path` alone would leave the master
-    /// key and the backups at the previous location, where the next start
-    /// would not find them, and would generate a *new* key that opens none of
-    /// the stored Arr credentials.
+    /// `set_db_path` moves everything on disk with the database. Assigning `db_path` alone
+    /// leaves the master key and the backups behind, and the next start generates a new key
+    /// that opens none of the stored credentials.
     #[test]
     fn moving_the_database_takes_the_keys_and_the_backups_with_it() {
         let mut config = Config::for_tests();
@@ -1291,10 +1177,8 @@ mod tests {
         assert!(message.contains("wildcard"), "and says what is wrong: {message}");
     }
 
-    /// A browser sends `scheme://host[:port]` and tower-http compares the
-    /// header verbatim, so anything else can never match. Accepted in silence,
-    /// it would leave CORS looking configured and doing nothing, while the
-    /// startup line still counts it.
+    /// tower-http compares the `Origin` header verbatim, so anything but `scheme://host[:port]`
+    /// would never match while CORS looks configured.
     #[test]
     fn an_origin_that_could_never_match_is_refused() {
         for bad in ["example.com", "//example.com", "ftp://example.com", "https://", "not a url"] {
@@ -1461,10 +1345,8 @@ mod tests {
         config
     }
 
-    /// A provider left at its defaults lets every account of its directory use
-    /// every client. Naming nobody, the mode would let all of them in with full
-    /// access, so it refuses to start unless the operator says who, or says
-    /// in so many words that anyone may.
+    /// A provider left at its defaults lets every account of its directory use every client,
+    /// so with nobody named the mode refuses to start, unless the operator says anyone may.
     #[test]
     fn oidc_mode_without_an_allow_list_refuses_to_start_unless_told_to() {
         let mut config = oidc_config();

@@ -16,6 +16,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("004_rule_test_verdicts", include_str!("../migrations/004_rule_test_verdicts.sql")),
     ("005_arr_payload_fields", include_str!("../migrations/005_arr_payload_fields.sql")),
     ("006_ratings", include_str!("../migrations/006_ratings.sql")),
+    ("007_tenrai", include_str!("../migrations/007_tenrai.sql")),
 ];
 
 /// The names a database Routarr 0.1.5 left holds for what `001_release_0_1_5` builds, in the
@@ -1054,7 +1055,6 @@ mod tests {
     #[tokio::test]
     async fn migrations_apply_cleanly_and_are_idempotent() {
         let pool = crate::db::test_pool().await;
-        // A second run must be a no-op rather than an error.
         run_migrations(&pool).await.unwrap();
 
         let tables: Vec<String> =

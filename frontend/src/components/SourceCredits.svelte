@@ -7,17 +7,16 @@
   import tmdbLogo from '../assets/tmdb.svg';
 
   /**
-   * What each metadata source's terms ask for, wherever its data is used:
-   * TMDB a notice and its logo, TheTVDB a sentence and a link, OMDb its
-   * licence. Every source is credited, enabled or not, so the credit is never
-   * missing the day one is turned on.
+   * What each source's terms ask for wherever its data is used: TMDB a notice and its logo,
+   * TheTVDB a sentence and a link, OMDb its licence. Every source is credited, enabled or not,
+   * so no credit is missing the day one is turned on.
    */
   const CREDIT_KEY: Record<string, string> = {
     tmdb: 'CreditTmdb',
     tvdb: 'CreditTvdb',
     omdb: 'CreditOmdb',
     anilist: 'CreditAnilist',
-    jikan: 'CreditJikan',
+    tenrai: 'CreditTenrai',
   };
   const OMDB_LICENCE = 'https://creativecommons.org/licenses/by-nc/4.0/';
   /** The licence's own name, which every language writes as it is. */

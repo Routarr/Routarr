@@ -32,8 +32,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Safe by default**: six gates in a fixed order, the first to object stopping the rest (global
   dry-run, batch limit, reachability, capacity, a confirmation threshold you set, and a revalidation
   at the moment of writing). Every applied move can be reverted.
-- **Metadata without API keys**: Radarr and Sonarr themselves, AniList and Jikan, with TMDB,
-  OMDb and TheTVDB optional, in the order you choose.
+- **Metadata without API keys**: Radarr and Sonarr themselves, AniList and MyAnimeList through
+  Tenrai, with TMDB, OMDb and TheTVDB optional, in the order you choose.
 - **Real time**: Radarr/Sonarr webhooks, and optional routing of new titles before they download.
 - **Several instances** of Radarr 4.2 or later and Sonarr 4 or later, on Linux or Windows: a
   path on a drive letter or a network share is compared as Windows compares it, whatever its case
@@ -180,7 +180,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | `ROUTARR_SECRET_KEY` | *(generated)* | Seals the stored credentials: the Arr and metadata keys, the notification address and the signing secret |
 | `ROUTARR_BASE_PATH` | *(empty)* | Sub-path behind a reverse proxy, e.g. `/routarr` |
 | `ROUTARR_LOG_LEVEL` | `info` | Log verbosity |
-| `TZ` | *(UTC)* | The time zone the log lines are dated in, e.g. `Europe/Paris` |
+| `TZ` | *(UTC)* | The time zone the log lines are dated in, e.g. `Europe/Paris`. The interface shows your browser's |
 
 Every variable is listed and commented in [`backend/.env.example`](backend/.env.example). Everything
 else is set in the interface, under **Settings** and **Metadata sources**.
@@ -232,4 +232,4 @@ in About, as their terms ask.
 - Data from [OMDb](https://www.omdbapi.com), licensed under
   [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
 - Data from [AniList](https://anilist.co), and from [MyAnimeList](https://myanimelist.net) through
-  [Jikan](https://jikan.moe).
+  [Tenrai](https://tenrai.org).

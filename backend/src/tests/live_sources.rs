@@ -11,13 +11,13 @@
 
 use crate::config::Config;
 use crate::integrations::anilist::AniListClient;
-use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
+use crate::integrations::tenrai::TenraiClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 
 /// The shipped HTTP client, its redirect policy and its timeout: the offline suite's is spent on
-/// a loopback socket, and a real API outlasts it, which Jikan's test would read as the source down.
+/// a loopback socket, and a real API outlasts it, which Tenrai's test would read as a source down.
 fn client() -> reqwest::Client {
     let config = Config {
         http_timeout: std::time::Duration::from_secs(crate::config::DEFAULT_HTTP_TIMEOUT_SECS),
@@ -62,8 +62,8 @@ async fn anilist_answers_the_shape_the_client_expects() {
 }
 
 /// True when the failure is the third party being down rather than the client
-/// being wrong. Jikan proxies MyAnimeList and answers 5xx whenever MAL is
-/// unavailable, which must not be reported as a defect here.
+/// being wrong. Tenrai reads MyAnimeList, and a 5xx while either is unavailable must not be
+/// reported as a defect here.
 fn upstream_is_down(error: &crate::error::AppError) -> bool {
     matches!(
         error,
@@ -73,19 +73,19 @@ fn upstream_is_down(error: &crate::error::AppError) -> bool {
 }
 
 #[tokio::test]
-#[ignore = "hits the real Jikan API"]
-async fn jikan_answers_the_shape_the_client_expects() {
-    let jikan = JikanClient::new(client(), crate::integrations::jikan::DEFAULT_BASE_URL);
+#[ignore = "hits the real Tenrai API"]
+async fn tenrai_answers_the_shape_the_client_expects() {
+    let tenrai = TenraiClient::new(client(), crate::integrations::tenrai::DEFAULT_BASE_URL);
 
-    let candidates = match jikan.search(TITLE, "movie").await {
+    let candidates = match tenrai.search(TITLE, "movie").await {
         Ok(candidates) => candidates,
         Err(e) if upstream_is_down(&e) => {
-            eprintln!("skipped: Jikan or MyAnimeList is unavailable ({e})");
+            eprintln!("skipped: Tenrai or MyAnimeList is unavailable ({e})");
             return;
         }
-        Err(e) => panic!("Jikan search failed: {e}"),
+        Err(e) => panic!("Tenrai search failed: {e}"),
     };
-    assert!(!candidates.is_empty(), "Jikan returned no candidate for {TITLE}");
+    assert!(!candidates.is_empty(), "Tenrai returned no candidate for {TITLE}");
 
     let matched = candidates
         .iter()
@@ -95,25 +95,35 @@ async fn jikan_answers_the_shape_the_client_expects() {
                     == crate::services::rule_engine::normalise_value(TITLE)
             })
         })
-        .expect("no Jikan candidate matched on title");
+        .expect("no Tenrai candidate matched on title");
     // A film has no broadcast season: its year has to come from `aired`, or the
     // resolution refuses every film whose library knows its year.
-    assert_eq!(matched.year, Some(YEAR), "Jikan dated {TITLE} as {:?}", matched.year);
+    assert_eq!(matched.year, Some(YEAR), "Tenrai dated {TITLE} as {:?}", matched.year);
 
-    let details = match jikan.get_details(matched.id).await {
+    let details = match tenrai.get_details(matched.id).await {
         Ok(details) => details,
         Err(e) if upstream_is_down(&e) => {
-            eprintln!("skipped: Jikan or MyAnimeList is unavailable ({e})");
+            eprintln!("skipped: Tenrai or MyAnimeList is unavailable ({e})");
             return;
         }
-        Err(e) => panic!("Jikan details failed: {e}"),
+        Err(e) => panic!("Tenrai details failed: {e}"),
     };
-    assert!(!details.genres.is_empty(), "Jikan returned no genres");
-    // Themes/demographics are what this source uniquely brings.
-    assert!(!details.keywords.is_empty(), "no themes or demographics came back");
+    assert!(!details.genres.is_empty(), "Tenrai returned no genres");
     let mal = details.ratings.get("mal").expect("no MyAnimeList score read");
     assert!(mal.votes.is_some(), "MyAnimeList votes not read: {mal:?}");
-    println!("Jikan {}: {:?} / {:?}", matched.id, details.genres, details.keywords);
+
+    // Themes and demographics are what this source alone brings. MyAnimeList gives the film
+    // none, and Cowboy Bebop (1) two.
+    let bebop = match tenrai.get_details(1).await {
+        Ok(details) => details,
+        Err(e) if upstream_is_down(&e) => {
+            eprintln!("skipped: Tenrai or MyAnimeList is unavailable ({e})");
+            return;
+        }
+        Err(e) => panic!("Tenrai details failed: {e}"),
+    };
+    assert!(!bebop.keywords.is_empty(), "no themes or demographics came back");
+    println!("Tenrai {}: {:?} / {:?}", matched.id, details.genres, bebop.keywords);
 }
 
 #[tokio::test]
@@ -207,19 +217,19 @@ async fn thetvdb_answers_the_shape_the_client_expects() {
 /// at the configured concurrency must either succeed throughout or fail with
 /// honest 429s, never with panics or malformed responses.
 #[tokio::test]
-#[ignore = "hits the real Jikan API repeatedly"]
-async fn jikan_survives_a_burst_at_the_configured_concurrency() {
+#[ignore = "hits the real Tenrai API repeatedly"]
+async fn tenrai_survives_a_burst_at_the_configured_concurrency() {
     use futures::stream::{self, StreamExt};
 
-    let jikan = JikanClient::new(client(), crate::integrations::jikan::DEFAULT_BASE_URL);
+    let tenrai = TenraiClient::new(client(), crate::integrations::tenrai::DEFAULT_BASE_URL);
 
     // Ids MyAnimeList holds: its numbering has gaps, and an id it does not
     // hold answers 404, which is not what this burst is about.
     let held = [1i64, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20, 21];
     let outcomes: Vec<_> = stream::iter(held)
         .map(|id| {
-            let jikan = jikan.clone();
-            async move { (id, jikan.get_details(id).await) }
+            let tenrai = tenrai.clone();
+            async move { (id, tenrai.get_details(id).await) }
         })
         // The cap the source declares for itself.
         .buffer_unordered(2)
@@ -233,14 +243,14 @@ async fn jikan_survives_a_burst_at_the_configured_concurrency() {
             Err(crate::error::AppError::ExternalApi { status: 429, .. }) => throttled += 1,
             // MAL being down is not a Routarr defect, so say so and stop.
             Err(e) if upstream_is_down(e) => {
-                eprintln!("skipped: Jikan or MyAnimeList is unavailable ({e})");
+                eprintln!("skipped: Tenrai or MyAnimeList is unavailable ({e})");
                 return;
             }
-            Err(e) => panic!("Jikan {id} failed in an unexpected way: {e}"),
+            Err(e) => panic!("Tenrai {id} failed in an unexpected way: {e}"),
         }
     }
 
-    println!("Jikan burst: {} of {} throttled", throttled, outcomes.len());
-    // Not asserted: how much Jikan throttles is its business, as long as it arrives as a typed
+    println!("Tenrai burst: {} of {} throttled", throttled, outcomes.len());
+    // Not asserted: how much Tenrai throttles is its business, as long as it arrives as a typed
     // 429 the enrichment pass backs off from.
 }

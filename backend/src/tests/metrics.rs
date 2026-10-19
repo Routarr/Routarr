@@ -1,16 +1,12 @@
-//! Prometheus exposition.
-//!
-//! The format is unforgiving: one malformed line and the scraper discards the
-//! whole response. Since category names come from the user, most of what is
-//! worth testing is about surviving what they might type.
+//! Prometheus exposition: one malformed line and the scraper discards the whole response, and
+//! category names are whatever the user typed.
 
 use super::TestApp;
 
 async fn scrape(app: &TestApp) -> String {
     let response = app.get("/api/v1/metrics").await;
     assert!(response.status.is_success());
-    // The body is text, not JSON, so the harness leaves `json` null. A second
-    // call keeps the raw bytes.
+    // The harness leaves `json` null for a text body, so a second call reads the raw text.
     app.text("/api/v1/metrics").await
 }
 
@@ -36,8 +32,7 @@ async fn every_family_declares_its_help_and_type() {
 
     let body = scrape(&app).await;
 
-    // A family without HELP/TYPE still scrapes, but nothing downstream can say
-    // what it means.
+    // A family without HELP and TYPE scrapes, but nothing downstream can say what it means.
     let names: Vec<&str> = body
         .lines()
         .filter_map(|l| l.strip_prefix("# HELP "))
@@ -47,9 +42,8 @@ async fn every_family_declares_its_help_and_type() {
     for name in &names {
         assert!(body.contains(&format!("# TYPE {name} gauge")), "{name} has no TYPE");
         assert!(name.starts_with("routarr_"), "{name} is not namespaced");
-        // `_total` names a counter, which a rate reads: a gauge under it
-        // gives nonsense the first time it goes down. One is only a former
-        // name, kept beside the gauge it points to.
+        // `_total` names a counter: a gauge under it misleads a rate the first time it goes
+        // down, so one is only a deprecated name pointing to its gauge.
         if name.ends_with("_total") {
             let help = format!("# HELP {name} Deprecated, use ");
             let successor = body.split(&help).nth(1).and_then(|rest| rest.split('.').next());
@@ -202,8 +196,7 @@ async fn each_instance_is_a_series_of_its_own() {
 async fn the_guardrail_switches_are_exposed() {
     let app = TestApp::new().await;
 
-    // "Why has nothing moved for a week" is answered by these two, and a graph
-    // annotation beats reading a settings page after the fact.
+    // These two answer why nothing has moved for a week, on a graph rather than a settings page.
     let body = scrape(&app).await;
     assert!(body.contains("routarr_dry_run 1"), "dry-run defaults to on:\n{body}");
     assert!(body.contains("routarr_auto_apply_enabled 0"), "got:\n{body}");
@@ -216,14 +209,13 @@ async fn the_guardrail_switches_are_exposed() {
     assert!(scrape(&app).await.contains("routarr_dry_run 0"));
 }
 
-/// A source down, a quota spent and titles nothing describes are watched as
-/// an instance down is: a source never probed has no health sample, an
-/// instance's probe is not a source's, and the quota of a source without
-/// one is not reported.
+/// A source down, a quota spent and titles nothing describes are watched as an instance down
+/// is. A source never probed has no health sample, an instance's probe is not a source's, and
+/// a source without a quota reports none.
 #[tokio::test]
 async fn each_metadata_source_reports_its_health_cache_and_quota() {
     let sources = super::fake_sources::FakeSources::start().await;
-    let app = TestApp::one_film_on(&sources, "arr,omdb,anilist,jikan").await;
+    let app = TestApp::one_film_on(&sources, "arr,omdb,anilist,tenrai").await;
     app.execute(&[
         "INSERT INTO probe_results (subject, reachable, detail, checked_at)
          VALUES ('source:anilist', 1, NULL, datetime('now')),
@@ -253,7 +245,7 @@ async fn each_metadata_source_reports_its_health_cache_and_quota() {
         assert!(body.contains(&format!("{series} {value}\n")), "no {series} {value} in:\n{body}");
     }
     for absent in [
-        source("routarr_metadata_source_up", "jikan"),
+        source("routarr_metadata_source_up", "tenrai"),
         source("routarr_metadata_source_up", "inst-1"),
         source("routarr_metadata_quota_spent", "anilist"),
     ] {
@@ -275,9 +267,7 @@ async fn a_category_name_with_a_quote_does_not_break_the_scrape() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    // Category names are free-form strings the user types. An unescaped quote
-    // would produce a line Prometheus rejects, and it discards the entire
-    // response, not just that line, so one bad name blinds every dashboard.
+    // Unescaped, one quote in a name makes Prometheus discard the whole response.
     sqlx::query(
         r#"INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
             VALUES ('m-1', 'we"ird\path', 1, datetime('now'))"#,

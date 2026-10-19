@@ -55,8 +55,7 @@
   const fields = FIELDS.filter((field) =>
     sections.some((entry) => (entry.keys as readonly string[]).includes(field.key)),
   );
-  // One section needs no tab strip, and a strip of one would be read out as a
-  // choice with nothing to choose.
+  // One section needs no tab strip: a strip of one is read out as a choice with nothing in it.
   const tabbed = sections.length > 1;
 
   const bundle = createAsync(async (signal) => {
@@ -67,11 +66,9 @@
       api.getMetadataProviders(signal),
     ]);
     const { values, sealed } = splitStored(answer);
-    // An unstored source list is the shipped default, which only the server
-    // knows. Seeded from a copy kept here instead, the first save of any
-    // setting would store that copy, since a save sends every field. A repeat
-    // keeps its first place: the server refuses a list that repeats a source,
-    // so a stored list holding one would hold back every save.
+    // An unstored list is the server's default: a copy kept here would be stored by the first
+    // save of anything, as a save sends every field. A repeat keeps its first place: the server
+    // refuses a list that repeats a source, so a stored one would hold back every save.
     const stored = values.metadata_providers;
     const listed = stored?.split(',').map((id) => id.trim()) ?? metadata.order;
     const settings: SettingsMap = {
@@ -88,15 +85,7 @@
   });
 
   let draft = $state<SettingsMap>({});
-  /**
-   * What is actually stored, so the draft can be diffed against it.
-   *
-   * Saving covers every field of every section of this screen (the payload is
-   * built from all of `fields`), so the save bar has to say so, and has to say
-   * when there are unsaved changes at all. Otherwise Routing is edited,
-   * Maintenance is opened, Save is pressed, and nothing on screen says what was
-   * written.
-   */
+  /** What is actually stored, so the draft can be diffed against it. */
   let saved = $state<SettingsMap>({});
   /** The sealed settings holding a value, which no field can show. */
   const stored = new SvelteSet<string>();
@@ -108,16 +97,11 @@
   const outcome = createOutcome();
   let saving = $state(false);
 
-  /**
-   * Whether this browser has any use for a key, and what to say about it.
-   *
-   * The middleware reads one in `apikey`, `forms` and `oidc` and in no other
-   * mode: `none` and `external` resolve an identity before they ever look at
-   * the header, so a field there stores a string nothing will read. And in the
-   * two session modes a key exists only if somebody set one, which is why the
-   * server says so rather than the interface assuming it.
-   */
   const auth = createAsync((signal) => api.authMode(signal));
+  /**
+   * The key card and its help, or `null` where the middleware reads no key, as `none` and
+   * `external` resolve an identity first. In a session mode the server says whether one is set.
+   */
   const keyCard = $derived.by(() => {
     const data = auth.data;
     if (!data) return null;
@@ -129,12 +113,8 @@
   });
 
   /**
-   * The key a rotation just minted, shown until this screen is left.
-   *
-   * Held on screen and nowhere else: no route reads a key back, so this is the
-   * one moment it can be copied. Storing it to show again later would make
-   * every later visit a second chance to copy it, which is the property a
-   * credential must not have.
+   * The key a rotation just minted, shown until this screen is left and stored nowhere: no route
+   * reads a key back, and a copy kept to show again would hand it to every later visit.
    */
   let minted = $state<string | null>(null);
 
@@ -167,8 +147,7 @@
   // In the URL, so a section can be linked to and survives a reload. The hash
   // rather than a route: these are one page's sections, not pages of their own.
   const wanted = window.location.hash.replace('#', '');
-  // `sections[0]` is `| undefined` to the compiler, though every page names at
-  // least one section, so the fallback is the first of the whole table.
+  // Every page names a section, but `sections[0]` is `| undefined` to the compiler.
   const first = sections[0] ?? SECTIONS[0];
   let section = $state<SectionId>(
     tabbed && sections.some((entry) => entry.id === wanted) ? (wanted as SectionId) : first.id,
@@ -176,17 +155,14 @@
 
   function openSection(id: SectionId) {
     section = id;
-    // `replaceState`, not `pushState`: switching section is not navigation, and
-    // stacking twenty history entries would make the back button useless. The
-    // path is written out: a bare `#id` resolves against the `<base href>`,
-    // which is the mount point and not this page.
+    // Not `pushState`: a section switch is no navigation for the back button. The path is
+    // written out, since a bare `#id` resolves against the `<base href>`, the mount point.
     const { pathname, search } = window.location;
     window.history.replaceState(null, '', `${pathname}${search}#${id}`);
   }
 
-  // A hash that changes without a remount, as a link to `#guardrails` followed
-  // from this very page, has to move the section too. Read once at mount, the
-  // URL and the screen disagree.
+  // A hash changed without a remount, as by a link to `#guardrails` on this very page, moves the
+  // section too, or the URL and the screen disagree.
   $effect(() => {
     if (!tabbed) return;
     const sync = () => {
@@ -198,7 +174,6 @@
   });
 
   function seed(settings: SettingsMap) {
-    // Backfill the keys the database has never been given a value for.
     const filled: SettingsMap = { ...settings };
     for (const field of fields) {
       if (!filled[field.key]) filled[field.key] = field.fallback;
@@ -207,10 +182,9 @@
     saved = { ...filled };
   }
 
-  // A reload takes what is stored and puts every pending change back over it:
-  // reseeded alone, a Retry would replace each unsaved change in every
-  // section, and kept alone, a draft begun before the settings loaded would
-  // save the fallbacks over the values it never read.
+  // A reload takes what is stored and puts each pending change back over it. Reseeded alone, a
+  // Retry would drop every unsaved change, and kept alone, a draft begun before the load would
+  // save the fallbacks over values it never read.
   $effect(() => {
     const data = bundle.data;
     if (!data) return;
@@ -222,8 +196,7 @@
       draft = { ...draft, ...pending };
       stored.clear();
       for (const setting of data.sealed) stored.add(setting);
-      // The screen wears the theme it has just read: an import replaces it
-      // without a save.
+      // The screen wears the theme it has just read: an import replaces it without a save.
       applyTheme(data.settings.ui_theme || 'dark');
     });
   });
@@ -265,12 +238,9 @@
   const active = $derived(sections.find((entry) => entry.id === section) ?? first);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
   /**
-   * What the metadata tab renders itself rather than through the field loop.
-   *
-   * The credentials belong in the row of the source they unlock, and the
-   * source list is a subject of its own rather than a field. Both are still in
-   * `SECTIONS`, so the payload and the "covers every field exactly once" check
-   * are untouched.
+   * Drawn by the metadata section itself, not the field loop: each credential in its source's
+   * row, and the source list as a subject of its own. Both stay in `SECTIONS`, which the payload
+   * and the "every field exactly once" check read.
    */
   const SELF_RENDERED = new Set([
     ...Object.values(SOURCE_KEY_SETTING),
@@ -279,11 +249,8 @@
   ]);
 
   /**
-   * The fields where blank means "leave the stored value alone".
-   *
-   * The credentials and nothing else: the backend never returns a sealed value,
-   * so those fields are empty on every load. Every other setting is loaded with
-   * what is stored, so an empty one is an empty one the reader chose.
+   * The sealed fields, where blank leaves the stored value alone: the backend never returns
+   * one, so each loads empty. Any other empty field is one the reader emptied.
    */
   const CREDENTIALS = new Set(
     FIELDS.filter((field) => field.kind === 'secret').map((field) => field.key),
@@ -316,11 +283,8 @@
     if (saving) return;
     saving = true;
     try {
-      // A blank credential is left out rather than sent. The backend never
-      // returns a sealed value, so the field is empty on every load, and
-      // sending that emptiness would delete the credential on every unrelated
-      // save. One the reader asked to remove is sent empty, which is how the
-      // backend removes it.
+      // A blank credential is left out, or every unrelated save would delete it. One the reader
+      // asked to remove is sent empty, which is how the backend removes it.
       const payload: SettingsMap = Object.fromEntries(
         fields.flatMap((field) => {
           const value = draft[field.key] ?? field.fallback;
@@ -340,9 +304,10 @@
       await loadDictionary();
       saved = { ...saved, ...payload };
       outcome.succeed(t('SettingsSaved'));
-      // A metadata key added or cleared, or a source enabled: the warnings
-      // about sources are computed from exactly these.
+      // A key added or cleared, or a source enabled, changes the warnings about sources.
       invalidateStatus();
+      // Whether a source can answer is the server's to say once its key is saved or removed.
+      await bundle.reload();
       keepFocus();
     } catch (err) {
       outcome.fail(err);
@@ -352,8 +317,7 @@
   }
 
   async function purge() {
-    // Removes decisions, logs and jobs past their retention. Asked for first:
-    // it is not undoable, and the button sits beside two that are harmless.
+    // Not undoable, and its button sits beside two that are harmless.
     if (!(await askConfirmation(t('ConfirmPurge'), 'PurgeNow'))) return;
     try {
       const report = await api.purge();
@@ -415,9 +379,8 @@
         replaceRules = answer === 'replace';
       }
       const report = await api.importConfig(parsed, replaceRules);
-      // The import wrote every setting, so an edit begun before it goes now:
-      // carried over the values read back, whenever that read succeeds, Save
-      // would write it over the import.
+      // The import wrote every setting, so an edit begun before it goes now: carried over the
+      // values read back, Save would write it over the import.
       draft = { ...saved };
       removing.clear();
       // Before the summary, which is written in the language the import set.
@@ -441,17 +404,14 @@
           rules: report.rules,
           overrides: report.overrides,
         }) + waiting;
-      // Never swallowed: a restore that quietly drops half a backup is worse
-      // than one that fails.
+      // Never swallowed: a restore that quietly drops half a backup is worse than one that fails.
       const partial = `${summary} ${t('ConfigImportSkipped', { count: report.skipped.length })}`;
       if (report.skipped.length > 0 && restored === 0) outcome.fail(partial, report.skipped);
       else if (report.skipped.length > 0)
         outcome.warn(partial, [...report.skipped, ...report.adjusted]);
       else if (waiting || report.adjusted.length > 0) outcome.warn(summary, report.adjusted);
       else outcome.succeed(summary);
-      // An import writes instances, categories, mappings and settings, four of
-      // the seven things the warnings are computed from, so the shell's count
-      // is stale the moment this returns.
+      // An import writes instances, categories, mappings and settings, which the warnings read.
       invalidateStatus();
       // The effect above reseeds the form from this read once it succeeds.
       await bundle.reload();
@@ -475,9 +435,6 @@
             : event.key === 'End'
               ? sections.length - 1
               : -1;
-    // Read once and checked, rather than indexed twice: `next` is computed
-    // from a key press and the two lookups could disagree if that ever grows a
-    // branch.
     const target = sections[next];
     if (!target) return;
     event.preventDefault();
@@ -494,8 +451,7 @@
 {#if bundle.loading && bundle.data === null}
   <div class="card"><Loading /></div>
 {:else}
-  <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives
-         it one. -->
+  <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives it one. -->
   <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
   <!-- The guide's two optional steps are done on these screens. -->
   {#if section === 'metadata'}
@@ -514,13 +470,11 @@
     <WarningBanner message={t('AutoApplyWarning')} />
   {/if}
 
-  <!-- One column for the strip and the panel together. A strip whose rule
-         runs the full width of the page, over a narrower card hugging the left
-         edge, reads as broken rather than as deliberate. -->
+  <!-- One column for the strip and the panel: a strip ruled across the whole page, over a
+         narrower card, reads as broken. -->
   <div class="settings-column">
-    <!-- A real tab strip: `aria-selected` says which one is open, and the
-           arrow keys move between them, because a `role="tab"` that only
-           responds to Tab is a lie told to a screen reader. -->
+    <!-- A real tab strip: `aria-selected` marks the open one, and the arrow keys move between
+           them, as a screen reader expects of a `role="tab"`. -->
     {#if tabbed}
       <div class="tabs" role="tablist" aria-label={t('SettingsSections')}>
         {#each sections as entry (entry.id)}
@@ -566,9 +520,8 @@
           </div>
 
           {#if minted}
-            <!-- The one moment this value is readable. `mono` carries the
-                   `direction: ltr` a hex string needs: it has no strong
-                   character, so it would otherwise take the page's. -->
+            <!-- The one moment it is readable. `mono` sets the `direction: ltr` a hex string
+                   needs: with no strong character, it would take the page's. -->
             <div class="mb-3">
               <WarningBanner message={t('ApiKeyMintedOnce')} />
               <code class="mono secret-once">{minted}</code>
@@ -576,9 +529,8 @@
           {/if}
 
           {#if keyCard.api_key_pinned}
-            <!-- Rotating would mint a key the next restart replaces with the
-                   variable's again, so the buttons are absent rather than
-                   present and quietly futile. -->
+            <!-- No buttons: a key minted here would give way to the variable's at the next
+                   restart. -->
             <p class="text-muted text-sm">{t('ApiKeyPinned')}</p>
           {:else}
             <div class="flex gap-2">
@@ -628,12 +580,8 @@
       {/if}
 
       <form novalidate onsubmit={save}>
-        <!-- The source list is a subject, not a field. Rendered inside the
-               loop it would take a field's caption, and the card title, that
-               caption and the "active / available" group labels would compete
-               at the same weight, with the sentence governing the whole thing
-               under the rows it introduces. Its own card puts the sentence
-               where it governs, with no level between. -->
+        <!-- The source list is a subject, not a field: in a card of its own, its sentence sits
+               above the rows it governs, with no field caption to compete with the title. -->
         {#if section === 'metadata'}
           {@const sources = FIELDS.find((field) => field.key === 'metadata_providers')}
           {#if sources}
@@ -669,16 +617,10 @@
             </CardTitle>
           </div>
 
-          <!-- The metadata credentials are rendered by the source list
-               rather than here: a key is not a setting of the application, it
-               is a property of the source it unlocks, and stated apart it would
-               make "enable TMDB" a round trip past the whole list and back,
-               with a save at each end. -->
+          <!-- The source list draws the metadata credentials, each in the row of the source it
+               unlocks, so turning a source on takes one place and one save. -->
           {#each FIELDS.filter((field) => (active.keys as readonly string[]).includes(field.key) && !SELF_RENDERED.has(field.key)) as field (field.key)}
             <div class="form-group">
-              <!-- `for`/`id` rather than a bare sibling: without the pairing a
-                   screen reader announces the control as unlabelled, and
-                   clicking the caption does not focus the field. -->
               <label class="form-label" for="setting-{field.key}">{t(field.labelKey)}</label>
 
               {#if field.kind === 'bool'}
@@ -689,9 +631,8 @@
                   value={draft[field.key] ?? field.fallback}
                   onchange={(event) => (draft[field.key] = event.currentTarget.value)}
                 >
-                  <!-- Keys of their own: a setting's state agrees otherwise than
-                         the rule and the instance the badges name, in French and
-                         Italian among others. -->
+                  <!-- Keys of their own: a setting's state agrees otherwise than a rule's or an
+                         instance's badge, in French and Italian among others. -->
                   <option value="true">{t('SettingOn')}</option>
                   <option value="false">{t('SettingOff')}</option>
                 </select>
@@ -704,9 +645,7 @@
                   onchange={(event) => (draft[field.key] = event.currentTarget.value)}
                 >
                   {#each languages as language (language.code)}
-                    <!-- A partial translation is allowed, and saying so is what
-                         keeps the picker honest. Complete ones stay unadorned.
-                         Each name is its language's own, read in it. -->
+                    <!-- Each name is its language's own, read in it. -->
                     <option value={language.code} lang={bcp47(language.code)}>
                       {language.completion >= 100
                         ? language.name
@@ -741,9 +680,8 @@
                   {/each}
                 </select>
               {:else if field.kind === 'secret'}
-                <!-- Never returned by the server, so empty on every load: the
-                       placeholder says whether a value is stored, and only
-                       Remove clears one, since a blank field leaves it alone. -->
+                <!-- Empty on every load, as the server never returns it: the placeholder says
+                       whether a value is stored, and only Remove clears one. -->
                 <div class="flex gap-2">
                   <input
                     id="setting-{field.key}"
@@ -817,16 +755,14 @@
             </p>
           {/if}
 
-          <!-- Sticky, and it says what it covers. Inside whichever section is
-               open, a button that saves every field of every section of the
-               screen has an invisible scope, and nothing signals that anything
-               is pending. -->
           {#if section === 'security'}
             <p class="text-muted text-sm mt-3">
               <a class="text-link" href={href('/security-log')}>{t('OpenSecurityLog')}</a>
             </p>
           {/if}
 
+          <!-- Sticky, with a count and its scope: a Save inside the open section saves every
+               section of the screen, which nothing else on it says. -->
           {#if changed.length > 0}
             <div class="save-bar" role="status">
               <div>
@@ -842,9 +778,8 @@
                 <button type="button" class="btn btn-secondary" onclick={discard}>
                   {t('DiscardChanges')}
                 </button>
-                <!-- Held while the settings could not be read: the draft
-                       then holds values that may not match what the server
-                       stores. -->
+                <!-- Held while the settings could not be read: the draft may then hold values
+                       the server does not store. -->
                 <button
                   type="submit"
                   class="btn btn-primary"

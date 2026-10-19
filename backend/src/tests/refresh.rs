@@ -24,19 +24,18 @@ async fn enriched(order: &str) -> (FakeSources, TestApp) {
     (sources, app)
 }
 
-/// A title asked again is read again from each source, and searched again
-/// where it was found by a search, so a wrong AniList or MyAnimeList match
-/// can be corrected. Its answers were current, so nothing but the refresh
-/// asks for them.
+/// A title asked again is read again from each source, and searched again where a search found
+/// it, so a wrong AniList or MyAnimeList match can be corrected. Its answers were current, so
+/// nothing but the refresh asks for them.
 #[tokio::test]
 async fn a_refreshed_title_is_read_and_searched_again() {
-    let (sources, app) = enriched("arr,jikan,omdb").await;
-    assert_eq!((asked(&sources, "jikan"), asked(&sources, "omdb")), ((1, 1), (1, 0)));
+    let (sources, app) = enriched("arr,tenrai,omdb").await;
+    assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((1, 1), (1, 0)));
 
     let answer = app.post("/api/v1/metadata/refresh", json!({ "media_id": "m-1" })).await;
 
     assert_eq!(answer.assert_ok()["answered"], 2);
-    assert_eq!((asked(&sources, "jikan"), asked(&sources, "omdb")), ((2, 2), (2, 0)));
+    assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((2, 2), (2, 0)));
     let stale: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache WHERE stale = 1")
         .fetch_one(&app.state.pool)
         .await
@@ -49,13 +48,13 @@ async fn a_refreshed_title_is_read_and_searched_again() {
 /// Asked for everything, every source's are.
 #[tokio::test]
 async fn a_refreshed_source_has_its_answers_read_again() {
-    let (sources, app) = enriched("arr,jikan,omdb").await;
+    let (sources, app) = enriched("arr,tenrai,omdb").await;
 
     app.post("/api/v1/metadata/refresh", json!({ "source": "omdb" })).await.assert_ok();
-    assert_eq!((asked(&sources, "jikan"), asked(&sources, "omdb")), ((1, 1), (2, 0)));
+    assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((1, 1), (2, 0)));
 
     app.post("/api/v1/metadata/refresh", json!({})).await.assert_ok();
-    assert_eq!((asked(&sources, "jikan"), asked(&sources, "omdb")), ((2, 1), (3, 0)));
+    assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((2, 1), (3, 0)));
 }
 
 /// A pass already running has counted its titles: a refresh then is refused

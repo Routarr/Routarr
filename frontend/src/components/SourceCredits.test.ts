@@ -6,12 +6,6 @@ import { ApiError, api } from '../api/client';
 import type { MetadataProvider } from '../api/types';
 import SourceCredits from './SourceCredits.svelte';
 
-/**
- * What each source's terms ask of whoever shows its data: TMDB its notice and
- * logo, TheTVDB a sentence and a link, OMDb its licence. A credit missing is
- * a source used outside its terms.
- */
-
 function source(id: string, website: string | null): MetadataProvider {
   return {
     id,
@@ -31,7 +25,7 @@ const CATALOGUE = {
     source('arr', null),
     source('tmdb', 'https://www.themoviedb.org'),
     source('anilist', 'https://anilist.co'),
-    source('jikan', 'https://myanimelist.net'),
+    source('tenrai', 'https://myanimelist.net'),
     source('omdb', 'https://www.omdbapi.com'),
     source('tvdb', 'https://thetvdb.com'),
   ],
@@ -40,6 +34,11 @@ const CATALOGUE = {
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * What each source's terms ask of whoever shows its data: TMDB its notice and
+ * logo, TheTVDB a sentence and a link, OMDb its licence. A credit missing is
+ * a source used outside its terms.
+ */
 describe('SourceCredits', () => {
   it('credits every source as its terms ask, enabled or not, and links to it', async () => {
     vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(CATALOGUE);
@@ -69,7 +68,7 @@ describe('SourceCredits', () => {
     expect(omdb.textContent?.split('CC BY-NC 4.0')).toHaveLength(2);
     expect(within(omdb).getByRole('link', { name: 'www.omdbapi.com' })).toBeTruthy();
     expect(screen.getByText('Data from AniList.')).toBeTruthy();
-    expect(screen.getByText('Data from MyAnimeList, read through Jikan.')).toBeTruthy();
+    expect(screen.getByText('Data from MyAnimeList, read through Tenrai.')).toBeTruthy();
     // The Arrs supply their own library: nothing of theirs to credit.
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
   });

@@ -1,4 +1,4 @@
-//! In-process stand-ins for AniList, Jikan, OMDb and TheTVDB.
+//! In-process stand-ins for AniList, Tenrai, OMDb and TheTVDB.
 //!
 //! One server, four shapes: they are exercised together, since a library
 //! enriched by several sources at once is the whole point, and one listener
@@ -30,7 +30,7 @@ pub struct Recorded {
     /// kind, `movies/<id>` or `series/<id>`.
     pub details: Vec<(&'static str, String)>,
     /// The format each search was restricted to, per source: AniList's
-    /// `format`, Jikan's `type`, `None` for an unrestricted search.
+    /// `format`, Tenrai's `type`, `None` for an unrestricted search.
     pub formats: Vec<(&'static str, Option<String>)>,
     /// When each AniList search arrived.
     pub searched_at: Vec<std::time::Instant>,
@@ -38,7 +38,7 @@ pub struct Recorded {
 
 /// The one work each source holds: My Neighbor Totoro, as AniList and
 /// MyAnimeList number it, its IMDb id, and the TheTVDB id the test library
-/// gives it. AniList and Jikan also hold their id 1, Cowboy Bebop, a series,
+/// gives it. AniList and Tenrai also hold their id 1, Cowboy Bebop, a series,
 /// which a search restricted to films never answers, and which their probes
 /// ask for.
 pub const ANILIST_ID: i64 = 523;
@@ -54,8 +54,8 @@ struct FakeState {
     /// When false, the search answers with a work whose year does not match.
     matching_year: bool,
     /// When set, every route of every source answers with this status instead
-    /// of a payload, the "the source is down" case the real Jikan produces
-    /// whenever MyAnimeList is unavailable.
+    /// of a payload, the "the source is down" case a source reading MyAnimeList produces while
+    /// MyAnimeList is unavailable.
     fail_with: Option<u16>,
     /// When set, AniList answers 200 with `data: null` and an `errors` list,
     /// which is how GraphQL reports a failure.
@@ -135,9 +135,9 @@ impl FakeSources {
         let app = Router::new()
             // AniList speaks GraphQL over a single endpoint.
             .route("/anilist", post(anilist))
-            .route("/jikan/anime", get(jikan_search))
-            .route("/jikan/anime/{id}/full", get(jikan_details))
-            .route("/jikan/anime/{id}", get(jikan_details))
+            .route("/tenrai/anime", get(tenrai_search))
+            .route("/tenrai/anime/{id}/full", get(tenrai_details))
+            .route("/tenrai/anime/{id}", get(tenrai_details))
             // OMDb answers everything on its root.
             .route("/omdb", get(omdb))
             // TheTVDB: a login, then bearer-authenticated reads.
@@ -197,8 +197,8 @@ impl FakeSources {
     pub fn anilist_url(&self) -> String {
         format!("{}/anilist", self.base_url)
     }
-    pub fn jikan_url(&self) -> String {
-        format!("{}/jikan", self.base_url)
+    pub fn tenrai_url(&self) -> String {
+        format!("{}/tenrai", self.base_url)
     }
     pub fn omdb_url(&self) -> String {
         format!("{}/omdb", self.base_url)
@@ -343,13 +343,13 @@ async fn anilist_answer(
     )
 }
 
-// -------------------------------------------------------------------- Jikan
+// -------------------------------------------------------------------- Tenrai
 
-async fn jikan_search(
+async fn tenrai_search(
     State(state): State<FakeState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    record(&state, "/jikan/anime");
+    record(&state, "/tenrai/anime");
     if let Some(status) = state.fail_with {
         return Err(StatusCode::from_u16(status).unwrap());
     }
@@ -357,11 +357,11 @@ async fn jikan_search(
     let restricted = params.get("type").cloned();
     {
         let mut recorded = state.recorded.lock().expect("lock");
-        recorded.searches.push(("jikan", search));
-        recorded.formats.push(("jikan", restricted.clone()));
+        recorded.searches.push(("tenrai", search));
+        recorded.formats.push(("tenrai", restricted.clone()));
     }
 
-    // Jikan's `year` is the broadcast season, null for a film: the release
+    // Tenrai's `year` is the broadcast season, null for a film: the release
     // year is the start of `aired`. The series first, as AniList's.
     let released = if state.matching_year { 1988 } else { 1972 };
     let bebop = serde_json::json!({
@@ -395,7 +395,7 @@ async fn jikan_search(
 }
 
 /// A work's record, `/full` or not, written down as it was asked for.
-async fn jikan_details(
+async fn tenrai_details(
     State(state): State<FakeState>,
     uri: Uri,
     Path(id): Path<String>,
@@ -404,7 +404,7 @@ async fn jikan_details(
     if let Some(status) = state.fail_with {
         return Err(StatusCode::from_u16(status).unwrap());
     }
-    record_details(&state, "jikan", id.clone());
+    record_details(&state, "tenrai", id.clone());
     if id == "1" {
         return Ok(Json(serde_json::json!({ "data": { "mal_id": 1, "title": "Cowboy Bebop" } })));
     }

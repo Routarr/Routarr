@@ -255,7 +255,6 @@ async fn library(language: &str) -> TestApp {
     app
 }
 
-/// The gallery's entry for the template `id`.
 fn entry<'a>(gallery: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
     let templates = gallery.as_array().expect("a list of templates");
     templates.iter().find(|template| template["id"] == id).unwrap_or_else(|| panic!("no {id}"))
@@ -359,7 +358,7 @@ async fn a_template_reading_keywords_names_the_sources_that_answer_them_until_on
 
     let gallery = app.get("/api/v1/rules/templates").await;
     let gallery = gallery.assert_ok().clone();
-    // AniList and Jikan give keywords too, about anime alone.
+    // AniList and Tenrai give keywords too, about anime alone.
     assert_eq!(entry(&gallery, "concerts")["needs"], json!([{ "id": "tmdb", "name": "TMDB" }]));
     assert_eq!(
         entry(&gallery, "documentaries")["needs"],

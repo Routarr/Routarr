@@ -15,25 +15,19 @@ use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::models::Instance;
 use crate::services::backup::Credential;
 
-// The state imports from the layers that read it: handlers, services and jobs
-// all receive it, and it is the one place a client is built, from the
-// shared `http` client and a key `secrets` opens (`adapter`, `tmdb_from`,
-// `metadata_sources`). A client built anywhere else is a second place that
-// opens a key, and one free to pick a client without the redirect policy that
-// keeps the key from leaking.
+// Every client is built here, from the shared `http` and a key `secrets` opens. Built elsewhere,
+// a client opens a key a second time, maybe without the redirect policy keeping it from leaking.
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::anilist::AniListClient;
-use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
+use crate::integrations::tenrai::TenraiClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::services::metadata::{self, FetchingSource, ProviderInfo};
 
-/// The API key: the environment's, else the stored one.
-///
-/// Read by `main` and by the test harness alike, so a harness cannot drift into
-/// testing a precedence the application does not have. `main` generates a key
-/// first when `apikey` mode finds neither.
+/// The API key: the environment's, else the stored one. Shared by `main` and the test harness,
+/// so no test pins a precedence the application lacks. `main` generates a key first when
+/// `apikey` mode finds neither.
 pub(crate) fn resolve_api_key(config: &Config) -> Option<String> {
     config.api_key.clone().or_else(|| crate::crypto::read_api_key(&config.api_key_path()))
 }
@@ -47,36 +41,23 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub secrets: SecretBox,
     pub jobs: JobRegistry,
-    /// TheTVDB's bearer token, shared across every client this state builds.
-    ///
-    /// It is valid for about a month, but the clients are rebuilt on every call
-    /// that needs a source (a health page, an enrichment pass), so a token held
-    /// inside the client would mean logging in again each time. TheTVDB counts
-    /// logins, and it is the only source that has any.
+    /// TheTVDB's bearer token, shared by every client this state builds. The clients are rebuilt
+    /// on every call that needs a source, so a token held in one would log in each time, and
+    /// TheTVDB counts logins.
     pub tvdb_token: crate::integrations::tvdb::TokenCache,
     pub paces: crate::services::metadata::Paces,
     pub library_passes: crate::services::routing::LibraryPasses,
-    /// The API key as it stands right now.
-    ///
-    /// Held here rather than on [`Config`] because it can change while the
-    /// process runs: a rotation has to take effect on the next request, not on
-    /// the next restart, or a leaked key stays valid until somebody stops the
-    /// service. Read on every protected request, so it is a lock and not a
-    /// query: the value is resolved once at startup and written only by a
-    /// rotation.
+    /// The live API key, held here and not on [`Config`]: a rotation takes effect on the next
+    /// request, not the next restart. Read on every protected request, so a lock, not a query,
+    /// resolved once at startup and written only by a rotation or a removal.
     pub api_key: Arc<std::sync::RwLock<Option<String>>>,
     /// What `/auth/login` may spend at once. See
     /// [`crate::services::accounts::SignInThrottle`]: a permit rather than a
     /// lockout, so the cost is bounded without the service being deniable.
     pub sign_in: Arc<crate::services::accounts::SignInThrottle>,
-    /// The provider's own description of itself, and until when it is kept.
-    ///
-    /// Here for the reason `tvdb_token` is: `/auth/oidc/start` is public and
-    /// unauthenticated, and fetching the discovery document on every call turns
-    /// one cheap inbound request into one outbound request against the
-    /// operator's identity provider, which rate-limits by address and would
-    /// lock them out of their own login. It is a static document, and providers
-    /// expect it to be cached.
+    /// The provider's discovery document, and until when it is kept. `/auth/oidc/start` is public:
+    /// fetched on every call, the document turns each anonymous request into one against the
+    /// identity provider, which rate-limits by address and would lock the operator out.
     pub oidc_provider: Arc<tokio::sync::RwLock<Option<(crate::services::oidc::Provider, Instant)>>>,
     /// The work that follows a full sync (enrichment, simulation, auto-apply),
     /// whoever synced: one at a time, and waited for at shutdown
@@ -98,13 +79,11 @@ pub struct AppState {
     pub last_probe: Arc<tokio::sync::Mutex<Option<Arc<crate::api::health::Probe>>>>,
 }
 
-/// The settings table as it stood when it was read, by [`AppState::settings`].
-///
-/// Parsed the way the single-key readers parse, so an answer is the same
-/// whichever of the two a caller asked.
+/// The settings table as [`AppState::settings`] read it, parsed as the single-key readers parse,
+/// so an answer is the same whichever of the two a caller asks.
 pub struct Settings(std::collections::HashMap<String, String>);
 
-/// Over every row, in key order.
+/// Over every row in key order: a `HashMap` iterates in no stable one.
 impl std::hash::Hash for Settings {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let mut rows: Vec<_> = self.0.iter().collect();
@@ -119,7 +98,7 @@ impl Settings {
         self.0.get(key).map(String::as_str)
     }
 
-    /// `default` when absent or unparseable, as `AppState::setting` answers.
+    /// The setting's default when absent or unparseable, as `AppState::setting` answers.
     pub fn get<T: std::str::FromStr + Default>(&self, key: &str) -> T {
         self.raw(key).and_then(|v| v.trim().parse().ok()).unwrap_or_else(|| default_of(key))
     }
@@ -142,11 +121,8 @@ fn is_true(value: &str) -> bool {
 }
 
 impl AppState {
-    /// Point this state at a config, keeping the live key in step with it.
-    ///
-    /// A test that swaps the config to change the auth mode expects the key it
-    /// wrote there to be the one the middleware checks. Setting the two apart
-    /// is how a suite ends up asserting against a credential nothing reads.
+    /// Point this state at a config, keeping the live key in step with it: a test that swaps the
+    /// config expects the key it wrote there to be the one the middleware checks.
     #[cfg(test)]
     pub fn with_config(mut self, config: Config) -> Self {
         self.api_key = Arc::new(std::sync::RwLock::new(resolve_api_key(&config)));
@@ -154,23 +130,15 @@ impl AppState {
         self
     }
 
-    /// The key a request must present, or `None` when there is none to present.
-    ///
-    /// A poisoned lock is recovered rather than propagated, the same choice
-    /// `JobRegistry::try_lock` makes and for a stronger reason: this is read on
-    /// every protected request, so panicking here would turn one panic under
-    /// the guard into a server that answers nothing at all. The guarded value
-    /// is one `Option<String>` with no invariant a panic could leave half
-    /// written.
+    /// The key a request must present, if any. A poisoned lock is recovered: read on every
+    /// protected request, a panic here would leave a server that answers nothing, and one
+    /// `Option<String>` has no invariant a panic could leave half written.
     pub fn api_key(&self) -> Option<String> {
         self.api_key.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
     }
 
-    /// Replace the key, in memory and on disk, and return what to show once.
-    ///
-    /// The file is rewritten first: a key live in memory but absent from disk
-    /// would work until the next restart and then lock everybody out, which is
-    /// the one failure worse than not rotating at all.
+    /// Replace the key, on disk first, then in memory, and return what to show once: a key live
+    /// only in memory would lock everybody out at the next restart.
     pub async fn rotate_api_key(&self) -> AppResult<String> {
         let key = crate::crypto::generate_secret()?;
         crate::crypto::write_api_key(&self.config.api_key_path(), &key)?;
@@ -197,13 +165,8 @@ impl AppState {
             .with_library_limits(self.config.library_timeout, self.config.max_library_bytes))
     }
 
-    /// Every setting as stored, read in one statement.
-    ///
-    /// A screen that asks about several (`/status` asks about the language,
-    /// the dry-run switch, the metadata order, three credentials and the
-    /// retention counts) reads the table once and answers from this rather
-    /// than once per key. An error reads as an empty table, the posture every
-    /// single-key reader takes.
+    /// Every setting as stored, in one statement, for a reader asking about several as `/status`
+    /// does. A failed read is an empty table, as [`AppState::setting`] takes one.
     pub async fn settings(&self) -> Settings {
         let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings")
             .fetch_all(&self.pool)
@@ -212,22 +175,14 @@ impl AppState {
         Settings(rows.into_iter().collect())
     }
 
-    /// The credential for a metadata source: what the interface saved, else the
-    /// environment variable.
-    ///
-    /// The saved value is sealed with the master key, exactly as an Arr's is:
-    /// an Arr key writes to the library while a metadata key only reads, so the
-    /// more dangerous of the two already goes through this machinery.
-    ///
-    /// The environment stays the fallback rather than being replaced: an
-    /// existing deployment must keep working untouched, and a key handed in by
-    /// an orchestrator is a legitimate way to run.
+    /// `provider_key_from` over a fresh read of the settings.
     #[cfg(test)]
     pub async fn provider_key(&self, provider: &str) -> Option<String> {
         self.provider_key_from(&self.settings().await, provider)
     }
 
-    /// `provider_key`, answered from a snapshot already read.
+    /// A metadata source's credential in a snapshot: what the interface saved, sealed as an
+    /// Arr's key is, else the environment's, kept for a key an orchestrator hands in.
     pub fn provider_key_from(&self, settings: &Settings, provider: &str) -> Option<String> {
         let setting = format!("{provider}_api_key");
         self.credential_from(settings, &setting, self.environment_key(provider))
@@ -248,9 +203,8 @@ impl AppState {
     ) -> Option<String> {
         let stored = settings.raw(setting);
         if let Some(raw) = stored.filter(|v| !v.trim().is_empty()) {
-            // A value that opens with neither key is left alone and reported,
-            // never treated as absent: silently falling back would route on
-            // metadata the operator believes they configured.
+            // A value no key opens is reported and yields nothing, never the environment's: the
+            // operator would believe the key they saved answers.
             return match self.secrets.open(raw) {
                 Ok(value) => Some(value),
                 Err(e) => {
@@ -262,8 +216,7 @@ impl AppState {
         environment.cloned()
     }
 
-    /// The key a source takes from the environment, as its `key_env` in the
-    /// catalogue names it.
+    /// The key a source takes from the environment, as its `key_env` in the catalogue names it.
     pub fn environment_key(&self, provider: &str) -> Option<&String> {
         // A source with a `key_env` needs its arm here. The compiler does not
         // ask for one, and without it the `_` arm leaves that variable unread.
@@ -282,9 +235,8 @@ impl AppState {
         settings: &Settings,
     ) -> std::collections::HashMap<&'static str, String> {
         let mut keys = std::collections::HashMap::new();
-        // A keyed source needs its id in this list. The compiler does not ask
-        // for it, and `metadata::is_usable` looks the key up in this map, so a
-        // source missing here is never usable, whatever key it holds.
+        // A keyed source missing from this list is never usable, whatever key it holds, and the
+        // compiler does not say so: `metadata::is_usable` looks the key up in this map.
         for id in [metadata::TMDB, metadata::OMDB, metadata::TVDB] {
             if let Some(key) = self.provider_key_from(settings, id) {
                 keys.insert(id, key);
@@ -326,14 +278,9 @@ impl AppState {
             .collect()
     }
 
-    /// The sources enrichment has to go and ask, in the same order.
-    ///
-    /// Building the client is also the last check that a source is usable: a
-    /// key that disappeared between the setting and here simply yields no
-    /// client, and the sources below it answer instead.
+    /// The sources enrichment asks, in the same order.
     pub async fn metadata_sources(&self) -> Vec<FetchingSource> {
-        // One read for the order and the keys: two reads would be one more
-        // chance for a save to land between them.
+        // One read for the order and the keys, so a save cannot land between them.
         let settings = self.settings().await;
         let mut sources = Vec::new();
 
@@ -342,18 +289,17 @@ impl AppState {
                 continue;
             }
 
-            // A fetched source needs its arm here. The compiler does not ask for
-            // one, and a source without it falls to the last arm: listed,
-            // enabled, and never asked.
+            // The compiler does not ask for a fetched source's arm here. Without one, the source
+            // falls to the last arm: listed, enabled, and never asked.
             let source = match provider.id {
                 metadata::TMDB => self.tmdb_from(&settings).map(FetchingSource::Tmdb),
                 metadata::ANILIST => Some(FetchingSource::AniList(AniListClient::new(
                     self.http.clone(),
                     &self.config.anilist_base_url,
                 ))),
-                metadata::JIKAN => Some(FetchingSource::Jikan(JikanClient::new(
+                metadata::TENRAI => Some(FetchingSource::Tenrai(TenraiClient::new(
                     self.http.clone(),
-                    &self.config.jikan_base_url,
+                    &self.config.tenrai_base_url,
                 ))),
                 metadata::OMDB => self.provider_key_from(&settings, metadata::OMDB).map(|key| {
                     FetchingSource::Omdb(OmdbClient::new(
@@ -397,10 +343,7 @@ impl AppState {
             .map_or_else(|| DEFAULT_LANGUAGE.to_string(), str::to_string)
     }
 
-    /// Translator for the configured language.
-    ///
-    /// The justifications Routarr writes are user-facing prose, so they follow
-    /// the same language setting as the interface.
+    /// Translator for the configured UI language, which the texts Routarr writes follow too.
     pub async fn localizer(&self) -> Localizer {
         Localizer::new(&self.language().await)
     }
@@ -425,8 +368,8 @@ impl AppState {
         })
     }
 
-    /// Read a setting, falling back to `default` when absent or unparseable,
-    /// and when the database fails to answer: for what only shows or paces.
+    /// Read a setting, falling back to its default when absent or unparseable, and when the
+    /// database fails to answer: for what only shows or paces.
     pub async fn setting<T: std::str::FromStr + Default>(&self, key: &str) -> T {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
@@ -438,11 +381,9 @@ impl AppState {
             .unwrap_or_else(|| default_of(key))
     }
 
-    /// Read a setting that bounds what is deleted or written, falling back to
-    /// `default` only when it is absent or unparseable. A database that fails
-    /// to answer is an error: taken for the default, a retention would delete
-    /// what a longer one keeps, and a batch limit would let through more than
-    /// the operator allows.
+    /// Read a setting that bounds what is deleted or written, its default only when absent or
+    /// unparseable. A failed read is an error: taken for the default, a retention would delete
+    /// what a longer one keeps, and a batch limit let through more than the operator allows.
     pub async fn bounding_setting<T: std::str::FromStr + Default>(
         &self,
         key: &str,
@@ -454,18 +395,9 @@ impl AppState {
         Ok(stored.and_then(|v| v.trim().parse().ok()).unwrap_or_else(|| default_of(key)))
     }
 
-    /// The category the engine falls back to when no rule matched.
-    ///
-    /// Takes a pool rather than `&self` because `routing.rs` holds one and not
-    /// an `AppState`. Spelled at each call site, the fallback would differ per
-    /// site (`"standard"` in the engine, the empty string in the category
-    /// screen), and with no setting row the delete guard would compare a name
-    /// against `""`, never fire, and leave deletable the category routing
-    /// actually lands in.
-    ///
-    /// One spelling, one fallback. The default lives in `DEFAULT_CATEGORY`,
-    /// and stands only for a missing row: a read that failed would send every
-    /// title no rule matched to the shipped default.
+    /// The category routing lands in when no rule matched, spelled here alone so every caller
+    /// and the delete guard agree. It takes no `&self`: `routing.rs` holds no `AppState`.
+    /// A failed read is an error, since `DEFAULT_CATEGORY` stands for a missing row only.
     pub async fn default_category<'e, E>(executor: E) -> crate::error::AppResult<String>
     where
         E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
@@ -522,8 +454,7 @@ impl AppState {
         let config = Config::for_tests();
         Self {
             http: crate::http::build_client(&config).expect("test http client"),
-            // Salted as a start salts it, so what tests seal is what an
-            // installation stores.
+            // Salted as a start salts it, so what tests seal is what an installation stores.
             secrets: SecretBox::load(
                 config.secret_key.as_deref(),
                 None,

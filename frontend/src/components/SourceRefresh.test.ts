@@ -6,11 +6,6 @@ import { ApiError, api } from '../api/client';
 import type { EnrichmentReport, MetadataProvider, MetadataProviders } from '../api/types';
 import SourceRefresh from './SourceRefresh.svelte';
 
-/**
- * A source's answers read again on demand: offered for each source a pass
- * asks, and only those, since a pass reads the saved order and nothing else.
- */
-
 function provider(id: string, over: Partial<MetadataProvider> = {}): MetadataProvider {
   return {
     id,
@@ -31,7 +26,7 @@ const CATALOGUE: MetadataProviders = {
     provider('arr', { fetched: false }),
     provider('tmdb'),
     provider('omdb', { needs_key: true, configured: false }),
-    provider('jikan'),
+    provider('tenrai'),
   ],
   order: ['arr', 'tmdb', 'omdb'],
 };
@@ -47,13 +42,17 @@ function show(catalogue: MetadataProviders = CATALOGUE) {
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * A source's answers read again on demand: offered for each source a pass
+ * asks, and only those, since a pass reads the saved order and nothing else.
+ */
 describe('SourceRefresh', () => {
   it('offers each source a pass asks, and no other', async () => {
     show();
 
     expect(await screen.findByRole('button', { name: 'Read again – TMDB' })).toBeTruthy();
     // The library's own metadata, a source waiting for its key, one switched off.
-    for (const name of ['ARR', 'OMDB', 'JIKAN']) {
+    for (const name of ['ARR', 'OMDB', 'TENRAI']) {
       expect(screen.queryByRole('button', { name: `Read again – ${name}` })).toBeNull();
     }
   });

@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::anilist::AniListClient;
-use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
+use crate::integrations::tenrai::TenraiClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::models::{Media, MetadataField, ProviderMetadata};
@@ -21,7 +21,7 @@ use crate::services::rule_engine::normalise_value;
 pub const ARR: &str = "arr";
 pub const TMDB: &str = "tmdb";
 pub const ANILIST: &str = "anilist";
-pub const JIKAN: &str = "jikan";
+pub const TENRAI: &str = "tenrai";
 pub const OMDB: &str = "omdb";
 pub const TVDB: &str = "tvdb";
 
@@ -134,8 +134,8 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         website: Some("https://anilist.co"),
     },
     ProviderInfo {
-        id: JIKAN,
-        display_name: "Jikan (MyAnimeList)",
+        id: TENRAI,
+        display_name: "Tenrai (MyAnimeList)",
         fetched: true,
         needs_key: false,
         key_env: None,
@@ -287,7 +287,7 @@ impl Paces {
 pub enum FetchingSource {
     Tmdb(TmdbClient),
     AniList(AniListClient),
-    Jikan(JikanClient),
+    Tenrai(TenraiClient),
     Omdb(OmdbClient),
     Tvdb(TvdbClient),
 }
@@ -297,7 +297,7 @@ impl FetchingSource {
         match self {
             Self::Tmdb(_) => TMDB,
             Self::AniList(_) => ANILIST,
-            Self::Jikan(_) => JIKAN,
+            Self::Tenrai(_) => TENRAI,
             Self::Omdb(_) => OMDB,
             Self::Tvdb(_) => TVDB,
         }
@@ -318,9 +318,9 @@ impl FetchingSource {
             {
                 Some((30, 2))
             }
-            // Three a second and sixty a minute: the minute binds.
-            Self::Jikan(client)
-                if client.base_url() == crate::integrations::jikan::DEFAULT_BASE_URL =>
+            // Tenrai publishes no rate: three a second and sixty a minute, the minute binding.
+            Self::Tenrai(client)
+                if client.base_url() == crate::integrations::tenrai::DEFAULT_BASE_URL =>
             {
                 Some((60, 3))
             }
@@ -360,11 +360,11 @@ impl FetchingSource {
         }
     }
 
-    /// How many of this source's requests may be in flight at once. Jikan allows a handful a
-    /// second, and more would only earn the 429 that stops the whole pass.
+    /// How many of this source's requests may be in flight at once. Tenrai limits each address,
+    /// and more would only earn the 429 that stops the whole pass.
     pub fn concurrency(&self, configured: usize) -> usize {
         match self {
-            Self::Jikan(_) => configured.min(2),
+            Self::Tenrai(_) => configured.min(2),
             _ => configured,
         }
     }
@@ -373,7 +373,7 @@ impl FetchingSource {
         match self {
             Self::Tmdb(client) => client.test_connection().await,
             Self::AniList(client) => client.test_connection().await,
-            Self::Jikan(client) => client.test_connection().await,
+            Self::Tenrai(client) => client.test_connection().await,
             Self::Omdb(client) => client.test_connection().await,
             Self::Tvdb(client) => client.test_connection().await,
         }
@@ -419,7 +419,7 @@ impl FetchingSource {
                     candidates.into_iter().map(|c| (c.id.to_string(), c.year, c.titles)),
                 ))
             }
-            Self::Jikan(client) => {
+            Self::Tenrai(client) => {
                 let candidates = client.search(title, media_type).await?;
                 Ok(pick_candidate(
                     title,
@@ -462,8 +462,8 @@ impl FetchingSource {
                     ..Default::default()
                 }
             }
-            Self::Jikan(client) => {
-                let details = client.get_details(numeric(external_id, "Jikan")?).await?;
+            Self::Tenrai(client) => {
+                let details = client.get_details(numeric(external_id, "Tenrai")?).await?;
                 ProviderMetadata {
                     genres: details.genres,
                     keywords: details.keywords,
@@ -1026,14 +1026,14 @@ mod tests {
     fn a_title_matches_its_candidate_whatever_its_accents() {
         let candidates = || {
             vec![(
-                "jikan-1".to_string(),
+                "tenrai-1".to_string(),
                 Some(2001),
                 vec!["Le Fabuleux Destin d'Amelie Poulain".to_string()],
             )]
         };
         assert_eq!(
             pick_candidate("Le Fabuleux Destin d'Amélie Poulain", Some(2001), candidates()),
-            Some("jikan-1".to_string())
+            Some("tenrai-1".to_string())
         );
         assert_eq!(
             local_key_of(None, None, None, "Amélie", Some(2001)),
@@ -1052,7 +1052,7 @@ mod tests {
              VALUES ('anilist', 'movie', 'found-long-ago', '523', datetime('now', '-400 days')),
                     ('anilist', 'movie', 'missed-29-days-ago', NULL, datetime('now', '-29 days')),
                     ('anilist', 'movie', 'missed-41-days-ago', NULL, datetime('now', '-41 days')),
-                    ('jikan', 'movie', 'another-source', '1', datetime('now'))",
+                    ('tenrai', 'movie', 'another-source', '1', datetime('now'))",
         )
         .execute(&pool)
         .await
