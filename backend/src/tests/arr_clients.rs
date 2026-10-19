@@ -198,13 +198,14 @@ async fn a_move_keeps_the_folder_name_and_every_other_field() {
     let film = radarr.move_item(10, "/movies/anime", true).await.unwrap();
     let series = sonarr.move_item(20, "/tv/anime/", false).await.unwrap();
 
-    assert_eq!(film, "/movies/anime/My Neighbor Totoro (1988)");
-    assert_eq!(series, "/tv/anime/Cowboy Bebop (1998)");
+    assert_eq!(film.to, "/movies/anime/My Neighbor Totoro (1988)");
+    assert_eq!(film.from.as_deref(), Some("/movies/standard/My Neighbor Totoro (1988)"));
+    assert_eq!(series.to, "/tv/anime/Cowboy Bebop (1998)");
     let recorded = arr.recorded();
-    assert_eq!(recorded.writes[0]["path"], film);
+    assert_eq!(recorded.writes[0]["path"], film.to);
     assert_eq!(recorded.writes[0]["certification"], "G", "a field was dropped");
     assert_eq!(recorded.writes[1]["rootFolderPath"], "/tv/anime/");
-    assert_eq!(recorded.writes[1]["path"], series);
+    assert_eq!(recorded.writes[1]["path"], series.to);
     assert_eq!(recorded.writes[1]["qualityProfileId"], 3, "a field was dropped");
     assert_eq!(recorded.query_strings, ["moveFiles=true", "moveFiles=false"]);
 }

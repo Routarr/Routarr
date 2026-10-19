@@ -11,9 +11,8 @@ import type { LogEntry } from '../api/types';
 import MoveLog from './MoveLog.svelte';
 
 /**
- * Every write Routarr has made to an Arr. The export is the part with a trap in
- * it: the endpoint wants the API key in a header, which a plain `<a href>`
- * cannot carry, so it goes through `fetch` and a blob.
+ * Every write Routarr has made to an Arr. The export goes through `fetch` and a blob, since
+ * the endpoint wants the API key in a header, which a plain `<a href>` cannot carry.
  */
 
 function entry(over: Partial<LogEntry> = {}): LogEntry {
@@ -29,6 +28,7 @@ function entry(over: Partial<LogEntry> = {}): LogEntry {
     media_title: 'Akira',
     actor: 'schedule',
     subject: null,
+    task_id: null,
     executed_at: '2026-08-27 10:00:00',
     ...over,
   };
@@ -68,11 +68,7 @@ describe('Move log', () => {
     expect(within(scheduled).getByText('Schedule')).toBeTruthy();
   });
 
-  /**
-   * A failure carries the message the Arr gave back. Showing the generic
-   * "failed" badge and dropping the reason leaves the operator with a log that
-   * records that something went wrong and nothing about what.
-   */
+  /** A bare "failed" badge would record that something went wrong and nothing about what. */
   it('shows the reason a write failed, not only that it failed', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(
       paginated([entry({ success: false, error_message: 'Radarr said 409' })]),
@@ -107,9 +103,8 @@ describe('Move log', () => {
   });
 
   /**
-   * The export is a `fetch` rather than a link so a refusal is said on the
-   * screen. As an `<a href>` the browser would save the error's body as the
-   * file, and the only symptom would be a file of JSON.
+   * The export is a `fetch` rather than a link so a refusal is said on the screen: as an
+   * `<a href>`, the browser would save the error's body as the file.
    */
   it('says a refused export rather than saving the refusal as the file', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
@@ -123,7 +118,6 @@ describe('Move log', () => {
     expect(saved).toHaveLength(0);
   });
 
-  /** The file holds what the screen shows: the search and the outcome go with it. */
   it('exports what the filters show, under the name of the log', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
     const exportLogs = vi.spyOn(api, 'exportLogs').mockResolvedValue(new Blob(['a,b']));
@@ -146,7 +140,6 @@ describe('Move log', () => {
     expect(saved[0]?.name).toBe('routarr-logs.csv');
   });
 
-  /** The log is paged by the server, and the pager asks it for the next page. */
   it('counts every entry under the table, and asks the server for the next page', async () => {
     const getLogs = vi
       .spyOn(api, 'getLogs')
@@ -165,9 +158,8 @@ describe('Move log', () => {
   });
 
   /**
-   * Every search is a query against the operator's own server, so a term is
-   * asked for once the typing stops, not once per letter, and from the first
-   * page: the page the reader was on may not exist in the narrower list.
+   * Each letter would be a query to the operator's own server, and the page the reader was
+   * on may not exist in the narrower list.
    */
   it('asks for a typed term once the typing stops, from the first page', async () => {
     const getLogs = vi
@@ -201,8 +193,7 @@ describe('Move log', () => {
     await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(2));
     await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), '');
 
-    // `undefined`, not `false`: an empty filter means no filter, and sending
-    // `success=false` would quietly show only the failures.
+    // `undefined`, not `false`: `success=false` would quietly show only the failures.
     await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(3));
     expect(nthCall(getLogs, 2)[0]).toMatchObject({ success: undefined });
   });

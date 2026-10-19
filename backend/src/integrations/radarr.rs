@@ -47,7 +47,7 @@ pub struct RadarrMovie {
     pub root_folder_path: Option<String>,
     #[serde(default)]
     pub monitored: bool,
-    /// Read after `statistics`, which Radarr fills it from and keeps it for.
+    /// Read after `statistics`, from which Radarr derives it.
     #[serde(rename = "hasFile")]
     has_file: Option<bool>,
     pub status: Option<String>,
@@ -268,7 +268,7 @@ impl RadarrClient {
         movie_id: i64,
         root: &str,
         move_files: bool,
-    ) -> AppResult<String> {
+    ) -> AppResult<super::arr_moves::Repointed> {
         self.api().repoint("movie", movie_id, root, move_files).await
     }
 

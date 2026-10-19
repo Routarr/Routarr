@@ -179,7 +179,7 @@ pub(super) async fn load_pending_moves(
 
     let sql = format!(
         "SELECT d.id, d.media_id, d.media_title, d.instance_id, d.current_root_folder,
-                d.target_root_folder, m.arr_id
+                d.target_root_folder, m.arr_id, m.media_type, m.tmdb_id, m.tvdb_id, m.imdb_id
          FROM decisions d
          JOIN media m ON m.id = d.media_id
          WHERE d.id IN ({placeholders})
@@ -226,7 +226,6 @@ pub(super) async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResul
     Ok(())
 }
 
-/// Load applied decisions that can still be rolled back.
 pub(super) async fn load_revertible_moves(
     pool: &SqlitePool,
     ids: &[String],
@@ -238,7 +237,7 @@ pub(super) async fn load_revertible_moves(
 
     let sql = format!(
         "SELECT d.id, d.media_id, d.media_title, d.instance_id, d.target_root_folder,
-                d.current_root_folder, m.arr_id
+                d.current_root_folder, m.arr_id, m.media_type, m.tmdb_id, m.tvdb_id, m.imdb_id
          FROM decisions d
          JOIN media m ON m.id = d.media_id
          WHERE d.id IN ({placeholders})

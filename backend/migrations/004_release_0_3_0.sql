@@ -1,3 +1,28 @@
+-- What 0.3.0 adds after 003, kept as one file while no release has run it.
+
+-- What the last run of each rule test found, read by the warning and the gauges, and who
+-- pinned the test.
+ALTER TABLE rule_tests ADD COLUMN last_passed INTEGER;
+ALTER TABLE rule_tests ADD COLUMN last_checked_at TEXT;
+ALTER TABLE rule_tests ADD COLUMN subject TEXT;
+ALTER TABLE rule_tests ADD COLUMN subject_key TEXT;
+
+-- What the Arrs send about a title for the conditions on its quality profile, runtime, studio,
+-- network and collection, and each instance's quality profiles, resolved to names as tags are.
+ALTER TABLE media ADD COLUMN quality_profile TEXT;
+ALTER TABLE media ADD COLUMN runtime INTEGER;
+ALTER TABLE media ADD COLUMN studio TEXT;
+ALTER TABLE media ADD COLUMN network TEXT;
+ALTER TABLE media ADD COLUMN collection TEXT;
+ALTER TABLE media ADD COLUMN collection_tmdb_id INTEGER;
+
+CREATE TABLE arr_quality_profiles (
+    instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+    arr_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY (instance_id, arr_id)
+);
+
 -- MyAnimeList is read through Tenrai, under the source id `tenrai`. The MyAnimeList ids are the
 -- same, so the cached answers and the resolved titles stay.
 UPDATE metadata_cache SET source = 'tenrai' WHERE source = 'jikan';
@@ -27,3 +52,8 @@ ALTER TABLE instances ADD COLUMN auto_apply INTEGER NOT NULL DEFAULT 1 CHECK (au
 ALTER TABLE instances ADD COLUMN last_webhook_at TEXT;
 ALTER TABLE instances ADD COLUMN last_webhook_event TEXT;
 ALTER TABLE instances ADD COLUMN webhook_token_at TEXT;
+
+-- The task a move or a revert ran in, so a notification naming the task leads to every title it
+-- moved.
+ALTER TABLE execution_logs ADD COLUMN job_id TEXT;
+CREATE INDEX idx_execution_logs_job ON execution_logs (job_id);

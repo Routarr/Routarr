@@ -198,7 +198,7 @@ impl SonarrClient {
         series_id: i64,
         root: &str,
         move_files: bool,
-    ) -> AppResult<String> {
+    ) -> AppResult<super::arr_moves::Repointed> {
         self.api().repoint("series", series_id, root, move_files).await
     }
 

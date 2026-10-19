@@ -775,6 +775,8 @@ export interface LogEntry {
   actor: string | null;
   /** Who asked, when the mode vouched for a name. */
   subject: string | null;
+  /** The task the write ran in, as a move notification names it. */
+  task_id: string | null;
   executed_at: string;
 }
 

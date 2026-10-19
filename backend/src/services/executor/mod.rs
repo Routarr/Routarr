@@ -12,6 +12,7 @@ use tracing::{error, info};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
+use crate::integrations::arr_moves::Repointed;
 use crate::jobs::registry::JobLock;
 use crate::jobs::{Attribution, Detail, JobKind, Stop, detached};
 use crate::localization::Told;
@@ -54,6 +55,60 @@ pub struct ApplyReport {
     /// What was not attempted is still pending, or still applied for a revert.
     pub stopped: Option<StopReason>,
     pub errors: Vec<ApplyError>,
+    /// The first titles the run moved or tried to, which a notification names.
+    #[serde(skip)]
+    pub moved: Vec<Moved>,
+}
+
+/// How many titles a report keeps for a notification: past it, the task's log has the rest.
+pub const MOVED_LISTED: usize = 50;
+
+impl ApplyReport {
+    fn note(&mut self, moved: Moved) {
+        if self.moved.len() < MOVED_LISTED {
+            self.moved.push(moved);
+        }
+    }
+}
+
+/// One title a run moved, or tried to, as a notification names it for a receiver to rescan its
+/// folders. The paths are the Arr's, which a media server may mount elsewhere.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Moved {
+    pub title: String,
+    pub media_type: String,
+    pub instance: Option<String>,
+    pub instance_id: String,
+    pub tmdb_id: Option<i64>,
+    pub tvdb_id: Option<i64>,
+    pub imdb_id: Option<String>,
+    pub from_path: Option<String>,
+    pub to_path: Option<String>,
+    /// `applied`, `moving` while the Arr still carries the files, or `failed`.
+    pub status: &'static str,
+}
+
+impl Moved {
+    fn of(
+        mv: &PendingMove,
+        instance: Option<&str>,
+        from: Option<String>,
+        to: Option<String>,
+        status: &'static str,
+    ) -> Self {
+        Self {
+            title: mv.media_title.clone(),
+            media_type: mv.media_type.clone(),
+            instance: instance.map(str::to_string),
+            instance_id: mv.instance_id.clone(),
+            tmdb_id: mv.tmdb_id,
+            tvdb_id: mv.tvdb_id,
+            imdb_id: mv.imdb_id.clone(),
+            from_path: from,
+            to_path: to,
+            status,
+        }
+    }
 }
 
 /// Why a run that moves titles ended before its last move.
@@ -80,7 +135,19 @@ pub struct ApplyError {
 }
 
 /// Columns shared by the apply and revert loaders.
-type MoveRow = (String, String, String, String, Option<String>, String, i64);
+type MoveRow = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    i64,
+    String,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+);
 
 /// One pending move, resolved from a decision row.
 #[derive(Debug, Clone)]
@@ -92,11 +159,30 @@ struct PendingMove {
     arr_id: i64,
     from: Option<String>,
     to: String,
+    media_type: String,
+    tmdb_id: Option<i64>,
+    tvdb_id: Option<i64>,
+    imdb_id: Option<String>,
 }
 
 impl From<MoveRow> for PendingMove {
-    fn from((decision_id, media_id, media_title, instance_id, from, to, arr_id): MoveRow) -> Self {
-        Self { decision_id, media_id, media_title, instance_id, arr_id, from, to }
+    fn from(row: MoveRow) -> Self {
+        let (decision_id, media_id, media_title, instance_id, from, to, arr_id) =
+            (row.0, row.1, row.2, row.3, row.4, row.5, row.6);
+        let (media_type, tmdb_id, tvdb_id, imdb_id) = (row.7, row.8, row.9, row.10);
+        Self {
+            decision_id,
+            media_id,
+            media_title,
+            instance_id,
+            arr_id,
+            from,
+            to,
+            media_type,
+            tmdb_id,
+            tvdb_id,
+            imdb_id,
+        }
     }
 }
 
@@ -304,10 +390,12 @@ async fn run_in_slices(
     let mut job = state.jobs.start(started.0, by, None, detail).await?;
 
     let state = state.clone();
-    let by = by.clone();
+    let task = job.id.clone();
+    let by = by.in_job(&task);
     let stop = job.stop();
     detached(&state.jobs.clone(), async move {
         let _lock = lock;
+        let mut moved = Vec::new();
         let mut report = BatchApplyReport {
             candidates: ids.len(),
             batches_planned,
@@ -340,6 +428,8 @@ async fn run_in_slices(
                     report.failed += slice.failed;
                     report.moving += slice.moving;
                     report.errors.extend(slice.errors);
+                    let room = MOVED_LISTED.saturating_sub(moved.len());
+                    moved.extend(slice.moved.into_iter().take(room));
                     if slice.stopped.is_some() {
                         report.stopped = slice.stopped;
                         report.stopped_early = true;
@@ -391,6 +481,8 @@ async fn run_in_slices(
                 failed,
                 skipped: report.skipped,
                 moving,
+                task_id: task,
+                moves: moved,
             },
         );
 
@@ -411,8 +503,8 @@ pub async fn apply_unattended(
     run_locked(state, decision_ids, false, by, turn, 0).await
 }
 
-/// How long an unattended apply waits for the one running. The Arr queues a disk move as its
-/// own command, so an apply holds the lock for its calls and revalidation: minutes, not hours.
+/// How long an unattended apply waits for the one running. The Arr carries a disk move as its
+/// own command, followed for `move_wait` at most, so an apply holds the lock minutes, not hours.
 const UNATTENDED_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// The apply lock for an unattended apply, waited for rather than refused: dropped, the fix for
@@ -421,7 +513,7 @@ pub async fn unattended_turn(state: &AppState) -> Option<JobLock> {
     state.jobs.lock_within("apply", UNATTENDED_WAIT).await
 }
 
-/// The shared body of both apply paths: take the lock, record a job, write.
+/// Take the apply lock, refused while another run holds it, then apply under it.
 async fn run_apply(
     state: &AppState,
     decision_ids: &[String],
@@ -433,7 +525,7 @@ async fn run_apply(
     run_locked(state, decision_ids, move_files, by, lock, superseded).await
 }
 
-/// An apply under a lock already held: record a job, write.
+/// The body both apply paths share, under a lock already held: record a job, write.
 async fn run_locked(
     state: &AppState,
     decision_ids: &[String],
@@ -454,7 +546,8 @@ async fn run_locked(
 
     let state = state.clone();
     let ids = decision_ids.to_vec();
-    let by = by.clone();
+    let task = job.id.clone();
+    let by = by.in_job(&task);
     let stop = job.stop();
     detached(&state.jobs.clone(), async move {
         let _lock = lock;
@@ -486,7 +579,7 @@ async fn run_locked(
                     detail,
                 )
                 .await;
-                notify::send_later(&state, moves_completed(false, report));
+                notify::send_later(&state, moves_completed(false, report, &task));
             }
             Err(e) => job.fail(e).await,
         }
@@ -528,7 +621,8 @@ pub async fn revert_decisions(
 
     let state = state.clone();
     let ids = decision_ids.to_vec();
-    let by = by.clone();
+    let task = job.id.clone();
+    let by = by.in_job(&task);
     let stop = job.stop();
     detached(&state.jobs.clone(), async move {
         let _lock = lock;
@@ -559,7 +653,7 @@ pub async fn revert_decisions(
                     detail,
                 )
                 .await;
-                notify::send_later(&state, moves_completed(true, report));
+                notify::send_later(&state, moves_completed(true, report, &task));
             }
             Err(e) => job.fail(e).await,
         }
@@ -604,14 +698,17 @@ async fn execute_moves(
             Err(e) => {
                 let failed = Said::of(&e, None, &localizer);
                 fail_batch(state, &batch, &mut report, &failed, direction, by).await;
+                note_failed(&mut report, &batch, None);
                 continue;
             }
         };
+        let named = Some(instance.name.as_str());
         // A proposal left from before the instance was disabled must not reach it.
         if !instance.enabled {
             let refusal = Told::new("ErrorInstanceDisabled").with("name", &instance.name);
             let failed = Said::told(&refusal, &localizer);
             fail_batch(state, &batch, &mut report, &failed, direction, by).await;
+            note_failed(&mut report, &batch, named);
             continue;
         }
 
@@ -620,6 +717,7 @@ async fn execute_moves(
             Err(e) => {
                 let failed = Said::of(&e, Some(&instance), &localizer);
                 fail_batch(state, &batch, &mut report, &failed, direction, by).await;
+                note_failed(&mut report, &batch, named);
                 continue;
             }
         };
@@ -641,15 +739,19 @@ async fn execute_moves(
                 Err(e) => Err(Said::of(&e, None, &localizer)),
             };
             match outcome {
-                Ok(path) if move_files => {
+                Ok(Repointed { from, to: path }) if move_files => {
                     record_sent(state, mv, &path, direction, by).await;
-                    sent.push(Sent { mv: mv.clone(), path });
+                    sent.push(Sent { mv: mv.clone(), path, from });
                 }
-                Ok(path) => {
-                    record_success(state, mv, &path, direction, by).await;
+                Ok(Repointed { from, to }) => {
+                    record_success(state, mv, &to, direction, by).await;
                     report.applied += 1;
+                    report.note(Moved::of(mv, named, from, Some(to), "applied"));
                 }
-                Err(failed) => fail(state, mv, &failed, &mut report, direction, by).await,
+                Err(failed) => {
+                    fail(state, mv, &failed, &mut report, direction, by).await;
+                    report.note(Moved::of(mv, named, None, None, "failed"));
+                }
             }
         }
         if !sent.is_empty() {
@@ -659,7 +761,12 @@ async fn execute_moves(
 
     // A stopping server has no minute to give: what is left stays requested for the next sync.
     if report.stopped == Some(StopReason::Shutdown) {
-        report.moving += following.iter().map(|instance| instance.sent.len()).sum::<usize>();
+        for instance in &following {
+            for sent in &instance.sent {
+                report.moving += 1;
+                report.note(sent.moved(&instance.arr, "moving"));
+            }
+        }
     } else {
         follow(state, following, direction, by, &mut report).await;
     }
@@ -673,13 +780,15 @@ async fn execute_moves(
 
 /// Ask the Arr for one move. A write whose answer never came may have been made all the same,
 /// so the title is read back before it counts as failed.
-async fn send(adapter: &ArrAdapter, mv: &PendingMove, move_files: bool) -> AppResult<String> {
+async fn send(adapter: &ArrAdapter, mv: &PendingMove, move_files: bool) -> AppResult<Repointed> {
     match adapter.move_item(mv.arr_id, &mv.to, move_files).await {
         Err(e @ AppError::ExternalApi { status: 0, .. }) => {
             match adapter.get_media_one(mv.arr_id).await {
-                Ok(Some(held)) => {
-                    held.path.filter(|path| crate::paths::within(path, &mv.to)).ok_or(e)
-                }
+                Ok(Some(held)) => held
+                    .path
+                    .filter(|path| crate::paths::within(path, &mv.to))
+                    .map(|to| Repointed { from: None, to })
+                    .ok_or(e),
                 _ => Err(e),
             }
         }
@@ -700,19 +809,27 @@ fn by_instance(moves: Vec<PendingMove>) -> Vec<Vec<PendingMove>> {
     batches
 }
 
-/// What the webhook is told when an apply or a revert finishes.
-fn moves_completed(reverted: bool, report: &ApplyReport) -> notify::Event {
+/// Each move of `batch` as a failure a notification names.
+fn note_failed(report: &mut ApplyReport, batch: &[PendingMove], instance: Option<&str>) {
+    for mv in batch {
+        report.note(Moved::of(mv, instance, None, None, "failed"));
+    }
+}
+
+/// The notification an apply or a revert sends when it finishes.
+fn moves_completed(reverted: bool, report: &ApplyReport, task: &str) -> notify::Event {
     notify::Event::MovesCompleted {
         reverted,
         applied: report.applied,
         failed: report.failed,
         skipped: report.skipped,
         moving: report.moving,
+        task_id: task.to_string(),
+        moves: report.moved.clone(),
     }
 }
 
-/// Close a job on what it did. A cancelled run is cancelled. Nothing done while something
-/// failed is a failure, whatever the count reads, or the Tasks screen shows it in green.
+/// Nothing done while something failed is a failure, or the Tasks screen shows it in green.
 async fn close_job(
     job: crate::jobs::JobHandle,
     done: usize,
