@@ -64,11 +64,11 @@ paths:
   It installs the other tools CI runs (shellcheck, hadolint, actionlint, gitleaks, cargo-deny,
   cargo-llvm-cov, oasdiff, ruff) at the versions `ci.yml` pins, and `cargo about` and
   `cargo auditable` at those of the root `Dockerfile`, which `check-versions.py` holds in step,
-  so bump a tool in both files. Run the `repository` job's checks before pushing a script, a
-  workflow, a Dockerfile or a contract change: every tracked `*.sh` under `shellcheck -S style`,
-  both Dockerfiles under hadolint (`.hadolint.yaml`), the workflows under actionlint, the Python
-  scripts under `ruff check scripts frontend/e2e site/screenshots`, `scripts/check-api-breaks.sh`,
-  and `python3 -m unittest discover -s scripts/tests`, the tests of the scripts CI relies on.
+  so bump a tool in both files. Run `bash scripts/check.sh repository` before pushing a script,
+  a workflow, a Dockerfile or a contract change.
+- `scripts/check.py` runs the `run:` steps of `ci.yml` themselves, mapped to areas by job
+  (`AREAS`): a new job needs its line there, and a step only CI can take (an install, a filter)
+  its start in `CI_ONLY_STEPS`. `scripts/tests/test_check.py` fails on either missing.
 - gitleaks scans every commit and no `.gitleaksignore` exists: a secret-shaped literal, a
   realistic fake key in a test included, fails the job even after a later commit deletes it.
 - `docker.yml` builds `.devcontainer/Dockerfile` on amd64 and arm64 when its `devcontainer` line
