@@ -64,6 +64,7 @@ export const SOURCE_KEY_SETTING: Record<string, string> = {
   tmdb: 'tmdb_api_key',
   omdb: 'omdb_api_key',
   tvdb: 'tvdb_api_key',
+  myanimelist: 'myanimelist_api_key',
 };
 
 /**
@@ -230,6 +231,13 @@ export const FIELDS: Field[] = [
     key: 'tvdb_subscriber_pin',
     labelKey: 'SettingTvdbPin',
     helpKey: 'SettingTvdbPinHelp',
+    kind: 'secret',
+    fallback: '',
+  },
+  {
+    key: 'myanimelist_api_key',
+    labelKey: 'SettingMyAnimeListKey',
+    helpKey: 'SettingMyAnimeListKeyHelp',
     kind: 'secret',
     fallback: '',
   },
@@ -425,6 +433,7 @@ export const SECTIONS = [
       'omdb_daily_requests',
       'tvdb_api_key',
       'tvdb_subscriber_pin',
+      'myanimelist_api_key',
       'metadata_cache_ttl_days',
       'certification_regions',
     ],

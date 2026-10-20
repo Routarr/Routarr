@@ -360,6 +360,10 @@ async fn resolve_identifiers(
     breaker: &Breaker,
 ) -> AppResult<usize> {
     let known = metadata::resolved_keys(&state.pool, source.id()).await?;
+    let shared = match metadata::sharing_ids_with(source.id()) {
+        Some(other) => metadata::found_identifiers(&state.pool, other).await?,
+        None => Default::default(),
+    };
 
     let rows: Vec<Candidate> = sqlx::query_as(
         "SELECT title, year, media_type, tmdb_id, tvdb_id, imdb_id, genres, series_type
@@ -386,7 +390,22 @@ async fn resolve_identifiers(
             row.year,
         );
         let dedup = metadata::resolution_key(&row.media_type, &key);
-        if known.contains(&dedup) || !seen.insert(dedup) {
+        if known.contains(&dedup) || !seen.insert(dedup.clone()) {
+            continue;
+        }
+        if let Some(external) = shared.get(&dedup) {
+            let source = source.id();
+            if let Err(e) = metadata::remember_identifier(
+                &state.pool,
+                source,
+                &row.media_type,
+                &key,
+                Some(external),
+            )
+            .await
+            {
+                warn!("Could not record what {key} is on {source}: {e}");
+            }
             continue;
         }
         pending.push((key, row.media_type, row.title, row.year));
@@ -569,6 +588,10 @@ pub async fn ask_now(
         // A search on record that found nothing is not run again here: the
         // enrichment pass searches again once the miss is old enough.
         let missed = identifiers.get(&searched).is_some_and(Option::is_none);
+        let shared = metadata::sharing_ids_with(source.id()).and_then(|other| {
+            let theirs = (other.to_string(), media.media_type.clone(), metadata::local_key(media));
+            identifiers.get(&theirs).cloned().flatten()
+        });
         // An answer asked for again counts as none.
         if let Some(external) =
             known.as_deref().filter(|external| cached.contains_key(&key(external)))
@@ -577,10 +600,14 @@ pub async fn ask_now(
             continue;
         }
         let pace = state.paces.of(&source);
-        let external = match (known, source.addressing()) {
-            (Some(external), _) => external,
-            (None, Addressing::Search) if missed || !searchable => continue,
-            (None, Addressing::Search) => {
+        let external = match (known, shared, source.addressing()) {
+            (Some(external), _, _) => external,
+            (None, Some(external), Addressing::Search) => {
+                fresh.identifiers.insert(searched, Some(external.clone()));
+                external
+            }
+            (None, None, Addressing::Search) if missed || !searchable => continue,
+            (None, None, Addressing::Search) => {
                 pace.acquire().await;
                 let resolved = source.find(&media.title, media.year, &media.media_type).await;
                 source.paced_after(&pace, &resolved).await;
@@ -596,7 +623,7 @@ pub async fn ask_now(
                     Err(_) => continue,
                 }
             }
-            (None, _) => continue,
+            (None, _, _) => continue,
         };
         let quota = source.daily_quota();
         if let Some(quota) = &quota

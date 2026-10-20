@@ -54,6 +54,9 @@ struct RawAnime {
     titles: Vec<RawTitle>,
     #[serde(default)]
     genres: Vec<Named>,
+    /// Ecchi, Hentai and Erotica, genres an adult category is routed on.
+    #[serde(default)]
+    explicit_genres: Vec<Named>,
     #[serde(default)]
     themes: Vec<Named>,
     #[serde(default)]
@@ -140,27 +143,29 @@ impl TenraiClient {
         let response: Envelope<RawAnime> =
             send_json(SERVICE, self.client.get(format!("{}/anime/{id}/full", self.base_url)))
                 .await?;
-        let raw = response.data;
-        let ratings = raw.ratings();
+        Ok(details(response.data))
+    }
+}
 
-        // Keywords, since as genres the themes and demographics would collide with TMDB's list.
-        let mut keywords: Vec<String> = raw
-            .themes
-            .into_iter()
-            .chain(raw.demographics)
-            .map(|entry| entry.name.to_lowercase())
-            .collect();
-        keywords.sort();
-        keywords.dedup();
+fn details(raw: RawAnime) -> TenraiDetails {
+    let ratings = raw.ratings();
+    // Keywords, since as genres the themes and demographics would collide with TMDB's list.
+    let mut keywords: Vec<String> = raw
+        .themes
+        .into_iter()
+        .chain(raw.demographics)
+        .map(|entry| entry.name.to_lowercase())
+        .collect();
+    keywords.sort();
+    keywords.dedup();
 
-        Ok(TenraiDetails {
-            genres: raw.genres.into_iter().map(|entry| entry.name).collect(),
-            keywords,
-            certification: raw.rating.map(|rating| shorten_rating(&rating)),
-            status: raw.status,
-            overview: raw.synopsis,
-            ratings,
-        })
+    TenraiDetails {
+        genres: raw.genres.into_iter().chain(raw.explicit_genres).map(|entry| entry.name).collect(),
+        keywords,
+        certification: raw.rating.map(|rating| shorten_rating(&rating)),
+        status: raw.status,
+        overview: raw.synopsis,
+        ratings,
     }
 }
 
@@ -229,6 +234,20 @@ mod tests {
         assert_eq!(raw.demographics[0].name, "Kids");
         let mal = raw.ratings()["mal"];
         assert_eq!((mal.value, mal.votes), (8.24, Some(400_000)));
+    }
+
+    /// An explicit genre is a genre, as the official API files it, so an adult category routes
+    /// on either source.
+    #[test]
+    fn an_explicit_genre_is_a_genre_beside_the_others() {
+        let json = r#"{ "data": { "mal_id": 1, "genres": [{ "name": "Comedy" }],
+            "explicit_genres": [{ "name": "Ecchi" }], "themes": [{ "name": "School" }],
+            "demographics": [] } }"#;
+
+        let found = details(serde_json::from_str::<Envelope<RawAnime>>(json).unwrap().data);
+
+        assert_eq!(found.genres, ["Comedy", "Ecchi"]);
+        assert_eq!(found.keywords, ["school"]);
     }
 
     /// A captured-shape `/anime?q=` page: the pagination beside the entries, a film dated by

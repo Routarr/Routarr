@@ -350,6 +350,9 @@ pub struct Config {
     /// AniList and Tenrai authenticate nothing, so they carry a root and no key.
     pub anilist_base_url: String,
     pub tenrai_base_url: String,
+    /// The client ID MyAnimeList's official API reads public data with, one per installation.
+    pub mal_client_id: Option<String>,
+    pub myanimelist_base_url: String,
     /// Sub-path Routarr is mounted under, Servarr's "URL base": empty or `/something` with no
     /// trailing slash, so callers concatenate without guessing.
     pub base_path: String,
@@ -401,6 +404,8 @@ impl std::fmt::Debug for Config {
             tvdb_base_url,
             anilist_base_url,
             tenrai_base_url,
+            mal_client_id,
+            myanimelist_base_url,
             base_path,
         } = self;
         let hidden = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
@@ -446,6 +451,8 @@ impl std::fmt::Debug for Config {
             .field("tvdb_base_url", tvdb_base_url)
             .field("anilist_base_url", anilist_base_url)
             .field("tenrai_base_url", tenrai_base_url)
+            .field("mal_client_id", &hidden(mal_client_id))
+            .field("myanimelist_base_url", myanimelist_base_url)
             .field("base_path", base_path)
             .finish()
     }
@@ -640,19 +647,27 @@ impl Config {
             )
             .trim_end_matches('/')
             .to_string(),
+            mal_client_id: non_empty("MAL_CLIENT_ID"),
+            myanimelist_base_url: env_or(
+                "ROUTARR_MYANIMELIST_BASE_URL",
+                crate::integrations::myanimelist::DEFAULT_BASE_URL,
+            )
+            .trim_end_matches('/')
+            .to_string(),
             base_path: normalise_base_path(&env_or("ROUTARR_BASE_PATH", "")),
         })
     }
 
     /// Each metadata source's root, by the variable that sets it, and whether
     /// a key travels with its requests.
-    fn source_roots(&self) -> [(&'static str, &str, bool); 5] {
+    fn source_roots(&self) -> [(&'static str, &str, bool); 6] {
         [
             ("ROUTARR_TMDB_BASE_URL", &self.tmdb_base_url, true),
             ("ROUTARR_OMDB_BASE_URL", &self.omdb_base_url, true),
             ("ROUTARR_TVDB_BASE_URL", &self.tvdb_base_url, true),
             ("ROUTARR_ANILIST_BASE_URL", &self.anilist_base_url, false),
             ("ROUTARR_TENRAI_BASE_URL", &self.tenrai_base_url, false),
+            ("ROUTARR_MYANIMELIST_BASE_URL", &self.myanimelist_base_url, true),
         ]
     }
 
@@ -889,6 +904,8 @@ impl Config {
             tvdb_base_url: UNREACHABLE_SOURCE.to_string(),
             anilist_base_url: UNREACHABLE_SOURCE.to_string(),
             tenrai_base_url: UNREACHABLE_SOURCE.to_string(),
+            mal_client_id: None,
+            myanimelist_base_url: UNREACHABLE_SOURCE.to_string(),
         }
     }
 }
@@ -1124,7 +1141,7 @@ mod tests {
 
         let mut read: Vec<String> = Vec::new();
         for line in source.lines() {
-            for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"] {
+            for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "MAL_", "RUST_"] {
                 let Some(at) = line.find(&format!("\"{prefix}")) else { continue };
                 let rest = &line[at + 1..];
                 let Some(end) = rest.find('"') else { continue };
@@ -1159,7 +1176,7 @@ mod tests {
                     && name
                         .chars()
                         .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
-                    && ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"]
+                    && ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "MAL_", "RUST_"]
                         .iter()
                         .any(|p| name.starts_with(p))
             })
@@ -1278,6 +1295,7 @@ mod tests {
             "omdb-secret-6",
             "tvdb-secret-7",
             "tvdb-pin-8",
+            "mal-client-9",
         ];
         config.tmdb_api_key = Some(secrets[0].into());
         config.api_key = Some(secrets[1].into());
@@ -1287,6 +1305,7 @@ mod tests {
         config.omdb_api_key = Some(secrets[5].into());
         config.tvdb_api_key = Some(secrets[6].into());
         config.tvdb_pin = Some(secrets[7].into());
+        config.mal_client_id = Some(secrets[8].into());
 
         let printed = format!("{config:?} {config:#?}");
         for secret in secrets {

@@ -28,7 +28,7 @@ Backend, from `backend/`:
 cargo run                                   # http://0.0.0.0:9876, reads .env
 cargo test                                  # offline, in-memory SQLite
 cargo test services::rule_engine            # one module, or one test by name
-cargo test live_sources -- --ignored --nocapture   # the real AniList, Tenrai, OMDb, TheTVDB
+cargo test live_sources -- --ignored --nocapture   # the real AniList, Tenrai, MAL, OMDb, TheTVDB
 cargo test live_arrs -- --ignored --test-threads=1   # a real Radarr and Sonarr, see its header
 cargo fmt
 cargo clippy --locked --all-targets -- -D warnings

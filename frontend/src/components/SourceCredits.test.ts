@@ -26,6 +26,7 @@ const CATALOGUE = {
     source('tmdb', 'https://www.themoviedb.org'),
     source('anilist', 'https://anilist.co'),
     source('tenrai', 'https://myanimelist.net'),
+    source('myanimelist', 'https://myanimelist.net'),
     source('omdb', 'https://www.omdbapi.com'),
     source('tvdb', 'https://thetvdb.com'),
   ],
@@ -68,9 +69,10 @@ describe('SourceCredits', () => {
     expect(omdb.textContent?.split('CC BY-NC 4.0')).toHaveLength(2);
     expect(within(omdb).getByRole('link', { name: 'www.omdbapi.com' })).toBeTruthy();
     expect(screen.getByText('Data from AniList.')).toBeTruthy();
+    expect(screen.getByText('Data from MyAnimeList.')).toBeTruthy();
     expect(screen.getByText('Data from MyAnimeList, read through Tenrai.')).toBeTruthy();
     // The Arrs supply their own library: nothing of theirs to credit.
-    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    expect(screen.getAllByRole('listitem')).toHaveLength(6);
   });
 
   it('says a catalogue that could not be read', async () => {
