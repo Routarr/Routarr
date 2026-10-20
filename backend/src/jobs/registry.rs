@@ -37,6 +37,8 @@ pub enum JobKind {
     Revert,
     Maintenance,
     Backup,
+    /// The archives brought into `ROUTARR_BACKUP_COPY_DIR`, after each backup.
+    BackupCopy,
     /// The unattended loop itself, recorded only when a pass *panicked*.
     ///
     /// Not a job anyone starts: the individual tasks keep their own kinds.
@@ -57,6 +59,7 @@ impl JobKind {
             JobKind::Revert => "revert",
             JobKind::Maintenance => "maintenance",
             JobKind::Backup => "backup",
+            JobKind::BackupCopy => "backup_copy",
             JobKind::Scheduler => "scheduler",
         }
     }
@@ -84,7 +87,12 @@ impl Detail {
     }
 
     pub(crate) fn english(&self) -> String {
-        Localizer::new(DEFAULT_LANGUAGE).translate_map(self.key, &self.params)
+        self.said(&Localizer::new(DEFAULT_LANGUAGE))
+    }
+
+    /// The detail in `localizer`'s language.
+    pub(crate) fn said(&self, localizer: &Localizer) -> String {
+        localizer.translate_map(self.key, &self.params)
     }
 
     pub(crate) fn stored_params(&self) -> String {
