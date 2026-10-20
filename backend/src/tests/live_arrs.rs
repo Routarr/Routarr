@@ -282,10 +282,16 @@ async fn both_arrs_sync_into_routarr() {
     sync(&app, "radarr").await;
     sync(&app, "sonarr").await;
 
-    let film = row(&app, "radarr", totoro["id"].as_i64().unwrap()).await.expect("Totoro");
-    assert!(crate::paths::same(&film.1, "/media/movies"), "{film:?}");
-    let series = row(&app, "sonarr", bebop["id"].as_i64().unwrap()).await.expect("Bebop");
-    assert!(crate::paths::same(&series.1, "/media/tv"), "{series:?}");
+    // Where the Arr holds each now, another test of the run having perhaps moved it.
+    for (instance, arr, title, path) in
+        [("radarr", &radarr, &totoro, "/movie"), ("sonarr", &sonarr, &bebop, "/series")]
+    {
+        let id = title["id"].as_i64().unwrap();
+        let held = arr.get(&format!("{path}/{id}")).await;
+        let synced = row(&app, instance, id).await.expect("the title synced");
+        let reported = held["rootFolderPath"].as_str().expect("a root folder");
+        assert!(crate::paths::same(&synced.1, reported), "{synced:?} against {reported}");
+    }
     let folders = app.count("SELECT COUNT(*) FROM root_folders WHERE origin = 'arr'").await;
     assert!(folders >= 2, "the root folders were not read: {folders}");
 }
