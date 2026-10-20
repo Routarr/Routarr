@@ -483,6 +483,8 @@ pub async fn reseal(
         }
         Err(e) => job.fail(e).await,
     }
+    // The copies follow the archives' new names.
+    super::copy::in_background(state, by.clone());
     outcome
 }
 

@@ -1,8 +1,8 @@
 <script lang="ts">
   import CardTitle from './CardTitle.svelte';
-  import { Archive, Download, Lock, Trash2 } from '../lib/icons';
+  import { AlertTriangle, Archive, Check, Download, HardDrive, Lock, Trash2 } from '../lib/icons';
   import { ApiError, api } from '../api/client';
-  import type { RestoreResult } from '../api/types';
+  import type { BackupCopy, BackupFile, RestoreResult } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import type { Outcome } from '../lib/outcome.svelte';
@@ -41,6 +41,21 @@
   }
 
   const deleteId = (index: number) => `backup-delete-${index}`;
+
+  /** How the last copy went, when it went well or has not ended. */
+  function copyLine(copy: BackupCopy): string {
+    if (copy.state === 'running') return t('BackupCopyRunning');
+    if (copy.copied_at === null) return t('BackupCopyNever');
+    return t('BackupCopyLast', { date: formatTimestamp(copy.copied_at, i18n.language) });
+  }
+
+  /** Deleting an archive deletes its copy, which the question says, or it would read as kept. */
+  function deleteQuestion(file: BackupFile): string {
+    const copy = backups.data?.copy;
+    if (copy && file.copied)
+      return t('ConfirmDeleteBackupWithCopy', { name: file.name, folder: copy.folder });
+    return t('ConfirmDeleteBackup', { name: file.name });
+  }
 
   async function download(name: string) {
     downloadBlob(await api.downloadBackup(name), name);
@@ -91,6 +106,51 @@
     {t('BackupNow')}
   </button>
 
+  {#if backups.data?.copy}
+    {@const copy = backups.data.copy}
+    <div class="backup-copy mt-4 flex-col gap-2">
+      <div class="flex items-center gap-2">
+        <HardDrive size={16} aria-hidden="true" />
+        <span class="text-muted">{t('BackupCopyFolder')}</span>
+        <span class="mono">{copy.folder}</span>
+      </div>
+      {#if copy.state === 'failed' || copy.state === 'unmounted'}
+        <div class="banner banner-warning items-start">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <div class="flex-col gap-2">
+            <span>{copy.detail}</span>
+            {#if copy.copied_at}
+              <span class="text-muted text-sm">
+                {t('BackupCopyLast', { date: formatTimestamp(copy.copied_at, i18n.language) })}
+              </span>
+            {/if}
+            {#if copy.state === 'unmounted'}
+              <div>
+                <button
+                  id="backup-copy-start"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  disabled={busy}
+                  onclick={() =>
+                    run(async () => {
+                      const question = t('ConfirmBackupCopyStart', { folder: copy.folder });
+                      if (!(await askConfirmation(question, 'BackupCopyStart'))) return;
+                      await api.adoptCopyFolder();
+                      outcome.succeed(t('BackupCopyStarted'));
+                    })}
+                >
+                  {t('BackupCopyStart')}
+                </button>
+              </div>
+            {/if}
+          </div>
+        </div>
+      {:else}
+        <p class="text-muted text-sm">{copyLine(copy)}</p>
+      {/if}
+    </div>
+  {/if}
+
   {#if backups.error}
     <div class="mt-4">
       <ErrorBanner message={backups.error} onRetry={() => void backups.reload()} />
@@ -114,6 +174,12 @@
               <span class="badge badge-plain">
                 <Lock size={12} aria-hidden="true" />
                 {t('BackupEncrypted')}
+              </span>
+            {/if}
+            {#if file.copied}
+              <span class="badge badge-plain">
+                <Check size={12} aria-hidden="true" />
+                {t('BackupCopied')}
               </span>
             {/if}
             <div class="text-muted text-sm">
@@ -173,8 +239,7 @@
               // Asked, because this one is the irreversible half: restoring is
               // staged and undone by not restarting, while deleting destroys the
               // only copy of a snapshot.
-              if (!(await askConfirmation(t('ConfirmDeleteBackup', { name: file.name }), 'Delete')))
-                return;
+              if (!(await askConfirmation(deleteQuestion(file), 'Delete'))) return;
               await run(async () => {
                 await api.deleteBackup(file.name);
                 outcome.clear();

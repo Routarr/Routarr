@@ -7,7 +7,7 @@ import { captureDownloads } from '../test/downloads';
 import { answerConfirmation } from '../test/confirm';
 import { answerProof } from '../test/proof';
 import { ApiError, api } from '../api/client';
-import type { RestoreResult } from '../api/types';
+import type { BackupList, RestoreResult } from '../api/types';
 import { createOutcome } from '../lib/outcome.svelte';
 import BackupCard from './BackupCard.svelte';
 
@@ -21,6 +21,7 @@ const FILE = {
   size_bytes: 1024,
   created_at: '2026-09-04 10:15:00',
   encrypted: false,
+  copied: false,
 };
 
 function result(includes_master_key: boolean): RestoreResult {
@@ -36,7 +37,11 @@ function result(includes_master_key: boolean): RestoreResult {
 }
 
 function mount() {
-  vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [FILE], retention_count: 7 });
+  vi.spyOn(api, 'listBackups').mockResolvedValue({
+    backups: [FILE],
+    retention_count: 7,
+    copy: null,
+  });
   const outcome = createOutcome();
   renderWithI18n(BackupCard, { props: { outcome } });
   return outcome;
@@ -49,7 +54,11 @@ afterEach(() => {
 
 /** Fetched with the key, since the archive holds the master key, and saved under its own name. */
 it('downloads the archive of its row under its name', async () => {
-  vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [FILE], retention_count: 7 });
+  vi.spyOn(api, 'listBackups').mockResolvedValue({
+    backups: [FILE],
+    retention_count: 7,
+    copy: null,
+  });
   const archive = new Blob(['zip']);
   const fetched = vi.spyOn(api, 'downloadBackup').mockResolvedValue(archive);
   const saved = captureDownloads();
@@ -70,7 +79,7 @@ describe('listing the backups', () => {
   it('reports a list that failed to load, rather than showing it empty', async () => {
     vi.spyOn(api, 'listBackups')
       .mockRejectedValueOnce(new ApiError('The backup folder cannot be read', 500, 'internal'))
-      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7 });
+      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7, copy: null });
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The backup folder cannot be read');
@@ -178,6 +187,7 @@ it('marks an archive sealed with the backup passphrase', async () => {
   vi.spyOn(api, 'listBackups').mockResolvedValue({
     backups: [FILE, { ...FILE, name: 'routarr-backup-20260905-101500.zip.enc', encrypted: true }],
     retention_count: 7,
+    copy: null,
   });
   renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
@@ -218,10 +228,10 @@ describe('taking a backup', () => {
 describe('deleting a backup', () => {
   const OLDER = { ...FILE, name: 'routarr-backup-20260903-101500.zip' };
 
-  function mountTwo(after: Promise<{ backups: (typeof FILE)[]; retention_count: number }>) {
+  function mountTwo(after: Promise<BackupList>) {
     const list = vi
       .spyOn(api, 'listBackups')
-      .mockResolvedValueOnce({ backups: [FILE, OLDER], retention_count: 7 })
+      .mockResolvedValueOnce({ backups: [FILE, OLDER], retention_count: 7, copy: null })
       .mockReturnValueOnce(after);
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
@@ -257,7 +267,7 @@ describe('deleting a backup', () => {
   });
 
   it('hands the focus to the archive that took the place of the deleted one', async () => {
-    mountTwo(Promise.resolve({ backups: [OLDER], retention_count: 7 }));
+    mountTwo(Promise.resolve({ backups: [OLDER], retention_count: 7, copy: null }));
 
     await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
     await answerConfirmation();
@@ -271,8 +281,8 @@ describe('deleting a backup', () => {
 
   it('hands the focus to Back up now once no archive is left', async () => {
     vi.spyOn(api, 'listBackups')
-      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7 })
-      .mockResolvedValueOnce({ backups: [], retention_count: 7 });
+      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7, copy: null })
+      .mockResolvedValueOnce({ backups: [], retention_count: 7, copy: null });
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
@@ -281,6 +291,87 @@ describe('deleting a backup', () => {
 
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back up now' })),
+    );
+  });
+});
+
+/** The copy folder, read from its tasks: where the copies go, how the last one went. */
+describe('the copy folder', () => {
+  const COPY = {
+    folder: '/mnt/nas/routarr',
+    state: 'copied' as const,
+    detail: 'Backups copied to /mnt/nas/routarr. Archives copied: 1',
+    copied_at: '2026-09-04 10:16:00',
+  };
+
+  function mountWith(copy: BackupList['copy'], backups = [{ ...FILE, copied: true }]) {
+    vi.spyOn(api, 'listBackups').mockResolvedValue({ backups, retention_count: 7, copy });
+    const outcome = createOutcome();
+    renderWithI18n(BackupCard, { props: { outcome } });
+    return outcome;
+  }
+
+  it('names the folder and the last copy, and marks each archive copied', async () => {
+    mountWith(COPY);
+
+    expect(await screen.findByText('/mnt/nas/routarr')).toBeTruthy();
+    expect(screen.getByText(/^Last copy: /)).toBeTruthy();
+    const row = screen.getByText(FILE.name).parentElement!;
+    expect(within(row).getByText('Copied')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start the copy here' })).toBeNull();
+  });
+
+  it('says why the last copy failed, and offers nothing a share asleep needs', async () => {
+    const failed = 'The copy to /mnt/nas/routarr did not end in time.';
+    mountWith({ ...COPY, state: 'failed', detail: failed });
+
+    expect(await screen.findByText(failed)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start the copy here' })).toBeNull();
+  });
+
+  /** Only on purpose: into a share not mounted, a copy fills the local disk. */
+  it('starts the copy in a folder without its marker once asked', async () => {
+    const adopted = vi.spyOn(api, 'adoptCopyFolder').mockResolvedValue(undefined);
+    const outcome = mountWith({ ...COPY, state: 'unmounted', detail: 'No marker.' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Start the copy here' }));
+    const asked = await answerConfirmation();
+
+    expect(asked).toContain('/mnt/nas/routarr');
+    await waitFor(() => expect(adopted).toHaveBeenCalledTimes(1));
+    expect(outcome.notice).toBe('The folder is taken as it is. The copy runs now.');
+  });
+
+  it('starts nothing when the question is declined', async () => {
+    const adopted = vi.spyOn(api, 'adoptCopyFolder');
+    mountWith({ ...COPY, state: 'unmounted', detail: 'No marker.' });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Start the copy here' }));
+    await answerConfirmation(null);
+
+    expect(adopted).not.toHaveBeenCalled();
+  });
+
+  it('says a copy is running', async () => {
+    mountWith({ ...COPY, state: 'running', copied_at: null, detail: null });
+    expect(await screen.findByText('Copying now.')).toBeTruthy();
+  });
+
+  it('says no copy was made yet', async () => {
+    mountWith({ ...COPY, state: 'never', copied_at: null, detail: null }, [FILE]);
+    expect(await screen.findByText('No copy yet.')).toBeTruthy();
+  });
+
+  /** Deleting an archive deletes its copy: a question saying it is the only copy would lie. */
+  it('names the copy a deletion takes with the archive', async () => {
+    vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
+    mountWith(COPY);
+
+    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    const asked = await answerConfirmation(null);
+
+    expect(asked).toBe(
+      `Delete the backup ${FILE.name} and its copy in /mnt/nas/routarr? Nothing else holds this snapshot.`,
     );
   });
 });

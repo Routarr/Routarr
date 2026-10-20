@@ -107,10 +107,8 @@ pub async fn update(
     // Pruning only after a backup is taken would leave every archive above the
     // new retention on disk, and on screen, until the next scheduled run.
     // The number takes effect when it is set.
-    if req.settings.contains_key("backup_retention_count")
-        && let Err(e) = crate::services::backup::prune(&state).await
-    {
-        tracing::warn!("Could not prune backups after the retention changed: {e}");
+    if req.settings.contains_key("backup_retention_count") {
+        crate::services::backup::retention_changed(&state, identity.attribution()).await;
     }
 
     // The names alone: a value may be a key or an address.
