@@ -56,7 +56,8 @@ pub struct Warning {
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
     /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,
-    /// `webhook_never_delivered` or `webhook_misconfigured`. The list may grow.
+    /// `webhook_never_delivered`, `webhook_misconfigured` or `backup_copy_failed`. The list may
+    /// grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -780,6 +781,19 @@ async fn offline_warnings(
         } else if backup_overdue(state, hours).await? {
             let message = localizer.translate("WarnBackupOverdue", &[]);
             warnings.push(Warning::new("backup_overdue", message));
+        }
+    }
+    if let Some(folder) = &state.config.backup_copy_dir {
+        let last: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM jobs WHERE kind = 'backup_copy'
+              ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        )
+        .fetch_optional(&state.pool)
+        .await?;
+        if last.as_deref() == Some("failed") {
+            let folder = folder.display().to_string();
+            let message = localizer.translate("WarnBackupCopyFailed", &[("folder", &folder)]);
+            warnings.push(Warning::new("backup_copy_failed", message));
         }
     }
     if let Some(free) = data_disk_low(&state.config) {

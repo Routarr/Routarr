@@ -1967,7 +1967,7 @@ async fn resetting_the_account_gives_a_new_password_and_closes_every_session() {
     use crate::services::accounts;
 
     let app = TestApp::new().await;
-    let dir = super::TempDir::new("reset-account");
+    let dir = super::TempDir::new("security-reset-account");
     let password_path = dir.join("routarr.password");
     accounts::ensure_account(&app.state.pool, &password_path).await.unwrap();
     let old = std::fs::read_to_string(&password_path).unwrap();

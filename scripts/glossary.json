@@ -909,6 +909,37 @@
       "zh_TW": "撤銷"
     }
   },
+  "copy folder": {
+    "en": "\\bcopy folders?\\b",
+    "except": [],
+    "words": {
+      "ar": "مجلد\\s*(ال|لل)?نسخ",
+      "ca": "carpeta de còpia",
+      "cs": "složk\\w* kopií",
+      "da": "kopimappe",
+      "de": "kopieordner",
+      "el": "φάκελο\\w* αντιγραφής",
+      "es": "carpeta de copia",
+      "fi": "kopiokansio",
+      "fr": "dossier de copie",
+      "hu": "másolási mapp",
+      "it": "cartella di copia",
+      "ja": "コピー先フォルダー",
+      "ko": "복사 폴더",
+      "nb_NO": "kopimapp",
+      "nl": "kopieermap",
+      "pl": "folder\\w* kopii",
+      "pt": "pasta de cópia",
+      "ro": "dosar\\w* de copiere",
+      "ru": "папк\\w* для копий",
+      "sk": "priečin\\w* kópií",
+      "sv": "kopieringsmapp",
+      "tr": "kopya klasör",
+      "uk": "тек\\w* для копій",
+      "zh_CN": "副本目录",
+      "zh_TW": "副本資料夾"
+    }
+  },
   "read only": {
     "en": "\\bread[- ]only\\b",
     "except": [],

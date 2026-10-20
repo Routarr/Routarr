@@ -1406,6 +1406,19 @@ mod tests {
         assert!(!matches_on(|m| m.monitored = false, Condition::Monitored(true)));
         assert!(!matches(Condition::HasMetadata(false)));
         assert!(!matches_without_metadata(Condition::HasMetadata(true)));
+        assert!(matches(Condition::OriginalLanguageKnown(true)));
+        assert!(!matches(Condition::OriginalLanguageKnown(false)));
+        assert!(matches_without_metadata(Condition::OriginalLanguageKnown(false)));
+    }
+
+    /// Over is strictly over, a gigabyte being 1024³ bytes as the root folders table counts it.
+    #[test]
+    fn size_and_season_thresholds_are_strict() {
+        const GIB: i64 = 1 << 30;
+        assert!(!matches_on(|m| m.size_on_disk = Some(GIB), Condition::SizeOnDiskOverGb(1)));
+        assert!(matches_on(|m| m.size_on_disk = Some(GIB + 1), Condition::SizeOnDiskOverGb(1)));
+        assert!(!matches_on(|m| m.season_count = Some(2), Condition::SeasonCountOver(2)));
+        assert!(matches_on(|m| m.season_count = Some(3), Condition::SeasonCountOver(2)));
     }
 
     #[test]
@@ -1458,6 +1471,13 @@ mod tests {
         assert!(!matches(Condition::TvdbIdIn(vec![1])), "media has no tvdb id");
         assert!(matches_on(|m| m.tvdb_id = Some(76885), Condition::TvdbIdIn(vec![1, 76885])));
         assert!(!matches_on(|m| m.tvdb_id = Some(76885), Condition::TvdbIdIn(vec![1])));
+
+        let (media, metadata) = (media(), metadata());
+        let ctx = EvalContext { media: &media, metadata: Some(&metadata), now: now() };
+        for condition in [Condition::TmdbIdIn(vec![8392, 1]), Condition::TvdbIdIn(vec![8392, 1])] {
+            let outcome = evaluate_single_condition(&condition, ctx);
+            assert_eq!(outcome.params["values"], "8392, 1", "{}", outcome.kind);
+        }
     }
 
     /// N days are N times 24 hours before the injected clock, and an Arr
@@ -1625,16 +1645,16 @@ mod tests {
         );
     }
 
+    /// One agreeing signal sets the mode's base, and each further one adds a step.
     #[test]
-    fn confidence_grows_with_agreeing_signals() {
+    fn confidence_grows_by_a_step_per_agreeing_signal() {
         let one =
             rule("one", 10, "anime", vec![Condition::GenreContains(vec!["Animation".into()])]);
-        let two = anime_rule();
+        let confidence = |rule| evaluate(&[rule], None).winner.unwrap().confidence;
 
-        let low = evaluate(&[one], None).winner.unwrap().confidence;
-        let high = evaluate(&[two], None).winner.unwrap().confidence;
-        assert!(high > low, "{high} should exceed {low}");
-        assert!(high <= 1.0 && low > 0.0);
+        let (low, high) = (confidence(one), confidence(anime_rule()));
+        assert!((low - 0.60).abs() < 1e-6, "{low}");
+        assert!((high - 0.70).abs() < 1e-6, "{high}");
     }
 
     #[test]

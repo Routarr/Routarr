@@ -266,6 +266,9 @@ pub struct Config {
     /// Directory holding the database, and with it the master key, the API key
     /// and the backups. Derived from `db_path` once, by [`data_dir_for`].
     pub data_dir: PathBuf,
+    /// `ROUTARR_BACKUP_COPY_DIR`, a second folder each archive is copied to, mounted from
+    /// another disk (`services::backup::copy`).
+    pub backup_copy_dir: Option<PathBuf>,
     pub log_level: String,
     /// `text` (default) or `json`, which is easier to ship to a log collector.
     pub log_format: String,
@@ -365,6 +368,7 @@ impl std::fmt::Debug for Config {
             port,
             db_path,
             data_dir,
+            backup_copy_dir,
             log_level,
             log_format,
             log_filter,
@@ -411,6 +415,7 @@ impl std::fmt::Debug for Config {
             .field("port", port)
             .field("db_path", db_path)
             .field("data_dir", data_dir)
+            .field("backup_copy_dir", backup_copy_dir)
             .field("log_level", log_level)
             .field("log_format", log_format)
             .field("log_filter", log_filter)
@@ -553,6 +558,7 @@ impl Config {
             port: env_parse("ROUTARR_PORT", 9876)?,
             data_dir: data_dir_for(&db_path),
             db_path,
+            backup_copy_dir: non_empty("ROUTARR_BACKUP_COPY_DIR").map(PathBuf::from),
             log_level,
             log_format,
             log_filter,
@@ -742,6 +748,7 @@ impl Config {
         if matches!(self.auth_mode, AuthMode::Oidc) {
             self.validate_oidc()?;
         }
+        self.validate_backup_copy_dir()?;
         // Zero is not "no timeout": every outbound call would fail at once as unreachable.
         if self.http_timeout.is_zero() {
             return Err(AppError::Config(
@@ -763,6 +770,31 @@ impl Config {
                  of 256 MiB"
                     .into(),
             ));
+        }
+        Ok(())
+    }
+
+    /// The copy folder, whole and apart from the data folder: a copy on the disk it copies
+    /// saves nothing from that disk's loss. Never looked at here, since a NAS may sleep.
+    fn validate_backup_copy_dir(&self) -> AppResult<()> {
+        const VARIABLE: &str = "ROUTARR_BACKUP_COPY_DIR";
+        let Some(copy) = &self.backup_copy_dir else { return Ok(()) };
+        if !copy.is_absolute() {
+            return Err(AppError::Config(format!(
+                "{VARIABLE} is {}, a relative path. Give the whole path of the folder the \
+                 copies go to",
+                copy.display()
+            )));
+        }
+        let data = std::path::absolute(&self.data_dir).unwrap_or_else(|_| self.data_dir.clone());
+        let (copy, data) = (lexical(copy), lexical(&data));
+        if copy.starts_with(&data) || data.starts_with(&copy) {
+            return Err(AppError::Config(format!(
+                "{VARIABLE} is {}, which holds or lies in the data folder {}. Copy to a folder \
+                 of its own, mounted from another disk",
+                copy.display(),
+                data.display()
+            )));
         }
         Ok(())
     }
@@ -853,6 +885,7 @@ impl Config {
             db_path: PathBuf::from(":memory:"),
             // Not derived: from `:memory:` it is relative, and a backup would land in the sources.
             data_dir: test_data_dir(),
+            backup_copy_dir: None,
             log_level: "error".into(),
             log_format: "text".into(),
             log_filter: None,
@@ -933,6 +966,21 @@ fn path_or(raw: Option<String>, default: impl FnOnce() -> PathBuf) -> PathBuf {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default)
+}
+
+/// `path` with its `.` and `..` worked out on the letters alone, links left as they are.
+fn lexical(path: &Path) -> PathBuf {
+    let mut worked = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                worked.pop();
+            }
+            other => worked.push(other),
+        }
+    }
+    worked
 }
 
 /// A comma separated variable, each entry trimmed, the empty ones dropped.
@@ -1297,6 +1345,23 @@ mod tests {
 
         config.api_key = Some("a".repeat(MIN_PINNED_KEY_LENGTH));
         assert!(config.validate().is_ok());
+    }
+
+    /// A copy folder is a whole path, apart from the data folder whichever way round, however
+    /// its path is spelled, and never looked at, since a share may sleep at the start.
+    #[test]
+    fn a_backup_copy_folder_is_whole_and_apart_from_the_data() {
+        let mut config = Config::for_tests();
+        config.set_db_path(PathBuf::from("/config/routarr.db"));
+        for refused in ["copies", "/config/backups-copy", "/config/../config/x", "/", "/config"] {
+            config.backup_copy_dir = Some(PathBuf::from(refused));
+            let err = config.validate().expect_err(refused).to_string();
+            assert!(err.contains("ROUTARR_BACKUP_COPY_DIR"), "{refused}: {err}");
+        }
+        for served in ["/mnt/nas/routarr", "/config-copy", "/config/../mnt/nas"] {
+            config.backup_copy_dir = Some(PathBuf::from(served));
+            assert!(config.validate().is_ok(), "{served}");
+        }
     }
 
     /// An address, or a range a proxy recreated on its network stays inside.

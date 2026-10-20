@@ -2,6 +2,7 @@
 //! database, so it is as sensitive as the master key. A restore is staged and applied by the
 //! next start before the pool opens, as replacing a database under an open pool destroys it.
 
+mod copy;
 mod sealed;
 
 use sqlx::AssertSqlSafe;
@@ -11,6 +12,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
+pub use copy::{
+    BackupCopy, adopt as adopt_copy_folder, in_background as copy_in_background, last_copied_at,
+    status as copy_status,
+};
 pub use sealed::{
     MIN_LENGTH as MIN_PASSPHRASE_LENGTH, Passphrase, SETTING as PASSPHRASE_SETTING, is_sealed_file,
     passphrase_of, resume as resume_sealing, set as set_passphrase, stored_passphrase,
@@ -43,6 +48,9 @@ pub struct BackupFile {
     /// Sealed with the backup passphrase: a restore asks for it, and
     /// `routarr decrypt-backup` opens it by hand.
     pub encrypted: bool,
+    /// In the copy folder as its last good copy left it, `ROUTARR_BACKUP_COPY_DIR`. False
+    /// without one.
+    pub copied: bool,
 }
 
 /// Entry names inside the archive. Renamed, every archive already taken stops restoring.
@@ -166,6 +174,7 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         if let Err(e) = prune(state).await {
             warn!("Could not prune old backups: {e}");
         }
+        copy::in_background(state, by.clone());
     }
 
     outcome
@@ -277,7 +286,7 @@ async fn write_archive(
 
     info!("Backup written to {} ({size_bytes} bytes)", path.display());
     let encrypted = sealed::is_sealed_file(&path);
-    Ok(BackupFile { name, size_bytes, created_at: manifest.created_at, encrypted })
+    Ok(BackupFile { name, size_bytes, created_at: manifest.created_at, encrypted, copied: false })
 }
 
 const TAKEN_THIS_SECOND: &str = "backup_just_taken";
@@ -475,6 +484,7 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
                 name,
                 size_bytes: metadata.len(),
                 created_at: created,
+                copied: false,
             })
         })
         .collect();
@@ -487,31 +497,49 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
 /// Delete everything past the retention count, oldest first: the archives
 /// application keys took counted apart from the others.
 pub async fn prune(state: &AppState) -> AppResult<usize> {
-    // Read as stored, above the ceiling too: only the operator's own save may lower it.
-    let keep: usize = state.bounding_setting::<usize>("backup_retention_count").await?.max(1);
-    let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) =
-        list(state).into_iter().partition(taken_by_a_key);
-
-    let dir = backup_dir(state);
-    let mut removed = 0;
-    for file in [taken_by_keys, others].into_iter().flat_map(|files| files.into_iter().skip(keep)) {
-        if std::fs::remove_file(dir.join(&file.name)).is_ok() {
-            removed += 1;
-        }
-    }
-
+    let keep = kept(state).await?;
+    let removed = prune_in(&backup_dir(state), keep);
     if removed > 0 {
         info!("Removed {removed} backup(s) past the retention count of {keep}");
     }
     Ok(removed)
 }
 
+/// Prune both folders to a retention count just set.
+pub async fn retention_changed(state: &AppState, by: Attribution) {
+    if let Err(e) = prune(state).await {
+        warn!("Could not prune backups after the retention changed: {e}");
+    }
+    copy::in_background(state, by);
+}
+
+/// The retention count, read as stored, above the ceiling too: only the operator's own save may
+/// lower it.
+async fn kept(state: &AppState) -> AppResult<usize> {
+    Ok(state.bounding_setting::<usize>("backup_retention_count").await?.max(1))
+}
+
+/// Delete the archives of `dir` past `keep`, oldest first, those application keys took counted
+/// apart, and say how many went.
+fn prune_in(dir: &Path, keep: usize) -> usize {
+    let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) =
+        list_in(dir).into_iter().partition(taken_by_a_key);
+    [taken_by_keys, others]
+        .into_iter()
+        .flat_map(|files| files.into_iter().skip(keep))
+        .filter(|file| std::fs::remove_file(dir.join(&file.name)).is_ok())
+        .count()
+}
+
+/// Delete an archive, and its copy behind it.
 pub fn delete(state: &AppState, name: &str) -> AppResult<()> {
     if !is_valid_backup_name(name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
     let path = backup_dir(state).join(name);
-    std::fs::remove_file(&path).map_err(|_| AppError::NotFound("Unknown backup".into()))
+    std::fs::remove_file(&path).map_err(|_| AppError::NotFound("Unknown backup".into()))?;
+    copy::forget_in_background(state, name);
+    Ok(())
 }
 
 /// Read an archive's manifest without extracting anything.
@@ -819,11 +847,15 @@ pub async fn decrypt_offline(
         });
     }
     let folder = |path: &Path| path.parent().and_then(|parent| std::fs::canonicalize(parent).ok());
+    let archive_folders = [Some(backups_in(&config.data_dir)), config.backup_copy_dir.clone()];
     if folder(&out).is_some_and(|parent| {
-        Some(parent) == std::fs::canonicalize(backups_in(&config.data_dir)).ok()
+        archive_folders
+            .iter()
+            .flatten()
+            .any(|dir| std::fs::canonicalize(dir).ok() == Some(parent.clone()))
     }) {
         return Err(AppError::BadRequest(
-            "an archive opened is not written into the backup folder, which a sync copies away"
+            "an archive opened is not written into a backup folder, which a sync copies away"
                 .into(),
         ));
     }
@@ -970,7 +1002,12 @@ pub fn sweep_leftovers(config: &crate::config::Config) {
             std::fs::remove_file(entry.path()).ok();
         }
     }
-    let Ok(entries) = std::fs::read_dir(backups_in(&config.data_dir)) else {
+    sweep_in(&backups_in(&config.data_dir));
+}
+
+/// Remove the leftovers of an interrupted run from an archive folder.
+fn sweep_in(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.filter_map(Result::ok) {

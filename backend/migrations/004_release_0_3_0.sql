@@ -67,6 +67,13 @@ CREATE INDEX idx_execution_logs_job ON execution_logs (job_id);
 ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
 ALTER TABLE api_keys ADD COLUMN expiry_notified_at TEXT;
 
+-- Each backup copy folder whose marker this database wrote. Named here and holding no marker, a
+-- folder is a share not mounted, and nothing is copied into it.
+CREATE TABLE backup_copy_folders (
+    path TEXT PRIMARY KEY,
+    adopted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- What a person signed in may reach: everything, or what an application key's read scope reads.
 -- Set at sign-in from the OIDC read lists and kept for the session.
 ALTER TABLE sessions ADD COLUMN reach TEXT NOT NULL DEFAULT 'full' CHECK (reach IN ('full', 'read'));
