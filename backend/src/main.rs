@@ -277,6 +277,7 @@ fn build_router(state: AppState) -> Router {
         .route("/backups/{name}", get(api::backup::download).delete(api::backup::remove))
         .route("/backups/{name}/restore", post(api::backup::restore))
         .route("/backups/passphrase", put(api::backup::set_passphrase))
+        .route("/backups/copy/adopt", post(api::backup::adopt_copy_folder))
         .route("/settings", get(api::settings::get_all).put(api::settings::update))
         .route(
             "/notifications/webhook-secret",

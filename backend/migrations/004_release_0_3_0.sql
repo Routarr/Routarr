@@ -66,3 +66,10 @@ CREATE INDEX idx_execution_logs_job ON execution_logs (job_id);
 -- was told it soon would, once per key.
 ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
 ALTER TABLE api_keys ADD COLUMN expiry_notified_at TEXT;
+
+-- Each backup copy folder whose marker this database wrote. Named here and holding no marker, a
+-- folder is a share not mounted, and nothing is copied into it.
+CREATE TABLE backup_copy_folders (
+    path TEXT PRIMARY KEY,
+    adopted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

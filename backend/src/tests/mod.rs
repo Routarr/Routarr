@@ -9,6 +9,7 @@ mod audit;
 mod auto_apply;
 mod automation;
 mod backup;
+mod backup_copy;
 mod base_path;
 mod batch_apply;
 mod categories;

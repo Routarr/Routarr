@@ -70,9 +70,7 @@ async fn a_run_stopped_while_a_move_runs_leaves_it_requested_and_the_rest_pendin
 
     let run = apply_with_files(&app);
     let stop = async {
-        while arr.recorded().writes.is_empty() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        arr.written(1).await;
         app.store_setting("global_dry_run", "true").await;
     };
     let (report, ()) = tokio::join!(run, stop);
@@ -113,9 +111,7 @@ async fn a_title_no_longer_to_move_when_its_turn_comes_is_skipped() {
 
     let run = apply_with_files(&app);
     let withdrawn = async {
-        while arr.recorded().writes.is_empty() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        arr.written(1).await;
         app.execute(&["UPDATE decisions SET status = 'skipped' WHERE media_id = 'm-1'"]).await;
     };
     let (report, ()) = tokio::join!(run, withdrawn);
@@ -134,9 +130,7 @@ async fn the_task_counts_each_title_and_names_the_one_moving() {
 
     let run = apply_with_files(&app);
     let watched = async {
-        while arr.recorded().writes.len() < 2 {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        arr.written(2).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         let seen: (i64, i64, String) = sqlx::query_as(
             "SELECT progress_current, progress_total, detail FROM jobs WHERE kind = 'apply'",
