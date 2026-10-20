@@ -16,6 +16,9 @@ services:
       # `mkdir -p config && chown 1000:1000 config` before the first start, or
       # use a named volume. A volume mounted at /data instead keeps working.
       - ./config:/config
+      # The folder ROUTARR_BACKUP_COPY_DIR names below, on a NAS or another disk
+      # and writable by uid 1000, for instance:
+      # - /mnt/nas/routarr-backups:/backups-copy
     environment:
       - ROUTARR_PORT=9876
       - ROUTARR_HOST=0.0.0.0
@@ -45,6 +48,10 @@ services:
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
       # Only while rotating ROUTARR_SECRET_KEY. Remove it afterwards.
       - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}
+      # A second folder each backup archive is copied to, such as /backups-copy
+      # mounted above, so that losing the disk of /config leaves the archives.
+      # Empty, nothing is copied.
+      - ROUTARR_BACKUP_COPY_DIR=${ROUTARR_BACKUP_COPY_DIR:-}
       # Optional. Set before the metadata sources are first saved, it lists TMDB
       # after Radarr and Sonarr. Afterwards, TMDB is turned on in the interface.
       - TMDB_API_KEY=${TMDB_API_KEY:-}
@@ -62,8 +69,9 @@ services:
     #
     # The root filesystem is read-only: code running inside the process can
     # neither drop a program somewhere and run it nor change one in place.
-    # Everything Routarr writes is under /config, and /tmp, where SQLite may
-    # spill a large sort, is a small tmpfs nothing can be run from.
+    # Everything Routarr writes is under /config and the backup copy folder,
+    # and /tmp, where SQLite may spill a large sort, is a small tmpfs nothing
+    # can be run from.
     cap_drop:
       - ALL
     security_opt:

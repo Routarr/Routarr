@@ -658,6 +658,9 @@ export const api = {
   createBackup: () => followed<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  /** Take the copy folder as it is now, without the marker of its first copy, and copy. */
+  adoptCopyFolder: () =>
+    request<unknown>('/backups/copy/adopt', { method: 'POST', body: body({}) }),
   /** Set the backup passphrase, an empty one stopping the encryption. */
   setBackupPassphrase: (passphrase: string, proof: Proof) =>
     request<unknown>('/backups/passphrase', {
