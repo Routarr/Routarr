@@ -676,6 +676,13 @@ mod tests {
         let ratings =
             validate(vec![Condition::CertificationIn(vec!["R".into(), "R+".into()])], vec![]);
         assert!(!ratings.iter().any(|i| i.key == "ValidationValueRepeated"), "{ratings:?}");
+
+        // A status folds as an Arr writes it, `inCinemas`, and as a person does.
+        let statuses = validate(
+            vec![Condition::StatusIs(vec!["inCinemas".into(), "In Cinemas".into()])],
+            vec![],
+        );
+        assert!(statuses.iter().any(|i| i.key == "ValidationValueRepeated"), "{statuses:?}");
     }
 
     #[test]
@@ -707,8 +714,13 @@ mod tests {
         let scales =
             vec![score("imdb", Some(8.0), None, None), score("tmdb", None, Some(6.0), None)];
         assert!(!has(scales, "ValidationContradiction"), "two scales never contradict");
-        let fine = validate(vec![score("mal", Some(7.5), Some(10.0), Some(1000))], vec![]);
-        assert!(fine.iter().all(|issue| !issue.is_error()), "{fine:?}");
+        for fine in [
+            score("mal", Some(7.5), Some(10.0), Some(1000)),
+            score("imdb", Some(7.0), Some(7.0), Some(1)),
+        ] {
+            let issues = validate(vec![fine], vec![]);
+            assert!(issues.iter().all(|issue| !issue.is_error()), "{issues:?}");
+        }
     }
 
     #[test]
@@ -733,15 +745,19 @@ mod tests {
         let apart = validate(vec![runtime(Some(100), None), runtime(None, Some(40))], vec![]);
         assert!(has(&apart, "ValidationContradiction"), "{apart:?}");
 
-        let fine = validate(vec![runtime(Some(0), Some(MAX_RUNTIME))], vec![]);
-        assert!(fine.iter().all(|issue| !issue.is_error()), "{fine:?}");
+        for fine in [runtime(Some(0), Some(MAX_RUNTIME)), runtime(Some(90), Some(90))] {
+            let issues = validate(vec![fine], vec![]);
+            assert!(issues.iter().all(|issue| !issue.is_error()), "{issues:?}");
+        }
     }
 
+    /// Inverted, and nothing more: a condition is never weighed against itself.
     #[test]
     fn an_inverted_year_range_is_an_error() {
         let issues =
             validate(vec![Condition::YearRange { min: Some(2020), max: Some(2000) }], vec![]);
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationYearRangeInverted"));
+        let keys: Vec<&str> = issues.iter().map(|issue| issue.key.as_str()).collect();
+        assert_eq!(keys, ["ValidationYearRangeInverted"]);
 
         let fine =
             validate(vec![Condition::YearRange { min: Some(2000), max: Some(2000) }], vec![]);
@@ -769,10 +785,10 @@ mod tests {
     }
 
     /// Radarr indexes announcements long before release, so a rule about a film
-    /// still to come is a rule somebody means.
+    /// still to come is a rule somebody means, up to the ceiling itself.
     #[test]
     fn a_year_a_few_ahead_is_accepted() {
-        let issues = validate(vec![Condition::YearRange { min: Some(2029), max: None }], vec![]);
+        let issues = validate(vec![Condition::YearRange { min: Some(2031), max: None }], vec![]);
         assert!(!issues.iter().any(|i| i.key == "ValidationYearImplausible"), "{issues:?}");
     }
 

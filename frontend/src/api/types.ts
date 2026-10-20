@@ -192,6 +192,18 @@ export interface BackupFile {
   created_at: string;
   /** Sealed with the backup passphrase: a restore asks for it. */
   encrypted: boolean;
+  /** In the copy folder as its last good copy left it. False without one. */
+  copied: boolean;
+}
+
+/** The copy into `ROUTARR_BACKUP_COPY_DIR`, read from its tasks, never from the folder. */
+export interface BackupCopy {
+  folder: string;
+  /** `unmounted`: the folder lacks the marker its first copy left, a share not mounted. */
+  state: 'never' | 'running' | 'copied' | 'failed' | 'unmounted';
+  /** What the last copy said, in the interface language. */
+  detail: string | null;
+  copied_at: string | null;
 }
 
 /** What a retention purge removed. */
@@ -261,6 +273,8 @@ export interface BackupList {
   backups: BackupFile[];
   /** How many are kept before the oldest is pruned. */
   retention_count: number;
+  /** Null when no copy folder is set. */
+  copy: BackupCopy | null;
 }
 
 export interface MetadataProvider {

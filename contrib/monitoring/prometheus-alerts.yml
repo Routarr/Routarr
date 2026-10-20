@@ -83,6 +83,13 @@ groups:
         annotations:
           summary: "No backup for twice the backup interval"
           description: "The scheduler may be stopped, or the backups switched off on the way."
+      - alert: RoutarrBackupCopyFailed
+        expr: routarr_warnings{code="backup_copy_failed"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The last copy of the backups to the second folder failed"
+          description: "Settings, Backups shows why. Until a copy succeeds, the newest archives are on the data disk alone."
       - alert: RoutarrDataDiskLow
         expr: routarr_warnings{code="data_disk_low"} > 0
         labels:

@@ -89,7 +89,7 @@ function mount(
     ],
   });
   // The backups card loads on mount, and unmocked it would reach the network.
-  vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
+  vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7, copy: null });
   // So does the sessions card, in every mode a browser signs in.
   vi.spyOn(api, 'getSessions').mockResolvedValue([]);
   // The signing card loads with the Notifications section, and its failure would
