@@ -349,8 +349,9 @@ pub(super) async fn guard_capacity(
             });
         }
     }
+    // Each folder fits alone by now, so a volume still short is short for several together.
     if let Some(((_, free), paths, needed)) =
-        volumes.into_iter().find(|((_, free), paths, needed)| paths.len() > 1 && needed > free)
+        volumes.into_iter().find(|((_, free), _, needed)| needed > free)
     {
         let localizer = state.localizer().await;
         let paths = paths.join(&localizer.translate("ListSeparator", &[]));

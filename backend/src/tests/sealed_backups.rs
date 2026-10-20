@@ -436,19 +436,22 @@ async fn a_passphrase_the_master_key_cannot_open_is_a_warning() {
     assert!(codes.contains(&"backup_passphrase_unreadable"), "{status}");
 }
 
-/// An archive opened by hand is never written into the backup folder, where
-/// the server would list it and a sync would copy the master key away.
+/// An archive opened by hand is never written into the backup folder or its copy folder, where
+/// the server would list it and a sync would carry the master key away.
 #[tokio::test]
-async fn an_archive_opened_by_hand_is_not_written_into_the_backup_folder() {
+async fn an_archive_opened_by_hand_is_not_written_into_a_backup_folder() {
     let (app, dir) = app_with_files("sealed-by-hand-folder").await;
     set_passphrase(&app, PASSPHRASE).await;
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
-    let config = (*app.state.config).clone();
-    let inside = dir.join("backups").join("routarr-backup-20200101-000000.zip");
+    let copies = TempDir::new("sealed-by-hand-copies");
+    let mut config = (*app.state.config).clone();
+    config.backup_copy_dir = Some(copies.0.clone());
 
-    let refused =
-        backup::decrypt_offline(&config, &file.name, &inside.to_string_lossy(), None).await;
-
-    assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))), "{refused:?}");
-    assert!(!inside.exists());
+    for folder in [dir.join("backups"), copies.0.clone()] {
+        let inside = folder.join("routarr-backup-20200101-000000.zip");
+        let refused =
+            backup::decrypt_offline(&config, &file.name, &inside.to_string_lossy(), None).await;
+        assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))), "{refused:?}");
+        assert!(!inside.exists());
+    }
 }

@@ -57,6 +57,9 @@ pub enum Event {
     /// A scheduled backup could not be written, every time it fails. `error`
     /// is what the system answered, as it answered it.
     BackupFailed { error: String },
+    /// The archives could not be copied into `folder`, `ROUTARR_BACKUP_COPY_DIR`, every time a
+    /// copy fails. `reason` says why, as its task does.
+    BackupCopyFailed { folder: String, reason: crate::jobs::Detail },
     /// An application key stops being accepted within a week. Sent once per key.
     ApplicationKeyExpiring { id: String, name: String, expires_at: String },
     /// Sent from Settings to check the address and the format.
@@ -69,7 +72,8 @@ impl Event {
             Event::InstanceUnreachable { .. }
             | Event::AutoApplyFailed { .. }
             | Event::SyncFailed { .. }
-            | Event::BackupFailed { .. } => "error",
+            | Event::BackupFailed { .. }
+            | Event::BackupCopyFailed { .. } => "error",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::MovesSettled { moves, .. } if failed_among(moves) > 0 => "warning",
             Event::AutoApplyHeld { .. }
@@ -90,6 +94,7 @@ impl Event {
             Event::RuleTestsFailing { .. } => "rule_tests_failing",
             Event::SyncFailed { .. } => "sync_failed",
             Event::BackupFailed { .. } => "backup_failed",
+            Event::BackupCopyFailed { .. } => "backup_copy_failed",
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
@@ -106,7 +111,8 @@ impl Event {
             Event::InstanceUnreachable { .. }
             | Event::AutoApplyFailed { .. }
             | Event::SyncFailed { .. }
-            | Event::BackupFailed { .. } => "failure",
+            | Event::BackupFailed { .. }
+            | Event::BackupCopyFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::MovesSettled { moves, .. } if failed_among(moves) > 0 => "warning",
             Event::AutoApplyHeld { .. }
@@ -167,6 +173,7 @@ impl Event {
             Event::BackupFailed { error } => {
                 localizer.translate("NotificationMessageBackupFailed", &[("error", error)])
             }
+            Event::BackupCopyFailed { reason, .. } => reason.said(localizer),
             Event::SimulationCompleted { total, moves, .. } => localizer.translate(
                 "NotificationMessageSimulationCompleted",
                 &[("total", &count(total)), ("moves", &count(moves))],
@@ -218,6 +225,7 @@ impl Event {
             Event::RuleTestsFailing { .. } => "NotificationHeadlineRuleTestsFailing",
             Event::SyncFailed { .. } => "NotificationHeadlineSyncFailed",
             Event::BackupFailed { .. } => "NotificationHeadlineBackupFailed",
+            Event::BackupCopyFailed { .. } => "NotificationHeadlineBackupCopyFailed",
             Event::SimulationCompleted { .. } => "NotificationHeadlineSimulationCompleted",
             Event::MovesCompleted { reverted: false, .. } => "NotificationHeadlineApplyCompleted",
             Event::MovesCompleted { reverted: true, .. } => "NotificationHeadlineRevertCompleted",
@@ -264,6 +272,7 @@ impl Event {
                 "id": id, "name": name,
                 "expires_at": crate::timestamp::written(expires_at),
             }),
+            Event::BackupCopyFailed { folder, .. } => serde_json::json!({ "folder": folder }),
             Event::BackupFailed { .. } | Event::Test => serde_json::json!({}),
         }
     }
@@ -459,7 +468,7 @@ impl Event {
 pub struct Notification {
     /// What happened, in snake case: `instance_unreachable`,
     /// `instance_recovered`, `auto_apply_failed`, `auto_apply_held`, `rule_tests_failing`,
-    /// `sync_failed`, `backup_failed`, `simulation_completed`,
+    /// `sync_failed`, `backup_failed`, `backup_copy_failed`, `simulation_completed`,
     /// `apply_completed`, `revert_completed`, `moves_settled`, `application_key_expiring`, or
     /// `test` when sent from Settings. The list may grow.
     pub event: &'static str,
@@ -873,6 +882,11 @@ mod receivers {
             },
             Event::MovesSettled { total: 1, moves: vec![moved("Akira", "applied")] },
             Event::BackupFailed { error: "disk full".into() },
+            Event::BackupCopyFailed {
+                folder: "/mnt/nas".into(),
+                reason: crate::jobs::Detail::new("JobDetailBackupCopyMissing")
+                    .with("folder", "/mnt/nas"),
+            },
             Event::Test,
         ]
     }
@@ -953,6 +967,7 @@ mod receivers {
                 }),
             ),
             ("backup_failed", "error", json!({})),
+            ("backup_copy_failed", "error", json!({ "folder": "/mnt/nas" })),
             ("test", "info", json!({})),
         ];
         for (event, (name, severity, data)) in every_event().iter().zip(expected) {
@@ -969,7 +984,7 @@ mod receivers {
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
         let outcomes = [
             "failure", "success", "failure", "warning", "warning", "failure", "info", "warning",
-            "success", "success", "failure", "info",
+            "success", "success", "failure", "failure", "info",
         ];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
@@ -1152,7 +1167,7 @@ mod receivers {
             .iter()
             .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
             .collect();
-        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 2, 8, 2]);
+        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 2, 8, 8, 2]);
         for event in every_event() {
             let sent = posted(&event, Format::Gotify);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");

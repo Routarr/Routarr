@@ -49,7 +49,8 @@ pub fn trimmed(path: &str) -> String {
     }
     let unified = path.replace('/', "\\");
     let rest = unified.trim_end_matches('\\');
-    if rest.len() == 2 && rest.ends_with(':') { format!("{rest}\\") } else { rest.to_string() }
+    // A Windows path opens with `X:` or `\\`, so two characters left are a drive alone.
+    if rest.len() == 2 { format!("{rest}\\") } else { rest.to_string() }
 }
 
 /// Whether `path` names its folder plainly: no `.` or `..` segment, which

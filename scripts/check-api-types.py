@@ -27,6 +27,7 @@ PAIRS: dict[str, str] = {
     "OnboardingStatus": "OnboardingStatus",
     "OnboardingStep": "OnboardingStep",
     "RuleTest": "RuleTest",
+    "BackupCopy": "BackupCopy",
     "BackupFile": "BackupFile",
     "BackupListResponse": "BackupList",
     "HealthResponse": "Health",

@@ -553,10 +553,8 @@ pub async fn import(
 
     tx.commit().await?;
     // As `PUT /settings` does: archives above a lowered retention go now.
-    if bundle.settings.iter().any(|setting| setting.key == "backup_retention_count")
-        && let Err(e) = crate::services::backup::prune(&state).await
-    {
-        tracing::warn!("Could not prune backups after the retention changed: {e}");
+    if bundle.settings.iter().any(|setting| setting.key == "backup_retention_count") {
+        crate::services::backup::retention_changed(&state, identity.attribution()).await;
     }
     crate::api::auth::audited(&state, &identity, client, bundled);
     Ok(Json(report))

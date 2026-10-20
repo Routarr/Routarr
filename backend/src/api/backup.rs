@@ -16,7 +16,7 @@ use serde::Serialize;
 use crate::api::auth::allowed;
 use crate::error::{AppError, AppResult};
 use crate::services::audit::Kind;
-use crate::services::backup::{self, BackupFile, BackupManifest};
+use crate::services::backup::{self, BackupCopy, BackupFile, BackupManifest};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -24,13 +24,40 @@ pub struct BackupListResponse {
     pub backups: Vec<BackupFile>,
     /// How many are kept before the oldest is pruned.
     pub retention_count: usize,
+    /// The copy into `ROUTARR_BACKUP_COPY_DIR`, null when the variable is unset.
+    pub copy: Option<BackupCopy>,
 }
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<BackupListResponse>> {
+    let localizer = state.localizer().await;
+    let mut backups = backup::list(&state);
+    let copy = match backup::copy_status(&state, &localizer).await? {
+        Some((copy, present)) => {
+            for file in &mut backups {
+                file.copied = present.contains(&file.name);
+            }
+            Some(copy)
+        }
+        None => None,
+    };
     Ok(Json(BackupListResponse {
-        backups: backup::list(&state),
+        backups,
         retention_count: state.setting::<usize>("backup_retention_count").await,
+        copy,
     }))
+}
+
+/// Take the copy folder as it is now, after a change made on purpose left it without the
+/// marker of its first copy, and copy into it.
+pub async fn adopt_copy_folder(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
+) -> AppResult<StatusCode> {
+    backup::adopt_copy_folder(&state, identity.attribution()).await?;
+    let event = allowed(Kind::Backup, "AuditBackupCopyAdopted");
+    crate::api::auth::audited(&state, &identity, client, event);
+    Ok(StatusCode::ACCEPTED)
 }
 
 pub async fn create(

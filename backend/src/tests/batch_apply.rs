@@ -127,9 +127,7 @@ async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_it
         &by,
     );
     let unreadable = async {
-        while arr.recorded().writes.is_empty() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        arr.written(1).await;
         app.execute(&["ALTER TABLE overrides RENAME TO overrides_gone"]).await;
     };
     let (report, ()) = tokio::join!(run, unreadable);
@@ -282,7 +280,7 @@ async fn progress_is_recorded_as_each_slice_ends() {
         &confirmed,
         &by,
     );
-    let midway = async {
+    let midway = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let job: Option<(i64, i64, String)> = sqlx::query_as(
                 "SELECT progress_current, progress_total, status FROM jobs WHERE kind = 'apply'",
@@ -298,10 +296,11 @@ async fn progress_is_recorded_as_each_slice_ends() {
                 _ => tokio::time::sleep(Duration::from_millis(10)).await,
             }
         }
-    };
+    });
     let (report, midway) = tokio::join!(run, midway);
 
     report.unwrap();
+    let midway = midway.ok().flatten();
     let (current, total) = midway.expect("no slice was counted before the run ended");
     assert_eq!(total, 12);
     assert!(current < total, "{current} of {total} while running");
@@ -359,9 +358,7 @@ async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
         &by,
     );
     let switch = async {
-        while arr.recorded().writes.is_empty() {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        arr.written(1).await;
         app.store_setting("global_dry_run", "true").await;
     };
     let (report, ()) = tokio::join!(run, switch);

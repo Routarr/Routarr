@@ -19,8 +19,12 @@ pub(crate) struct Gate {
 }
 
 impl Gate {
+    /// Five seconds at most: a request refused before its gate fails its test instead of
+    /// hanging it.
     async fn reached(&self) {
-        self.reached.notified().await;
+        tokio::time::timeout(Duration::from_secs(5), self.reached.notified())
+            .await
+            .expect("the request never reached its gate");
     }
 
     pub(crate) fn release(&self) {
@@ -402,7 +406,7 @@ async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() 
 /// category renamed meanwhile never reaches it half renamed.
 #[tokio::test]
 async fn a_category_renamed_while_a_pass_reads_reaches_it_whole() {
-    let (app, _dir) = crate::tests::backup::app_with_files("snapshot").await;
+    let (app, _dir) = crate::tests::backup::app_with_files("race-snapshot").await;
     app.seed_library().await;
     app.execute(&["INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
                                       target_category, match_mode)

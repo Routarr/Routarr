@@ -122,6 +122,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     api::categories::converge_names(&state).await?;
     // What a conversion interrupted by the last stop left in the clear.
     services::backup::resume_sealing(&state).await;
+    // The archive a migration took, and those a share asleep missed, copied away.
+    let started = jobs::Attribution::unattended(jobs::TRIGGER_SCHEDULE);
+    services::backup::copy_in_background(&state, started);
 
     // The single account, generated on first start like the API key. Only in
     // the mode that reads it: creating one for an installation that
