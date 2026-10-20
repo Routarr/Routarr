@@ -52,6 +52,17 @@ async fn the_dictionary_follows_the_configured_language() {
     );
 }
 
+/// The theme travels with the strings, unauthenticated, so the sign-in screen and a reader,
+/// who cannot read the settings, paint in the one the owner set.
+#[tokio::test]
+async fn the_dictionary_carries_the_theme_set() {
+    let app = TestApp::new().await;
+    assert_eq!(app.get("/api/v1/localization").await.assert_ok()["theme"], "dark");
+
+    app.store_setting("ui_theme", "light").await;
+    assert_eq!(app.get("/api/v1/localization").await.assert_ok()["theme"], "light");
+}
+
 #[tokio::test]
 async fn shipped_languages_are_advertised() {
     let app = TestApp::new().await;

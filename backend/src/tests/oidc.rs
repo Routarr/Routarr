@@ -5,6 +5,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
+use serde_json::json;
+
 use super::TestApp;
 
 /// The whole flow against a provider on an ephemeral port: discovery, the
@@ -664,7 +666,8 @@ async fn an_old_oidc_session_signs_in_again_before_it_mints_a_key() {
         let app = &app;
         let age = age.to_string();
         async move {
-            let id = crate::services::accounts::open_session(&app.state.pool, "u-42", "oidc")
+            let full = crate::services::accounts::Reach::Full;
+            let id = crate::services::accounts::open_session(&app.state.pool, "u-42", "oidc", full)
                 .await
                 .unwrap();
             let shifted = format!("-{age}");
@@ -750,5 +753,163 @@ fn a_sign_in_lands_only_under_the_mount_point() {
     assert_eq!(screen("/settings").as_deref(), Some("/settings"));
     for leaving in ["//evil.example", "https://evil.example", "/\\evil", "settings", "/a b"] {
         assert_eq!(screen(leaving), None, "{leaving}");
+    }
+}
+
+/// `user-42` runs Routarr, and the members of `family` read.
+async fn readers_app(idp: &crate::tests::fake_oidc::FakeOidc) -> TestApp {
+    oidc_app_configured(idp, |config| config.oidc_read_groups = vec!["family".into()]).await
+}
+
+/// Sign `claims` in, and answer the session cookie handed, `None` when refused.
+async fn signed_in_as(
+    app: &TestApp,
+    idp: &crate::tests::fake_oidc::FakeOidc,
+    claims: serde_json::Value,
+) -> Option<String> {
+    let flow = start_flow(app).await;
+    idp.will_claim(claims);
+    let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
+    let answer = callback(app, Some(&flow.cookie), &path).await;
+    let handed = answer.header("set-cookie").filter(|c| c.starts_with("routarr_session="))?;
+    Some(handed.split(';').next().unwrap().to_string())
+}
+
+/// How many security events say `message`, once written.
+async fn said(app: &TestApp, message: &'static str) -> i64 {
+    let count = || async {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM security_events WHERE message = ?")
+            .bind(message)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap()
+    };
+    super::until(|| async { count().await > 0 }).await;
+    count().await
+}
+
+/// A member of a read group signs in to read alone: the provider is asked for the groups
+/// though no group gives full access, the session keeps the level, and a write is refused,
+/// said in the security log and to the shell.
+#[tokio::test]
+async fn a_member_of_a_read_group_signs_in_to_read_alone() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = readers_app(&idp).await;
+    assert!(start_flow(&app).await.location.contains("scope=openid+profile+groups"));
+
+    let reader = signed_in_as(&app, &idp, serde_json::json!({ "sub": "u7", "groups": ["family"] }))
+        .await
+        .expect("the reader was refused");
+
+    let reach: String = sqlx::query_scalar("SELECT reach FROM sessions WHERE subject = 'u7'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(reach, "read");
+    assert_eq!(said(&app, "AuditOidcSignedInToRead").await, 1);
+    let (status, me) =
+        super::security::with_session(&app, "GET", "/api/v1/auth/me", &reader, json!({})).await;
+    assert_eq!((status, me["read_only"].clone()), (StatusCode::OK, json!(true)), "{me}");
+    let (status, refused) =
+        super::security::with_session(&app, "POST", "/api/v1/simulate", &reader, json!({})).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert_eq!(refused["reason"], "read_only", "{refused}");
+    assert_eq!(said(&app, "AuditReaderRefused").await, 1);
+}
+
+/// Named for full access, a person has it, whatever group they read through besides.
+#[tokio::test]
+async fn full_access_wins_over_a_read_group() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = readers_app(&idp).await;
+
+    let claims = serde_json::json!({ "sub": "user-42", "groups": ["family"] });
+    let owner = signed_in_as(&app, &idp, claims).await.expect("the owner was refused");
+
+    let (_, me) =
+        super::security::with_session(&app, "GET", "/api/v1/auth/me", &owner, json!({})).await;
+    assert_eq!(me["read_only"], false, "{me}");
+    let reach: String =
+        sqlx::query_scalar("SELECT reach FROM sessions").fetch_one(&app.state.pool).await.unwrap();
+    assert_eq!(reach, "full");
+}
+
+/// A token with no groups claim at all is the usual mistake, a provider keeping groups in
+/// userinfo or sending them under no mapper: refused, and the security log says why.
+#[tokio::test]
+async fn a_token_carrying_no_groups_is_refused_saying_so() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = readers_app(&idp).await;
+
+    let refused = signed_in_as(&app, &idp, serde_json::json!({ "sub": "u9" })).await;
+
+    assert!(refused.is_none());
+    assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 0);
+    said(&app, "AuditOidcRefused").await;
+    let params: String =
+        sqlx::query_scalar("SELECT params FROM security_events WHERE message = 'AuditOidcRefused'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(params.contains("no 'groups' claim"), "{params}");
+}
+
+/// Every route but the open few, walked by a reader: what the read scope grants a key
+/// answers, everything else is refused as read only, owner routes included.
+#[tokio::test]
+async fn a_reader_reaches_what_the_read_scope_grants_and_nothing_else() {
+    use crate::api::applications::scope_for;
+    use crate::services::applications::Scope;
+
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = readers_app(&idp).await;
+    app.seed_library().await;
+    let reader = signed_in_as(&app, &idp, serde_json::json!({ "sub": "u7", "groups": ["family"] }))
+        .await
+        .expect("the reader was refused");
+
+    let routes = super::security::declared_routes();
+    let mut reached = 0;
+    for (method, path) in routes {
+        if super::security::OPEN.contains(&(method, path.as_str())) {
+            continue;
+        }
+        let template = super::security::route_template(&path);
+        let readable = scope_for(&method.parse().unwrap(), &template) == Some(Scope::Read);
+        let (status, body) =
+            super::security::with_session(&app, method, &path, &reader, json!({})).await;
+        if readable {
+            reached += 1;
+            assert!(
+                status != StatusCode::FORBIDDEN && status != StatusCode::UNAUTHORIZED,
+                "{method} {path} answered a reader {status}: {body}"
+            );
+        } else {
+            assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path} let a reader in: {body}");
+            assert_eq!(body["reason"], "read_only", "{method} {path}: {body}");
+        }
+    }
+    assert!(reached > 20, "the walk reached only {reached} route(s): it proves nothing");
+}
+
+/// A reader reads the instances as a key does: no webhook token, which would post as the Arr.
+#[tokio::test]
+async fn a_reader_never_sees_a_webhook_token() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = readers_app(&idp).await;
+    app.seed_library().await;
+    let reader = signed_in_as(&app, &idp, serde_json::json!({ "sub": "u7", "groups": ["family"] }))
+        .await
+        .expect("the reader was refused");
+
+    let (status, listed) =
+        super::security::with_session(&app, "GET", "/api/v1/instances", &reader, json!({})).await;
+
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let instances = listed.as_array().expect("a list");
+    assert!(!instances.is_empty(), "{listed}");
+    for instance in instances {
+        assert!(instance["webhook_token"].is_null(), "{instance}");
+        assert!(instance["webhook_url"].is_null(), "{instance}");
     }
 }

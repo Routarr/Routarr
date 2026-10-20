@@ -6,6 +6,7 @@ import { health, healthInstance, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
 import { statusRevision } from '../lib/status.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import Diagnostics from './Diagnostics.svelte';
 
 const show = () => renderWithI18n(Diagnostics);
@@ -211,5 +212,24 @@ describe('Diagnostics', () => {
     show();
 
     expect(await screen.findByText('No instance connected yet.')).toBeTruthy();
+  });
+});
+
+describe('for a reader', () => {
+  /** The server answers a reader without a probe, so no answer from the Arr is on its way. */
+  it('says an unprobed instance is unknown to a reader, and still being checked to the owner', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      health({ instances: [healthInstance({ status: 'unchecked' })] }),
+    );
+    const { unmount } = show();
+    expect(await screen.findByText('Checking…')).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(within(row).getByText('unknown')).toBeInTheDocument();
+    expect(screen.queryByText('Checking…')).toBeNull();
   });
 });

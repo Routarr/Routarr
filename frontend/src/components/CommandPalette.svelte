@@ -5,7 +5,8 @@
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import { searchHelp } from '../lib/help';
-  import { DESTINATIONS } from '../lib/navigation';
+  import { access } from '../lib/access.svelte';
+  import { destinationsFor } from '../lib/navigation';
   import { screenKey } from '../lib/routes';
   import { navigate } from '../lib/router.svelte';
   import type { Explanation, MediaListItem } from '../api/types';
@@ -54,9 +55,11 @@
 
   /** Matched on the translated label: it is what is on screen and what is typed. */
   const destinations = $derived(
-    DESTINATIONS.map((item) => ({ item, label: t(item.key) })).filter(
-      ({ label }) => !query.trim() || label.toLowerCase().includes(query.trim().toLowerCase()),
-    ),
+    destinationsFor(access.readOnly)
+      .map((item) => ({ item, label: t(item.key) }))
+      .filter(
+        ({ label }) => !query.trim() || label.toLowerCase().includes(query.trim().toLowerCase()),
+      ),
   );
 
   const rows = $derived<Row[]>([

@@ -68,6 +68,12 @@ class Scopes(unittest.TestCase):
             ["x-routarr-scope changed on GET /auth/me: read in the release, operate now"],
         )
 
+    def test_a_change_the_release_accepts_whole_is_not_named(self):
+        problem = "x-routarr-scope changed on GET /health: operate in the release, read now"
+        accepted = f"# Accepted, and named in the notes.\n{problem}\n"
+        self.assertEqual(contract_breaks.unaccepted([problem], accepted), [])
+        self.assertEqual(contract_breaks.unaccepted([problem], problem[:-4]), [problem])
+
 
 if __name__ == "__main__":
     unittest.main()

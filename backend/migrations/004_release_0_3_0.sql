@@ -66,3 +66,7 @@ CREATE INDEX idx_execution_logs_job ON execution_logs (job_id);
 -- was told it soon would, once per key.
 ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
 ALTER TABLE api_keys ADD COLUMN expiry_notified_at TEXT;
+
+-- What a person signed in may reach: everything, or what an application key's read scope reads.
+-- Set at sign-in from the OIDC read lists and kept for the session.
+ALTER TABLE sessions ADD COLUMN reach TEXT NOT NULL DEFAULT 'full' CHECK (reach IN ('full', 'read'));

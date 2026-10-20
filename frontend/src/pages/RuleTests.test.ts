@@ -7,6 +7,7 @@ import { paginated } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { RuleTest, RuleTestRun } from '../api/types';
 import RuleTests from './RuleTests.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import { answerConfirmation } from '../test/confirm';
 
 const CASE: RuleTest = {
@@ -249,5 +250,28 @@ describe('deleting a case', () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Rule tests' })),
     );
+  });
+});
+
+/** Running the cases records each verdict, and a reader is refused that as every write. */
+describe('for a reader', () => {
+  const offered = () =>
+    ['Run tests', 'Delete – Akira stays anime'].filter((name) =>
+      screen.queryByRole('button', { name }),
+    );
+
+  it('offers the owner the run and the delete, and a reader neither', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE]));
+    const { unmount } = renderWithI18n(RuleTests);
+    await screen.findByRole('row', { name: /Akira stays anime/ });
+    expect(offered()).toEqual(['Run tests', 'Delete – Akira stays anime']);
+    unmount();
+
+    publishAccess(true);
+    renderWithI18n(RuleTests);
+
+    const row = await screen.findByRole('row', { name: /Akira stays anime/ });
+    expect(within(row).getByText('anime')).toBeInTheDocument();
+    expect(offered()).toEqual([]);
   });
 });

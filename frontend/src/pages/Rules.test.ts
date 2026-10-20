@@ -8,6 +8,7 @@ import type { Category, ConditionCatalog, LibraryFacets, Rule, RuleHealth } from
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { statusRevision } from '../lib/status.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import { instance, rule, template, templatePreview } from '../test/fixtures';
 
 const catalog: ConditionCatalog = {
@@ -744,5 +745,61 @@ describe('the rule health badges', () => {
     const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
     await waitFor(() => expect(api.getRuleHealth).toHaveBeenCalled());
     expect(within(row).queryByText(/shadowed by|same as|matches nothing/)).toBeNull();
+  });
+});
+
+/**
+ * A reader is refused every write and every check made while a rule is written. The screen
+ * shows them the rules, their conditions and the analysis, and the export, which reads.
+ */
+describe('for a reader', () => {
+  const WRITES = [
+    'New rule',
+    'Import',
+    'Raise priority – Kids',
+    'Lower priority – Anime',
+    'Edit – Anime',
+    'Actions – Anime',
+    'Add – Documentaries',
+  ];
+  const offered = () =>
+    WRITES.filter((name) => screen.queryAllByRole('button', { name }).length > 0);
+  const two = () => [
+    rule({ id: 'r1', name: 'Anime' }),
+    rule({ id: 'r2', name: 'Kids', priority: 20 }),
+  ];
+
+  it('offers the owner every write the screen holds', async () => {
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    show(two());
+
+    await screen.findByRole('button', { name: 'Add – Documentaries' });
+    expect(offered()).toEqual(WRITES);
+    expect(screen.getByRole('link', { name: 'Templates' })).toBeInTheDocument();
+  });
+
+  it('shows a reader the rules and their conditions, and nothing that writes', async () => {
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    publishAccess(true);
+    show(two());
+
+    const row = await screen.findByRole('row', { name: /Anime/ });
+    expect(within(row).getByText(/Animation/)).toBeInTheDocument();
+    await waitFor(() => expect(api.getTemplates).toHaveBeenCalled());
+    expect(offered()).toEqual([]);
+    expect(screen.queryByRole('link', { name: 'Templates' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Templates' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled();
+  });
+
+  /** The guide never sends a reader there, and an address kept from the owner's must not either. */
+  it('opens no editor for a reader sent with ?new=1', async () => {
+    window.history.replaceState({}, '', '/rules?new=1');
+    publishAccess(true);
+    show([]);
+
+    await screen.findByText('No rules yet. Every media item falls back to the default category.');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

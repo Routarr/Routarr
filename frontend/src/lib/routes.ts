@@ -31,6 +31,8 @@ export interface Route {
   hint: string;
   /** Which of the shell's counts this entry answers, if any. */
   badge?: keyof Counts;
+  /** Read by the owner alone: the server refuses a reader the screen's first read. */
+  owner?: true;
 }
 
 /**
@@ -74,7 +76,7 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     items: [
       { to: '/tasks', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
       { to: '/move-log', key: 'MoveLog', hint: 'HintMoveLog', badge: 'failed' },
-      { to: '/security-log', key: 'SecurityLog', hint: 'HintSecurityLog' },
+      { to: '/security-log', key: 'SecurityLog', hint: 'HintSecurityLog', owner: true },
       { to: '/diagnostics', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
     ],
   },
@@ -83,14 +85,14 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     items: [
       { to: '/instances', key: 'Instances', hint: 'HintInstances' },
       { to: '/categories', key: 'CategoriesAndFolders', hint: 'HintCategories' },
-      { to: '/sources', key: 'MetadataSources', hint: 'HintSources' },
-      { to: '/settings', key: 'Settings', hint: 'HintSettings' },
+      { to: '/sources', key: 'MetadataSources', hint: 'HintSources', owner: true },
+      { to: '/settings', key: 'Settings', hint: 'HintSettings', owner: true },
     ],
   },
   {
     key: 'NavGroupIntegrations',
     items: [
-      { to: '/applications', key: 'Applications', hint: 'HintApplications' },
+      { to: '/applications', key: 'Applications', hint: 'HintApplications', owner: true },
       { to: '/reference', key: 'ApiReference', hint: 'HintApiReference' },
     ],
   },

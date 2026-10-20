@@ -908,5 +908,36 @@
       "zh_CN": "吊销",
       "zh_TW": "撤銷"
     }
+  },
+  "read only": {
+    "en": "\\bread[- ]only\\b",
+    "except": [],
+    "words": {
+      "ar": "للقراءة فقط",
+      "ca": "només lectura",
+      "cs": "pouze pro čtení",
+      "da": "kun læseadgang",
+      "de": "nur lesezugriff",
+      "el": "μόνο ανάγνωση",
+      "es": "solo lectura",
+      "fi": "vain luku",
+      "fr": "lecture seule",
+      "hu": "csak olvasás",
+      "it": "sola lettura",
+      "ja": "読み取り専用",
+      "ko": "읽기 전용",
+      "nb_NO": "kun lesetilgang",
+      "nl": "alleen lezen",
+      "pl": "tylko do odczytu",
+      "pt": "só de leitura",
+      "ro": "doar citire",
+      "ru": "только чтение",
+      "sk": "iba na čítanie",
+      "sv": "endast läsåtkomst",
+      "tr": "salt okunur",
+      "uk": "лише читання",
+      "zh_CN": "只读",
+      "zh_TW": "唯讀"
+    }
   }
 }

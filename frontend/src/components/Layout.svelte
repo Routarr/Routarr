@@ -1,18 +1,19 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
-  import { AlertTriangle, HelpCircle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
+  import { AlertTriangle, HelpCircle, ListChecks, Lock, LogOut, Menu, Search } from '../lib/icons';
   import { ApiError, api, onRefused } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import PageFailure from './PageFailure.svelte';
   import { poll } from '../lib/poll.svelte';
   import { formatCount } from '../api/format';
-  import { applyTheme, i18n, t } from '../lib/i18n.svelte';
+  import { i18n, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
   import { invalidateStatus, statusRevision } from '../lib/status.svelte';
   import { proofRequest } from '../lib/proof.svelte';
+  import { access, publishAccess } from '../lib/access.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
     onboarding,
@@ -41,12 +42,24 @@
     () => statusRevision(),
   );
 
+  // Asked once the gate has let the person in, and at each status read until it
+  // answers: what a reader is refused, the guide included, waits on it.
+  const me = createAsync(
+    (signal) => (status.data && !access.known ? api.getMe(signal) : Promise.resolve(null)),
+    () => status.data,
+  );
+  $effect(() => {
+    if (me.data) publishAccess(me.data.read_only);
+  });
+
   // Read again on every navigation and after every write the warnings follow:
   // a step is done by the screen the reader just left, and the pill, the
-  // dashboard list and the step banners all read this one answer.
+  // dashboard list and the step banners all read this one answer. A reader is
+  // refused it, so it waits until the shell knows who reads.
   const guide = createAsync(
-    (signal) => api.getOnboarding(signal),
-    () => [statusRevision(), router.path],
+    (signal) =>
+      access.known && !access.readOnly ? api.getOnboarding(signal) : Promise.resolve(null),
+    () => [statusRevision(), router.path, access.known],
   );
   $effect(() => {
     if (guide.data) publishOnboarding(guide.data);
@@ -65,21 +78,6 @@
   // asked once: a browser that has not signed in cannot be asked for a session
   // in order to learn that it needs one.
   const auth = createAsync((signal) => api.authMode(signal));
-
-  // The theme is a server setting, like the language, so it has to be fetched
-  // rather than read from the browser. Following the OS is a choice one makes.
-  $effect(() => {
-    const closing = new AbortController();
-    api
-      .getSettings(closing.signal)
-      .then(({ ui_theme }) =>
-        applyTheme(typeof ui_theme === 'string' && ui_theme ? ui_theme : 'dark'),
-      )
-      // A theme that cannot be read is not worth an error banner: the default
-      // renders perfectly well.
-      .catch(() => {});
-    return () => closing.abort();
-  });
 
   // Keep the chrome honest. Polling only while a job runs would leave the
   // dry-run badge, the one thing this bar exists to answer, stale indefinitely
@@ -372,6 +370,20 @@
             >
               <i class="mode-dot {held ? 'is-held' : 'is-live'}" aria-hidden="true"></i>
               {t(held ? 'ModeDryRunShort' : 'ModeLiveShort')}
+            </span>
+          {/if}
+          {#if access.readOnly}
+            <!-- Beside the mode, as the other thing that says what a click can do.
+                 The word goes on a phone, as the bar's other labels do, and the
+                 name keeps it. -->
+            <span
+              class="mode-chip"
+              role="status"
+              aria-label={t('ReadOnly')}
+              title={t('ReadOnlyHelp')}
+            >
+              <Lock size={12} aria-hidden="true" />
+              <span class="topbar-label">{t('ReadOnly')}</span>
             </span>
           {/if}
           <!-- What the state calls for beside the state itself: these come and

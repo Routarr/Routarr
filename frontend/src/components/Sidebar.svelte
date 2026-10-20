@@ -2,7 +2,8 @@
   import { href, isCurrent } from '../lib/router.svelte';
   import { formatCount } from '../api/format';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { GROUPS, type Counts } from '../lib/navigation';
+  import { access } from '../lib/access.svelte';
+  import { groupsFor, type Counts } from '../lib/navigation';
   import { X } from '../lib/icons';
 
   /** Amber asks for attention, red says something failed, the rest is just a
@@ -74,7 +75,7 @@
   </div>
 
   <nav class="sidebar-nav" aria-label={t('MainNavigation')}>
-    {#each GROUPS as group, index (group.key ?? 'home')}
+    {#each groupsFor(access.readOnly) as group, index (group.key ?? 'home')}
       <!-- The label is hidden in the rail, where 68px fits no word. The rule
            above the group is what survives, so the grouping still reads. -->
       {#if group.key}

@@ -35,6 +35,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { poll } from '../lib/poll.svelte';
+  import { access } from '../lib/access.svelte';
 
   interface FormState {
     name: string;
@@ -370,7 +371,7 @@
     formError = null;
   }
   // The guide's "Add an instance" lands here with the dialog open.
-  if (takeQueryFlag('add')) startAdd();
+  if (takeQueryFlag('add') && !access.readOnly) startAdd();
 
   function startEdit(instance: Instance) {
     stopTrying();
@@ -401,20 +402,22 @@
       <h1 class="page-title">{t('Instances')}</h1>
       <p class="page-subtitle">{t('InstancesSubtitle')}</p>
     </div>
-    <div class="flex gap-2">
-      <button
-        class="btn btn-secondary"
-        disabled={!instances.some((instance) => instance.enabled) || busyId !== null}
-        onclick={() => void syncAll()}
-      >
-        <RefreshCw size={16} class={busyId === 'all' ? 'spin' : ''} />
-        {t('SyncAll')}
-      </button>
-      <button id="instances-add" class="btn btn-primary" onclick={startAdd}>
-        <Plus size={16} />
-        {t('AddInstance')}
-      </button>
-    </div>
+    {#if !access.readOnly}
+      <div class="flex gap-2">
+        <button
+          class="btn btn-secondary"
+          disabled={!instances.some((instance) => instance.enabled) || busyId !== null}
+          onclick={() => void syncAll()}
+        >
+          <RefreshCw size={16} class={busyId === 'all' ? 'spin' : ''} />
+          {t('SyncAll')}
+        </button>
+        <button id="instances-add" class="btn btn-primary" onclick={startAdd}>
+          <Plus size={16} />
+          {t('AddInstance')}
+        </button>
+      </div>
+    {/if}
   </div>
 
   <ErrorBanner
@@ -547,88 +550,90 @@
                   {/if}
                 </td>
                 <td>
-                  <div class="row-actions">
-                    <!-- Two visible, the rest behind the menu: every action as a button pushes
-                         the row off a desktop screen. -->
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      disabled={busyId !== null || !instance.enabled}
-                      title={instance.enabled
-                        ? t('SyncNow')
-                        : t('ErrorInstanceSyncDisabled', { name: instance.name })}
-                      aria-label="{t('SyncNow')} – {instance.name}"
-                      onclick={() => void syncNow(instance)}
-                    >
-                      <RefreshCw size={14} class={busyId === instance.id ? 'spin' : ''} />
-                    </button>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      aria-label="{t('Edit')} – {instance.name}"
-                      onclick={() => startEdit(instance)}
-                    >
-                      {t('Edit')}
-                    </button>
-                    <ActionMenu
-                      id={menuId(index)}
-                      label="{t('Actions')} – {instance.name}"
-                      actions={[
-                        {
-                          label: t('TestConnection'),
-                          icon: wifiIcon,
-                          disabled: busyId !== null,
-                          onSelect: () => void testConnection(instance),
-                        },
-                        {
-                          label: t('CopyUrl'),
-                          icon: linkIcon,
-                          disabled: !instance.webhook_url,
-                          onSelect: () => void copyWebhookUrl(instance),
-                        },
-                        {
-                          label: t('RotateWebhookToken'),
-                          icon: keyIcon,
-                          disabled: busyId !== null,
-                          // The Arr's webhook stops at once, until the new
-                          // address is pasted there: asked, as a deletion is.
-                          onSelect: async () => {
-                            if (
-                              await askConfirmation(
-                                t('ConfirmRotateWebhookToken', { name: instance.name }),
-                                'RotateWebhookToken',
-                              )
-                            ) {
-                              void act(
-                                instance.id,
-                                () => api.rotateWebhookToken(instance.id),
-                                () => t('WebhookTokenRotated'),
-                              );
-                            }
+                  {#if !access.readOnly}
+                    <div class="row-actions">
+                      <!-- Two visible, the rest behind the menu: every action as a button pushes
+                           the row off a desktop screen. -->
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        disabled={busyId !== null || !instance.enabled}
+                        title={instance.enabled
+                          ? t('SyncNow')
+                          : t('ErrorInstanceSyncDisabled', { name: instance.name })}
+                        aria-label="{t('SyncNow')} – {instance.name}"
+                        onclick={() => void syncNow(instance)}
+                      >
+                        <RefreshCw size={14} class={busyId === instance.id ? 'spin' : ''} />
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        aria-label="{t('Edit')} – {instance.name}"
+                        onclick={() => startEdit(instance)}
+                      >
+                        {t('Edit')}
+                      </button>
+                      <ActionMenu
+                        id={menuId(index)}
+                        label="{t('Actions')} – {instance.name}"
+                        actions={[
+                          {
+                            label: t('TestConnection'),
+                            icon: wifiIcon,
+                            disabled: busyId !== null,
+                            onSelect: () => void testConnection(instance),
                           },
-                        },
-                        {
-                          label: t('Delete'),
-                          icon: trashIcon,
-                          danger: true,
-                          disabled: busyId !== null,
-                          onSelect: async () => {
-                            if (
-                              await askConfirmation(
-                                t('ConfirmDeleteInstance', { name: instance.name }),
-                                'Delete',
-                              )
-                            ) {
-                              void act(
-                                instance.id,
-                                () => api.deleteInstance(instance.id),
-                                () => t('InstanceDeleted'),
-                                [menuId(index), menuId(index - 1), 'instances-table'],
-                              );
-                            }
+                          {
+                            label: t('CopyUrl'),
+                            icon: linkIcon,
+                            disabled: !instance.webhook_url,
+                            onSelect: () => void copyWebhookUrl(instance),
                           },
-                        },
-                      ]}
-                    />
-                  </div>
+                          {
+                            label: t('RotateWebhookToken'),
+                            icon: keyIcon,
+                            disabled: busyId !== null,
+                            // The Arr's webhook stops at once, until the new
+                            // address is pasted there: asked, as a deletion is.
+                            onSelect: async () => {
+                              if (
+                                await askConfirmation(
+                                  t('ConfirmRotateWebhookToken', { name: instance.name }),
+                                  'RotateWebhookToken',
+                                )
+                              ) {
+                                void act(
+                                  instance.id,
+                                  () => api.rotateWebhookToken(instance.id),
+                                  () => t('WebhookTokenRotated'),
+                                );
+                              }
+                            },
+                          },
+                          {
+                            label: t('Delete'),
+                            icon: trashIcon,
+                            danger: true,
+                            disabled: busyId !== null,
+                            onSelect: async () => {
+                              if (
+                                await askConfirmation(
+                                  t('ConfirmDeleteInstance', { name: instance.name }),
+                                  'Delete',
+                                )
+                              ) {
+                                void act(
+                                  instance.id,
+                                  () => api.deleteInstance(instance.id),
+                                  () => t('InstanceDeleted'),
+                                  [menuId(index), menuId(index - 1), 'instances-table'],
+                                );
+                              }
+                            },
+                          },
+                        ]}
+                      />
+                    </div>
+                  {/if}
                 </td>
               </tr>
             {/each}

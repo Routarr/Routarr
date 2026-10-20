@@ -54,6 +54,7 @@ PAIRS: dict[str, str] = {
     "ImportReport": "ConfigImportReport",
     "ProviderDescription": "MetadataProvider",
     "Listed": "Session",
+    "Me": "Me",
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
     "ReasonLine": "ReasonLine",

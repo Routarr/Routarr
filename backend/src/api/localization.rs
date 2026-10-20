@@ -24,6 +24,9 @@ pub struct LocalizationResponse {
     /// The placeholders that hold a machine format, isolated in a sentence
     /// written right to left.
     pub isolated: &'static [&'static str],
+    /// `ui_theme`, so the shell paints in it from its first frame, the sign-in screen and a
+    /// reader's screens included, who cannot read the settings.
+    pub theme: String,
 }
 
 /// The dictionary for the configured language.
@@ -49,6 +52,7 @@ pub async fn answer(state: &AppState) -> LocalizationResponse {
         direction: localization::direction(&language),
         counts: localization::COUNTS,
         isolated: localization::ISOLATED,
+        theme: state.setting::<String>("ui_theme").await,
         language,
     }
 }

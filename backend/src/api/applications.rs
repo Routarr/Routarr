@@ -46,8 +46,8 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/metadata/providers", Scope::Read),
     // The list only: an archive holds the master key that seals every credential.
     ("GET", "/backups", Scope::Read),
-    // It probes every Arr and every source and records what it found.
-    ("GET", "/health", Scope::Operate),
+    // Its probe, which reaches every Arr and every source, needs `operate` in the handler.
+    ("GET", "/health", Scope::Read),
     ("POST", "/rule-tests/run", Scope::Operate),
     ("POST", "/backups", Scope::Operate),
     ("POST", "/instances/sync", Scope::Operate),

@@ -248,7 +248,8 @@ pub async fn change_password(
     // new session, so a key shown once in this answer is not lost to the
     // sign-in screen.
     let source = AuthMode::Forms.as_str();
-    let id = accounts::open_session(&state.pool, &identity.subject, source).await?;
+    let id = accounts::open_session(&state.pool, &identity.subject, source, accounts::Reach::Full)
+        .await?;
     let renewed =
         super::auth::session_cookie(&state, &headers, &id, accounts::opening_seconds(source));
     Ok((

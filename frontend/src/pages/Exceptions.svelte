@@ -14,6 +14,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { access } from '../lib/access.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
@@ -135,12 +136,14 @@
       <h1 class="page-title">{t('Exceptions')}</h1>
       <p class="page-subtitle">{t('ExceptionsSubtitle')}</p>
     </div>
-    <div class="flex gap-2">
-      <button class="btn btn-primary" onclick={openCreate}>
-        <Plus size={16} />
-        {t('NewOverride')}
-      </button>
-    </div>
+    {#if !access.readOnly}
+      <div class="flex gap-2">
+        <button class="btn btn-primary" onclick={openCreate}>
+          <Plus size={16} />
+          {t('NewOverride')}
+        </button>
+      </div>
+    {/if}
   </div>
 
   <ErrorBanner
@@ -191,15 +194,17 @@
                   {/if}
                 </td>
                 <td>
-                  <button
-                    class="btn btn-danger btn-sm"
-                    aria-label="{t('Delete')} – {override.media_title}"
-                    title={t('Delete')}
-                    id={deleteId(index)}
-                    onclick={() => void remove(override.id, override.media_title, index)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {#if !access.readOnly}
+                    <button
+                      class="btn btn-danger btn-sm"
+                      aria-label="{t('Delete')} – {override.media_title}"
+                      title={t('Delete')}
+                      id={deleteId(index)}
+                      onclick={() => void remove(override.id, override.media_title, index)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  {/if}
                 </td>
               </tr>
             {/each}

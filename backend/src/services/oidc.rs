@@ -204,11 +204,9 @@ pub async fn start(state: &AppState, again: bool, return_to: Option<String>) -> 
     // and a plain one is the verifier itself.
     let challenge = B64URL.encode(Sha256::digest(attempt.verifier.as_bytes()));
     // A group is read from a claim most providers send only for this scope.
-    let scope = if state.config.oidc_allowed_groups.is_empty() {
-        "openid profile"
-    } else {
-        "openid profile groups"
-    };
+    let groups_named =
+        !state.config.oidc_allowed_groups.is_empty() || !state.config.oidc_read_groups.is_empty();
+    let scope = if !groups_named { "openid profile" } else { "openid profile groups" };
 
     let mut query = vec![
         ("response_type", "code"),
@@ -296,8 +294,12 @@ impl Audience {
 }
 
 /// Finish a sign-in and return the subject to record for the person the
-/// provider vouched for, if the operator lets them in.
-pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult<String> {
+/// provider vouched for, and how far they reach, if the operator lets them in.
+pub async fn finish(
+    state: &AppState,
+    code: &str,
+    attempt: Attempt,
+) -> AppResult<(String, super::accounts::Reach)> {
     let Attempt { nonce, verifier, again, .. } = attempt;
     let provider = discover(state).await?;
     let client_id = require(&state.config.oidc_client_id, "ROUTARR_OIDC_CLIENT_ID")?;
@@ -352,22 +354,40 @@ pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult
         ));
     }
 
-    let config = &state.config;
-    let allowed = config.oidc_allow_anyone
-        || config.oidc_allowed_subjects.contains(&claims.sub)
-        || claims
-            .groups(&config.oidc_groups_claim)
-            .iter()
-            .any(|group| config.oidc_allowed_groups.iter().any(|allowed| allowed == group));
-    if !allowed {
+    let reach = reach_of(&state.config, &claims)?;
+    Ok((recorded_subject(claims.preferred_username, claims.sub), reach))
+}
+
+/// Full access for a person the full lists name, whatever the read lists say, the read scope
+/// for one only those name, and a refusal for anyone else.
+fn reach_of(config: &crate::config::Config, claims: &Claims) -> AppResult<super::accounts::Reach> {
+    use super::accounts::Reach;
+    let groups = claims.groups(&config.oidc_groups_claim);
+    let named = |subjects: &[String], named_groups: &[String]| {
+        subjects.contains(&claims.sub)
+            || groups.iter().any(|group| named_groups.iter().any(|named| named == group))
+    };
+    if config.oidc_allow_anyone || named(&config.oidc_allowed_subjects, &config.oidc_allowed_groups)
+    {
+        return Ok(Reach::Full);
+    }
+    if named(&config.oidc_read_subjects, &config.oidc_read_groups) {
+        return Ok(Reach::Read);
+    }
+    let groups_named =
+        !config.oidc_allowed_groups.is_empty() || !config.oidc_read_groups.is_empty();
+    // The usual mistake: groups sent in userinfo alone, or by no mapper at all.
+    if groups_named && !claims.others.contains_key(&config.oidc_groups_claim) {
         return Err(AppError::Forbidden(format!(
-            "the provider signed in '{}', who is neither an allowed subject nor in an allowed \
-             group",
-            claims.sub
+            "the provider signed in '{}', whose ID token carries no '{}' claim, so no group can \
+             let them in. Have the provider put the groups in the ID token",
+            claims.sub, config.oidc_groups_claim
         )));
     }
-
-    Ok(recorded_subject(claims.preferred_username, claims.sub))
+    Err(AppError::Forbidden(format!(
+        "the provider signed in '{}', who is neither an allowed subject nor in an allowed group",
+        claims.sub
+    )))
 }
 
 /// The name a session and every write it makes record. The `sub` is what the

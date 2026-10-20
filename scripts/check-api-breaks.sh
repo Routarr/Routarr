@@ -61,7 +61,9 @@ echo "Comparing $CONTRACT with $tag"
 # the notification payload no operation returns. Its verdict waits for
 # oasdiff's, so one run reports every break.
 extras=0
-python3 "$ROOT/scripts/contract-breaks.py" "$base" "$ROOT/$CONTRACT" || extras=1
+accepting=()
+[ -e "$accepted" ] && accepting=("$accepted")
+python3 "$ROOT/scripts/contract-breaks.py" "$base" "$ROOT/$CONTRACT" "${accepting[@]}" || extras=1
 # oasdiff grades a removed optional field as information, since a client may
 # not read it. The contract promises no documented field disappears, so
 # `oasdiff-levels.txt` raises that one to an error. A type whose fields another

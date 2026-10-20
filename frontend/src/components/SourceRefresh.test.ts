@@ -5,6 +5,7 @@ import { renderWithI18n } from '../test/render';
 import { ApiError, api } from '../api/client';
 import type { EnrichmentReport, MetadataProvider, MetadataProviders } from '../api/types';
 import SourceRefresh from './SourceRefresh.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 function provider(id: string, over: Partial<MetadataProvider> = {}): MetadataProvider {
   return {
@@ -97,5 +98,20 @@ describe('SourceRefresh', () => {
         "No source to read again: Radarr and Sonarr's metadata comes with each sync.",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe('for a reader', () => {
+  /** A pass reads every answer again and writes them, which a reader is refused. */
+  it('offers the owner a read again per source, and a reader the list alone', async () => {
+    const { unmount } = show();
+    expect(await screen.findByRole('button', { name: 'Read again – TMDB' })).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    expect(await screen.findByText('TMDB')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Read again/ })).toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import type {
   ErrorBody,
   Explanation,
   KeepRequest,
+  Me,
   Health,
   Instance,
   InstanceProbe,
@@ -460,6 +461,7 @@ export const api = {
   reorderRules: (rule_ids: string[]) =>
     request<unknown>('/rules/reorder', { method: 'POST', body: body({ rule_ids }) }),
   authMode: (signal?: AbortSignal) => request<AuthMode>('/auth/mode', { signal }),
+  getMe: (signal?: AbortSignal) => request<Me>('/auth/me', { signal }),
   login: (username: string, password: string) =>
     request<{ username: string }>('/auth/login', {
       method: 'POST',

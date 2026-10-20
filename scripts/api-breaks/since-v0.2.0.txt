@@ -1,5 +1,5 @@
-# The breaks of v1 the release after v0.2.0 accepts, one per line as oasdiff
-# reports it. Each is named in that release's notes.
+# The breaks of v1 the release after v0.2.0 accepts, one per line as oasdiff or
+# scripts/contract-breaks.py reports it. Each is named in that release's notes.
 GET /media/{id} removed the optional property `metadata/oneOf[#/components/schemas/MediaMetadata]/poster_path` from the response with the `200` status
 GET /media/{id}/explain removed the optional property `metadata/oneOf[#/components/schemas/MediaMetadata]/poster_path` from the response with the `200` status
 GET /rules added `subschema #9, subschema #16, subschema #17, subschema #18, subschema #19, subschema #20, subschema #21` to the `items/conditions/items/` response property `oneOf` list for the response status `200`
@@ -20,3 +20,4 @@ POST /decisions/apply-all added the new `stalled` enum value to the `stopped/one
 POST /decisions/apply-all added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 POST /decisions/revert added the new `stalled` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 POST /decisions/revert added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+x-routarr-scope changed on GET /health: operate in the release, read now

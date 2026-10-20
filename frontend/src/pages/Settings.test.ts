@@ -18,6 +18,7 @@ import { onboardingStatus } from '../test/fixtures';
 import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
 import { captureDownloads } from '../test/downloads';
+import { publishAccess } from '../lib/access.svelte';
 
 // The proof a key needs has its own tests (`lib/proof.test.ts`): here it is
 // given, as the dialog would hand it back.
@@ -124,6 +125,7 @@ async function save(): Promise<Record<string, string>> {
     strings: { ...ENGLISH },
     counts: [...SERVER_COUNTS],
     isolated: [],
+    theme: 'dark',
   });
   await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
   await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
@@ -345,6 +347,7 @@ describe('the save bar', () => {
       strings: { ...ENGLISH },
       counts: [...SERVER_COUNTS],
       isolated: [],
+      theme: 'dark',
     });
     mount({ batch_limit: '50' });
     await openSection('Guardrails');
@@ -1349,5 +1352,23 @@ describe('the getting-started guide', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(set).not.toHaveBeenCalled();
+  });
+});
+
+describe('for a reader', () => {
+  /** The sessions are the owner's to read and end: a reader is refused both. */
+  it('shows the owner the sessions, and a reader no sessions card', async () => {
+    mount({});
+    await openSection('Security');
+    expect(await screen.findByRole('heading', { name: /^Sessions/ })).toBeInTheDocument();
+    cleanup();
+
+    publishAccess(true);
+    mount({});
+    await openSection('Security');
+
+    await screen.findByRole('tab', { name: 'Security', selected: true });
+    expect(screen.queryByRole('heading', { name: /^Sessions/ })).toBeNull();
+    expect(api.getSessions).toHaveBeenCalledTimes(1);
   });
 });

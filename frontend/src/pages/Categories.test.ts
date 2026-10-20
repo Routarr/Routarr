@@ -11,6 +11,7 @@ import { answerConfirmation } from '../test/confirm';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import Categories from './Categories.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 /**
  * Categories are strings joined by name with no foreign key, so this screen keeps the names in
@@ -490,5 +491,48 @@ describe('the focus after a removal', () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Delete – anime' })),
     );
+  });
+});
+
+/** A category, a mapping and a destination are written: a reader reads where each folder goes. */
+describe('for a reader', () => {
+  const FOLDERS = () => [
+    folder(),
+    folder({ id: 'rf2', path: '/data/new', category: null }),
+    folder({ id: 'rf3', path: '/data/kept', origin: 'declared', category: 'anime' }),
+  ];
+  const CATEGORIES = () => [
+    category({ id: 'c1', name: 'standard', is_default: true }),
+    category({ id: 'c2', name: 'anime' }),
+  ];
+  const offered = () =>
+    [
+      'New category',
+      'Save – /data/films',
+      'Remove – /data/kept',
+      'Add',
+      'Rename category – anime',
+      'Delete – anime',
+    ].filter((name) => screen.queryByRole('button', { name }));
+
+  it('offers the owner every write, and a reader the mappings to read alone', async () => {
+    const { unmount } = show(FOLDERS(), CATEGORIES());
+    await screen.findByRole('button', { name: 'Delete – anime' });
+    expect(offered()).toHaveLength(6);
+    expect(screen.getByLabelText('Category for /data/films')).toBeInTheDocument();
+    expect(screen.getByLabelText('Destination folder')).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show(FOLDERS(), CATEGORIES());
+
+    const mapped = await screen.findByRole('row', { name: /\/data\/films/ });
+    expect(within(mapped).getByText('standard')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('row', { name: /\/data\/new/ })).getByText('(unmapped)'),
+    ).toBeTruthy();
+    expect(offered()).toEqual([]);
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByLabelText('Destination folder')).toBeNull();
   });
 });

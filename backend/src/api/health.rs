@@ -12,7 +12,7 @@ use axum::http::StatusCode;
 use sqlx::AssertSqlSafe;
 
 use super::onboarding::step;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::localization::Localizer;
 use crate::models::{Instance, WebhookCheck, WebhookState};
 use crate::services::metadata;
@@ -235,8 +235,9 @@ pub struct AppStats {
 #[serde(deny_unknown_fields)]
 pub struct HealthQuery {
     /// `false` reads the database alone: every enabled instance reads `unchecked`, every source
-    /// `connected: null`, and `warnings` repeat what the last probe found. Defaults to true,
-    /// except for a request another site set off.
+    /// `connected: null`, and `warnings` repeat what the last probe found. Defaults to true for
+    /// a caller holding the operate scope, false otherwise and for a request another site set
+    /// off. `true` needs the operate scope.
     probe: Option<bool>,
     /// `true` probes again even when a probe of the same configuration ran in the last 30
     /// seconds, whose findings are otherwise answered again.
@@ -246,9 +247,19 @@ pub struct HealthQuery {
 /// Full diagnostics. The probes run concurrently, so unreachable Arrs cost a single timeout.
 pub async fn health_check(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     headers: axum::http::HeaderMap,
     Query(query): Query<HealthQuery>,
 ) -> AppResult<(StatusCode, Json<HealthResponse>)> {
+    // A probe spends a connect timeout per host and records what it found.
+    let operates = identity.holds(crate::services::applications::Scope::Operate);
+    if query.probe == Some(true) && !operates {
+        return Err(AppError::Forbidden(
+            "probe=true reaches every Arr and every source now and needs the operate scope. \
+             Leave it out to read what the last probe found."
+                .into(),
+        ));
+    }
     // First: a database that does not answer reads `failing`, not a 500 or an empty library.
     if let Err(e) = sqlx::query("SELECT 1").execute(&state.pool).await {
         tracing::error!("The database does not answer the health check: {e}");
@@ -266,7 +277,7 @@ pub async fn health_check(
         .get("sec-fetch-site")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|site| site.eq_ignore_ascii_case("cross-site"));
-    let probe = query.probe.unwrap_or(true) && !cross_site;
+    let probe = query.probe.unwrap_or(operates) && !cross_site;
     let pool = &state.pool;
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));
@@ -515,7 +526,6 @@ impl Probed {
 
     /// The verdict on `outcome`. A refusal blames the key only for a source that takes one.
     fn of(outcome: &crate::error::AppResult<bool>, needs_key: bool) -> Self {
-        use crate::error::AppError;
         let detail = match outcome {
             Ok(true) => return Self { connected: true, detail: None },
             Err(error) if crate::integrations::is_quota_spent(error) => QUOTA_SPENT,

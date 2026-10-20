@@ -165,6 +165,8 @@ case "$AUTH" in
       ROUTARR_OIDC_REDIRECT_URL="http://127.0.0.1:$PORT${ROUTARR_E2E_BASE:-}/api/v1/auth/oidc/callback"
       # The `sub` the stand-in signs in (`SUBJECT` in fake_oidc.py).
       ROUTARR_OIDC_ALLOWED_SUBJECTS=e2e-operator
+      # The group a spec names for its reader through the stand-in's `POST /next`.
+      ROUTARR_OIDC_READ_GROUPS=e2e-family
     )
     ;;
   *)
@@ -209,6 +211,7 @@ ROUTARR_E2E_URL="http://127.0.0.1:$PORT${ROUTARR_E2E_BASE:-}" \
 ROUTARR_E2E_ARR="http://127.0.0.1:$ARR_PORT" \
 ROUTARR_E2E_KEY="$BROWSER_KEY" \
 ROUTARR_E2E_PASSWORD_FILE="$WORK/routarr.password" \
+ROUTARR_E2E_OIDC="http://127.0.0.1:$OIDC_PORT" \
   npx playwright test "$@"
 STATUS=$?
 set -e

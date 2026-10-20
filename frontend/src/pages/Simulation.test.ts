@@ -11,6 +11,7 @@ import Simulation from './Simulation.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 import { statusRevision } from '../lib/status.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 /**
  * The screen that writes. It enforces the executor's guards again before any request, and the
@@ -974,5 +975,62 @@ describe('narrowing what is reviewed and applied', () => {
     await show([]);
 
     expect(await screen.findByText('The rules are unreadable')).toBeTruthy();
+  });
+});
+
+/**
+ * A reader is refused a run, an apply and a keep, and the settings the batch limit is read from.
+ * The proposals waiting, their reasons and the filters are theirs to read.
+ */
+describe('for a reader', () => {
+  const offered = () =>
+    [/^Run simulation$/, /^Apply selected/, /^Keep here – /, /^Select /].filter(
+      (name) =>
+        [
+          ...screen.queryAllByRole('button', { name }),
+          ...screen.queryAllByRole('checkbox', { name }),
+        ].length > 0,
+    );
+
+  it('offers the owner the run, the apply, the keep and the selection, and a reader none', async () => {
+    const { unmount } = await show([decision({ media_title: 'Akira' })]);
+    await screen.findByRole('button', { name: /^Apply selected/ });
+    expect(offered()).toHaveLength(4);
+    unmount();
+
+    publishAccess(true);
+    await show([decision({ media_title: 'Akira' })]);
+
+    expect(await screen.findByText('Akira')).toBeInTheDocument();
+    expect(screen.getByText('Decisions awaiting review: 1')).toBeInTheDocument();
+    expect(offered()).toEqual([]);
+    expect(screen.queryByLabelText(/Move the files on disk too/)).toBeNull();
+    expect(screen.getByRole('button', { name: /^Filters/ })).toBeInTheDocument();
+  });
+
+  it('lists the proposals for a reader without asking for the settings', async () => {
+    publishAccess(true);
+    await show([decision({ media_title: 'Akira' })]);
+
+    expect(await screen.findByText('Akira')).toBeInTheDocument();
+    expect(api.getSettings).not.toHaveBeenCalled();
+  });
+
+  /** Opened before the shell knows who reads, the screen asks, and a reader is refused. */
+  it('lists the proposals when the settings are refused, at the default batch limit', async () => {
+    vi.mocked(api.getSettings).mockRejectedValue(
+      new ApiError('You can read this Routarr and change nothing in it.', 403, 'forbidden'),
+    );
+    await show([decision({ media_title: 'Akira' })]);
+
+    expect(await screen.findByText('Akira')).toBeInTheDocument();
+    expect(screen.queryByText(/change nothing in it/)).toBeNull();
+  });
+
+  it('still says a failed read of the settings that is no refusal', async () => {
+    vi.mocked(api.getSettings).mockRejectedValue(new ApiError('Locked.', 503, 'unavailable'));
+    await show([decision({ media_title: 'Akira' })]);
+
+    expect(await screen.findByText('Locked.')).toBeInTheDocument();
   });
 });

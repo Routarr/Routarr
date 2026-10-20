@@ -124,8 +124,8 @@ pub async fn create(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateCategoryRequest>,
 ) -> AppResult<super::Created<Category>> {
-    // The fallback is a setting, and no application key reaches the settings.
-    if req.is_default && identity.application.is_some() {
+    // The fallback is a setting, which only the owner reaches.
+    if req.is_default && !identity.is_owner() {
         let refusal = state.localizer().await.translate("ErrorFallbackOwnerOnly", &[]);
         return Err(AppError::Forbidden(refusal));
     }
