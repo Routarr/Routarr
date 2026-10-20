@@ -305,6 +305,16 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
     families.push(Family {
+        name: "routarr_backup_copy_last_success_timestamp_seconds",
+        help: "When a copy into ROUTARR_BACKUP_COPY_DIR last ended well, in seconds since the \
+               Unix epoch. Absent without the variable.",
+        samples: crate::services::backup::last_copied_at(&state)
+            .await
+            .map(|copied| (String::new(), copied.timestamp() as f64))
+            .into_iter()
+            .collect(),
+    });
+    families.push(Family {
         name: "routarr_database_bytes",
         help: "The database file's size, which a backup and the free space are weighed against.",
         samples: std::fs::metadata(&state.config.db_path)

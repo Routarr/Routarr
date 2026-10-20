@@ -1170,6 +1170,28 @@ async fn a_failed_scheduled_backup_is_sent_and_shown() {
     assert!(warned.contains(&failed), "{warned:?}");
 }
 
+/// A copy into the second folder that fails is sent whoever took the backup, since the copy
+/// runs unattended and nothing else says the archives sit on one disk.
+#[tokio::test]
+async fn a_failed_backup_copy_is_sent_with_its_folder() {
+    let receiver = Receiver::start().await;
+    let (app, _dir) = super::backup::app_with_files("backup-copy-failure-sent").await;
+    let folder = std::env::temp_dir().join(format!("routarr-no-share-{}", std::process::id()));
+    let mut config = (*app.state.config).clone();
+    config.backup_copy_dir = Some(folder.clone());
+    let app = TestApp::around(app.state.clone().with_config(config));
+    app.store_setting("notification_webhook_url", &receiver.url).await;
+
+    crate::services::backup::create(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let sent = receiver.awaiting(1).await;
+    let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body["event"], "backup_copy_failed", "{body}");
+    assert_eq!(body["data"]["folder"], folder.display().to_string(), "{body}");
+}
+
 /// A key expiring within a week is announced once, so the application gets a new key before it
 /// stops. A key further off, one that never expires and one already expired are not.
 #[tokio::test]

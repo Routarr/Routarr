@@ -25,6 +25,7 @@ export {
   FlaskConical,
   FolderInput,
   FolderTree,
+  HardDrive,
   GitFork,
   Info,
   KeyRound,

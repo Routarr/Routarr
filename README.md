@@ -92,8 +92,11 @@ interval, and **Settings → Maintenance** lists the archives and downloads any 
 is a consistent copy taken while Routarr runs: the database, the `routarr.key` without which the
 Arr and metadata keys, the notification address and the signing secret stored in it cannot be read
 (unless `ROUTARR_SECRET_KEY` replaces it), and the API key. Keep copies of the archives off the
-machine. Copy the `config/` folder itself only with Routarr stopped: a copy of `routarr.db` taken
-while it runs can miss every recent change.
+machine: with `ROUTARR_BACKUP_COPY_DIR` naming a folder mounted from a NAS or another disk, each
+archive is copied there, and **Settings → Maintenance** marks each one copied. The copy runs apart
+from the backup, so a share that sleeps or hangs delays the copy alone. Copy the `config/` folder
+itself only with Routarr stopped: a copy of `routarr.db` taken while it runs can miss every recent
+change.
 
 An archive carries the master key: set a backup passphrase in **Settings → Maintenance** to encrypt
 every one, so that a copy of the folder opens nothing without it. A restore asks for it, and
@@ -108,7 +111,8 @@ To restore an archive:
 - **With the server stopped**, when the interface cannot be reached:
   `docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
   Routarr. An encrypted archive asks for its passphrase when the database in place does not hold
-  it.
+  it. After losing the disk of `config/`, give `restore` the path of an archive in the copy
+  folder instead, such as `/backups-copy/routarr-backup-<date>.zip`.
 
 A start that applies new migrations archives the database first. Going back to an earlier release
 works while it knows every migration the database holds. When a start refuses the database, it
@@ -123,6 +127,12 @@ names an archive it can open: restore that one with the server stopped, as above
 - **A local disk.** Keep `config/` on a disk of the host, not on an NFS or SMB share: SQLite's
   write-ahead log does not work over a network filesystem. The archives in `config/backups/` may be
   copied anywhere.
+- **The backup copy folder.** Mount it beside `config/`, for instance
+  `- /mnt/nas/routarr-backups:/backups-copy` with `ROUTARR_BACKUP_COPY_DIR=/backups-copy`, writable
+  by uid 1000. Its first copy leaves a `.routarr-backup-copy` file in it. Afterwards, a folder
+  without that file reads as a share not mounted, its empty mount point on the local disk, and
+  nothing is copied until **Start the copy here** on the Backups card says the folder changed on
+  purpose.
 - **64-bit only.** Images are published for `linux/amd64` and `linux/arm64`: a Raspberry Pi needs a
   64-bit system.
 - **A recent browser.** The interface is made for current Chrome, Edge and Firefox, Firefox's
@@ -179,6 +189,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | `ROUTARR_API_KEY` | *(generated)* | Sets the API key instead of generating one |
 | `ROUTARR_SECRET_KEY` | *(generated)* | Seals the stored credentials: the Arr and metadata keys, the notification address and the signing secret |
 | `ROUTARR_BASE_PATH` | *(empty)* | Sub-path behind a reverse proxy, e.g. `/routarr` |
+| `ROUTARR_BACKUP_COPY_DIR` | *(empty)* | A second folder each backup archive is copied to, on a NAS or another disk |
 | `ROUTARR_LOG_LEVEL` | `info` | Log verbosity |
 | `TZ` | *(UTC)* | The time zone the log lines are dated in, e.g. `Europe/Paris`. The interface shows your browser's |
 
