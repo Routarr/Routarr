@@ -111,14 +111,15 @@ jobs:
           path: backend/mutants.out
           retention-days: 30
 
-      # Reported, not yet failed on: a survivor (2) or a timeout (3) waits for a test, or for an
-      # entry in `.cargo/mutants.toml` saying why it changes nothing. A setup or baseline
-      # failure fails at once.
-      - name: Fail on anything but survivors
+      # A survivor (2) waits for a test, or for the code to drop what no test can tell apart. A
+      # timeout (3) waits for the test that hung to bound its wait. A setup or baseline failure
+      # fails too.
+      - name: Fail on a survivor or a timeout
         env:
           STATUS: ${{ steps.mutate.outputs.status }}
         run: |
           case "$STATUS" in
-            0 | 2 | 3) ;;
+            0) ;;
+            2 | 3) echo "::error::Mutants no test caught, listed in the summary" && exit 1 ;;
             *) echo "cargo mutants ended with $STATUS" && exit 1 ;;
           esac
