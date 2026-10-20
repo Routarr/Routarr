@@ -9,13 +9,12 @@ on:
     # Wednesdays at 04:23 UTC, off the hour and away from the other weekly runs.
     - cron: '23 4 * * 3'
   workflow_dispatch:
-  pull_request:
 
 permissions: {}
 
 # One run at a time: both Arrs bind their usual ports on the runner.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 env:
