@@ -20,11 +20,12 @@ paths:
   `taiki-e/install-action`: a new third-party action is allowed there by the owner first.
 - Every checkout sets `persist-credentials: false` (`gh` takes `GH_TOKEN`), and `release.yml`
   grants nothing at the top (`permissions: {}`), each job naming what it needs.
-- The five workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
+- The six workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
   run, `docker.yml` queues so a started image build finishes, `release.yml` runs on a `v*` tag,
   `site.yml` deploys the site from the latest release's tag (secrets `CLOUDFLARE_API_TOKEN` and
-  `CLOUDFLARE_ACCOUNT_ID`) and compares production with it every week, and `mutants.yml` runs
-  cargo-mutants every Saturday, for hours, gating nothing.
+  `CLOUDFLARE_ACCOUNT_ID`) and compares production with it every week, `mutants.yml` runs
+  cargo-mutants every Saturday, and `live-arrs.yml` drives a real Radarr and Sonarr every
+  Wednesday. Neither of the last two gates anything.
 - In `ci.yml`, `changes` gates every job except `repository`, and those two are the only
   unfiltered jobs. A check that must see every commit goes in one of them, as
   `scripts/check-versions.py` does in `changes`: a commit touching only a Dockerfile or

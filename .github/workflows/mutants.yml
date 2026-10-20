@@ -79,7 +79,8 @@ jobs:
           tool: cargo-mutants@27.1.0
 
       # In place, since a runner's copy would only cost disk. The baseline run proves the
-      # tests named pass unmutated, and sets each mutant's timeout from their time.
+      # tests named pass unmutated, and sets each mutant's timeout from their time. The second
+      # `--` hands the filters to the test binary: `cargo test` itself takes one name at most.
       - name: Mutate
         id: mutate
         env:
@@ -90,7 +91,7 @@ jobs:
           set +e
           read -ra filters <<<"$TESTS"
           cargo mutants --in-place --no-shuffle --shard "$SHARD" --file "$FILES" \
-            --cargo-arg=--locked --minimum-test-timeout 60 -- "${filters[@]}"
+            --cargo-arg=--locked --minimum-test-timeout 60 -- -- "${filters[@]}"
           echo "status=$?" >>"$GITHUB_OUTPUT"
 
       - name: Say which mutants no test caught

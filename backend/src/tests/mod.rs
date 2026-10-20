@@ -29,6 +29,7 @@ pub mod fake_tmdb;
 mod folder_sets;
 mod keep;
 mod limits;
+mod live_arrs;
 mod live_sources;
 mod localization;
 mod metadata_sources;
@@ -199,6 +200,11 @@ impl TestApp {
     /// was built with, so changing `state` alone leaves the routes on the old one.
     pub fn around(state: AppState) -> Self {
         Self { router: crate::build_router(state.clone()), state }
+    }
+
+    /// This harness's router on a loopback port, for a real Arr to deliver its webhooks to.
+    pub async fn served(&self) -> Served {
+        serve(self.router.clone()).await
     }
 
     /// Same harness, but with an API key configured.
