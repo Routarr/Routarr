@@ -1,6 +1,6 @@
 # Dev container for Routarr: system tooling only, the source comes through the
 # bind mount. Rust follows rust-toolchain.toml, Node the major CI and the image use.
-FROM rust:1.99.0@sha256:81015672d6939b0265f09adf96d5de125482bb1330106076956b0518e74edc90
+FROM rust:1.99.1@sha256:e259494b14672950a909b4c54527e19d29cae6ebf980672114c8bb85e5594e4a
 # Without pipefail, a download failing on the left of a pipe goes unnoticed.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # psmisc gives `fuser`, which frontend/e2e/run.sh frees its ports with.
