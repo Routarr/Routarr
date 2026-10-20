@@ -468,6 +468,12 @@ impl FakeArr {
     pub fn recorded(&self) -> std::sync::MutexGuard<'_, Recorded> {
         self.recorded.lock().expect("recorded lock")
     }
+
+    /// Wait until this Arr has taken `count` writes, five seconds at most: a run that never
+    /// writes then fails its test instead of hanging it.
+    pub async fn written(&self, count: usize) {
+        super::until(move || async move { self.recorded().writes.len() >= count }).await;
+    }
 }
 
 /// A request carrying no `X-Api-Key` is refused, as Radarr and Sonarr refuse

@@ -1656,6 +1656,39 @@ async fn moves_into_two_folders_of_one_volume_ask_about_their_sum() {
     assert!(message.contains("/movies/anime, /movies/kids"), "{message}");
 }
 
+/// Filling a volume to the byte is fitting it, for two folders as for one: only a shortfall
+/// is asked about.
+#[tokio::test]
+async fn moves_filling_their_destination_exactly_are_not_asked_about() {
+    let alone = TestApp::new().await;
+    pending_move(&alone, SIX_GIB, 1 << 40, SIX_GIB).await;
+    assert_eq!(apply(&alone, &[]).await.status, 200, "one folder filled exactly was asked about");
+
+    let shared = TestApp::new().await;
+    pending_move(&shared, SIX_GIB, 1 << 40, 2 * SIX_GIB).await;
+    shared
+        .execute(&[
+            "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space, accessible, category)
+             VALUES ('rf-kids', 'i1', 3, '/movies/kids', 12884901888, 1, 'kids')",
+        ])
+        .await;
+    second_pending_move(&shared, "kids").await;
+    let both = apply_both(&shared).await;
+    assert_eq!(both.status, 200, "one volume filled exactly was asked about: {}", both.json);
+}
+
+/// A selection as large as the batch limit and the confirmation threshold is within both.
+#[tokio::test]
+async fn a_selection_at_the_batch_limit_and_the_threshold_is_applied_unasked() {
+    let app = TestApp::new().await;
+    pending_move(&app, SIX_GIB, 1 << 40, 1 << 41).await;
+    app.store_setting("batch_limit", "1").await;
+    app.store_setting("confirmation_threshold", "1").await;
+
+    let response = apply(&app, &[]).await;
+    assert_eq!(response.status, 200, "{}", response.json);
+}
+
 /// Every destination is weighed, not the first the query returns: a roomy
 /// folder first does not let a short one through after it.
 #[tokio::test]
@@ -1978,6 +2011,20 @@ async fn a_declared_destination_with_no_figure_is_asked_about_its_space() {
 
     let confirmed = apply(&app, &["capacity"]).await;
     assert_eq!(confirmed.status, 200, "confirming did not get past the guard: {}", confirmed.json);
+}
+
+/// A title with nothing on disk takes no space, so its move onto a declared destination with
+/// no figure asks nothing.
+#[tokio::test]
+async fn a_declared_destination_with_no_figure_asks_nothing_of_a_title_without_files() {
+    let app = TestApp::new().await;
+    pending_move(&app, 0, 500_000_000_000, 0).await;
+    app.execute(&["UPDATE root_folders SET free_space = NULL, origin = 'declared', arr_id = NULL
+                   WHERE id = 'rf-dst'"])
+        .await;
+
+    let response = apply(&app, &[]).await;
+    assert_eq!(response.status, 200, "an empty title was asked about space: {}", response.json);
 }
 
 /// Nothing is invented where the Arr said nothing.
