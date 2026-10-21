@@ -571,13 +571,18 @@ describe('Rules', () => {
 });
 
 describe('the templates', () => {
-  /** Above the table while it is empty, below it once a rule is written. */
-  it('offers the templates first while no rule is written, and after the rules once one is', async () => {
+  /**
+   * In place of the empty table while no rule is written, so a first rule is one click away and
+   * nothing pushes the screen's object out of view, then below the table once one is.
+   */
+  it('offers the templates in place of the empty table, and after the rules once one is', async () => {
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
     const { unmount } = show([]);
-    const gallery = await screen.findByRole('heading', { name: 'Templates' });
-    const table = screen.getByRole('table', { name: 'Rules' });
-    expect(gallery.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await screen.findByRole('heading', { name: 'Start from a template' });
+    expect(screen.queryByRole('table', { name: 'Rules' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add – Documentaries' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Write a rule' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
     unmount();
 
     show([rule()]);
@@ -613,7 +618,7 @@ describe('the templates', () => {
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
     show([]);
 
-    const title = await screen.findByRole('heading', { name: 'Templates' });
+    const title = await screen.findByRole('heading', { name: 'Start from a template' });
     await waitFor(() => expect(document.activeElement).toBe(title));
     window.history.replaceState({}, '', '/rules');
   });

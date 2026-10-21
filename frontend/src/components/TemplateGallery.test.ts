@@ -9,7 +9,9 @@ describe('TemplateGallery', () => {
   it('names each template on the action it offers, and hands the chosen one over', async () => {
     const onChoose = vi.fn();
     const anime = template({ id: 'anime', name: 'Anime', category: 'anime', added_version: 1 });
-    renderWithI18n(TemplateGallery, { props: { templates: [template(), anime], onChoose } });
+    renderWithI18n(TemplateGallery, {
+      props: { templates: [template(), anime], title: 'Templates', lead: '', onChoose },
+    });
 
     expect(screen.getByRole('heading', { name: 'Documentaries', level: 3 })).toBeTruthy();
     const tile = screen.getByRole('heading', { name: 'Documentaries' }).closest('li');
@@ -26,7 +28,7 @@ describe('TemplateGallery', () => {
   it('says which source a template needs, and where to set it up', () => {
     const needs = [{ id: 'tmdb', name: 'TMDB' }];
     renderWithI18n(TemplateGallery, {
-      props: { templates: [template({ needs })], onChoose: vi.fn() },
+      props: { templates: [template({ needs })], title: 'Templates', lead: '', onChoose: vi.fn() },
     });
 
     expect(screen.getByText(/Source needed, not set up yet: TMDB/)).toBeTruthy();
@@ -37,7 +39,9 @@ describe('TemplateGallery', () => {
 
   it('says on its card that the requester template has no one to route yet', () => {
     const requesters = template({ id: 'requesters', parameter: 'requesters', category: null });
-    renderWithI18n(TemplateGallery, { props: { templates: [requesters], onChoose: vi.fn() } });
+    renderWithI18n(TemplateGallery, {
+      props: { templates: [requesters], title: 'Templates', lead: '', onChoose: vi.fn() },
+    });
 
     expect(screen.getByText('No Seerr request found in your library yet.')).toBeTruthy();
   });
@@ -49,7 +53,9 @@ describe('TemplateGallery', () => {
       parameter: 'quality_profiles',
       quality_profiles: [],
     });
-    renderWithI18n(TemplateGallery, { props: { templates: [uhd], onChoose: vi.fn() } });
+    renderWithI18n(TemplateGallery, {
+      props: { templates: [uhd], title: 'Templates', lead: '', onChoose: vi.fn() },
+    });
 
     expect(
       screen.getByText('No quality profile reads as 4K yet: choose yours when adding it.'),
@@ -64,7 +70,9 @@ describe('TemplateGallery', () => {
       category: null,
       added_version: 1,
     });
-    renderWithI18n(TemplateGallery, { props: { templates: [requesters], onChoose: vi.fn() } });
+    renderWithI18n(TemplateGallery, {
+      props: { templates: [requesters], title: 'Templates', lead: '', onChoose: vi.fn() },
+    });
 
     expect(screen.getByRole('button', { name: 'Update – Seerr requests by person' })).toBeTruthy();
   });

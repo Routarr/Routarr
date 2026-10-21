@@ -2987,36 +2987,40 @@ select.form-select {
   border-color: var(--text-secondary);
 }
 
-/* The rule templates, three columns at most: the six fill two rows. */
-.template-grid {
+/* The rule templates, one row each: what it is and does, then its category and its action. */
+.template-list {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(max(260px, calc((100% - 24px) / 3)), 1fr));
-  gap: var(--space-3, 12px);
-}
-
-.template-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  padding: 16px;
-  background-color: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
 }
 
-.template-card-head {
-  display: flex;
+.template-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  background-color: var(--bg-input);
 }
 
-.template-card-head h3 {
-  flex: 1;
+.template-row + .template-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.template-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
+}
+
+.template-row-text h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
@@ -3042,6 +3046,30 @@ select.form-select {
   color: var(--text-secondary);
 }
 
+.template-row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.template-list-foot {
+  display: flex;
+  margin-top: 12px;
+}
+
+/* On a phone the category and the action take a line of their own under the text. */
+@media (max-width: 639px) {
+  .template-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+  .template-row-foot {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+}
+
 /* A line under a template or its preview, with the icon that says its kind. */
 .template-note {
   display: flex;
@@ -3060,21 +3088,6 @@ select.form-select {
 
 .template-note.is-warning > svg {
   color: var(--status-warning);
-}
-
-/* Pinned to the foot, so the buttons of a row of tiles line up. */
-.template-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.template-card-foot > .btn {
-  margin-inline-start: auto;
 }
 
 .template-target {
