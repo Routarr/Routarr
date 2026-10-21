@@ -141,6 +141,10 @@
   const outcome = createOutcome();
 
   const rules = $derived<Rule[]>(bundle.data?.rules ?? []);
+  // With no rule yet, the templates take the empty table's place: a first rule is one click away.
+  const starting = $derived(
+    !access.readOnly && !!bundle.data && rules.length === 0 && !!templates.data?.length,
+  );
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
   const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
   const instanceName = $derived(new Map(instances.map((instance) => [instance.id, instance.name])));
@@ -323,184 +327,203 @@
     <LibraryFacetsPanel facets={library.data} captionOf={(type) => specByType.get(type)?.label} />
   {/if}
 
-  {#if templates.data && rules.length === 0 && !bundle.loading && !access.readOnly}
-    <TemplateGallery templates={templates.data} onChoose={(template) => (choosing = template)} />
-  {/if}
   <ErrorBanner message={templates.error} onRetry={() => void templates.reload()} />
 
-  <div class="card">
-    <TableRegion label={t('Rules')} id="rules-table">
-      <table>
-        <caption class="visually-hidden">{t('Rules')}</caption>
-        <thead>
-          <tr>
-            <th class="w-90">{t('Priority')}</th>
-            <th>{t('Rule')}</th>
-            <th>{t('Target')}</th>
-            <th>{t('Scope')}</th>
-            <th>{t('Logic')}</th>
-            <th>{t('Conditions')}</th>
-            <th class="w-190"><span class="visually-hidden">{t('Actions')}</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <!-- First load only: on a reload the skeleton would take the rows and the focus. -->
-          {#if bundle.loading && rules.length === 0}
-            <TableSkeleton columns={7} />
-          {:else if rules.length === 0 && !bundle.error}
-            <tr><td colspan="7"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
-          {:else}
-            {#each rules as rule, index (rule.id)}
-              {@const verdict = health.get(rule.id)}
-              <tr class:row-muted={!rule.enabled}>
-                <td><span class="num">#{rule.priority}</span></td>
-                <td>
-                  <strong>{rule.name}</strong>
-                  {#if !rule.enabled}
-                    <span class="badge badge-warning ms-2">
-                      {t('RuleDisabled')}
-                    </span>
-                  {/if}
-                  {#if verdict?.shadowed_by}
-                    <!-- The rule taking its items is the one to move, so it is named. -->
-                    <span class="badge badge-warning ms-2">
-                      {t('RuleShadowed', { rule: verdict.shadowed_by })}
-                    </span>
-                  {:else if verdict?.duplicate_of}
-                    <!-- Same conditions and target: one of the two decides nothing. -->
-                    <span class="badge badge-warning ms-2">
-                      {t('RuleDuplicateOf', { rule: verdict.duplicate_of })}
-                    </span>
-                  {:else if verdict?.matched_nothing && rule.enabled}
-                    <!-- Muted: the fault is too narrow a condition, which no priority fixes. -->
-                    <span class="badge badge-value muted ms-2">
-                      {t('RuleMatchedNothing')}
-                    </span>
-                  {/if}
-                  {#if verdict?.ambiguous_with}
-                    <!-- A tie broken by id is its own fault, shown beside any other. -->
-                    <span class="badge badge-warning ms-2">
-                      {t('RuleAmbiguous')}
-                    </span>
-                  {/if}
-                  {#if rule.description}
-                    <div class="text-muted text-sm">{rule.description}</div>
-                  {/if}
-                  {#if verdict?.shadowed_by}
-                    <div class="text-muted text-sm">
-                      {t('RuleShadowedHint', {
-                        count: verdict.shadowed,
-                        rule: verdict.shadowed_by,
-                      })}
+  {#if starting && templates.data}
+    <TemplateGallery
+      templates={templates.data}
+      title={t('RulesStartTitle')}
+      lead={t('RulesStartLead')}
+      onChoose={(template) => (choosing = template)}
+    >
+      <div class="template-list-foot">
+        <button class="btn btn-secondary" onclick={openCreate}>
+          <Plus size={16} />
+          {t('RulesStartWrite')}
+        </button>
+      </div>
+    </TemplateGallery>
+  {:else}
+    <div class="card">
+      <TableRegion label={t('Rules')} id="rules-table">
+        <table>
+          <caption class="visually-hidden">{t('Rules')}</caption>
+          <thead>
+            <tr>
+              <th class="w-90">{t('Priority')}</th>
+              <th>{t('Rule')}</th>
+              <th>{t('Target')}</th>
+              <th>{t('Scope')}</th>
+              <th>{t('Logic')}</th>
+              <th>{t('Conditions')}</th>
+              <th class="w-190"><span class="visually-hidden">{t('Actions')}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- First load only: on a reload the skeleton would take the rows and the focus. -->
+            {#if bundle.loading && rules.length === 0}
+              <TableSkeleton columns={7} />
+            {:else if rules.length === 0 && !bundle.error}
+              <tr><td colspan="7"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
+            {:else}
+              {#each rules as rule, index (rule.id)}
+                {@const verdict = health.get(rule.id)}
+                <tr class:row-muted={!rule.enabled}>
+                  <td><span class="num">#{rule.priority}</span></td>
+                  <td>
+                    <strong>{rule.name}</strong>
+                    {#if !rule.enabled}
+                      <span class="badge badge-warning ms-2">
+                        {t('RuleDisabled')}
+                      </span>
+                    {/if}
+                    {#if verdict?.shadowed_by}
+                      <!-- The rule taking its items is the one to move, so it is named. -->
+                      <span class="badge badge-warning ms-2">
+                        {t('RuleShadowed', { rule: verdict.shadowed_by })}
+                      </span>
+                    {:else if verdict?.duplicate_of}
+                      <!-- Same conditions and target: one of the two decides nothing. -->
+                      <span class="badge badge-warning ms-2">
+                        {t('RuleDuplicateOf', { rule: verdict.duplicate_of })}
+                      </span>
+                    {:else if verdict?.matched_nothing && rule.enabled}
+                      <!-- Muted: the fault is too narrow a condition, which no priority fixes. -->
+                      <span class="badge badge-value muted ms-2">
+                        {t('RuleMatchedNothing')}
+                      </span>
+                    {/if}
+                    {#if verdict?.ambiguous_with}
+                      <!-- A tie broken by id is its own fault, shown beside any other. -->
+                      <span class="badge badge-warning ms-2">
+                        {t('RuleAmbiguous')}
+                      </span>
+                    {/if}
+                    {#if rule.description}
+                      <div class="text-muted text-sm">{rule.description}</div>
+                    {/if}
+                    {#if verdict?.shadowed_by}
+                      <div class="text-muted text-sm">
+                        {t('RuleShadowedHint', {
+                          count: verdict.shadowed,
+                          rule: verdict.shadowed_by,
+                        })}
+                      </div>
+                    {/if}
+                  </td>
+                  <td><span class="badge badge-value">{rule.target_category}</span></td>
+                  <td>
+                    <div class="flex flex-wrap gap-1">
+                      <span class="badge badge-value muted"
+                        >{t(MEDIA_TYPE_KEY[rule.media_type])}</span
+                      >
+                      {#each rule.instance_ids ?? [] as id (id)}
+                        <span class="badge badge-value">{instanceName.get(id) ?? id}</span>
+                      {/each}
                     </div>
-                  {/if}
-                </td>
-                <td><span class="badge badge-value">{rule.target_category}</span></td>
-                <td>
-                  <div class="flex flex-wrap gap-1">
-                    <span class="badge badge-value muted">{t(MEDIA_TYPE_KEY[rule.media_type])}</span
-                    >
-                    {#each rule.instance_ids ?? [] as id (id)}
-                      <span class="badge badge-value">{instanceName.get(id) ?? id}</span>
-                    {/each}
-                  </div>
-                </td>
-                <td>
-                  <span class="badge badge-value muted">
-                    {t(rule.match_mode === 'any' ? 'LogicAny' : 'LogicAll')}
-                  </span>
-                </td>
-                <td>
-                  <!-- A plus to match, a minus to veto, one size so they pair. The word beside
+                  </td>
+                  <td>
+                    <span class="badge badge-value muted">
+                      {t(rule.match_mode === 'any' ? 'LogicAny' : 'LogicAll')}
+                    </span>
+                  </td>
+                  <td>
+                    <!-- A plus to match, a minus to veto, one size so they pair. The word beside
                        the minus keeps its colour from being the only sign of "except". -->
-                  <ul class="rule-conditions">
-                    {#each rule.conditions as condition, i (i)}
-                      <li class="rule-condition">
-                        <CirclePlus size={14} class="rule-condition-mark" aria-hidden="true" />
-                        <span>{describe(condition)}</span>
-                      </li>
-                    {/each}
-                    {#each rule.exclusions as condition, i (i)}
-                      <li class="rule-condition is-excluded">
-                        <CircleMinus size={14} class="rule-condition-mark" aria-hidden="true" />
-                        <span class="rule-condition-except">{t('ExceptPrefix')}</span>
-                        <span>{describe(condition)}</span>
-                      </li>
-                    {/each}
-                  </ul>
-                </td>
-                <td>
-                  {#if !access.readOnly}
-                    <div class="flex gap-2">
-                      <button
-                        id="rule-{rule.id}-raise"
-                        class="btn btn-secondary btn-sm"
-                        disabled={index === 0}
-                        title={t('RaisePriority')}
-                        aria-label="{t('RaisePriority')} – {rule.name}"
-                        onclick={() => void move(index, -1)}
-                      >
-                        <MoveUp size={14} />
-                      </button>
-                      <button
-                        id="rule-{rule.id}-lower"
-                        class="btn btn-secondary btn-sm"
-                        disabled={index === rules.length - 1}
-                        title={t('LowerPriority')}
-                        aria-label="{t('LowerPriority')} – {rule.name}"
-                        onclick={() => void move(index, 1)}
-                      >
-                        <MoveDown size={14} />
-                      </button>
-                      <button
-                        class="btn btn-secondary btn-sm"
-                        title={t('Edit')}
-                        aria-label="{t('Edit')} – {rule.name}"
-                        onclick={() => openEdit(rule)}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <ActionMenu
-                        id={menuId(index)}
-                        label="{t('Actions')} – {rule.name}"
-                        actions={[
-                          {
-                            label: t('Duplicate'),
-                            icon: copyIcon,
-                            onSelect: () =>
-                              void act(() => api.duplicateRule(rule.id), t('RuleDuplicated')),
-                          },
-                          {
-                            label: t('Delete'),
-                            icon: trashIcon,
-                            danger: true,
-                            onSelect: async () => {
-                              if (
-                                await askConfirmation(
-                                  t('ConfirmDeleteRule', { name: rule.name }),
-                                  'Delete',
-                                )
-                              ) {
-                                await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
-                                void handFocus(menuId(index), menuId(index - 1), 'rules-table');
-                              }
+                    <ul class="rule-conditions">
+                      {#each rule.conditions as condition, i (i)}
+                        <li class="rule-condition">
+                          <CirclePlus size={14} class="rule-condition-mark" aria-hidden="true" />
+                          <span>{describe(condition)}</span>
+                        </li>
+                      {/each}
+                      {#each rule.exclusions as condition, i (i)}
+                        <li class="rule-condition is-excluded">
+                          <CircleMinus size={14} class="rule-condition-mark" aria-hidden="true" />
+                          <span class="rule-condition-except">{t('ExceptPrefix')}</span>
+                          <span>{describe(condition)}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  </td>
+                  <td>
+                    {#if !access.readOnly}
+                      <div class="flex gap-2">
+                        <button
+                          id="rule-{rule.id}-raise"
+                          class="btn btn-secondary btn-sm"
+                          disabled={index === 0}
+                          title={t('RaisePriority')}
+                          aria-label="{t('RaisePriority')} – {rule.name}"
+                          onclick={() => void move(index, -1)}
+                        >
+                          <MoveUp size={14} />
+                        </button>
+                        <button
+                          id="rule-{rule.id}-lower"
+                          class="btn btn-secondary btn-sm"
+                          disabled={index === rules.length - 1}
+                          title={t('LowerPriority')}
+                          aria-label="{t('LowerPriority')} – {rule.name}"
+                          onclick={() => void move(index, 1)}
+                        >
+                          <MoveDown size={14} />
+                        </button>
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          title={t('Edit')}
+                          aria-label="{t('Edit')} – {rule.name}"
+                          onclick={() => openEdit(rule)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <ActionMenu
+                          id={menuId(index)}
+                          label="{t('Actions')} – {rule.name}"
+                          actions={[
+                            {
+                              label: t('Duplicate'),
+                              icon: copyIcon,
+                              onSelect: () =>
+                                void act(() => api.duplicateRule(rule.id), t('RuleDuplicated')),
                             },
-                          },
-                        ]}
-                      />
-                    </div>
-                  {/if}
-                </td>
-              </tr>
-            {/each}
-          {/if}
-        </tbody>
-      </table>
-    </TableRegion>
-  </div>
+                            {
+                              label: t('Delete'),
+                              icon: trashIcon,
+                              danger: true,
+                              onSelect: async () => {
+                                if (
+                                  await askConfirmation(
+                                    t('ConfirmDeleteRule', { name: rule.name }),
+                                    'Delete',
+                                  )
+                                ) {
+                                  await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
+                                  void handFocus(menuId(index), menuId(index - 1), 'rules-table');
+                                }
+                              },
+                            },
+                          ]}
+                        />
+                      </div>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            {/if}
+          </tbody>
+        </table>
+      </TableRegion>
+    </div>
+  {/if}
 
   {#if templates.data && rules.length > 0 && !access.readOnly}
-    <TemplateGallery templates={templates.data} onChoose={(template) => (choosing = template)} />
+    <TemplateGallery
+      templates={templates.data}
+      title={t('Templates')}
+      lead={t('TemplatesLead')}
+      onChoose={(template) => (choosing = template)}
+    />
   {/if}
 
   {#if choosing}
