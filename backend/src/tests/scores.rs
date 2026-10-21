@@ -31,7 +31,7 @@ async fn radarr_s_scores_reach_the_row_and_route_a_rule_on_them() {
     ] {
         app.execute(&["DELETE FROM rules"]).await;
         app.seed_rule_on(json!({ "type": "score_range", "value": condition })).await;
-        let explained = app.get("/api/v1/media/m-inst-1-10/explain").await;
+        let explained = app.get("/api/v1/library/m-inst-1-10/explain").await;
         let explained = explained.assert_ok();
         assert_eq!(explained["rules_category"] == "anime", routed, "{condition}: {explained}");
         assert_eq!(explained["metadata"]["ratings"]["imdb"]["value"], 8.1);
@@ -58,7 +58,7 @@ async fn an_empty_score_list_is_no_metadata_and_one_score_is() {
 
 /// Whether the library says the first title has metadata a rule reads.
 async fn known(app: &TestApp) -> bool {
-    let listed = app.get("/api/v1/media").await;
+    let listed = app.get("/api/v1/library").await;
     listed.assert_ok()["data"][0]["has_metadata"].as_bool().unwrap()
 }
 

@@ -263,17 +263,24 @@ test.describe('guardrails are visible', () => {
 });
 
 test.describe('the API reference', () => {
-  /** An operation the screen drops is one an outside application cannot find. */
+  /**
+   * An operation the screen drops is one an outside application cannot find. An old path is
+   * listed once, in the deprecated paths, beside the one that replaced it.
+   */
   test('shows every operation the contract holds', async ({ page }) => {
-    const contract = (await api('/openapi.json')) as { paths: Record<string, object> };
+    const contract = (await api('/openapi.json')) as {
+      paths: Record<string, Record<string, { deprecated?: boolean }>>;
+    };
     const methods = ['get', 'post', 'put', 'patch', 'delete'];
-    const expected = Object.entries(contract.paths)
-      .flatMap(([path, item]) =>
-        Object.keys(item)
-          .filter((key) => methods.includes(key))
-          .map((method) => `${method.toUpperCase()} ${path}`),
-      )
-      .sort();
+    const listed = (deprecated: boolean) =>
+      Object.entries(contract.paths)
+        .flatMap(([path, item]) =>
+          Object.entries(item)
+            .filter(([key, op]) => methods.includes(key) && (op.deprecated === true) === deprecated)
+            .map(([method]) => `${method.toUpperCase()} ${path}`),
+        )
+        .sort();
+    const expected = listed(false);
 
     await openScreen(page, '/reference');
     await expect(page.locator('details.api-operation').first()).toBeVisible();
@@ -286,6 +293,10 @@ test.describe('the API reference', () => {
         return method ? [`${method} ${path}`] : [];
       }),
     );
+    const old = page
+      .getByRole('table', { name: 'Deprecated paths' })
+      .locator('tbody tr td:first-child');
+    expect((await old.allTextContents()).map((cell) => cell.trim()).sort()).toEqual(listed(true));
     expect(shown.sort()).toEqual(expected);
   });
 });

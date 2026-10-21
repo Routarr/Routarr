@@ -78,8 +78,9 @@ Routarr also provides:
 - Translations into 26 languages, decision justifications included.
 - An API for other applications under /api/v1, with one key per application made on the
   Applications screen. Every key reads, and changes only what its scopes grant. Its OpenAPI
-  contract is served at /api/v1/openapi.json, and nothing documented in it is removed, renamed
-  or retyped.
+  contract is served at /api/v1/openapi.json. From 1.0 nothing documented in it is removed,
+  renamed or retyped, and a path renamed before it keeps answering under its old name, marked
+  deprecated, for at least two minor releases.
 
 It has no telemetry, no analytics and no update check. Its only outbound calls go to the
 configured Radarr and Sonarr instances, to the metadata sources the user enables, to an OpenID

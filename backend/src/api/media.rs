@@ -388,7 +388,7 @@ pub struct Explanation {
     pub rules_category: String,
     pub target_root_folder: Option<String>,
     /// The category the title's current root folder leads to, null when it leads to none: what
-    /// `POST /media/{id}/keep` pins it to.
+    /// `POST /library/{id}/keep` pins it to.
     pub current_category: Option<String>,
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
     pub action: DecisionAction,

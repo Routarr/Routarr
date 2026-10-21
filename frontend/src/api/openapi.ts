@@ -46,6 +46,7 @@ export interface OpenApiOperation {
   requestBody?: { content?: Record<string, OpenApiMedia> };
   responses?: Record<string, OpenApiResponse>;
   security?: unknown[];
+  deprecated?: boolean;
   'x-routarr-scope'?: string;
 }
 
@@ -67,6 +68,8 @@ export interface Operation {
   description: string;
   /** `read`, `operate` or `write`, `null` for the one operation needing no key. */
   scope: string | null;
+  /** An old path still answered, documented again under the one that replaced it. */
+  deprecated: boolean;
   parameters: OpenApiParameter[];
   body: OpenApiSchema | null;
   responses: { code: string; description: string; schema: OpenApiSchema | null }[];
@@ -104,6 +107,7 @@ export function operations(doc: OpenApiDocument): Operation[] {
         summary: operation.summary ?? '',
         description: operation.description ?? '',
         scope: operation['x-routarr-scope'] ?? null,
+        deprecated: operation.deprecated === true,
         parameters: operation.parameters ?? [],
         body: jsonSchema(operation.requestBody?.content),
         responses: Object.entries(operation.responses ?? {}).map(([code, response]) => ({
@@ -116,9 +120,9 @@ export function operations(doc: OpenApiDocument): Operation[] {
   );
 }
 
-/** The operations grouped by tag, in the order the document lists its tags. */
+/** The current operations grouped by tag, in the order the document lists its tags. */
 export function byTag(doc: OpenApiDocument): Group[] {
-  const all = operations(doc);
+  const all = operations(doc).filter((op) => !op.deprecated);
   const declared = (doc.tags ?? []).map((tag) => tag.name);
   const others = [...new Set(all.map((op) => op.tag))].filter((tag) => !declared.includes(tag));
   return [...declared, ...others]
@@ -128,6 +132,27 @@ export function byTag(doc: OpenApiDocument): Group[] {
       operations: all.filter((op) => op.tag === tag),
     }))
     .filter((group) => group.operations.length > 0);
+}
+
+/** An old path beside the one that replaced it, for one method. */
+export interface Renamed {
+  method: string;
+  old: string;
+  current: string;
+}
+
+/**
+ * Each deprecated operation beside its replacement, which the backend documents under the
+ * same operation id without the `_deprecated` suffix.
+ */
+export function renamed(doc: OpenApiDocument): Renamed[] {
+  const all = operations(doc);
+  return all
+    .filter((op) => op.deprecated)
+    .flatMap((op) => {
+      const current = all.find((other) => `${other.id}_deprecated` === op.id);
+      return current ? [{ method: op.method, old: op.path, current: current.path }] : [];
+    });
 }
 
 /** `Decision` for `#/components/schemas/Decision`. */

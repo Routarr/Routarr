@@ -32,7 +32,7 @@ async fn a_refreshed_title_is_read_and_searched_again() {
     let (sources, app) = enriched("arr,tenrai,omdb").await;
     assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((1, 1), (1, 0)));
 
-    let answer = app.post("/api/v1/metadata/refresh", json!({ "media_id": "m-1" })).await;
+    let answer = app.post("/api/v1/sources/refresh", json!({ "media_id": "m-1" })).await;
 
     assert_eq!(answer.assert_ok()["answered"], 2);
     assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((2, 2), (2, 0)));
@@ -50,10 +50,10 @@ async fn a_refreshed_title_is_read_and_searched_again() {
 async fn a_refreshed_source_has_its_answers_read_again() {
     let (sources, app) = enriched("arr,tenrai,omdb").await;
 
-    app.post("/api/v1/metadata/refresh", json!({ "source": "omdb" })).await.assert_ok();
+    app.post("/api/v1/sources/refresh", json!({ "source": "omdb" })).await.assert_ok();
     assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((1, 1), (2, 0)));
 
-    app.post("/api/v1/metadata/refresh", json!({})).await.assert_ok();
+    app.post("/api/v1/sources/refresh", json!({})).await.assert_ok();
     assert_eq!((asked(&sources, "tenrai"), asked(&sources, "omdb")), ((2, 1), (3, 0)));
 }
 
@@ -65,7 +65,7 @@ async fn a_refresh_is_refused_while_a_pass_runs() {
     let (_sources, app) = enriched("arr,omdb").await;
     let _running = app.state.jobs.try_lock("enrich").expect("no pass runs yet");
 
-    let answer = app.post("/api/v1/metadata/refresh", json!({ "source": "omdb" })).await;
+    let answer = app.post("/api/v1/sources/refresh", json!({ "source": "omdb" })).await;
 
     answer.assert_status(StatusCode::CONFLICT);
     let stale: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache WHERE stale = 1")
@@ -84,6 +84,6 @@ async fn a_refresh_names_a_source_routarr_asks_and_a_title_it_holds() {
         (json!({ "source": "imdb" }), StatusCode::BAD_REQUEST),
         (json!({ "media_id": "m-404" }), StatusCode::NOT_FOUND),
     ] {
-        app.post("/api/v1/metadata/refresh", body.clone()).await.assert_status(status);
+        app.post("/api/v1/sources/refresh", body.clone()).await.assert_status(status);
     }
 }

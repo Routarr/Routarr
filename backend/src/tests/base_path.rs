@@ -118,9 +118,9 @@ async fn a_task_not_waited_for_is_located_under_the_mount_point() {
 
     let started = app.send(request).await;
 
-    let job = started.assert_status(StatusCode::ACCEPTED)["job_id"].as_str().unwrap().to_string();
+    let job = started.assert_status(StatusCode::ACCEPTED)["task_id"].as_str().unwrap().to_string();
     let location = started.location().expect("no Location came back");
-    assert_eq!(location, format!("/routarr/api/v1/jobs/{job}"));
+    assert_eq!(location, format!("/routarr/api/v1/tasks/{job}"));
     assert_eq!(status_of(&app, &location).await, StatusCode::OK);
 }
 

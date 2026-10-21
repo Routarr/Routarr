@@ -108,7 +108,10 @@ impl Job {
 /// What a call answers when the caller asked not to wait: the task it started.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Accepted {
-    /// Follow it with `GET /jobs/{job_id}`, whose `result` holds the report.
+    /// Follow it with `GET /tasks/{task_id}`, whose `result` holds the report.
+    pub task_id: String,
+    /// The same id, under its old name. Read `task_id`.
+    #[schema(deprecated)]
     pub job_id: String,
 }
 
@@ -140,7 +143,7 @@ where
     let (started, job) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(crate::jobs::announcing(started, work));
     if respond_async && let Ok(job_id) = job.await {
-        let location = format!("{}/api/v1/jobs/{job_id}", state.config.base_path);
+        let location = format!("{}/api/v1/tasks/{job_id}", state.config.base_path);
         return Ok((
             StatusCode::ACCEPTED,
             [
@@ -148,7 +151,7 @@ where
                 (PREFERENCE_APPLIED, "respond-async".to_string()),
                 (header::RETRY_AFTER, FIRST_LOOK_SECONDS.to_string()),
             ],
-            Json(Accepted { job_id }),
+            Json(Accepted { task_id: job_id.clone(), job_id }),
         )
             .into_response());
     }
@@ -177,7 +180,7 @@ pub struct JobQuery {
     pub page: Option<u32>,
     /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
-    /// `result` to have each task carry its report, as `GET /jobs/{job_id}`
+    /// `result` to have each task carry its report, as `GET /tasks/{id}`
     /// does. Left out, `result` is null in the list.
     pub include: Option<String>,
 }

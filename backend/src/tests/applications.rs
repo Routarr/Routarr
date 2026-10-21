@@ -143,10 +143,10 @@ const BEYOND_READ: &[(&str, &str)] = &[
     ("POST", "/api/v1/decisions/apply-all"),
     ("POST", "/api/v1/decisions/revert"),
     ("POST", "/api/v1/decisions/revert-all"),
-    ("POST", "/api/v1/overrides"),
-    ("DELETE", "/api/v1/overrides/probe"),
-    ("PUT", "/api/v1/overrides/external"),
-    ("DELETE", "/api/v1/overrides/external"),
+    ("POST", "/api/v1/exceptions"),
+    ("DELETE", "/api/v1/exceptions/probe"),
+    ("PUT", "/api/v1/exceptions/external"),
+    ("DELETE", "/api/v1/exceptions/external"),
     ("POST", "/api/v1/rule-tests/run"),
     ("POST", "/api/v1/backups"),
     ("POST", "/api/v1/rules"),
@@ -250,7 +250,7 @@ async fn an_application_key_is_held_to_its_scopes_under_a_mount_point() {
     let token = minted.assert_ok()["token"].as_str().expect("a token").to_string();
 
     send(&app, "GET", "/routarr/api/v1/status", Some(&token), None).await.assert_ok();
-    let one = send(&app, "GET", "/routarr/api/v1/media/probe", Some(&token), None).await;
+    let one = send(&app, "GET", "/routarr/api/v1/library/probe", Some(&token), None).await;
     assert_eq!(one.status, StatusCode::NOT_FOUND, "{:?}", one.json);
     for (method, path) in
         [("POST", "/routarr/api/v1/instances/probe/sync"), ("GET", "/routarr/api/v1/applications")]
@@ -273,7 +273,7 @@ async fn each_scope_is_granted_on_its_own() {
     let refused = send(&app, "POST", "/api/v1/decisions/apply", Some(&pinning), Some(apply)).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
     assert!(refused.message().contains("operate"), "{}", refused.message());
-    let refused = send(&app, "POST", "/api/v1/overrides", Some(&operating), Some(pin)).await;
+    let refused = send(&app, "POST", "/api/v1/exceptions", Some(&operating), Some(pin)).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
     assert!(refused.message().contains("write"), "{}", refused.message());
 }
@@ -378,7 +378,7 @@ async fn an_application_leaves_its_name_on_the_tasks_and_decisions_it_starts() {
             .await
             .unwrap();
     assert_eq!(job, ("api".to_string(), Some("n8n".to_string())));
-    let jobs = send(&app, "GET", "/api/v1/jobs", Some(&token), None).await;
+    let jobs = send(&app, "GET", "/api/v1/tasks", Some(&token), None).await;
     assert_eq!(jobs.assert_ok()["data"][0]["subject"], "n8n", "{:?}", jobs.json);
 
     let decisions: Vec<(Option<String>, Option<String>)> =
@@ -532,7 +532,7 @@ async fn a_pin_by_external_id_names_the_application_that_set_it() {
     let app = TestApp::films_to_move(&arr, 1).await;
     let token = mint(&app, None, json!({ "name": "request-bot", "scopes": ["write"] })).await;
 
-    let path = "/api/v1/overrides/external?type=movie&tmdb=8392";
+    let path = "/api/v1/exceptions/external?type=movie&tmdb=8392";
     let pinned =
         send(&app, "PUT", path, Some(&token), Some(json!({ "target_category": "anime" }))).await;
 
@@ -644,32 +644,32 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     .await
     .unwrap();
 
-    let jobs = send(&app, "GET", "/api/v1/jobs", Some(&token), None).await;
+    let jobs = send(&app, "GET", "/api/v1/tasks", Some(&token), None).await;
     let jobs = jobs.assert_ok()["data"].as_array().unwrap().clone();
     let named = |id: &str| jobs.iter().find(|job| job["id"] == id).unwrap()["subject"].clone();
     assert_eq!(named("j-person"), Value::Null, "a key read who runs Routarr");
     assert_eq!(named("j-app"), "dashboard");
-    let one = send(&app, "GET", "/api/v1/jobs/j-person", Some(&token), None).await;
+    let one = send(&app, "GET", "/api/v1/tasks/j-person", Some(&token), None).await;
     assert_eq!(one.assert_ok()["subject"], Value::Null);
     let decisions = send(&app, "GET", "/api/v1/decisions", Some(&token), None).await;
     assert_eq!(decisions.assert_ok()["data"][0]["subject"], Value::Null);
-    let pins = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
+    let pins = send(&app, "GET", "/api/v1/exceptions", Some(&token), None).await;
     let pin = &pins.assert_ok()["data"][0];
     assert_eq!((&pin["id"], &pin["subject"]), (&json!("o-1"), &Value::Null), "{pin}");
-    let log = send(&app, "GET", "/api/v1/logs", Some(&token), None).await;
+    let log = send(&app, "GET", "/api/v1/move-log", Some(&token), None).await;
     assert_eq!(log.assert_ok()["data"][0]["subject"], Value::Null);
-    let export = Request::get("/api/v1/logs/export").header("x-api-key", &token);
+    let export = Request::get("/api/v1/move-log/export").header("x-api-key", &token);
     let export = app.send_raw(export.body(Body::empty()).unwrap()).await;
     let csv = export.into_body().collect().await.unwrap().to_bytes();
     let csv = String::from_utf8_lossy(&csv);
     assert!(csv.contains("Akira"), "{csv}");
     assert!(!csv.contains(person), "the export named who runs Routarr: {csv}");
 
-    let owner = send(&app, "GET", "/api/v1/jobs/j-person", None, None).await;
+    let owner = send(&app, "GET", "/api/v1/tasks/j-person", None, None).await;
     assert_eq!(owner.assert_ok()["subject"], person, "the owner lost sight of who asked");
-    let owner = send(&app, "GET", "/api/v1/overrides", None, None).await;
+    let owner = send(&app, "GET", "/api/v1/exceptions", None, None).await;
     assert_eq!(owner.assert_ok()["data"][0]["subject"], person);
-    let owner = send(&app, "GET", "/api/v1/logs", None, None).await;
+    let owner = send(&app, "GET", "/api/v1/move-log", None, None).await;
     assert_eq!(owner.assert_ok()["data"][0]["subject"], person);
 }
 
@@ -724,9 +724,9 @@ async fn a_pin_names_the_application_that_set_it() {
     let token = mint(&app, None, json!({ "name": "request-bot", "scopes": ["write"] })).await;
 
     let pin = json!({ "media_id": "m-1", "target_category": "anime" });
-    let set = send(&app, "POST", "/api/v1/overrides", Some(&token), Some(pin)).await;
+    let set = send(&app, "POST", "/api/v1/exceptions", Some(&token), Some(pin)).await;
     assert_eq!(set.assert_ok()["subject"], "request-bot");
-    let listed = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
+    let listed = send(&app, "GET", "/api/v1/exceptions", Some(&token), None).await;
     assert_eq!(listed.assert_ok()["data"][0]["subject"], "request-bot");
 }
 
@@ -806,7 +806,7 @@ async fn a_read_key_may_ask_head() {
     let app = TestApp::with_api_key(MASTER).await;
     let token = mint(&app, Some(MASTER), json!({ "name": "monitor" })).await;
     assert_eq!(
-        send(&app, "HEAD", "/api/v1/media", Some(&token), None).await.status,
+        send(&app, "HEAD", "/api/v1/library", Some(&token), None).await.status,
         StatusCode::OK
     );
     assert_eq!(
@@ -850,15 +850,15 @@ async fn a_new_key_under_a_revoked_name_does_not_read_the_old_ones_records_as_it
     app.seed_library().await;
     let first = mint(&app, None, json!({ "name": "homepage", "scopes": ["write"] })).await;
     let pin = json!({ "media_id": "m-1", "target_category": "anime" });
-    send(&app, "POST", "/api/v1/overrides", Some(&first), Some(pin)).await.assert_ok();
-    let own = send(&app, "GET", "/api/v1/overrides", Some(&first), None).await;
+    send(&app, "POST", "/api/v1/exceptions", Some(&first), Some(pin)).await.assert_ok();
+    let own = send(&app, "GET", "/api/v1/exceptions", Some(&first), None).await;
     assert_eq!(own.assert_ok()["data"][0]["subject"], "homepage", "a key lost sight of its pin");
 
     let revoked = format!("/api/v1/applications/{}", key_id(&first));
     send(&app, "DELETE", &revoked, None, None).await.assert_ok();
     let second = mint(&app, None, json!({ "name": "homepage" })).await;
 
-    let read = send(&app, "GET", "/api/v1/overrides", Some(&second), None).await;
+    let read = send(&app, "GET", "/api/v1/exceptions", Some(&second), None).await;
     assert_eq!(read.assert_ok()["data"][0]["subject"], Value::Null, "the new key read the old pin");
 }
 
@@ -886,7 +886,7 @@ async fn a_preview_result_names_no_other_subject() {
     let token = mint(&app, Some(MASTER), json!({ "name": "monitor" })).await;
 
     let tasks =
-        send(&app, "GET", "/api/v1/jobs?kind=preview&include=result", Some(&token), None).await;
+        send(&app, "GET", "/api/v1/tasks?kind=preview&include=result", Some(&token), None).await;
     let task = tasks.assert_ok()["data"][0].clone();
     let decisions = task["result"]["decisions"].as_array().expect("the preview's proposals");
     assert!(!decisions.is_empty(), "{task}");
@@ -938,9 +938,9 @@ async fn a_reason_or_a_rule_past_its_limit_is_refused() {
     app.seed_library().await;
     let pin =
         |reason: String| json!({ "media_id": "m-1", "target_category": "anime", "reason": reason });
-    let long = send(&app, "POST", "/api/v1/overrides", None, Some(pin("r".repeat(501)))).await;
+    let long = send(&app, "POST", "/api/v1/exceptions", None, Some(pin("r".repeat(501)))).await;
     assert_eq!(long.status, StatusCode::BAD_REQUEST, "{}", long.json);
-    send(&app, "POST", "/api/v1/overrides", None, Some(pin("r".repeat(500)))).await.assert_ok();
+    send(&app, "POST", "/api/v1/exceptions", None, Some(pin("r".repeat(500)))).await.assert_ok();
 
     app.execute(&["WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1000)
          INSERT INTO rules (id, name, priority, enabled, media_type, conditions, exclusions,

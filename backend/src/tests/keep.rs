@@ -20,7 +20,7 @@ async fn proposed_to_move() -> TestApp {
 async fn keeping_a_title_pins_its_folder_category_and_withdraws_the_move() {
     let app = proposed_to_move().await;
 
-    let kept = app.post("/api/v1/media/m-1/keep", json!({})).await;
+    let kept = app.post("/api/v1/library/m-1/keep", json!({})).await;
 
     assert_eq!(kept.assert_status(StatusCode::CREATED)["target_category"], "standard");
     let pending = app.get("/api/v1/decisions?status=pending").await;
@@ -31,7 +31,7 @@ async fn keeping_a_title_pins_its_folder_category_and_withdraws_the_move() {
             .await
             .unwrap();
     assert_eq!(routed, "standard", "the title is decided again at once");
-    let explained = app.get("/api/v1/media/m-1/explain").await;
+    let explained = app.get("/api/v1/library/m-1/explain").await;
     let explained = explained.assert_ok();
     assert_eq!(explained["current_category"], "standard");
     assert_eq!(explained["override_category"], "standard");
@@ -54,7 +54,7 @@ async fn a_title_whose_folder_leads_nowhere_is_not_kept() {
     let refused = |reason: &'static str| {
         let app = &app;
         async move {
-            let answer = app.post("/api/v1/media/m-1/keep", json!({})).await;
+            let answer = app.post("/api/v1/library/m-1/keep", json!({})).await;
             assert_eq!(answer.assert_status(StatusCode::CONFLICT)["reason"], reason);
         }
     };
@@ -69,7 +69,7 @@ async fn a_title_whose_folder_leads_nowhere_is_not_kept() {
     refused("no_current_folder").await;
 
     assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 0);
-    let missing = app.post("/api/v1/media/nobody/keep", json!({})).await;
+    let missing = app.post("/api/v1/library/nobody/keep", json!({})).await;
     missing.assert_status(StatusCode::NOT_FOUND);
 }
 
@@ -84,7 +84,7 @@ async fn a_pin_reads_a_category_name_as_its_stored_form() {
         .assert_status(StatusCode::CREATED);
 
     let pin = json!({ "media_id": "m-1", "target_category": " Le\u{301}a " });
-    let set = app.post("/api/v1/overrides", pin).await;
+    let set = app.post("/api/v1/exceptions", pin).await;
 
     assert_eq!(set.assert_status(StatusCode::CREATED)["target_category"], "léa");
 }

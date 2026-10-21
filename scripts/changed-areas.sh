@@ -64,7 +64,7 @@ echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|contrib/m
 # backend files: the routes the client calls, the settings' defaults, the
 # count placeholders, the dictionary its components render, and the tables of
 # cases both sides are held to.
-FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod)\.rs|backend/src/services/(metadata|settings)\.rs|backend/src/.*\.json'
+FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod|api/deprecated)\.rs|backend/src/services/(metadata|settings)\.rs|backend/src/.*\.json'
 echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$FRONTEND_READS|$CONTROL)")"
 # `site/check.mjs` reads the version out of the crate's manifest, holds the
 # README and the first-run screen to one command, the site's words to the

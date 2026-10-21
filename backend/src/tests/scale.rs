@@ -565,7 +565,7 @@ async fn facets_and_sweep_work(count: usize) -> (Duration, Duration, &'static st
 
     let facets = clock
         .least(|| async {
-            let response = app.get("/api/v1/media/facets").await;
+            let response = app.get("/api/v1/library/facets").await;
             assert_eq!(response.assert_ok()["total_media"], count as i64);
         })
         .await;

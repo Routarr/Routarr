@@ -93,7 +93,7 @@ async fn a_task_detail_is_read_in_the_interface_language() {
     app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
     speak_french(&app).await;
 
-    let jobs = app.get("/api/v1/jobs").await;
+    let jobs = app.get("/api/v1/tasks").await;
     let detail = jobs.assert_ok()["data"][0]["detail"].as_str().unwrap().to_string();
 
     let params = [("total", "1"), ("moves", "0")];
@@ -141,7 +141,7 @@ async fn the_explanation_panel_is_translated() {
     app.seed_anime_rule().await;
     speak_french(&app).await;
 
-    let response = app.get("/api/v1/media/m-1/explain").await;
+    let response = app.get("/api/v1/library/m-1/explain").await;
     let trace = &response.assert_ok()["rule_traces"][0];
 
     assert!(trace["conditions"][0]["expected"].as_str().unwrap().contains("langue d'origine"));
@@ -313,9 +313,9 @@ async fn a_failed_move_is_said_in_the_language_it_is_read_in() {
 
     speak_french(&app).await;
     let tested = app.post("/api/v1/instances/inst-1/test", serde_json::json!({})).await;
-    let logs = app.get("/api/v1/logs").await;
+    let logs = app.get("/api/v1/move-log").await;
     let history = app.get("/api/v1/decisions?status=failed").await;
-    let export = app.text("/api/v1/logs/export").await;
+    let export = app.text("/api/v1/move-log/export").await;
 
     let french = tested.message();
     assert_eq!(logs.assert_ok()["data"][0]["error_message"].as_str(), Some(french.as_str()));

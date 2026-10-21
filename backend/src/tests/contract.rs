@@ -28,6 +28,10 @@ fn operations() -> Vec<(Method, String, Option<String>)> {
     let mut document = contract::document("");
     let mut found = Vec::new();
     for_each_operation(&mut document, |method, path, operation| {
+        // A deprecated path is a copy of its replacement, checked apart.
+        if operation.deprecated.is_some() {
+            return;
+        }
         let scope = operation
             .extensions
             .as_ref()
@@ -207,8 +211,8 @@ fn the_log_export_documents_no_paging() {
             .map(|parameter| parameter["name"].as_str().unwrap().to_string())
             .collect()
     };
-    let paged = named("/logs");
-    let exported = named("/logs/export");
+    let paged = named("/move-log");
+    let exported = named("/move-log/export");
     assert!(paged.contains("page") && paged.contains("per_page"), "{paged:?}");
     assert!(!exported.contains("page") && !exported.contains("per_page"), "{exported:?}");
     let filters: BTreeSet<_> =
@@ -235,12 +239,12 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
         ("POST", "/decisions/apply-all", "/decisions/apply-all", json!({ "simulation_id": "s" })),
         ("POST", "/decisions/revert", "/decisions/revert", json!({ "decision_ids": ["d-1"] })),
         ("POST", "/decisions/revert-all", "/decisions/revert-all", json!({})),
-        ("POST", "/overrides", "/overrides", json!({ "media_id": "m", "target_category": "a" })),
-        ("POST", "/media/{id}/keep", "/media/m/keep", json!({})),
+        ("POST", "/exceptions", "/exceptions", json!({ "media_id": "m", "target_category": "a" })),
+        ("POST", "/library/{id}/keep", "/library/m/keep", json!({})),
         (
             "PUT",
-            "/overrides/external",
-            "/overrides/external?type=movie&tmdb=8392",
+            "/exceptions/external",
+            "/exceptions/external?type=movie&tmdb=8392",
             json!({ "target_category": "anime" }),
         ),
         ("POST", "/root-folders", "/root-folders", json!({ "instance_id": "i", "path": "/p" })),
@@ -270,7 +274,7 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
     let mut documented = BTreeSet::new();
     for (path, item) in described()["paths"].as_object().unwrap() {
         for (method, operation) in item.as_object().unwrap() {
-            if operation.get("requestBody").is_some() {
+            if operation.get("requestBody").is_some() && operation["deprecated"] != json!(true) {
                 documented.insert((method.to_uppercase(), path.clone()));
             }
         }
@@ -347,6 +351,9 @@ impl Checker {
         let mut successes = BTreeSet::new();
         for (path, item) in self.document["paths"].as_object().unwrap() {
             for (method, operation) in item.as_object().unwrap() {
+                if operation["deprecated"] == json!(true) {
+                    continue;
+                }
                 let Some(responses) = operation["responses"].as_object() else { continue };
                 for status in responses.keys().filter(|status| status.starts_with('2')) {
                     successes.insert((method.to_uppercase(), path.clone(), status.clone()));
@@ -373,17 +380,17 @@ async fn every_documented_operation_answers_as_its_schema_says() {
         ("/status", "/api/v1/status"),
         ("/health", "/api/v1/health?probe=false"),
         ("/categories", "/api/v1/categories"),
-        ("/media", "/api/v1/media?per_page=2"),
-        ("/media/{id}", "/api/v1/media/m-0"),
-        ("/media/{id}/explain", "/api/v1/media/m-0/explain"),
+        ("/library", "/api/v1/library?per_page=2"),
+        ("/library/{id}", "/api/v1/library/m-0"),
+        ("/library/{id}/explain", "/api/v1/library/m-0/explain"),
         ("/route", "/api/v1/route?type=movie&tmdb=8392&instance=inst-1"),
     ] {
         checker.check("GET", route, 200, &app.get(path).await);
     }
     // A refusal answers the shared envelope.
-    let missing = app.get("/api/v1/media/nothing-here").await;
+    let missing = app.get("/api/v1/library/nothing-here").await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    checker.check("GET", "/media/{id}", 404, &missing);
+    checker.check("GET", "/library/{id}", 404, &missing);
 
     let metrics = app.raw("/api/v1/metrics").await;
     assert_eq!(metrics.status(), StatusCode::OK);
@@ -421,24 +428,24 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     );
 
     let pin = json!({ "media_id": "m-1", "target_category": "anime", "reason": "a test" });
-    let set = app.post("/api/v1/overrides", pin).await;
-    checker.check("POST", "/overrides", 201, &set);
-    checker.check("GET", "/overrides", 200, &app.get("/api/v1/overrides").await);
+    let set = app.post("/api/v1/exceptions", pin).await;
+    checker.check("POST", "/exceptions", 201, &set);
+    checker.check("GET", "/exceptions", 200, &app.get("/api/v1/exceptions").await);
     let exception = set.json["id"].as_str().unwrap();
-    let removed = app.delete(&format!("/api/v1/overrides/{exception}")).await;
-    checker.check("DELETE", "/overrides/{id}", 200, &removed);
-    let kept = app.post("/api/v1/media/m-1/keep", json!({ "reason": "a test" })).await;
-    checker.check("POST", "/media/{id}/keep", kept.status.as_u16(), &kept);
+    let removed = app.delete(&format!("/api/v1/exceptions/{exception}")).await;
+    checker.check("DELETE", "/exceptions/{id}", 200, &removed);
+    let kept = app.post("/api/v1/library/m-1/keep", json!({ "reason": "a test" })).await;
+    checker.check("POST", "/library/{id}/keep", kept.status.as_u16(), &kept);
     let asked = app.post("/api/v1/decisions/revert-all", json!({})).await;
     assert_eq!(asked.status, StatusCode::CONFLICT, "{}", asked.json);
     checker.check("POST", "/decisions/revert-all", 409, &asked);
     let body = json!({ "confirm": every_guardrail });
     let reverted = app.post("/api/v1/decisions/revert-all", body).await;
     checker.check("POST", "/decisions/revert-all", 200, &reverted);
-    let external = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
+    let external = "/api/v1/exceptions/external?type=movie&tmdb=8392&instance=inst-1";
     let pin = json!({ "target_category": "anime" });
-    checker.check("PUT", "/overrides/external", 200, &app.put(external, pin).await);
-    checker.check("DELETE", "/overrides/external", 200, &app.delete(external).await);
+    checker.check("PUT", "/exceptions/external", 200, &app.put(external, pin).await);
+    checker.check("DELETE", "/exceptions/external", 200, &app.delete(external).await);
 
     let synced = app.post("/api/v1/instances/sync", json!({})).await;
     checker.check("POST", "/instances/sync", 200, &synced);
@@ -456,10 +463,10 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     assert_eq!(started.status, StatusCode::ACCEPTED);
     checker.check("POST", "/instances/{id}/sync", 202, &started);
 
-    let tasks = app.get("/api/v1/jobs").await;
-    checker.check("GET", "/jobs", 200, &tasks);
-    let task = started.json["job_id"].as_str().unwrap();
-    checker.check("GET", "/jobs/{id}", 200, &app.get(&format!("/api/v1/jobs/{task}")).await);
+    let tasks = app.get("/api/v1/tasks").await;
+    checker.check("GET", "/tasks", 200, &tasks);
+    let task = started.json["task_id"].as_str().unwrap();
+    checker.check("GET", "/tasks/{id}", 200, &app.get(&format!("/api/v1/tasks/{task}")).await);
 
     // Waited for, since the simulation after the sync holds the lock `/simulate` takes.
     finished(&app, task).await;
@@ -492,21 +499,21 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     ] {
         let started = app.send(asynchronously(route, body)).await;
         checker.check("POST", route, 202, &started);
-        finished(&app, started.json["job_id"].as_str().unwrap()).await;
+        finished(&app, started.json["task_id"].as_str().unwrap()).await;
     }
     let again = app.post("/api/v1/simulate", json!({ "persist": true })).await;
     let body = json!({ "simulation_id": again.json["simulation_id"], "confirm": every_guardrail });
     let started = app.send(asynchronously("/decisions/apply-all", body)).await;
     checker.check("POST", "/decisions/apply-all", 202, &started);
-    finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    finished(&app, started.json["task_id"].as_str().unwrap()).await;
     let body = json!({ "confirm": every_guardrail });
     let started = app.send(asynchronously("/decisions/revert-all", body)).await;
     checker.check("POST", "/decisions/revert-all", 202, &started);
-    finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    finished(&app, started.json["task_id"].as_str().unwrap()).await;
     // Last: the simulation that follows a sync holds the lock the ones above take.
     let started = app.send(preferring_async("/api/v1/instances/sync", json!({}))).await;
     checker.check("POST", "/instances/sync", 202, &started);
-    finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    finished(&app, started.json["task_id"].as_str().unwrap()).await;
 
     configure(&app, &mut checker).await;
     keep_backups(&mut checker).await;
@@ -523,9 +530,9 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     for (route, path) in [
         ("/instances", "/api/v1/instances"),
         ("/instances/{id}", "/api/v1/instances/inst-1"),
-        ("/metadata/providers", "/api/v1/metadata/providers"),
-        ("/media/facets", "/api/v1/media/facets"),
-        ("/logs", "/api/v1/logs"),
+        ("/sources", "/api/v1/sources"),
+        ("/library/facets", "/api/v1/library/facets"),
+        ("/move-log", "/api/v1/move-log"),
         ("/root-folders", "/api/v1/root-folders"),
         ("/root-folders/conflicts", "/api/v1/root-folders/conflicts"),
         ("/rules", "/api/v1/rules"),
@@ -536,11 +543,11 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     ] {
         checker.check("GET", route, 200, &app.get(path).await);
     }
-    let csv = app.raw("/api/v1/logs/export").await;
+    let csv = app.raw("/api/v1/move-log/export").await;
     assert_eq!(csv.status(), StatusCode::OK);
     let content_type = csv.headers()[axum::http::header::CONTENT_TYPE].to_str().unwrap();
     assert!(content_type.starts_with("text/csv"), "{content_type}");
-    checker.seen.insert(("GET".into(), "/logs/export".into(), "200".into()));
+    checker.seen.insert(("GET".into(), "/move-log/export".into(), "200".into()));
 
     // The folders and the categories they lead to.
     let declared = app.post(
@@ -610,7 +617,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     checker.check("POST", "/rules/import", 200, &imported);
 
     // The syncs above read the library again, under the Arr's own ids.
-    let media = app.get("/api/v1/media?per_page=1").await.json["data"][0]["id"].clone();
+    let media = app.get("/api/v1/library?per_page=1").await.json["data"][0]["id"].clone();
     let pinned =
         app.post("/api/v1/rule-tests", json!({ "name": "A case", "media_id": media })).await;
     checker.check("POST", "/rule-tests", 201, &pinned);
@@ -637,7 +644,7 @@ async fn keep_backups(checker: &mut Checker) {
     std::fs::remove_file(dir.join("backups").join(taken.json["name"].as_str().unwrap())).unwrap();
     let started = app.send(super::preferring_async("/api/v1/backups", json!({}))).await;
     checker.check("POST", "/backups", 202, &started);
-    super::finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    super::finished(&app, started.json["task_id"].as_str().unwrap()).await;
 }
 
 /// A closed vocabulary is published as a string with its values, and those

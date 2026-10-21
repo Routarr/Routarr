@@ -20,6 +20,7 @@ mod contract;
 mod crypto_format;
 mod daily_quota;
 mod decision_filters;
+mod deprecated_paths;
 mod enrichment;
 mod executor;
 mod extra_sources;
@@ -876,7 +877,7 @@ pub fn preferring_async(path: &str, body: serde_json::Value) -> Request<Body> {
 /// The task, once it has finished.
 pub async fn finished(app: &TestApp, id: &str) -> serde_json::Value {
     for _ in 0..200 {
-        let task = app.get(&format!("/api/v1/jobs/{id}")).await;
+        let task = app.get(&format!("/api/v1/tasks/{id}")).await;
         if task.assert_ok()["status"] != "running" {
             return task.json;
         }

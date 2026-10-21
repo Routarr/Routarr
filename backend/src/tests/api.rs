@@ -547,16 +547,16 @@ async fn a_query_that_cannot_be_parsed_still_gets_the_error_envelope() {
     let app = TestApp::new().await;
     for path in [
         "/api/v1/decisions?page=abc",
-        "/api/v1/media?per_page=-1",
-        "/api/v1/logs?success=maybe",
-        "/api/v1/logs/export?success=maybe",
-        "/api/v1/jobs?page=abc",
+        "/api/v1/library?per_page=-1",
+        "/api/v1/move-log?success=maybe",
+        "/api/v1/move-log/export?success=maybe",
+        "/api/v1/tasks?page=abc",
         "/api/v1/health?probe=maybe",
         // A parameter the route does not take: ignored, the first would
         // export the whole log and the second list every task.
-        "/api/v1/logs/export?instance=x",
-        "/api/v1/logs/export?page=2",
-        "/api/v1/jobs?state=running",
+        "/api/v1/move-log/export?instance=x",
+        "/api/v1/move-log/export?page=2",
+        "/api/v1/tasks?state=running",
         "/api/v1/route?type=movie&tmdb=8392&tag=kids",
     ] {
         let response = app.get(path).await;
@@ -1272,7 +1272,7 @@ async fn the_library_list_pages_past_the_first() {
                           ('m-3', 'inst-1', 12, 'movie', 'Perfect Blue', 1, 1)"])
         .await;
 
-    let second = app.get("/api/v1/media?per_page=2&page=2").await;
+    let second = app.get("/api/v1/library?per_page=2&page=2").await;
 
     let second = second.assert_ok();
     let titles: Vec<&str> =
@@ -1346,17 +1346,17 @@ async fn a_title_already_where_its_rule_sends_it_is_classified() {
 
     app.post("/api/v1/simulate", serde_json::json!({"persist": true})).await.assert_ok();
 
-    assert_eq!(listed("/api/v1/media?unmatched=true").await.0, ["m-2"]);
-    assert_eq!(listed("/api/v1/media?category=anime").await.0, ["m-1"]);
-    let (_, all) = listed("/api/v1/media").await;
+    assert_eq!(listed("/api/v1/library?unmatched=true").await.0, ["m-2"]);
+    assert_eq!(listed("/api/v1/library?category=anime").await.0, ["m-1"]);
+    let (_, all) = listed("/api/v1/library").await;
     let totoro = all["data"].as_array().unwrap().iter().find(|item| item["id"] == "m-1").unwrap();
     assert_eq!(totoro["computed_category"], "anime");
 
     app.execute(&["UPDATE rules SET enabled = 0"]).await;
     app.post("/api/v1/simulate", serde_json::json!({"persist": true})).await.assert_ok();
 
-    assert_eq!(listed("/api/v1/media?category=anime").await.0, Vec::<String>::new());
-    assert_eq!(listed("/api/v1/media?unmatched=true").await.0, ["m-2", "m-1"]);
+    assert_eq!(listed("/api/v1/library?category=anime").await.0, Vec::<String>::new());
+    assert_eq!(listed("/api/v1/library?unmatched=true").await.0, ["m-2", "m-1"]);
 }
 
 /// The category list counts, beside each category, the rules sending titles
@@ -1523,13 +1523,13 @@ async fn removing_an_override_hands_the_media_back_to_the_rules() {
 
     let created = app
         .post(
-            "/api/v1/overrides",
+            "/api/v1/exceptions",
             serde_json::json!({ "media_id": "m-1", "target_category": "anime" }),
         )
         .await;
     let id = created.assert_ok()["id"].as_str().unwrap().to_string();
 
-    app.delete(&format!("/api/v1/overrides/{id}")).await.assert_ok();
+    app.delete(&format!("/api/v1/exceptions/{id}")).await.assert_ok();
 
     let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM overrides WHERE id = ?")
         .bind(&id)
@@ -1539,12 +1539,12 @@ async fn removing_an_override_hands_the_media_back_to_the_rules() {
     assert_eq!(left, 0);
 
     // Twice is a 404, not a 500: the screen offers the button until it reloads.
-    app.delete(&format!("/api/v1/overrides/{id}"))
+    app.delete(&format!("/api/v1/exceptions/{id}"))
         .await
         .assert_status(axum::http::StatusCode::NOT_FOUND);
 }
 
-/// A script pins a whole library through `PUT /overrides/external`, so the
+/// A script pins a whole library through `PUT /exceptions/external`, so the
 /// list answers a page at a time, the newest first, in an order that pages
 /// through every exception once.
 #[tokio::test]
@@ -1563,7 +1563,7 @@ async fn the_exceptions_are_listed_a_page_at_a_time() {
 
     let mut seen = Vec::new();
     for page in 1..=3 {
-        let listed = app.get(&format!("/api/v1/overrides?per_page=1&page={page}")).await;
+        let listed = app.get(&format!("/api/v1/exceptions?per_page=1&page={page}")).await;
         let listed = listed.assert_ok();
         assert_eq!(listed["pagination"]["total"], 3, "{listed}");
         assert_eq!(listed["data"].as_array().map(Vec::len), Some(1), "{listed}");
@@ -1582,7 +1582,7 @@ async fn the_override_list_answers_with_the_key_and_names_each_item() {
     let keyed = |method: &str, body: serde_json::Value| {
         Request::builder()
             .method(method)
-            .uri("/api/v1/overrides")
+            .uri("/api/v1/exceptions")
             .header("x-api-key", "s3cret")
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
@@ -1600,7 +1600,7 @@ async fn the_override_list_answers_with_the_key_and_names_each_item() {
     assert_eq!(listed[0]["media_title"], "My Neighbor Totoro");
     assert_eq!(listed[0]["instance_name"], "Radarr");
 
-    app.get("/api/v1/overrides").await.assert_status(StatusCode::UNAUTHORIZED);
+    app.get("/api/v1/exceptions").await.assert_status(StatusCode::UNAUTHORIZED);
 }
 
 /// An override pins a title to a category, and that is all it does: it wins
@@ -1614,15 +1614,15 @@ async fn an_override_carries_no_lock() {
     let mut locked = pin.clone();
     locked["locked"] = serde_json::json!(true);
 
-    app.post("/api/v1/overrides", locked).await.assert_status(StatusCode::BAD_REQUEST);
-    let created = app.post("/api/v1/overrides", pin).await;
+    app.post("/api/v1/exceptions", locked).await.assert_status(StatusCode::BAD_REQUEST);
+    let created = app.post("/api/v1/exceptions", pin).await;
 
     let created = created.assert_ok().clone();
     assert!(created.get("locked").is_none(), "{created}");
-    let listed = app.get("/api/v1/overrides").await.assert_ok()["data"].clone();
+    let listed = app.get("/api/v1/exceptions").await.assert_ok()["data"].clone();
     assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
     assert!(listed[0].get("locked").is_none(), "{listed}");
-    let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
+    let detail = app.get("/api/v1/library/m-1").await.assert_ok().clone();
     assert!(detail["override"].get("locked").is_none(), "{detail}");
 }
 
@@ -1634,7 +1634,7 @@ async fn a_titles_tags_and_genres_read_as_lists() {
     app.seed_library().await;
     app.execute(&["UPDATE media SET tags = '[\"4K\",\"Kids\"]', genres = '[\"Animation\"]'"]).await;
 
-    let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
+    let detail = app.get("/api/v1/library/m-1").await.assert_ok().clone();
 
     let media = &detail["media"];
     assert_eq!(media["tag_list"], serde_json::json!(["4K", "Kids"]), "{media}");
@@ -1686,7 +1686,7 @@ async fn an_override_returns_the_stored_id_on_upsert() {
 
     let first = app
         .post(
-            "/api/v1/overrides",
+            "/api/v1/exceptions",
             serde_json::json!({ "media_id": "m-1", "target_category": "anime" }),
         )
         .await;
@@ -1694,7 +1694,7 @@ async fn an_override_returns_the_stored_id_on_upsert() {
 
     let second = app
         .post(
-            "/api/v1/overrides",
+            "/api/v1/exceptions",
             serde_json::json!({ "media_id": "m-1", "target_category": "standard" }),
         )
         .await;
@@ -1710,7 +1710,7 @@ async fn an_override_on_an_unknown_category_is_rejected() {
     app.seed_library().await;
 
     app.post(
-        "/api/v1/overrides",
+        "/api/v1/exceptions",
         serde_json::json!({ "media_id": "m-1", "target_category": "nope" }),
     )
     .await
@@ -1725,7 +1725,7 @@ async fn creating_an_override_supersedes_pending_decisions() {
     app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
 
     app.post(
-        "/api/v1/overrides",
+        "/api/v1/exceptions",
         serde_json::json!({ "media_id": "m-1", "target_category": "standard" }),
     )
     .await
@@ -1748,7 +1748,7 @@ async fn removing_an_override_supersedes_pending_decisions() {
     app.seed_library().await;
     let created = app
         .post(
-            "/api/v1/overrides",
+            "/api/v1/exceptions",
             serde_json::json!({ "media_id": "m-1", "target_category": "anime" }),
         )
         .await
@@ -1759,7 +1759,7 @@ async fn removing_an_override_supersedes_pending_decisions() {
     assert_eq!(pending["pagination"]["total"], 1, "the override must propose a move");
 
     let id = created["id"].as_str().unwrap();
-    app.delete(&format!("/api/v1/overrides/{id}")).await.assert_ok();
+    app.delete(&format!("/api/v1/exceptions/{id}")).await.assert_ok();
 
     let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
     assert_eq!(pending["pagination"]["total"], 0, "{pending}");
@@ -1945,7 +1945,7 @@ async fn explain_traces_every_applicable_rule() {
     app.seed_library().await;
     app.seed_anime_rule().await;
 
-    let response = app.get("/api/v1/media/m-1/explain").await;
+    let response = app.get("/api/v1/library/m-1/explain").await;
     let explanation = response.assert_ok();
 
     assert_eq!(explanation["target_category"], "anime");
@@ -1964,7 +1964,7 @@ async fn explain_reports_the_default_when_nothing_matches() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    let response = app.get("/api/v1/media/m-1/explain").await;
+    let response = app.get("/api/v1/library/m-1/explain").await;
     let explanation = response.assert_ok();
     assert_eq!(explanation["target_category"], "standard");
     assert_eq!(explanation["action"], "none");
@@ -1984,7 +1984,7 @@ async fn explain_reads_a_rule_it_cannot_read_as_the_engine_does() {
     ])
     .await;
 
-    let explanation = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    let explanation = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
 
     assert_eq!(explanation["target_category"], "standard");
     let trace = &explanation["rule_traces"][0];
@@ -2010,7 +2010,7 @@ async fn explain_names_the_exclusion_that_set_a_rule_aside() {
                            VALUES ('o-1', 'm-1', 'standard')"])
                 .await;
         }
-        let explanation = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+        let explanation = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
 
         assert_eq!(explanation["target_category"], "standard");
         let trace = &explanation["rule_traces"][0];
@@ -2029,13 +2029,13 @@ async fn explain_says_what_the_rules_decide_under_an_exception() {
     app.seed_library().await;
     app.seed_anime_rule().await;
 
-    let free = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    let free = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
     assert_eq!(free["rules_category"], free["target_category"]);
 
     app.execute(&["INSERT INTO overrides (id, media_id, target_category)
                    VALUES ('o-1', 'm-1', 'standard')"])
         .await;
-    let forced = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    let forced = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
     assert_eq!(forced["target_category"], "standard");
     assert_eq!(forced["rules_category"], "anime");
 
@@ -2062,10 +2062,10 @@ async fn explain_says_when_no_run_reads_the_titles_instance() {
     app.seed_anime_rule().await;
     let enabled = |explanation: serde_json::Value| explanation["instance_enabled"].clone();
 
-    let on = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    let on = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
     assert_eq!(enabled(on), true);
     app.execute(&["UPDATE instances SET enabled = 0"]).await;
-    let off = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    let off = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
     assert_eq!(off["action"], "move");
     assert_eq!(enabled(off), false);
 }
@@ -2073,7 +2073,7 @@ async fn explain_says_when_no_run_reads_the_titles_instance() {
 #[tokio::test]
 async fn explain_on_unknown_media_is_a_404() {
     let app = TestApp::new().await;
-    app.get("/api/v1/media/nope/explain").await.assert_status(StatusCode::NOT_FOUND);
+    app.get("/api/v1/library/nope/explain").await.assert_status(StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -2083,7 +2083,7 @@ async fn the_media_list_exposes_the_computed_category() {
     app.seed_anime_rule().await;
     app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
 
-    let list = app.get("/api/v1/media").await.assert_ok().clone();
+    let list = app.get("/api/v1/library").await.assert_ok().clone();
     assert_eq!(list["data"][0]["computed_category"], "anime");
     assert_eq!(list["data"][0]["has_metadata"], true);
     assert_eq!(list["data"][0]["instance_name"], "Radarr");
@@ -2094,7 +2094,7 @@ async fn pagination_is_clamped() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    let list = app.get("/api/v1/media?per_page=100000&page=0").await.assert_ok().clone();
+    let list = app.get("/api/v1/library?per_page=100000&page=0").await.assert_ok().clone();
     assert_eq!(list["pagination"]["per_page"], 200);
     assert_eq!(list["pagination"]["page"], 1);
 }
@@ -2407,10 +2407,10 @@ async fn every_paged_list_breaks_its_ties_by_id() {
     }
 
     for (list, filter, expected) in [
-        ("/api/v1/jobs", "", ["j-3", "j-2", "j-1"]),
+        ("/api/v1/tasks", "", ["j-3", "j-2", "j-1"]),
         ("/api/v1/decisions", "&search=Twin", ["d-1", "d-2", "d-3"]),
-        ("/api/v1/logs", "", ["l-3", "l-2", "l-1"]),
-        ("/api/v1/media", "&search=Twin", ["m-tie-1", "m-tie-2", "m-tie-3"]),
+        ("/api/v1/move-log", "", ["l-3", "l-2", "l-1"]),
+        ("/api/v1/library", "&search=Twin", ["m-tie-1", "m-tie-2", "m-tie-3"]),
     ] {
         let mut paged = Vec::new();
         for page in 1..=3 {
@@ -2449,7 +2449,7 @@ async fn webhooks_bypass_the_api_key_middleware() {
 #[tokio::test]
 async fn an_unknown_job_is_a_404() {
     let app = TestApp::new().await;
-    app.get("/api/v1/jobs/nope").await.assert_status(StatusCode::NOT_FOUND);
+    app.get("/api/v1/tasks/nope").await.assert_status(StatusCode::NOT_FOUND);
 }
 
 /// The list is what the Move log screen reads: a filter spelled wrong in
@@ -2477,31 +2477,31 @@ async fn logs_are_listed_newest_first_and_filtered_as_asked() {
         .unwrap();
     }
 
-    let all = app.get("/api/v1/logs").await;
+    let all = app.get("/api/v1/move-log").await;
     let body = all.assert_ok();
     let ids: Vec<&str> =
         body["data"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["log-3", "log-2", "log-1"], "newest first");
     assert_eq!(body["pagination"]["total"], 3);
 
-    let failed = app.get("/api/v1/logs?success=false").await;
+    let failed = app.get("/api/v1/move-log?success=false").await;
     let failed = failed.assert_ok();
     let ids: Vec<&str> =
         failed["data"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["log-2"]);
 
-    let reverts = app.get("/api/v1/logs?action=revert&search=toto").await;
+    let reverts = app.get("/api/v1/move-log?action=revert&search=toto").await;
     let reverts = reverts.assert_ok();
     let ids: Vec<&str> =
         reverts["data"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["log-3"]);
 
     // The LIKE wildcard is data, not a wildcard.
-    let literal = app.get("/api/v1/logs?search=%25").await;
+    let literal = app.get("/api/v1/move-log?search=%25").await;
     assert_eq!(literal.assert_ok()["pagination"]["total"], 0);
 
     // A later page carries on where the first stopped.
-    let second = app.get("/api/v1/logs?per_page=2&page=2").await;
+    let second = app.get("/api/v1/move-log?per_page=2&page=2").await;
     let second = second.assert_ok();
     let ids: Vec<&str> =
         second["data"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
@@ -2509,7 +2509,7 @@ async fn logs_are_listed_newest_first_and_filtered_as_asked() {
     assert_eq!(second["pagination"]["total_pages"], 2);
 
     // The file an operator hands on holds what the screen filtered.
-    let exported = app.text("/api/v1/logs/export?success=false").await;
+    let exported = app.text("/api/v1/move-log/export?success=false").await;
     assert_eq!(exported.lines().count(), 2, "{exported}");
     assert!(exported.contains("\"Akira\""), "{exported}");
 }
@@ -2525,11 +2525,11 @@ async fn logs_can_be_exported_as_csv() {
     .await
     .unwrap();
 
-    let response = app.raw("/api/v1/logs/export").await;
+    let response = app.raw("/api/v1/move-log/export").await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["content-type"], "text/csv; charset=utf-8");
     assert!(!response.headers().contains_key("x-routarr-truncated"));
-    let csv = app.text("/api/v1/logs/export").await;
+    let csv = app.text("/api/v1/move-log/export").await;
     // The comma and the quotes stay inside one field, the quotes doubled.
     assert!(csv.contains(r#","Totoro","a,b ""quoted""","#), "{csv}");
 }
@@ -2546,11 +2546,11 @@ async fn an_export_says_when_it_leaves_rows_out() {
                      FROM n"])
         .await;
 
-    let response = app.raw("/api/v1/logs/export").await;
+    let response = app.raw("/api/v1/move-log/export").await;
     assert_eq!(response.headers()["x-routarr-truncated"], "true");
     // Left unread while the next export runs: an export holds no connection
     // between two pages, and the tests' pool has one.
-    let csv = app.text("/api/v1/logs/export").await;
+    let csv = app.text("/api/v1/move-log/export").await;
     let mut lines = csv.lines();
     assert!(lines.next().unwrap().starts_with("executed_at,"), "the header row");
     assert!(lines.next().unwrap().contains("\"Title 50001\""), "the newest first");
@@ -2558,7 +2558,7 @@ async fn an_export_says_when_it_leaves_rows_out() {
     assert!(csv.lines().last().unwrap().contains("\"Title 2\""), "each page after the last");
     assert!(!csv.contains("\"Title 1\""), "the oldest is the one left out");
 
-    let filtered = app.raw("/api/v1/logs/export?search=Title%2050001").await;
+    let filtered = app.raw("/api/v1/move-log/export?search=Title%2050001").await;
     assert!(!filtered.headers().contains_key("x-routarr-truncated"));
 }
 
@@ -2578,7 +2578,7 @@ async fn a_log_entry_names_its_trigger_and_its_account() {
     .await
     .unwrap();
 
-    let page = app.get("/api/v1/logs").await;
+    let page = app.get("/api/v1/move-log").await;
     let entries = page.assert_ok()["data"].as_array().unwrap().clone();
     assert_eq!(
         (&entries[0]["actor"], &entries[0]["subject"]),
@@ -2589,7 +2589,7 @@ async fn a_log_entry_names_its_trigger_and_its_account() {
         (&serde_json::json!("schedule"), &serde_json::Value::Null)
     );
 
-    let csv = app.text("/api/v1/logs/export").await;
+    let csv = app.text("/api/v1/move-log/export").await;
     let mut lines = csv.lines();
     assert!(lines.next().unwrap().contains(",actor,subject,"), "{csv}");
     assert!(lines.next().unwrap().contains(r#","manual","alice","#), "{csv}");
@@ -2872,14 +2872,14 @@ async fn a_search_wildcard_is_matched_literally() {
 
     // "100%" must find the film called "100% Wolf" and nothing else: an
     // unescaped LIKE would treat the percent as "anything after 100".
-    let response = app.get("/api/v1/media?search=100%25").await;
+    let response = app.get("/api/v1/library?search=100%25").await;
     let items = response.assert_ok()["data"].as_array().unwrap().clone();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "100% Wolf");
 
     // A percent that matches no literal percent must return nothing, even
     // though the wildcard interpretation would have matched every title.
-    let response = app.get("/api/v1/media?search=o%25o").await;
+    let response = app.get("/api/v1/library?search=o%25o").await;
     assert_eq!(
         response.assert_ok()["data"].as_array().unwrap().len(),
         0,
@@ -2910,10 +2910,10 @@ async fn the_task_list_narrows_on_a_status_and_a_kind() {
         }
     };
 
-    assert_eq!(ids("/api/v1/jobs?status=failed").await, ["j-1", "j-3"]);
-    assert_eq!(ids("/api/v1/jobs?kind=sync").await, ["j-1", "j-2"]);
-    assert_eq!(ids("/api/v1/jobs?kind=sync&status=failed").await, ["j-1"]);
-    assert_eq!(ids("/api/v1/jobs").await, ["j-1", "j-2", "j-3", "j-4"]);
+    assert_eq!(ids("/api/v1/tasks?status=failed").await, ["j-1", "j-3"]);
+    assert_eq!(ids("/api/v1/tasks?kind=sync").await, ["j-1", "j-2"]);
+    assert_eq!(ids("/api/v1/tasks?kind=sync&status=failed").await, ["j-1"]);
+    assert_eq!(ids("/api/v1/tasks").await, ["j-1", "j-2", "j-3", "j-4"]);
 }
 
 /// A retention of 0 keeps everything, as the setting's help says. It is saved

@@ -156,6 +156,14 @@ lower one to make a build pass.**
   Before 1.0 a minor release may break one on purpose: the line oasdiff prints
   goes in `scripts/api-breaks/since-<last tag>.txt`, and the release notes name
   it.
+- **A path is renamed through an alias, never moved.** Add the old and new
+  templates to `DEPRECATED_PATHS` in
+  [`backend/src/api/deprecated.rs`](backend/src/api/deprecated.rs) and mount the
+  old one with the new one's handlers: the contract documents it as deprecated,
+  and every answer to it carries `Deprecation` and `Link` headers. An alias
+  stays for at least two minor releases and six months. The release before its
+  removal sets a `Sunset` date, and the removal itself answers `410 Gone` for
+  one release, naming the new path.
 
 ## Improving a translation
 

@@ -237,7 +237,7 @@ async fn a_pin_made_while_its_category_is_removed_leaves_no_orphan() {
     race(
         "overrides::pin",
         "doomed-pin",
-        posting(&app, "/api/v1/overrides", pin),
+        posting(&app, "/api/v1/exceptions", pin),
         removing(&app, "doomed-pin"),
     )
     .await;
@@ -475,7 +475,7 @@ async fn what_goes_while_it_is_written_to_is_not_found() {
         (
             "overrides::create",
             "m-1",
-            "/api/v1/overrides",
+            "/api/v1/exceptions",
             json!({ "media_id": "m-1", "target_category": "anime" }),
             "DELETE FROM media WHERE id = 'm-1'",
         ),

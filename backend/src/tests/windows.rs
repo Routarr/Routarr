@@ -217,7 +217,7 @@ async fn one_windows_folder_written_two_ways_is_one_facet() {
     ])
     .await;
 
-    let facets = app.get("/api/v1/media/facets").await.assert_ok().clone();
+    let facets = app.get("/api/v1/library/facets").await.assert_ok().clone();
 
     let folders = facets["root_folders"].as_array().unwrap();
     assert_eq!(folders.len(), 1, "{folders:?}");

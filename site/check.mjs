@@ -483,8 +483,14 @@ if (!readKey) {
   // left behind. A release's contract is part of this one, since an
   // operation is never removed.
   const contract = JSON.parse(readFileSync(join(ROOT, '../backend/openapi/v1.json'), 'utf-8'));
-  const operations = Object.values(contract.paths).flatMap((methods) =>
-    Object.values(methods).map((operation) => operation.operationId),
+  // An old path still answered is listed apart, under `#deprecated`, with no
+  // sentence of its own.
+  const current = Object.values(contract.paths).flatMap((methods) =>
+    Object.values(methods).filter((operation) => !operation.deprecated),
+  );
+  const operations = current.map((operation) => operation.operationId);
+  const deprecated = Object.values(contract.paths).flatMap((methods) =>
+    Object.values(methods).filter((operation) => operation.deprecated),
   );
   const built = new Set([
     ...operations.map((id) => `api.ref.op.${id}`),
@@ -497,12 +503,10 @@ if (!readKey) {
   // The English sentence of an operation is the contract's own summary, which
   // the application's reference screen shows: two wordings for one operation
   // would drift.
-  for (const methods of Object.values(contract.paths)) {
-    for (const { operationId, summary } of Object.values(methods)) {
-      const said = english[`api.ref.op.${operationId}`];
-      if (said !== undefined && said !== summary) {
-        fail(`src/i18n/en.json: api.ref.op.${operationId} reads "${said}", the contract "${summary}"`);
-      }
+  for (const { operationId, summary } of current) {
+    const said = english[`api.ref.op.${operationId}`];
+    if (said !== undefined && said !== summary) {
+      fail(`src/i18n/en.json: api.ref.op.${operationId} reads "${said}", the contract "${summary}"`);
     }
   }
 
@@ -522,6 +526,10 @@ if (!readKey) {
     if (!entries || ids.length !== entries) fail(`${file}: ${entries - ids.length} of ${entries} reference entries carry no id`);
     if (new Set(ids).size !== ids.length) fail(`${file}: two reference entries share an id`);
     for (const id of ids) if (!anchors.has(id)) fail(`${file}: the reference entry #${id} names no operation or type`);
+    // The `Link` header of every answer to an old path names this section.
+    const listed = page.match(/<div class="ref-group" id="deprecated">[\s\S]*?<\/dl>/)?.[0] ?? '';
+    const pairs = (listed.match(/<dt>/g) ?? []).length;
+    if (pairs !== deprecated.length) fail(`${file}: #deprecated lists ${pairs} old paths, the contract ${deprecated.length}`);
     for (const [, shown] of page.matchAll(/<span class="ref-method[^"]*">[A-Z]+<\/span><code class="ref-path">([^<]+)</g)) {
       if (!shown.startsWith(`${server}/`)) fail(`${file}: the operation ${shown} is shown without ${server}`);
     }

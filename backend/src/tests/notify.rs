@@ -838,7 +838,7 @@ async fn an_apply_and_a_revert_are_announced_apart_once_asked_for() {
     };
     assert_eq!(reverted["data"], done(moved(anime, standard)));
     // A receiver handed a task reads each title it moved from the log.
-    let logged = app.get(&format!("/api/v1/logs?task_id={task}")).await;
+    let logged = app.get(&format!("/api/v1/move-log?task_id={task}")).await;
     let rows = logged.assert_ok()["data"].as_array().unwrap().clone();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0]["media_title"], "Film 000");

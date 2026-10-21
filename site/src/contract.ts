@@ -30,6 +30,7 @@ interface Parameter {
 
 interface RawOperation {
   operationId: string;
+  deprecated?: boolean;
   tags?: string[];
   'x-routarr-scope'?: string;
   parameters?: Parameter[];
@@ -141,9 +142,22 @@ function answerOf(operation: RawOperation): Operation['answer'] {
   };
 }
 
-const raws = Object.entries(contract.paths).flatMap(([path, methods]) =>
+const all = Object.entries(contract.paths).flatMap(([path, methods]) =>
   Object.entries(methods).map(([method, operation]) => ({ path, method, operation })),
 );
+/* An old path is listed apart, beside the path that replaced it. */
+const raws = all.filter(({ operation }) => !operation.deprecated);
+
+/**
+ * Each old path still answered, beside its replacement, which the contract
+ * documents under the same operation id without the `_deprecated` suffix.
+ */
+export const renamed: { method: string; old: string; current: string }[] = all
+  .filter(({ operation }) => operation.deprecated)
+  .flatMap(({ path, method, operation }) => {
+    const current = raws.find((other) => `${other.operation.operationId}_deprecated` === operation.operationId);
+    return current ? [{ method: method.toUpperCase(), old: `${server}${path}`, current: `${server}${current.path}` }] : [];
+  });
 
 const operations: (Operation & { tag: string })[] = raws.map(({ path, method, operation }) => ({
   id: operation.operationId,

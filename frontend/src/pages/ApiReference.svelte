@@ -7,6 +7,7 @@
     fields,
     inline,
     paragraphs,
+    renamed,
     serverUrl,
     typeLabel,
     type Field,
@@ -77,6 +78,7 @@
   );
   const server = $derived(spec.data ? serverUrl(spec.data, window.location.origin) : '');
   const schemas = $derived(Object.keys(spec.data?.components?.schemas ?? {}).sort());
+  const deprecated = $derived(spec.data ? renamed(spec.data) : []);
   // The screen's name is a link inside the sentence, so the sentence is cut
   // where the name goes and drawn around it.
   const keysLine = $derived(t('ApiReferenceKeys', { screen: '\u0000' }).split('\u0000'));
@@ -258,6 +260,34 @@
         <p class="text-muted">{t('ApiNoMatch')}</p>
       </div>
     {/each}
+
+    {#if deprecated.length > 0}
+      <section class="card">
+        <div class="card-header">
+          <CardTitle card="ApiDeprecated">{t('ApiDeprecated')}</CardTitle>
+        </div>
+        <p class="text-muted text-sm">{t('ApiDeprecatedNote')}</p>
+        <TableRegion label={t('ApiDeprecated')}>
+          <table>
+            <caption class="visually-hidden">{t('ApiDeprecated')}</caption>
+            <thead>
+              <tr>
+                <th>{t('ApiOldPath')}</th>
+                <th>{t('ApiNewPath')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each deprecated as path (`${path.method} ${path.old}`)}
+                <tr>
+                  <td class="mono">{path.method.toUpperCase()} {path.old}</td>
+                  <td class="mono">{path.method.toUpperCase()} {path.current}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </TableRegion>
+      </section>
+    {/if}
 
     <section class="card">
       <div class="card-header">

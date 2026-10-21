@@ -81,7 +81,7 @@ async fn the_facets_offer_every_defined_profile_and_the_names_the_library_holds(
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
 
-    let facets = app.get("/api/v1/media/facets").await;
+    let facets = app.get("/api/v1/library/facets").await;
     let facets = facets.assert_ok();
 
     let profiles: Vec<(String, i64)> = facets["quality_profiles"]
@@ -115,14 +115,14 @@ async fn a_rule_on_each_new_field_routes_the_title_that_holds_it() {
     ] {
         let app = TestApp::synced_from("radarr", &arr).await;
         app.seed_rule_on(condition.clone()).await;
-        let explained = app.get("/api/v1/media/m-inst-1-10/explain").await;
+        let explained = app.get("/api/v1/library/m-inst-1-10/explain").await;
         assert_eq!(explained.assert_ok()["rules_category"], "anime", "{condition}");
 
         app.execute(&[
             "UPDATE media SET quality_profile = NULL, runtime = NULL, studio = NULL, collection = NULL",
         ])
         .await;
-        let explained = app.get("/api/v1/media/m-inst-1-10/explain").await;
+        let explained = app.get("/api/v1/library/m-inst-1-10/explain").await;
         assert_ne!(explained.assert_ok()["rules_category"], "anime", "unknown matched {condition}");
     }
 }
@@ -154,7 +154,7 @@ async fn the_explanation_carries_what_the_arr_reports() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
 
-    let explained = app.get("/api/v1/media/m-inst-1-10/explain").await;
+    let explained = app.get("/api/v1/library/m-inst-1-10/explain").await;
     let media = &explained.assert_ok()["media"];
 
     assert_eq!(media["quality_profile"], "Ultra-HD");

@@ -7,6 +7,7 @@ pub mod conditions;
 pub mod config;
 pub mod contract;
 pub mod decisions;
+pub mod deprecated;
 pub mod health;
 pub mod instances;
 pub mod jobs;

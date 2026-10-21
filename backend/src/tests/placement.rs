@@ -66,7 +66,7 @@ async fn a_title_the_library_holds_goes_where_the_simulation_sends_it() {
 
     // The explanation and the simulation give the same answer for the title.
     let media_id = answer["media_id"].as_str().unwrap();
-    let explained = app.get(&format!("/api/v1/media/{media_id}/explain")).await;
+    let explained = app.get(&format!("/api/v1/library/{media_id}/explain")).await;
     assert_eq!(explained.assert_ok()["target_category"], answer["category"]);
 }
 
@@ -526,7 +526,7 @@ async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
     assert!(!told.to_lowercase().contains("decrypt"), "the caller read {told}");
 
     app.post("/api/v1/instances/inst-1/sync", serde_json::json!({})).await;
-    let jobs = app.get("/api/v1/jobs?status=failed").await;
+    let jobs = app.get("/api/v1/tasks?status=failed").await;
     let failed = &jobs.assert_ok()["data"][0];
     assert_eq!(failed["kind"], "sync", "{:?}", jobs.json);
     let told = failed["error_message"].as_str().unwrap_or_default();
