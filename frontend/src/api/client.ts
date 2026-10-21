@@ -269,7 +269,7 @@ async function followed<T>(path: string, init: RequestInit, following: Following
     },
     async (response) =>
       response.status === 202
-        ? { job: ((await response.json()) as { job_id: string }).job_id }
+        ? { job: ((await response.json()) as { task_id: string }).task_id }
         : { report: (await response.json()) as T },
   );
   if (first.job === undefined) return first.report as T;
@@ -281,7 +281,7 @@ async function followed<T>(path: string, init: RequestInit, following: Following
 export interface Following {
   /** Each look at the job while it runs, for a screen showing how far it has gone. */
   onProgress?: (job: Job) => void;
-  /** Stops the looking, not the job, which a screen opened again finds under `/jobs`. */
+  /** Stops the looking, not the job, which a screen opened again finds under `/tasks`. */
   signal?: AbortSignal;
 }
 
@@ -336,7 +336,7 @@ async function followJob<T>(id: string, following: Following = {}): Promise<T> {
     await inFront(signal);
     let job: Job;
     try {
-      job = await request<Job>(`/jobs/${id}`, { signal });
+      job = await request<Job>(`/tasks/${id}`, { signal });
       failed = 0;
     } catch (cause) {
       if (!transient(cause) || failed === FOLLOW_RETRIES) throw cause;
@@ -384,7 +384,7 @@ export const api = {
       { signal },
     ),
   getJobs: (params?: QueryParams, signal?: AbortSignal) =>
-    request<Paginated<Job>>(`/jobs${query(params)}`, { signal }),
+    request<Paginated<Job>>(`/tasks${query(params)}`, { signal }),
   purge: () => followed<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
 
   getInstances: (signal?: AbortSignal) => request<Instance[]>('/instances', { signal }),
@@ -435,7 +435,7 @@ export const api = {
   getRules: (signal?: AbortSignal) => request<Rule[]>('/rules', { signal }),
 
   getRuleHealth: (signal?: AbortSignal) => request<RuleHealthReport>('/rules/health', { signal }),
-  getLibraryFacets: (signal?: AbortSignal) => request<LibraryFacets>('/media/facets', { signal }),
+  getLibraryFacets: (signal?: AbortSignal) => request<LibraryFacets>('/library/facets', { signal }),
 
   getRuleTests: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<RuleTest>>(`/rule-tests${query(params)}`, { signal }),
@@ -528,13 +528,13 @@ export const api = {
     }),
 
   getMedia: (params?: QueryParams, signal?: AbortSignal) =>
-    request<Paginated<MediaListItem>>(`/media${query(params)}`, { signal }),
+    request<Paginated<MediaListItem>>(`/library${query(params)}`, { signal }),
   explainMedia: (id: string, signal?: AbortSignal) =>
-    request<Explanation>(`/media/${id}/explain`, { signal }),
+    request<Explanation>(`/library/${id}/explain`, { signal }),
 
   /** Pin a title to the category of the folder it is in, so no run proposes to move it. */
   keepTitle: (id: string, body: KeepRequest = {}) =>
-    request<OverrideEntry>(`/media/${encodeURIComponent(id)}/keep`, {
+    request<OverrideEntry>(`/library/${encodeURIComponent(id)}/keep`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -608,7 +608,7 @@ export const api = {
     ),
   /** Stop a running apply or revert before its next move. It answers before it stops. */
   cancelJob: (id: string) =>
-    request<void>(`/jobs/${id}/cancel`, { method: 'POST' }, () => Promise.resolve()),
+    request<void>(`/tasks/${id}/cancel`, { method: 'POST' }, () => Promise.resolve()),
 
   /** The contract other applications call, as the running version describes it. */
   openApi: (signal?: AbortSignal) => request<OpenApiDocument>('/openapi.json', { signal }),
@@ -630,32 +630,32 @@ export const api = {
   revokeApplication: (id: string) => request<unknown>(`/applications/${id}`, { method: 'DELETE' }),
 
   getOverrides: (params?: QueryParams, signal?: AbortSignal) =>
-    request<Paginated<OverrideEntry>>(`/overrides${query(params)}`, { signal }),
+    request<Paginated<OverrideEntry>>(`/exceptions${query(params)}`, { signal }),
   createOverride: (data: unknown) =>
-    request<OverrideEntry>('/overrides', { method: 'POST', body: body(data) }),
-  deleteOverride: (id: string) => request<unknown>(`/overrides/${id}`, { method: 'DELETE' }),
+    request<OverrideEntry>('/exceptions', { method: 'POST', body: body(data) }),
+  deleteOverride: (id: string) => request<unknown>(`/exceptions/${id}`, { method: 'DELETE' }),
 
   getLogs: (params?: QueryParams, signal?: AbortSignal) =>
-    request<Paginated<LogEntry>>(`/logs${query(params)}`, { signal }),
+    request<Paginated<LogEntry>>(`/move-log${query(params)}`, { signal }),
   /** A link the browser follows, since the sign-in has to leave this origin. */
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
-  exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
+  exportLogs: (params?: QueryParams) => download(`/move-log/export${query(params)}`),
   getSecurityLog: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<SecurityEvent>>(`/security-log${query(params)}`, { signal }),
   exportSecurityLog: (params?: QueryParams) => download(`/security-log/export${query(params)}`),
 
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
   getMetadataProviders: (signal?: AbortSignal) =>
-    request<MetadataProviders>('/metadata/providers', { signal }),
+    request<MetadataProviders>('/sources', { signal }),
   /** Ask every source again about one title at once, its search matches forgotten. */
   refreshTitleMetadata: (mediaId: string) =>
-    followed<TitleRefresh>('/metadata/refresh', {
+    followed<TitleRefresh>('/sources/refresh', {
       method: 'POST',
       body: body({ media_id: mediaId }),
     }),
   /** Have a pass read every answer `source` gave again. */
   refreshSource: (source: string) =>
-    followed<EnrichmentReport>('/metadata/refresh', { method: 'POST', body: body({ source }) }),
+    followed<EnrichmentReport>('/sources/refresh', { method: 'POST', body: body({ source }) }),
   listBackups: (signal?: AbortSignal) => request<BackupList>('/backups', { signal }),
   createBackup: () => followed<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>

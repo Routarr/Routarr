@@ -74,6 +74,13 @@ const SERVED: Set<string> = (() => {
   return served;
 })();
 
+/** The old paths `backend/src/api/deprecated.rs` still answers, each parameter `{}`. */
+const DEPRECATED: Set<string> = new Set(
+  [...readBackend('backend/src/api/deprecated.rs').matchAll(/^\s*\("([^"]+)", "[^"]+"\),$/gm)].map(
+    (row) => row[1]!.replace(/\{\w+\}/g, '{}'),
+  ),
+);
+
 describe('the key in the browser', () => {
   it('sends no key header: the browser holds a session instead', async () => {
     const spy = mockFetch({ body: { status: 'ok' } });
@@ -208,21 +215,21 @@ describe('query building', () => {
     const spy = mockFetch({ body: { data: [], pagination: {} } });
     await api.getMedia({ search: '', media_type: undefined, page: 2 });
 
-    expect(fetchCall(spy).url).toBe('/api/v1/media?page=2');
+    expect(fetchCall(spy).url).toBe('/api/v1/library?page=2');
   });
 
   it('omits the question mark entirely when nothing is filtered', async () => {
     const spy = mockFetch({ body: { data: [], pagination: {} } });
     await api.getMedia({});
 
-    expect(fetchCall(spy).url).toBe('/api/v1/media');
+    expect(fetchCall(spy).url).toBe('/api/v1/library');
   });
 
   it('encodes values that would otherwise break the URL', async () => {
     const spy = mockFetch({ body: { data: [], pagination: {} } });
     await api.getMedia({ search: 'a&b=c d' });
 
-    expect(fetchCall(spy).url).toBe('/api/v1/media?search=a%26b%3Dc+d');
+    expect(fetchCall(spy).url).toBe('/api/v1/library?search=a%26b%3Dc+d');
   });
 
   it('serialises booleans', async () => {
@@ -336,6 +343,7 @@ describe('every endpoint', () => {
   it('reads the backend route table rather than an empty one', () => {
     expect(SERVED.size).toBeGreaterThan(60);
     expect(SERVED).toContain('PUT /categories/{}');
+    expect(DEPRECATED).toContain('/jobs/{}');
   });
 
   it.each(methods)('%s issues one well-formed request', async (name, method) => {
@@ -350,9 +358,9 @@ describe('every endpoint', () => {
     expect(url, `${name} put an object in its path`).not.toContain('[object');
     expect(url, `${name} interpolated an absent argument`).not.toContain('undefined');
     // An unrouted verb or path answers 404 or 405, reported as "not found" about what exists.
-    expect(SERVED, `${name} asks for a route the backend does not serve`).toContain(
-      route(options.method ?? 'GET', url),
-    );
+    const asked = route(options.method ?? 'GET', url);
+    expect(SERVED, `${name} asks for a route the backend does not serve`).toContain(asked);
+    expect(DEPRECATED, `${name} calls a deprecated path`).not.toContain(asked.split(' ')[1]);
   });
 
   it('builds the sign-in link without fetching it', () => {
@@ -580,7 +588,7 @@ describe('a write followed through its job', () => {
     vi.useFakeTimers();
     const spy = vi
       .fn()
-      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
       .mockResolvedValueOnce(job('running'))
       .mockResolvedValueOnce(job('success', { result: report }));
     vi.stubGlobal('fetch', spy);
@@ -591,8 +599,8 @@ describe('a write followed through its job', () => {
     await expect(applied).resolves.toEqual(report);
     expect(fetchCall(spy).options.headers.Prefer).toBe('respond-async');
     expect(spy.mock.calls.slice(1).map(([url]) => url)).toEqual([
-      '/api/v1/jobs/j1',
-      '/api/v1/jobs/j1',
+      '/api/v1/tasks/j1',
+      '/api/v1/tasks/j1',
     ]);
   });
 
@@ -614,7 +622,7 @@ describe('a write followed through its job', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
         .mockResolvedValueOnce(job('running', { progress_current: 5, progress_total: 10 }))
         .mockResolvedValueOnce(job('success', { result: { simulation_id: 's1' } })),
     );
@@ -635,7 +643,7 @@ describe('a write followed through its job', () => {
     vi.useFakeTimers();
     const spy = vi
       .fn()
-      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
       .mockResolvedValue(job('running'));
     vi.stubGlobal('fetch', spy);
     const leaving = new AbortController();
@@ -657,7 +665,7 @@ describe('a write followed through its job', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
         .mockResolvedValueOnce(answer(502, { error: 'bad_gateway', message: '' }))
         .mockResolvedValueOnce(job('success', { result: report })),
     );
@@ -674,7 +682,7 @@ describe('a write followed through its job', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
         .mockResolvedValue(answer(502, { error: 'bad_gateway', message: '' })),
     );
 
@@ -689,7 +697,7 @@ describe('a write followed through its job', () => {
     vi.useFakeTimers();
     const spy = vi
       .fn()
-      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
       .mockResolvedValueOnce(job('running'))
       .mockResolvedValueOnce(job('success', { result: report }));
     vi.stubGlobal('fetch', spy);
@@ -723,7 +731,7 @@ describe('a write followed through its job', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
         .mockResolvedValueOnce(job('failed', { result: refused })),
     );
 
@@ -739,7 +747,7 @@ describe('a write followed through its job', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
         .mockResolvedValueOnce(job('failed', { error_message: 'Radarr answered 401' })),
     );
 

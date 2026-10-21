@@ -311,7 +311,7 @@ async fn a_certification_is_shown_with_what_it_means() {
         .await
         .unwrap();
 
-    let body = app.get("/api/v1/media/facets").await.assert_ok().clone();
+    let body = app.get("/api/v1/library/facets").await.assert_ok().clone();
     let named = body["certifications"]
         .as_array()
         .unwrap()
@@ -325,7 +325,7 @@ async fn a_certification_is_shown_with_what_it_means() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    let body = app.get("/api/v1/media/facets").await.assert_ok().clone();
+    let body = app.get("/api/v1/library/facets").await.assert_ok().clone();
     let bare = body["certifications"]
         .as_array()
         .unwrap()
@@ -371,7 +371,7 @@ async fn certifications_are_grouped_by_meaning_youngest_first() {
         .unwrap();
     }
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let listed: Vec<(String, Option<String>)> = response.assert_ok()["certifications"]
         .as_array()
         .unwrap()
@@ -419,7 +419,7 @@ async fn the_facets_count_what_the_library_actually_carries() {
     .await
     .unwrap();
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let body = response.assert_ok();
 
     let values = |axis: &str| -> Vec<String> {
@@ -458,7 +458,7 @@ async fn a_coded_axis_offers_its_whole_vocabulary_not_the_synced_part() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let body = response.assert_ok();
 
     let languages = body["vocabularies"]["original_languages"].as_array().unwrap();
@@ -485,7 +485,7 @@ async fn an_open_axis_carries_no_vocabulary() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let body = response.assert_ok();
 
     assert!(body["vocabularies"].get("genres").is_none());
@@ -505,7 +505,7 @@ async fn a_disabled_source_contributes_nothing_to_the_lists() {
         .await
         .assert_ok();
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let body = response.assert_ok();
     let certifications: Vec<&str> = body["certifications"]
         .as_array()
@@ -531,7 +531,7 @@ async fn items_carrying_no_metadata_at_all_are_counted_apart() {
     // the lists this endpoint returns beside the figure.
     sqlx::query("DELETE FROM metadata_cache").execute(&app.state.pool).await.unwrap();
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let body = response.assert_ok();
     assert!(body["without_metadata"].as_i64().unwrap() > 0, "got {body}");
     assert!(body["genres"].as_array().unwrap().is_empty());
@@ -548,7 +548,7 @@ async fn an_item_described_only_by_a_fetched_source_is_not_counted_as_bare() {
         .await
         .unwrap();
 
-    let response = app.get("/api/v1/media/facets").await;
+    let response = app.get("/api/v1/library/facets").await;
     let body = response.assert_ok();
     assert_eq!(body["without_metadata"], 0, "TMDB still describes it: {body}");
     let genres: Vec<&str> =

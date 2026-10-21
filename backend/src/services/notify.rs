@@ -502,7 +502,7 @@ pub struct Notification {
     /// and `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,
     /// tvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or
     /// `failed` and the paths as the Arr holds them. The two first carry `task_id`, which
-    /// `GET /logs?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`
+    /// `GET /move-log?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`
     /// and `expires_at`.
     #[schema(value_type = Object)]
     pub data: serde_json::Value,

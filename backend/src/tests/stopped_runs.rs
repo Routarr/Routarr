@@ -36,7 +36,7 @@ async fn applying(app: &TestApp, arr: &FakeArr, ids: &[String]) -> String {
         }
     });
     reached.await.expect("the first move never reached the Arr");
-    started.json["job_id"].as_str().unwrap().to_string()
+    started.json["task_id"].as_str().unwrap().to_string()
 }
 
 async fn statuses(app: &TestApp) -> Vec<String> {
@@ -55,7 +55,7 @@ async fn a_cancelled_apply_stops_before_its_next_move() {
     let (arr, app, ids) = three_films().await;
     let job = applying(&app, &arr, &ids).await;
 
-    let cancelled = app.post(&format!("/api/v1/jobs/{job}/cancel"), serde_json::json!({})).await;
+    let cancelled = app.post(&format!("/api/v1/tasks/{job}/cancel"), serde_json::json!({})).await;
 
     assert_eq!(cancelled.status, 202, "{}", cancelled.json);
     let task = finished(&app, &job).await;
@@ -103,8 +103,8 @@ async fn only_a_running_move_can_be_cancelled() {
     let job = applying(&app, &arr, &ids).await;
     finished(&app, &job).await;
 
-    let ended = app.post(&format!("/api/v1/jobs/{job}/cancel"), serde_json::json!({})).await;
-    let unknown = app.post("/api/v1/jobs/nothing/cancel", serde_json::json!({})).await;
+    let ended = app.post(&format!("/api/v1/tasks/{job}/cancel"), serde_json::json!({})).await;
+    let unknown = app.post("/api/v1/tasks/nothing/cancel", serde_json::json!({})).await;
 
     assert_eq!(ended.status, 409, "{}", ended.json);
     assert_eq!(unknown.status, 404, "{}", unknown.json);

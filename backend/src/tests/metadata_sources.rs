@@ -157,7 +157,7 @@ async fn the_explanation_names_the_source_that_answered() {
     set_order(&app, "arr,tmdb").await;
     app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
-    let response = app.get("/api/v1/media/m-inst-1-10/explain").await;
+    let response = app.get("/api/v1/library/m-inst-1-10/explain").await;
     let explanation = response.assert_ok();
     let condition = &explanation["rule_traces"][0]["conditions"][0];
 
@@ -173,7 +173,7 @@ async fn the_media_page_lists_the_sources_that_contributed() {
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
 
-    let response = app.get("/api/v1/media/m-inst-1-10").await;
+    let response = app.get("/api/v1/library/m-inst-1-10").await;
     let media = response.assert_ok();
     let sources = media["metadata"]["sources"].as_array().unwrap();
 
@@ -188,7 +188,7 @@ async fn the_media_page_lists_the_sources_that_contributed() {
 #[tokio::test]
 async fn the_provider_catalogue_reports_what_each_source_needs() {
     let app = TestApp::new().await;
-    let raw = app.get("/api/v1/metadata/providers").await;
+    let raw = app.get("/api/v1/sources").await;
     let response = raw.assert_ok();
 
     let arr = &response["providers"][0];
@@ -254,7 +254,7 @@ async fn cache_row(app: &TestApp, source: &str, external_id: &str, genres: &str)
 
 /// What the library column says about the first film.
 async fn listed_has_metadata(app: &TestApp) -> bool {
-    app.get("/api/v1/media").await.assert_ok()["data"][0]["has_metadata"] == true
+    app.get("/api/v1/library").await.assert_ok()["data"][0]["has_metadata"] == true
 }
 
 /// A source switched off stops speaking for an item. The engine reads the enabled order, so a
@@ -343,7 +343,7 @@ async fn a_title_known_through_anilist_has_metadata_in_the_library() {
     cache_row(&app, "anilist", "21", r#"["Animation"]"#).await;
     set_order(&app, "arr,anilist").await;
 
-    let explained = app.get(&format!("/api/v1/media/{id}/explain")).await.assert_ok().clone();
+    let explained = app.get(&format!("/api/v1/library/{id}/explain")).await.assert_ok().clone();
     assert!(!explained["metadata"].is_null(), "the engine reads no answer: {explained}");
     assert!(listed_has_metadata(&app).await, "the library disagrees with the engine");
 }
@@ -385,7 +385,7 @@ async fn the_three_metadata_counters_agree_on_one_library() {
         .await;
     set_order(&app, "arr").await;
 
-    let listed = app.get("/api/v1/media?per_page=100").await.assert_ok().clone();
+    let listed = app.get("/api/v1/library?per_page=100").await.assert_ok().clone();
     let without =
         listed["data"].as_array().unwrap().iter().filter(|m| m["has_metadata"] == false).count()
             as i64;
@@ -433,7 +433,7 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     .unwrap();
     set_order(&app, "arr,tmdb").await;
 
-    let listed = app.get("/api/v1/media").await;
+    let listed = app.get("/api/v1/library").await;
     let row = listed.assert_ok()["data"]
         .as_array()
         .unwrap()
@@ -445,7 +445,7 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
 
     // And the engine agrees, which is the whole invariant.
     let explained =
-        app.get(&format!("/api/v1/media/{}/explain", row["id"].as_str().unwrap())).await;
+        app.get(&format!("/api/v1/library/{}/explain", row["id"].as_str().unwrap())).await;
     assert!(
         explained.assert_ok()["metadata"].is_null(),
         "the engine and the list disagree: {}",
@@ -527,11 +527,11 @@ async fn cache_for_the_film(app: &TestApp, field: &str) {
 /// Whether the film is described to the engine, the library column, the
 /// diagnostics and the rule builder's count, in that order.
 async fn described(app: &TestApp) -> [bool; 4] {
-    let listed = app.get("/api/v1/media").await.assert_ok()["data"][0].clone();
+    let listed = app.get("/api/v1/library").await.assert_ok()["data"][0].clone();
     let explained =
-        app.get(&format!("/api/v1/media/{}/explain", listed["id"].as_str().unwrap())).await;
+        app.get(&format!("/api/v1/library/{}/explain", listed["id"].as_str().unwrap())).await;
     let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
-    let facets = app.get("/api/v1/media/facets").await.assert_ok().clone();
+    let facets = app.get("/api/v1/library/facets").await.assert_ok().clone();
     [
         !explained.assert_ok()["metadata"].is_null(),
         listed["has_metadata"] == true,
@@ -565,7 +565,7 @@ async fn with_tmdb_key_in_the_environment() -> TestApp {
 async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
     let app = TestApp::new().await;
 
-    let catalogue = app.get("/api/v1/metadata/providers").await;
+    let catalogue = app.get("/api/v1/sources").await;
     assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr"]));
     let warnings = warnings(&app).await;
     assert!(!warnings.iter().any(|w| w.contains("TMDB")), "{warnings:?}");
@@ -579,7 +579,7 @@ async fn a_start_lists_tmdb_when_its_key_is_in_the_environment() {
 
     maintenance::converge(&app.state).await.unwrap();
 
-    let catalogue = app.get("/api/v1/metadata/providers").await;
+    let catalogue = app.get("/api/v1/sources").await;
     assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr", "tmdb"]));
 }
 

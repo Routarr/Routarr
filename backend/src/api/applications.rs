@@ -20,16 +20,16 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/status", Scope::Read),
     ("GET", "/metrics", Scope::Read),
     ("GET", "/categories", Scope::Read),
-    ("GET", "/media", Scope::Read),
-    ("GET", "/media/{id}", Scope::Read),
-    ("GET", "/media/{id}/explain", Scope::Read),
+    ("GET", "/library", Scope::Read),
+    ("GET", "/library/{id}", Scope::Read),
+    ("GET", "/library/{id}/explain", Scope::Read),
     ("GET", "/route", Scope::Read),
     ("GET", "/decisions", Scope::Read),
-    ("GET", "/overrides", Scope::Read),
-    ("GET", "/jobs", Scope::Read),
-    ("GET", "/jobs/{id}", Scope::Read),
-    ("GET", "/logs", Scope::Read),
-    ("GET", "/logs/export", Scope::Read),
+    ("GET", "/exceptions", Scope::Read),
+    ("GET", "/tasks", Scope::Read),
+    ("GET", "/tasks/{id}", Scope::Read),
+    ("GET", "/move-log", Scope::Read),
+    ("GET", "/move-log/export", Scope::Read),
     // Address and state only: the webhook address carries a token that posts as the Arr.
     ("GET", "/instances", Scope::Read),
     ("GET", "/instances/{id}", Scope::Read),
@@ -42,8 +42,8 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/rules/health", Scope::Read),
     ("GET", "/rules/export", Scope::Read),
     ("GET", "/rule-tests", Scope::Read),
-    ("GET", "/media/facets", Scope::Read),
-    ("GET", "/metadata/providers", Scope::Read),
+    ("GET", "/library/facets", Scope::Read),
+    ("GET", "/sources", Scope::Read),
     // The list only: an archive holds the master key that seals every credential.
     ("GET", "/backups", Scope::Read),
     // Its probe, which reaches every Arr and every source, needs `operate` in the handler.
@@ -57,11 +57,11 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("POST", "/decisions/apply-all", Scope::Operate),
     ("POST", "/decisions/revert", Scope::Operate),
     ("POST", "/decisions/revert-all", Scope::Operate),
-    ("POST", "/overrides", Scope::Write),
-    ("POST", "/media/{id}/keep", Scope::Write),
-    ("DELETE", "/overrides/{id}", Scope::Write),
-    ("PUT", "/overrides/external", Scope::Write),
-    ("DELETE", "/overrides/external", Scope::Write),
+    ("POST", "/exceptions", Scope::Write),
+    ("POST", "/library/{id}/keep", Scope::Write),
+    ("DELETE", "/exceptions/{id}", Scope::Write),
+    ("PUT", "/exceptions/external", Scope::Write),
+    ("DELETE", "/exceptions/external", Scope::Write),
     ("POST", "/rules", Scope::Configure),
     ("PUT", "/rules/{id}", Scope::Configure),
     ("DELETE", "/rules/{id}", Scope::Configure),
@@ -87,6 +87,8 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
 /// call it. HEAD asks what GET does, since it answers the same headers.
 pub fn scope_for(method: &Method, route: &str) -> Option<Scope> {
     let method = if *method == Method::HEAD { &Method::GET } else { method };
+    // A deprecated path asks what its replacement does, from the one row they share.
+    let route = super::deprecated::current(route);
     GRANTS
         .iter()
         .find(|(granted_method, granted_route, _)| {
@@ -112,13 +114,9 @@ pub fn admit(grant: &Grant, request: &axum::extract::Request) -> AppResult<()> {
 /// The route a request asks for, as `METHOD /template`, and the scope it
 /// needs: `None` for a route the owner keeps.
 pub fn asked(request: &axum::extract::Request) -> (String, Option<Scope>) {
-    // The matched template, since a grant names `/media/{id}` and never `/media/42`.
-    let matched = request
-        .extensions()
-        .get::<axum::extract::MatchedPath>()
-        .map(|matched| matched.as_str())
-        .unwrap_or_default();
-    let route = matched.rsplit_once("/api/v1").map_or(matched, |(_, route)| route);
+    // The matched template, since a grant names `/library/{id}` and never `/library/42`. A
+    // deprecated path asks what its replacement does.
+    let route = super::deprecated::route_of(request).unwrap_or_default();
     let method = request.method();
     (format!("{method} {route}"), scope_for(method, route))
 }

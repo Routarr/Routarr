@@ -45,7 +45,7 @@ pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> 
 }
 
 /// Snapshot a library item and pin the category it must keep producing. The metadata is
-/// resolved as `/media/{id}/explain` resolves it, so the case holds the enrichment rules read.
+/// resolved as `/library/{id}/explain` resolves it, so the case holds the enrichment rules read.
 pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,

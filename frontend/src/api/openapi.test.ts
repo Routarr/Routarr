@@ -7,6 +7,7 @@ import {
   inline,
   operations,
   paragraphs,
+  renamed,
   serverUrl,
   typeLabel,
   type OpenApiDocument,
@@ -61,7 +62,16 @@ const DOC: OpenApiDocument = {
         responses: {},
       },
     },
-    '/overrides/by-external-id/{source}/{id}': {
+    '/where': {
+      get: {
+        operationId: 'place_deprecated',
+        tags: ['library'],
+        'x-routarr-scope': 'read',
+        deprecated: true,
+        responses: {},
+      },
+    },
+    '/exceptions/external': {
       put: {
         operationId: 'pin',
         tags: ['library'],
@@ -128,13 +138,20 @@ describe('the API reference', () => {
       apply: 'operate',
       ping: null,
       place: 'read',
+      place_deprecated: 'read',
       pin: 'write',
       unpin: 'write',
     });
   });
 
+  it('lists an old path apart, beside the one that replaced it, never in its group', () => {
+    const library = byTag(DOC).find((group) => group.tag === 'library');
+    expect(library?.operations.map((op) => op.path)).not.toContain('/where');
+    expect(renamed(DOC)).toEqual([{ method: 'get', old: '/where', current: '/route' }]);
+  });
+
   it('keeps every method a path carries', () => {
-    const pinning = operations(DOC).filter((op) => op.path.startsWith('/overrides/'));
+    const pinning = operations(DOC).filter((op) => op.path.startsWith('/exceptions/'));
     expect(pinning.map((op) => [op.method, op.id])).toEqual([
       ['put', 'pin'],
       ['delete', 'unpin'],

@@ -16,7 +16,7 @@ struct Spec {
     value_type: &'static str,
     field: Option<MetadataField>,
     media_types: &'static [&'static str],
-    /// The `GET /media/facets` axis its values are drawn from, so the builder
+    /// The `GET /library/facets` axis its values are drawn from, so the builder
     /// offers what the library holds. Empty where the values are not a closed set.
     suggestions: &'static str,
     /// `any` or `all` where the media side is a list, empty otherwise. With
@@ -74,7 +74,7 @@ pub struct ConditionSpec {
     pub available: bool,
     /// `movie`, `series` or both: where it can ever match.
     pub media_types: &'static [&'static str],
-    /// The `/media/facets` axis its values are drawn from, empty where they
+    /// The `/library/facets` axis its values are drawn from, empty where they
     /// are not a closed set.
     pub suggestions: &'static str,
     /// `any` or `all` for a condition asked both ways, empty otherwise.
@@ -585,7 +585,7 @@ mod tests {
         names
     }
 
-    /// Every axis a `Spec` names is one `/media/facets` answers. The interface
+    /// Every axis a `Spec` names is one `/library/facets` answers. The interface
     /// reads it through a cast that turns a miss into an empty list, and
     /// `check-api-types.py` compares names only, so nothing else sees a rename.
     #[test]

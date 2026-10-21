@@ -5,11 +5,17 @@
         "description": "What a call answers when the caller asked not to wait: the task it started.",
         "properties": {
           "job_id": {
-            "description": "Follow it with `GET /jobs/{job_id}`, whose `result` holds the report.",
+            "deprecated": true,
+            "description": "The same id, under its old name. Read `task_id`.",
+            "type": "string"
+          },
+          "task_id": {
+            "description": "Follow it with `GET /tasks/{task_id}`, whose `result` holds the report.",
             "type": "string"
           }
         },
         "required": [
+          "task_id",
           "job_id"
         ],
         "type": "object"
@@ -1539,7 +1545,7 @@
             "type": "string"
           },
           "suggestions": {
-            "description": "The `/media/facets` axis its values are drawn from, empty where they\nare not a closed set.",
+            "description": "The `/library/facets` axis its values are drawn from, empty where they\nare not a closed set.",
             "type": "string"
           },
           "type": {
@@ -1608,7 +1614,7 @@
         "description": "A title, and the category to force on it.",
         "properties": {
           "media_id": {
-            "description": "The title's id in Routarr, as `/media` lists it.",
+            "description": "The title's id in Routarr, as `/library` lists it.",
             "type": "string"
           },
           "reason": {
@@ -2031,7 +2037,7 @@
             "type": "number"
           },
           "current_category": {
-            "description": "The category the title's current root folder leads to, null when it leads to none: what\n`POST /media/{id}/keep` pins it to.",
+            "description": "The category the title's current root folder leads to, null when it leads to none: what\n`POST /library/{id}/keep` pins it to.",
             "type": [
               "string",
               "null"
@@ -2699,7 +2705,7 @@
             ]
           },
           "media_id": {
-            "description": "The title's id, as `/media` lists it.",
+            "description": "The title's id, as `/library` lists it.",
             "type": [
               "string",
               "null"
@@ -2724,7 +2730,7 @@
             "type": "boolean"
           },
           "task_id": {
-            "description": "The task the write ran in, as `/jobs` lists it and a move notification names it.",
+            "description": "The task the write ran in, as `/tasks` lists it and a move notification names it.",
             "type": [
               "string",
               "null"
@@ -3410,7 +3416,7 @@
             "type": "string"
           },
           "data": {
-            "description": "Ids and counts for a program: the instance, the simulation, how many titles moved. For\n`apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`\nand `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,\ntvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or\n`failed` and the paths as the Arr holds them. The two first carry `task_id`, which\n`GET /logs?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`\nand `expires_at`.",
+            "description": "Ids and counts for a program: the instance, the simulation, how many titles moved. For\n`apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`\nand `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,\ntvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or\n`failed` and the paths as the Arr holds them. The two first carry `task_id`, which\n`GET /move-log?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`\nand `expires_at`.",
             "type": "object"
           },
           "event": {
@@ -5615,7 +5621,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. Its `message` is written in the language set for Routarr's interface, so a program reads `event` and `data`, which never change with it. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /tasks/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. Its `message` is written in the language set for Routarr's interface, so a program reads `event` and `data`, which never change with it. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. A renamed path still answers under its old name for at least two minor releases and six months, marked `deprecated` here, with a `Deprecation` header on every answer. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
@@ -5725,7 +5731,7 @@
             "description": "The task has started, as `Prefer: respond-async` asked.",
             "headers": {
               "Location": {
-                "description": "The task, under `/jobs`.",
+                "description": "The task, under `/tasks`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6173,7 +6179,7 @@
             "description": "The task has started, as `Prefer: respond-async` asked.",
             "headers": {
               "Location": {
-                "description": "The task, under `/jobs`.",
+                "description": "The task, under `/tasks`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6271,7 +6277,7 @@
             "description": "The task has started, as `Prefer: respond-async` asked.",
             "headers": {
               "Location": {
-                "description": "The task, under `/jobs`.",
+                "description": "The task, under `/tasks`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6369,7 +6375,7 @@
             "description": "The task has started, as `Prefer: respond-async` asked.",
             "headers": {
               "Location": {
-                "description": "The task, under `/jobs`.",
+                "description": "The task, under `/tasks`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6467,7 +6473,7 @@
             "description": "The task has started, as `Prefer: respond-async` asked.",
             "headers": {
               "Location": {
-                "description": "The task, under `/jobs`.",
+                "description": "The task, under `/tasks`.",
                 "schema": {
                   "type": "string"
                 }
@@ -6526,1020 +6532,7 @@
         "x-routarr-scope": "operate"
       }
     },
-    "/health": {
-      "get": {
-        "description": "Probes each enabled instance and source and records the result for `/status`. A probe of\nthe same configuration under 30 seconds old is answered again unless `fresh=true`, and a\ncall waits for one running. `probe=false` reads the database alone: instances read\n`unchecked`, sources `connected: null`, and `warnings` repeat the last probe.",
-        "operationId": "health",
-        "parameters": [
-          {
-            "description": "`false` reads the database alone: every enabled instance reads `unchecked`, every source\n`connected: null`, and `warnings` repeat what the last probe found. Defaults to true for\na caller holding the operate scope, false otherwise and for a request another site set\noff. `true` needs the operate scope.",
-            "in": "query",
-            "name": "probe",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "`true` probes again even when a probe of the same configuration ran in the last 30\nseconds, whose findings are otherwise answered again.",
-            "in": "query",
-            "name": "fresh",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            },
-            "description": "The database does not answer: `status` reads `failing`."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Reach every Arr and source, and report",
-        "tags": [
-          "status"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/instances": {
-      "get": {
-        "description": "Their address, kind and last sync, never the Arr's key. For an application key\n`webhook_url` is `null`, since its token posts as the Arr, and `api_key_masked` empty.",
-        "operationId": "list_instances",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/InstanceResponse"
-                  },
-                  "type": "array"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "The Arrs Routarr reads",
-        "tags": [
-          "instances"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/instances/sync": {
-      "post": {
-        "description": "Answers once every instance is read, one report each. One that fails is reported with\nits `error` and stops none of the others. With `respond-async` the task holds the\nreports when it ends, and each instance is also read under a task of its own.",
-        "operationId": "sync_all",
-        "parameters": [
-          {
-            "description": "`respond-async` answers 202 once the task has started, instead of its reports.",
-            "in": "header",
-            "name": "Prefer",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SyncReport"
-                  },
-                  "type": "array"
-                }
-              }
-            }
-          },
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Accepted"
-                }
-              }
-            },
-            "description": "The task has started, as `Prefer: respond-async` asked.",
-            "headers": {
-              "Location": {
-                "description": "The task, under `/jobs`.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "Preference-Applied": {
-                "description": "`respond-async`.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "Retry-After": {
-                "description": "Seconds to wait before the first look at the task.",
-                "schema": {
-                  "format": "int32",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Read every enabled Arr again",
-        "tags": [
-          "instances"
-        ],
-        "x-routarr-scope": "operate"
-      }
-    },
-    "/instances/{id}": {
-      "get": {
-        "operationId": "get_instance",
-        "parameters": [
-          {
-            "description": "The instance's id in Routarr.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InstanceResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "One Arr",
-        "tags": [
-          "instances"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/instances/{id}/sync": {
-      "post": {
-        "description": "A sync of an instance already running answers 409, and so does a disabled\ninstance, with the reason `instance_disabled`.",
-        "operationId": "sync_instance",
-        "parameters": [
-          {
-            "description": "The instance's id.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
-            "in": "header",
-            "name": "Prefer",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SyncReport"
-                }
-              }
-            }
-          },
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Accepted"
-                }
-              }
-            },
-            "description": "The task has started, as `Prefer: respond-async` asked.",
-            "headers": {
-              "Location": {
-                "description": "The task, under `/jobs`.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "Preference-Applied": {
-                "description": "`respond-async`.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "Retry-After": {
-                "description": "Seconds to wait before the first look at the task.",
-                "schema": {
-                  "format": "int32",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Read one Arr again",
-        "tags": [
-          "instances"
-        ],
-        "x-routarr-scope": "operate"
-      }
-    },
-    "/jobs": {
-      "get": {
-        "operationId": "list_tasks",
-        "parameters": [
-          {
-            "description": "Only the tasks in this status.",
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the tasks of this kind.",
-            "in": "query",
-            "name": "kind",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "From 1. Defaults to 1.",
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "From 1 to 200. Defaults to 50.",
-            "in": "query",
-            "name": "per_page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "`result` to have each task carry its report, as `GET /jobs/{job_id}`\ndoes. Left out, `result` is null in the list.",
-            "in": "query",
-            "name": "include",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_Job"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "The tasks, newest first",
-        "tags": [
-          "tasks"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/jobs/{id}": {
-      "get": {
-        "operationId": "get_task",
-        "parameters": [
-          {
-            "description": "The task's id.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Job"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "One task",
-        "tags": [
-          "tasks"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/logs": {
-      "get": {
-        "description": "Each move and revert Routarr asked an Arr for, with its outcome, newest\nfirst.",
-        "operationId": "list_logs",
-        "parameters": [
-          {
-            "description": "Only the writes of this task, as a move notification names it.",
-            "in": "query",
-            "name": "task_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the writes on this instance.",
-            "in": "query",
-            "name": "instance_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the writes of this title.",
-            "in": "query",
-            "name": "media_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`move` or `revert`.",
-            "in": "query",
-            "name": "action",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the writes the Arr took, or only those it did not.",
-            "in": "query",
-            "name": "success",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "Text in the title or the details.",
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "From 1. Defaults to 1.",
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "From 1 to 200. Defaults to 50.",
-            "in": "query",
-            "name": "per_page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_LogEntry"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "What every move did, a page at a time",
-        "tags": [
-          "tasks"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/logs/export": {
-      "get": {
-        "description": "The filters of `/logs` without its paging, up to the newest 50 000 rows. A cell that\nwould start a spreadsheet formula starts with an apostrophe, read as text.",
-        "operationId": "export_logs",
-        "parameters": [
-          {
-            "description": "Only the writes of this task, as a move notification names it.",
-            "in": "query",
-            "name": "task_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the writes on this instance.",
-            "in": "query",
-            "name": "instance_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the writes of this title.",
-            "in": "query",
-            "name": "media_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`move` or `revert`.",
-            "in": "query",
-            "name": "action",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the writes the Arr took, or only those it did not.",
-            "in": "query",
-            "name": "success",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "Text in the title or the details.",
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/csv": {}
-            },
-            "description": "The log as CSV.",
-            "headers": {
-              "X-Routarr-Truncated": {
-                "description": "`true` when the log holds more rows than the export.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "The same log as a CSV file",
-        "tags": [
-          "tasks"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/media": {
-      "get": {
-        "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception forces on it.",
-        "operationId": "list_media",
-        "parameters": [
-          {
-            "description": "Only the titles of this instance.",
-            "in": "query",
-            "name": "instance_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "`movie` or `series`.",
-            "in": "query",
-            "name": "media_type",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the titles the last run sends to this category.",
-            "in": "query",
-            "name": "category",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Part of the title, ASCII letters in any case.",
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the titles with this TMDB id.",
-            "in": "query",
-            "name": "tmdb_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Only the titles with this TheTVDB id.",
-            "in": "query",
-            "name": "tvdb_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Only the titles with this IMDb id, as `tt0133093`.",
-            "in": "query",
-            "name": "imdb_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Only the titles no rule matched at the last run, and those no run has\nread yet, for the \"unclassified\" view.",
-            "in": "query",
-            "name": "unmatched",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "description": "From 1. Defaults to 1.",
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "From 1 to 200. Defaults to 50.",
-            "in": "query",
-            "name": "per_page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_MediaListItem"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "The library, a page at a time",
-        "tags": [
-          "library"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/media/facets": {
-      "get": {
-        "description": "The genres, languages, countries, certifications, tags, series types and folders the\nlibrary holds, each with its title count, and the closed lists of languages and countries.",
-        "operationId": "library_facets",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LibraryFacets"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "The values the library holds, for each condition",
-        "tags": [
-          "library"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/media/{id}": {
-      "get": {
-        "operationId": "get_media",
-        "parameters": [
-          {
-            "description": "The title's id in Routarr.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MediaDetail"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "One title",
-        "tags": [
-          "library"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/media/{id}/explain": {
-      "get": {
-        "description": "Every rule the title was held against, each condition with what it expected and\nfound, and the winner's folder: a simulation's answer for one title, storing nothing.",
-        "operationId": "explain_media",
-        "parameters": [
-          {
-            "description": "The title's id in Routarr.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Explanation"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Where a title goes, and why",
-        "tags": [
-          "library"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/media/{id}/keep": {
-      "post": {
-        "description": "Pins the title to the category of the root folder it is in, so no run proposes to move it,\nand decides it again at once.",
-        "operationId": "keep_title",
-        "parameters": [
-          {
-            "description": "The title's media id.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeepRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OverrideEntry"
-                }
-              }
-            },
-            "headers": {
-              "Location": {
-                "description": "Where the exception is found.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "`reason` is `no_current_folder`, or `folder_unmapped` when the folder leads to no category."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Keep a title where it is",
-        "tags": [
-          "exceptions"
-        ],
-        "x-routarr-scope": "write"
-      }
-    },
-    "/metadata/providers": {
-      "get": {
-        "description": "Each source in the configured order, whether it is enabled, whether it\nneeds a key and holds one, and the fields it answers. Never the key.",
-        "operationId": "list_sources",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProvidersResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "The metadata sources, and what each can answer",
-        "tags": [
-          "status"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/metrics": {
-      "get": {
-        "description": "The text exposition format. A Prometheus scrape sends the key with\n`authorization: credentials`, as a bearer token.",
-        "operationId": "metrics",
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "The metrics."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Prometheus metrics",
-        "tags": [
-          "status"
-        ],
-        "x-routarr-scope": "read"
-      }
-    },
-    "/overrides": {
+    "/exceptions": {
       "get": {
         "description": "A page of them, the newest first.",
         "operationId": "list_exceptions",
@@ -7643,7 +6636,7 @@
         "x-routarr-scope": "write"
       }
     },
-    "/overrides/external": {
+    "/exceptions/external": {
       "delete": {
         "description": "On every copy of the title, or the one on `instance`. `deleted` is false when none\nhad one. 404 when no copy is in the library.",
         "operationId": "unpin_by_external_id",
@@ -7817,9 +6810,1882 @@
         "x-routarr-scope": "write"
       }
     },
-    "/overrides/{id}": {
+    "/exceptions/{id}": {
       "delete": {
         "operationId": "remove_exception",
+        "parameters": [
+          {
+            "description": "The exception's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove an exception",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Probes each enabled instance and source and records the result for `/status`. A probe of\nthe same configuration under 30 seconds old is answered again unless `fresh=true`, and a\ncall waits for one running. `probe=false` reads the database alone: instances read\n`unchecked`, sources `connected: null`, and `warnings` repeat the last probe.",
+        "operationId": "health",
+        "parameters": [
+          {
+            "description": "`false` reads the database alone: every enabled instance reads `unchecked`, every source\n`connected: null`, and `warnings` repeat what the last probe found. Defaults to true for\na caller holding the operate scope, false otherwise and for a request another site set\noff. `true` needs the operate scope.",
+            "in": "query",
+            "name": "probe",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "`true` probes again even when a probe of the same configuration ran in the last 30\nseconds, whose findings are otherwise answered again.",
+            "in": "query",
+            "name": "fresh",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "The database does not answer: `status` reads `failing`."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Reach every Arr and source, and report",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/instances": {
+      "get": {
+        "description": "Their address, kind and last sync, never the Arr's key. For an application key\n`webhook_url` is `null`, since its token posts as the Arr, and `api_key_masked` empty.",
+        "operationId": "list_instances",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstanceResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The Arrs Routarr reads",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/instances/sync": {
+      "post": {
+        "description": "Answers once every instance is read, one report each. One that fails is reported with\nits `error` and stops none of the others. With `respond-async` the task holds the\nreports when it ends, and each instance is also read under a task of its own.",
+        "operationId": "sync_all",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its reports.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SyncReport"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/tasks`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Read every enabled Arr again",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/instances/{id}": {
+      "get": {
+        "operationId": "get_instance",
+        "parameters": [
+          {
+            "description": "The instance's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One Arr",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/instances/{id}/sync": {
+      "post": {
+        "description": "A sync of an instance already running answers 409, and so does a disabled\ninstance, with the reason `instance_disabled`.",
+        "operationId": "sync_instance",
+        "parameters": [
+          {
+            "description": "The instance's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/tasks`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Read one Arr again",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/jobs": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /tasks`, answered as it is until its removal before 1.0. Call `GET /tasks` instead.",
+        "operationId": "list_tasks_deprecated",
+        "parameters": [
+          {
+            "description": "Only the tasks in this status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the tasks of this kind.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "`result` to have each task carry its report, as `GET /tasks/{id}`\ndoes. Left out, `result` is null in the list.",
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The tasks, newest first",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /tasks/{id}`, answered as it is until its removal before 1.0. Call `GET /tasks/{id}` instead.",
+        "operationId": "get_task_deprecated",
+        "parameters": [
+          {
+            "description": "The task's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One task",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/library": {
+      "get": {
+        "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception forces on it.",
+        "operationId": "list_media",
+        "parameters": [
+          {
+            "description": "Only the titles of this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "media_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles the last run sends to this category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Part of the title, ASCII letters in any case.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles with this TMDB id.",
+            "in": "query",
+            "name": "tmdb_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only the titles with this TheTVDB id.",
+            "in": "query",
+            "name": "tvdb_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only the titles with this IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles no rule matched at the last run, and those no run has\nread yet, for the \"unclassified\" view.",
+            "in": "query",
+            "name": "unmatched",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MediaListItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The library, a page at a time",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/library/facets": {
+      "get": {
+        "description": "The genres, languages, countries, certifications, tags, series types and folders the\nlibrary holds, each with its title count, and the closed lists of languages and countries.",
+        "operationId": "library_facets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFacets"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The values the library holds, for each condition",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/library/{id}": {
+      "get": {
+        "operationId": "get_media",
+        "parameters": [
+          {
+            "description": "The title's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDetail"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One title",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/library/{id}/explain": {
+      "get": {
+        "description": "Every rule the title was held against, each condition with what it expected and\nfound, and the winner's folder: a simulation's answer for one title, storing nothing.",
+        "operationId": "explain_media",
+        "parameters": [
+          {
+            "description": "The title's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Explanation"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Where a title goes, and why",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/library/{id}/keep": {
+      "post": {
+        "description": "Pins the title to the category of the root folder it is in, so no run proposes to move it,\nand decides it again at once.",
+        "operationId": "keep_title",
+        "parameters": [
+          {
+            "description": "The title's media id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideEntry"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the exception is found.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`reason` is `no_current_folder`, or `folder_unmapped` when the folder leads to no category."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Keep a title where it is",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/logs": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /move-log`, answered as it is until its removal before 1.0. Call `GET /move-log` instead.",
+        "operationId": "list_logs_deprecated",
+        "parameters": [
+          {
+            "description": "Only the writes of this task, as a move notification names it.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes on this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes of this title.",
+            "in": "query",
+            "name": "media_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`move` or `revert`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes the Arr took, or only those it did not.",
+            "in": "query",
+            "name": "success",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Text in the title or the details.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LogEntry"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What every move did, a page at a time",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/logs/export": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /move-log/export`, answered as it is until its removal before 1.0. Call `GET /move-log/export` instead.",
+        "operationId": "export_logs_deprecated",
+        "parameters": [
+          {
+            "description": "Only the writes of this task, as a move notification names it.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes on this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes of this title.",
+            "in": "query",
+            "name": "media_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`move` or `revert`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes the Arr took, or only those it did not.",
+            "in": "query",
+            "name": "success",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Text in the title or the details.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "The log as CSV.",
+            "headers": {
+              "X-Routarr-Truncated": {
+                "description": "`true` when the log holds more rows than the export.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The same log as a CSV file",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /library`, answered as it is until its removal before 1.0. Call `GET /library` instead.",
+        "operationId": "list_media_deprecated",
+        "parameters": [
+          {
+            "description": "Only the titles of this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "media_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles the last run sends to this category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Part of the title, ASCII letters in any case.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles with this TMDB id.",
+            "in": "query",
+            "name": "tmdb_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only the titles with this TheTVDB id.",
+            "in": "query",
+            "name": "tvdb_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only the titles with this IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles no rule matched at the last run, and those no run has\nread yet, for the \"unclassified\" view.",
+            "in": "query",
+            "name": "unmatched",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MediaListItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The library, a page at a time",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media/facets": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /library/facets`, answered as it is until its removal before 1.0. Call `GET /library/facets` instead.",
+        "operationId": "library_facets_deprecated",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFacets"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The values the library holds, for each condition",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media/{id}": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /library/{id}`, answered as it is until its removal before 1.0. Call `GET /library/{id}` instead.",
+        "operationId": "get_media_deprecated",
+        "parameters": [
+          {
+            "description": "The title's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDetail"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One title",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media/{id}/explain": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /library/{id}/explain`, answered as it is until its removal before 1.0. Call `GET /library/{id}/explain` instead.",
+        "operationId": "explain_media_deprecated",
+        "parameters": [
+          {
+            "description": "The title's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Explanation"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Where a title goes, and why",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media/{id}/keep": {
+      "post": {
+        "deprecated": true,
+        "description": "The old path of `POST /library/{id}/keep`, answered as it is until its removal before 1.0. Call `POST /library/{id}/keep` instead.",
+        "operationId": "keep_title_deprecated",
+        "parameters": [
+          {
+            "description": "The title's media id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideEntry"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the exception is found.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`reason` is `no_current_folder`, or `folder_unmapped` when the folder leads to no category."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Keep a title where it is",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/metadata/providers": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /sources`, answered as it is until its removal before 1.0. Call `GET /sources` instead.",
+        "operationId": "list_sources_deprecated",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The metadata sources, and what each can answer",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "The text exposition format. A Prometheus scrape sends the key with\n`authorization: credentials`, as a bearer token.",
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {}
+            },
+            "description": "The metrics."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Prometheus metrics",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/move-log": {
+      "get": {
+        "description": "Each move and revert Routarr asked an Arr for, with its outcome, newest\nfirst.",
+        "operationId": "list_logs",
+        "parameters": [
+          {
+            "description": "Only the writes of this task, as a move notification names it.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes on this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes of this title.",
+            "in": "query",
+            "name": "media_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`move` or `revert`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes the Arr took, or only those it did not.",
+            "in": "query",
+            "name": "success",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Text in the title or the details.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LogEntry"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What every move did, a page at a time",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/move-log/export": {
+      "get": {
+        "description": "The filters of `/move-log` without its paging, up to the newest 50 000 rows. A cell that\nwould start a spreadsheet formula starts with an apostrophe, read as text.",
+        "operationId": "export_logs",
+        "parameters": [
+          {
+            "description": "Only the writes of this task, as a move notification names it.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes on this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes of this title.",
+            "in": "query",
+            "name": "media_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`move` or `revert`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the writes the Arr took, or only those it did not.",
+            "in": "query",
+            "name": "success",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Text in the title or the details.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "The log as CSV.",
+            "headers": {
+              "X-Routarr-Truncated": {
+                "description": "`true` when the log holds more rows than the export.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The same log as a CSV file",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/overrides": {
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /exceptions`, answered as it is until its removal before 1.0. Call `GET /exceptions` instead.",
+        "operationId": "list_exceptions_deprecated",
+        "parameters": [
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OverrideWithMedia"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The exceptions",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "post": {
+        "deprecated": true,
+        "description": "The old path of `POST /exceptions`, answered as it is until its removal before 1.0. Call `POST /exceptions` instead.",
+        "operationId": "set_exception_deprecated",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideEntry"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new exception is found.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Force a title's category",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/overrides/external": {
+      "delete": {
+        "deprecated": true,
+        "description": "The old path of `DELETE /exceptions/external`, answered as it is until its removal before 1.0. Call `DELETE /exceptions/external` instead.",
+        "operationId": "unpin_by_external_id_deprecated",
+        "parameters": [
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "in": "query",
+            "name": "tmdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's TheTVDB id.",
+            "in": "query",
+            "name": "tvdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the copy on this instance.",
+            "in": "query",
+            "name": "instance",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove a title's exception by the id another service gives it",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      },
+      "put": {
+        "deprecated": true,
+        "description": "The old path of `PUT /exceptions/external`, answered as it is until its removal before 1.0. Call `PUT /exceptions/external` instead.",
+        "operationId": "pin_by_external_id_deprecated",
+        "parameters": [
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "in": "query",
+            "name": "tmdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's TheTVDB id.",
+            "in": "query",
+            "name": "tvdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the copy on this instance.",
+            "in": "query",
+            "name": "instance",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OverrideEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The exceptions set, one per copy."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Force a title's category by the id another service gives it",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/overrides/{id}": {
+      "delete": {
+        "deprecated": true,
+        "description": "The old path of `DELETE /exceptions/{id}`, answered as it is until its removal before 1.0. Call `DELETE /exceptions/{id}` instead.",
+        "operationId": "remove_exception_deprecated",
         "parameters": [
           {
             "description": "The exception's id.",
@@ -9140,7 +10006,7 @@
             "description": "The task has started, as `Prefer: respond-async` asked.",
             "headers": {
               "Location": {
-                "description": "The task, under `/jobs`.",
+                "description": "The task, under `/tasks`.",
                 "schema": {
                   "type": "string"
                 }
@@ -9179,6 +10045,38 @@
         "x-routarr-scope": "operate"
       }
     },
+    "/sources": {
+      "get": {
+        "description": "Each source in the configured order, whether it is enabled, whether it\nneeds a key and holds one, and the fields it answers. Never the key.",
+        "operationId": "list_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The metadata sources, and what each can answer",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
     "/status": {
       "get": {
         "description": "Read from the database alone, so it is cheap enough to poll. `warnings` lists\nthe configuration problems Routarr can see, in the interface language.",
@@ -9207,6 +10105,130 @@
         "summary": "What needs attention",
         "tags": [
           "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/tasks": {
+      "get": {
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "description": "Only the tasks in this status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the tasks of this kind.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "`result` to have each task carry its report, as `GET /tasks/{id}`\ndoes. Left out, `result` is null in the list.",
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The tasks, newest first",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/tasks/{id}": {
+      "get": {
+        "operationId": "get_task",
+        "parameters": [
+          {
+            "description": "The task's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One task",
+        "tags": [
+          "tasks"
         ],
         "x-routarr-scope": "read"
       }

@@ -215,7 +215,7 @@ async fn move_to(
     app.put(&format!("/api/v1/root-folders/{id}/category"), mapped).await.assert_ok();
     let (media_id, _) = row(app, instance, arr_id).await.expect("the title synced");
     let pinned = json!({ "media_id": media_id, "target_category": category });
-    app.post("/api/v1/overrides", pinned).await.assert_ok();
+    app.post("/api/v1/exceptions", pinned).await.assert_ok();
     app.simulate().await;
     let decision: String = sqlx::query_scalar(
         "SELECT id FROM decisions

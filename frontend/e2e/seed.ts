@@ -46,13 +46,13 @@ export async function seedRows(): Promise<void> {
     }),
   });
 
-  const { data: films } = (await api('/media')) as { data: { id: string; title: string }[] };
+  const { data: films } = (await api('/library')) as { data: { id: string; title: string }[] };
   const film = (title: string) => {
     const found = films.find((item) => item.title === title);
     if (!found) throw new Error(`${title} is not in the library`);
     return found.id;
   };
-  await api('/overrides', {
+  await api('/exceptions', {
     method: 'POST',
     body: JSON.stringify({ media_id: film('My Neighbor Totoro'), target_category: 'standard' }),
   });

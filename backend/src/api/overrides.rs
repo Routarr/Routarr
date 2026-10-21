@@ -26,7 +26,7 @@ type OverrideRow = (
 );
 
 /// A page of the exceptions, the newest first: a script pins a whole library
-/// through `PUT /overrides/external`, and one answer holding every pin would
+/// through `PUT /exceptions/external`, and one answer holding every pin would
 /// grow with it.
 pub async fn list(
     State(state): State<AppState>,
@@ -92,7 +92,7 @@ pub async fn create(
         .into_iter()
         .next()
         .ok_or_else(|| AppError::Internal("a pin went unwritten".into()))?;
-    Ok(super::Created::at(&state, format!("/overrides/{}", pinned.id), pinned))
+    Ok(super::Created::at(&state, format!("/exceptions/{}", pinned.id), pinned))
 }
 
 /// What keeping a title where it is takes.
@@ -193,7 +193,7 @@ pub async fn keep(
         created_at: row.4,
         subject: row.5,
     };
-    Ok(super::Created::at(&state, format!("/overrides/{}", entry.id), entry))
+    Ok(super::Created::at(&state, format!("/exceptions/{}", entry.id), entry))
 }
 
 /// The category to force on a title, and why.

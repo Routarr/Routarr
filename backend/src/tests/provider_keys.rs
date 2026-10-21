@@ -64,7 +64,7 @@ async fn every_credential_setting_is_sealed_and_never_read_back() {
         assert_eq!(body[format!("{key}_configured")], true, "the screen cannot tell {key} is set");
         for path in [
             "/api/v1/settings",
-            "/api/v1/metadata/providers",
+            "/api/v1/sources",
             "/api/v1/health?probe=false",
             "/api/v1/config/export",
         ] {

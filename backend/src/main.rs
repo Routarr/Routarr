@@ -237,7 +237,7 @@ fn build_router(state: AppState) -> Router {
         // Which rules never win: the one check between rules, where first match sets its trap.
         .route("/rules/health", get(api::rules::health))
         // What the library holds per axis a condition reads, so a rule need not guess.
-        .route("/media/facets", get(api::media::facets))
+        .route("/library/facets", get(api::media::facets))
         .route("/rule-tests/{id}", delete(api::rule_tests::delete))
         .route("/rules/reorder", post(api::rules::reorder))
         .route(
@@ -245,10 +245,10 @@ fn build_router(state: AppState) -> Router {
             get(api::rules::get_one).put(api::rules::update).delete(api::rules::remove),
         )
         .route("/rules/{id}/duplicate", post(api::rules::duplicate))
-        .route("/media", get(api::media::list))
-        .route("/media/{id}", get(api::media::get_one))
-        .route("/media/{id}/explain", get(api::media::explain))
-        .route("/media/{id}/keep", post(api::overrides::keep))
+        .route("/library", get(api::media::list))
+        .route("/library/{id}", get(api::media::get_one))
+        .route("/library/{id}/explain", get(api::media::explain))
+        .route("/library/{id}/keep", post(api::overrides::keep))
         // Where a title another service names would go, held or not. Stores nothing.
         .route("/route", get(api::media::place))
         .route("/simulate", post(api::simulation::run))
@@ -257,18 +257,18 @@ fn build_router(state: AppState) -> Router {
         .route("/decisions/apply-all", post(api::decisions::apply_all))
         .route("/decisions/revert", post(api::decisions::revert))
         .route("/decisions/revert-all", post(api::decisions::revert_all))
-        .route("/overrides", get(api::overrides::list).post(api::overrides::create))
+        .route("/exceptions", get(api::overrides::list).post(api::overrides::create))
         // Pins by the TMDB, TheTVDB or IMDb id another service gives a title.
         .route(
-            "/overrides/external",
+            "/exceptions/external",
             put(api::overrides::pin_external).delete(api::overrides::unpin_external),
         )
-        .route("/overrides/{id}", delete(api::overrides::remove))
-        .route("/jobs", get(api::jobs::list))
-        .route("/jobs/{id}", get(api::jobs::get_one))
-        .route("/jobs/{id}/cancel", post(api::jobs::cancel))
-        .route("/logs", get(api::logs::list))
-        .route("/logs/export", get(api::logs::export))
+        .route("/exceptions/{id}", delete(api::overrides::remove))
+        .route("/tasks", get(api::jobs::list))
+        .route("/tasks/{id}", get(api::jobs::get_one))
+        .route("/tasks/{id}/cancel", post(api::jobs::cancel))
+        .route("/move-log", get(api::logs::list))
+        .route("/move-log/export", get(api::logs::export))
         .route("/security-log", get(api::security_log::list))
         .route("/security-log/export", get(api::security_log::export))
         .route("/maintenance/purge", post(api::maintenance::purge))
@@ -287,11 +287,32 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/notifications/test", post(api::notifications::test))
         .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
-        .route("/metadata/providers", get(api::metadata::list))
-        .route("/metadata/refresh", post(api::metadata::refresh))
+        .route("/sources", get(api::metadata::list))
+        .route("/sources/refresh", post(api::metadata::refresh))
         .route("/config/export", get(api::config::export))
         .route("/config/import", post(api::config::import))
-        .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));
+        // The old paths of the routes above (`api::deprecated::DEPRECATED_PATHS`), each with its
+        // new path's handlers, answered until their removal before 1.0.
+        .route("/overrides", get(api::overrides::list).post(api::overrides::create))
+        .route(
+            "/overrides/external",
+            put(api::overrides::pin_external).delete(api::overrides::unpin_external),
+        )
+        .route("/overrides/{id}", delete(api::overrides::remove))
+        .route("/jobs", get(api::jobs::list))
+        .route("/jobs/{id}", get(api::jobs::get_one))
+        .route("/jobs/{id}/cancel", post(api::jobs::cancel))
+        .route("/logs", get(api::logs::list))
+        .route("/logs/export", get(api::logs::export))
+        .route("/media", get(api::media::list))
+        .route("/media/facets", get(api::media::facets))
+        .route("/media/{id}", get(api::media::get_one))
+        .route("/media/{id}/explain", get(api::media::explain))
+        .route("/media/{id}/keep", post(api::overrides::keep))
+        .route("/metadata/providers", get(api::metadata::list))
+        .route("/metadata/refresh", post(api::metadata::refresh))
+        .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate))
+        .route_layer(middleware::from_fn(api::deprecated::signal));
 
     // Authenticated by their own per-instance token, outside the API-key middleware.
     let webhooks = Router::new()

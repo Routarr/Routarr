@@ -101,7 +101,7 @@ pub(super) fn declared_routes() -> Vec<(&'static str, String)> {
 }
 
 /// The `public` and `protected` routers of `main.rs`, as written.
-fn route_block() -> &'static str {
+pub(super) fn route_block() -> &'static str {
     // Compile-time, so the test cannot pass by reading nothing: a path that
     // does not resolve fails the build rather than the assertion.
     const MAIN: &str = include_str!("../main.rs");
@@ -377,7 +377,7 @@ async fn the_search_parameter_cannot_inject_or_widen() {
 
     for term in hostile {
         let encoded = urlencode(term);
-        let response = app.get(&format!("/api/v1/media?search={encoded}")).await;
+        let response = app.get(&format!("/api/v1/library?search={encoded}")).await;
         response.assert_ok();
         // The table is intact and nothing was dropped: a follow-up query works.
         let count = response.json["pagination"]["total"].as_i64().unwrap();
@@ -385,7 +385,7 @@ async fn the_search_parameter_cannot_inject_or_widen() {
     }
 
     // And the table really still exists and still holds its row.
-    let all = app.get("/api/v1/media").await;
+    let all = app.get("/api/v1/library").await;
     assert_eq!(all.json["pagination"]["total"], 1);
 }
 
@@ -445,7 +445,7 @@ async fn rule_condition_values_are_inert() {
 
     // Both tables are intact.
     assert_eq!(app.get("/api/v1/rules").await.json.as_array().map(|a| a.len()), Some(1));
-    assert_eq!(app.get("/api/v1/media").await.json["pagination"]["total"], 1);
+    assert_eq!(app.get("/api/v1/library").await.json["pagination"]["total"], 1);
 }
 
 // ------------------------------------------------------ secret leakage

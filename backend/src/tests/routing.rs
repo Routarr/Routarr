@@ -677,7 +677,7 @@ async fn the_explanation_names_the_folder_the_simulation_proposes() {
         );
         assert_eq!(proposed, road, "{media_id} does not take the road the fixture names");
 
-        let explained = app.get(&format!("/api/v1/media/{media_id}/explain")).await;
+        let explained = app.get(&format!("/api/v1/library/{media_id}/explain")).await;
         let panel = explained.assert_ok();
         let shown = (
             panel["target_category"].as_str().unwrap_or_default(),

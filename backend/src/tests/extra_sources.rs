@@ -179,7 +179,7 @@ async fn thetvdb_is_never_asked_about_a_film() {
     app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type, genres)
                    VALUES ('tvdb', '76885', 'movie', '[\"Western\"]')"])
         .await;
-    let explained = app.get("/api/v1/media/m-1/explain").await;
+    let explained = app.get("/api/v1/library/m-1/explain").await;
     assert!(explained.assert_ok()["metadata"].is_null(), "a film read TheTVDB's answer");
 }
 
@@ -631,7 +631,7 @@ async fn every_source_contributes_what_only_it_has() {
         .await
         .unwrap();
 
-    let media = super::TestApp::get(&app, "/api/v1/media/m-1").await;
+    let media = super::TestApp::get(&app, "/api/v1/library/m-1").await;
     let media = media.assert_ok();
     let field_sources = &media["metadata"]["field_sources"];
 
@@ -669,7 +669,7 @@ async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
             .await
             .unwrap();
 
-        let media = app.get("/api/v1/media/m-1").await;
+        let media = app.get("/api/v1/library/m-1").await;
         let metadata = &media.assert_ok()["metadata"];
 
         assert_eq!(metadata["original_language"], read, "{order}, the Arr saying {arr_says}");

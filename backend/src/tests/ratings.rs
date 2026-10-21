@@ -94,7 +94,7 @@ async fn a_region_change_reaches_the_cached_tmdb_rating() {
 
     assert_eq!(app.decided_category().await, "anime", "the US now comes first");
     assert_eq!(facet_values(&app).await, ["PG-13"], "the facets read the same rating");
-    let explained = app.get("/api/v1/media/m-1/explain").await;
+    let explained = app.get("/api/v1/library/m-1/explain").await;
     let metadata = &explained.assert_ok()["metadata"];
     assert_eq!(metadata["certification"], "PG-13");
     assert_eq!(metadata["certification_scale"], "US");
@@ -199,7 +199,7 @@ async fn an_arr_rating_for_a_country_outside_the_regions_is_reported() {
 async fn a_retired_country_is_named_in_the_readers_language() {
     let app = TestApp::new().await;
     app.put("/api/v1/settings", json!({ "settings": { "ui_language": "fr" } })).await.assert_ok();
-    let facets = app.get("/api/v1/media/facets").await;
+    let facets = app.get("/api/v1/library/facets").await;
     let countries =
         facets.assert_ok()["vocabularies"]["origin_countries"].as_array().unwrap().clone();
     let label = |code: &str| {
@@ -240,13 +240,13 @@ async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
 }
 
 async fn facet_values(app: &TestApp) -> Vec<String> {
-    let facets = app.get("/api/v1/media/facets").await;
+    let facets = app.get("/api/v1/library/facets").await;
     let certifications = facets.assert_ok()["certifications"].as_array().unwrap().clone();
     certifications.iter().map(|facet| facet["value"].as_str().unwrap().to_string()).collect()
 }
 
 async fn certification_facet(app: &TestApp, code: &str) -> serde_json::Value {
-    let facets = app.get("/api/v1/media/facets").await;
+    let facets = app.get("/api/v1/library/facets").await;
     facets.assert_ok()["certifications"]
         .as_array()
         .unwrap()

@@ -39,6 +39,15 @@ const DOC: OpenApiDocument = {
         responses: { '202': { description: 'Started, with the job in `Location`.' } },
       },
     },
+    '/proposals/apply': {
+      post: {
+        operationId: 'apply_deprecated',
+        summary: 'Apply chosen decisions',
+        tags: ['decisions'],
+        'x-routarr-scope': 'operate',
+        deprecated: true,
+      },
+    },
   },
   components: {
     schemas: {
@@ -66,6 +75,16 @@ describe('ApiReference', () => {
     expect(within(status as HTMLElement).getByText('no key')).toBeTruthy();
     const decisions = screen.getByRole('heading', { name: 'Decisions' }).closest('section')!;
     expect(within(decisions as HTMLElement).getByText('Operate')).toBeTruthy();
+  });
+
+  it('lists an old path once, beside its new one, and never among the operations', async () => {
+    show();
+    const table = await screen.findByRole('table', { name: 'Deprecated paths' });
+    const row = within(table).getAllByRole('row')[1]!;
+    expect(row).toHaveTextContent('POST /proposals/apply');
+    expect(row).toHaveTextContent('POST /decisions/apply');
+    const decisions = screen.getByRole('heading', { name: 'Decisions' }).closest('section')!;
+    expect(within(decisions).queryByText('/proposals/apply')).toBeNull();
   });
 
   it('marks the contract prose as English and its code as code', async () => {

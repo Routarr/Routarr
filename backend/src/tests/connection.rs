@@ -644,10 +644,10 @@ async fn a_sync_not_waited_for_keeps_the_explanation_on_its_task() {
         .body(axum::body::Body::empty())
         .unwrap();
     let started = app.send(request).await;
-    let task = started.assert_status(StatusCode::ACCEPTED)["job_id"].as_str().unwrap().to_string();
+    let task = started.assert_status(StatusCode::ACCEPTED)["task_id"].as_str().unwrap().to_string();
     let ended = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let job = app.get(&format!("/api/v1/jobs/{task}")).await.assert_ok().clone();
+            let job = app.get(&format!("/api/v1/tasks/{task}")).await.assert_ok().clone();
             if job["status"] != "running" {
                 return job;
             }

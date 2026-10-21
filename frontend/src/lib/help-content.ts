@@ -400,6 +400,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
       'ApiTagRules',
       'ApiTagCategories',
       'ApiTagBackups',
+      'ApiDeprecated',
       'ApiSchemas',
     ],
   },
@@ -408,6 +409,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
 /** What each card's "?" says, by the id its title is drawn with. */
 export const CARD_HELP: Readonly<Record<string, CardHelp>> = {
   Account: { title: 'Account', text: 'HelpCardAccount' },
+  ApiDeprecated: { title: 'ApiDeprecated', text: 'HelpCardApiDeprecated' },
   ApiSchemas: { title: 'ApiSchemas', text: 'HelpCardApiSchemas' },
   ApiTagBackups: { title: 'ApiTagBackups', text: 'HelpCardApiTagBackups' },
   ApiTagCategories: { title: 'ApiTagCategories', text: 'HelpCardApiTagCategories' },

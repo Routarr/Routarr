@@ -29,7 +29,7 @@ pub struct LogEntry {
     pub error_message: Option<String>,
     /// The instance the title is on.
     pub instance_id: Option<String>,
-    /// The title's id, as `/media` lists it.
+    /// The title's id, as `/library` lists it.
     pub media_id: Option<String>,
     /// The title as it read when it moved.
     pub media_title: Option<String>,
@@ -42,7 +42,7 @@ pub struct LogEntry {
     pub subject: Option<String>,
     #[serde(skip)]
     pub subject_key: Option<String>,
-    /// The task the write ran in, as `/jobs` lists it and a move notification names it.
+    /// The task the write ran in, as `/tasks` lists it and a move notification names it.
     pub task_id: Option<String>,
     /// When the write was made, in UTC.
     #[serde(serialize_with = "crate::timestamp::rfc3339")]

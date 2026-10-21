@@ -801,7 +801,7 @@ async fn a_sync_of_every_instance_can_be_followed_to_every_report() {
 
     let started = app.send(preferring_async("/api/v1/instances/sync", serde_json::json!({}))).await;
     assert_eq!(started.status, axum::http::StatusCode::ACCEPTED, "{:?}", started.json);
-    let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    let task = finished(&app, started.json["task_id"].as_str().unwrap()).await;
 
     assert_eq!(task["kind"], "sync_all");
     assert_eq!(task["status"], "success");
@@ -828,7 +828,7 @@ async fn a_sync_of_every_instance_fails_only_when_every_instance_does() {
 
         let started =
             app.send(preferring_async("/api/v1/instances/sync", serde_json::json!({}))).await;
-        let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+        let task = finished(&app, started.json["task_id"].as_str().unwrap()).await;
 
         assert_eq!(task["status"], outcome, "{task}");
         assert_eq!(task["result"].as_array().map(Vec::len), Some(2), "{task}");

@@ -94,7 +94,7 @@ guardrails its question states. Send those names back in `confirm` to go ahead, 
 A call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for \
 it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon \
 as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait \
-before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has \
+before looking: `GET /tasks/{id}` follows it, and its `result` holds the report once it has \
 finished, or its `error` the code the call would have answered. A guardrail's question and any \
 refusal still answer at once.\n\n\
 The notification webhook set in Routarr's settings receives a `Notification` for each failure, \
@@ -109,7 +109,9 @@ delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60
 An application key asks at most ten times a second past a burst of fifty, and takes a backup \
 at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\n\
 From 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. \
-Before it, a minor release may, and its release notes name each change. New operations, new \
+Before it, a minor release may, and its release notes name each change. A renamed path still \
+answers under its old name for at least two minor releases and six months, marked `deprecated` \
+here, with a `Deprecation` header on every answer. New operations, new \
 fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the \
 kinds of a condition) may appear in any release."
     ),
@@ -179,7 +181,7 @@ kinds of a condition) may appear in any release."
         map_folder,
     ),
     components(schemas(ErrorResponse, Notification)),
-    modifiers(&Keys, &Failures, &Scopes),
+    modifiers(&Keys, &Failures, &Scopes, &DeprecatedPaths),
     security(("api_key" = []), ("bearer" = [])),
     tags(
         (name = "status", description = "Whether Routarr is up, and what needs attention."),
@@ -278,6 +280,36 @@ impl Modify for Scopes {
             }
             None => operation.security = Some(Vec::new()),
         });
+    }
+}
+
+/// Each deprecated path (`api::deprecated::DEPRECATED_PATHS`) as a copy of its replacement,
+/// every operation marked deprecated and naming the path to call instead. Last, so a copy
+/// carries the scope of its replacement. The API reference screen pairs a copy with its replacement by the
+/// `_deprecated` suffix of its operation id.
+struct DeprecatedPaths;
+
+impl Modify for DeprecatedPaths {
+    fn modify(&self, document: &mut Document) {
+        for (old, new) in crate::api::deprecated::DEPRECATED_PATHS {
+            let Some(mut item) = document.paths.paths.get(*new).cloned() else { continue };
+            for (method, operation) in [
+                ("GET", &mut item.get),
+                ("POST", &mut item.post),
+                ("PUT", &mut item.put),
+                ("DELETE", &mut item.delete),
+            ] {
+                let Some(operation) = operation else { continue };
+                operation.deprecated = Some(utoipa::openapi::Deprecated::True);
+                operation.operation_id =
+                    operation.operation_id.as_ref().map(|id| format!("{id}_deprecated"));
+                operation.description = Some(format!(
+                    "The old path of `{method} {new}`, answered as it is until its removal \
+                     before 1.0. Call `{method} {new}` instead."
+                ));
+            }
+            document.paths.paths.insert((*old).to_string(), item);
+        }
     }
 }
 
@@ -380,7 +412,7 @@ fn list_categories() {}
 /// for it at the last simulation and the one an exception forces on it.
 #[utoipa::path(
     get,
-    path = "/media",
+    path = "/library",
     tag = "library",
     params(MediaQuery),
     responses((status = 200, body = MediaPage))
@@ -391,7 +423,7 @@ fn list_media() {}
 /// One title
 #[utoipa::path(
     get,
-    path = "/media/{id}",
+    path = "/library/{id}",
     tag = "library",
     params(("id" = String, Path, description = "The title's id in Routarr.")),
     responses((status = 200, body = MediaDetail))
@@ -405,7 +437,7 @@ fn get_media() {}
 /// found, and the winner's folder: a simulation's answer for one title, storing nothing.
 #[utoipa::path(
     get,
-    path = "/media/{id}/explain",
+    path = "/library/{id}/explain",
     tag = "library",
     params(("id" = String, Path, description = "The title's id in Routarr.")),
     responses((status = 200, body = Explanation))
@@ -459,7 +491,7 @@ fn list_decisions() {}
     params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its report."),),
     responses((status = 200, body = SimulationResult), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),)
 )]
@@ -480,7 +512,7 @@ task has started, instead of its report."),),
     responses(
         (status = 200, body = ApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 409, description = "A guardrail asks for a confirmation, named in `confirm`, \
@@ -505,7 +537,7 @@ task has started, instead of its report."),),
     responses(
         (status = 200, body = BatchApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 409, description = "The `batch` confirmation is asked, another apply is \
@@ -529,7 +561,7 @@ task has started, instead of its report."),),
     responses(
         (status = 200, body = ApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 409, description = "A guardrail asks for a confirmation, named in `confirm`, \
@@ -554,7 +586,7 @@ task has started, instead of its report."),),
     responses(
         (status = 200, body = BatchApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 400, description = "No move the filter matches can be reverted.",
@@ -573,7 +605,7 @@ fn revert_all() {}
 /// A page of them, the newest first.
 #[utoipa::path(
     get,
-    path = "/overrides",
+    path = "/exceptions",
     tag = "exceptions",
     params(PageQuery),
     responses((status = 200, body = ExceptionPage))
@@ -587,7 +619,7 @@ fn list_exceptions() {}
 /// title are withdrawn, since the exception now decides.
 #[utoipa::path(
     post,
-    path = "/overrides",
+    path = "/exceptions",
     tag = "exceptions",
     request_body = CreateOverrideRequest,
     responses((status = 201, body = OverrideEntry,
@@ -602,7 +634,7 @@ fn set_exception() {}
 /// and decides it again at once.
 #[utoipa::path(
     post,
-    path = "/media/{id}/keep",
+    path = "/library/{id}/keep",
     tag = "exceptions",
     params(("id" = String, Path, description = "The title's media id.")),
     request_body = KeepRequest,
@@ -619,7 +651,7 @@ fn keep_title() {}
 /// Remove an exception
 #[utoipa::path(
     delete,
-    path = "/overrides/{id}",
+    path = "/exceptions/{id}",
     tag = "exceptions",
     params(("id" = String, Path, description = "The exception's id.")),
     responses((status = 200, body = Deleted))
@@ -634,7 +666,7 @@ fn remove_exception() {}
 /// exception and withdrawing its pending decisions. 404 when no copy is in the library.
 #[utoipa::path(
     put,
-    path = "/overrides/external",
+    path = "/exceptions/external",
     tag = "exceptions",
     params(ExternalTitle),
     request_body = PinRequest,
@@ -650,7 +682,7 @@ fn pin_by_external_id() {}
 /// had one. 404 when no copy is in the library.
 #[utoipa::path(
     delete,
-    path = "/overrides/external",
+    path = "/exceptions/external",
     tag = "exceptions",
     params(ExternalTitle),
     responses((status = 200, body = Deleted))
@@ -663,7 +695,7 @@ fn unpin_by_external_id() {}
 /// The tasks, newest first
 #[utoipa::path(
     get,
-    path = "/jobs",
+    path = "/tasks",
     tag = "tasks",
     params(JobQuery),
     responses((status = 200, body = JobPage))
@@ -674,7 +706,7 @@ fn list_tasks() {}
 /// One task
 #[utoipa::path(
     get,
-    path = "/jobs/{id}",
+    path = "/tasks/{id}",
     tag = "tasks",
     params(("id" = String, Path, description = "The task's id.")),
     responses((status = 200, body = Job))
@@ -696,7 +728,7 @@ fn get_task() {}
     params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its reports."),),
     responses((status = 200, body = Vec<SyncReport>), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),)
 )]
@@ -714,7 +746,7 @@ fn sync_all() {}
     params(("id" = String, Path, description = "The instance's id."), ("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its report."),),
     responses((status = 200, body = SyncReport), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),)
 )]
@@ -751,7 +783,7 @@ fn get_instance() {}
 /// needs a key and holds one, and the fields it answers. Never the key.
 #[utoipa::path(
     get,
-    path = "/metadata/providers",
+    path = "/sources",
     tag = "status",
     responses((status = 200, body = ProvidersResponse))
 )]
@@ -764,7 +796,7 @@ fn list_sources() {}
 /// library holds, each with its title count, and the closed lists of languages and countries.
 #[utoipa::path(
     get,
-    path = "/media/facets",
+    path = "/library/facets",
     tag = "library",
     responses((status = 200, body = LibraryFacets))
 )]
@@ -779,7 +811,7 @@ fn library_facets() {}
 /// first.
 #[utoipa::path(
     get,
-    path = "/logs",
+    path = "/move-log",
     tag = "tasks",
     params(LogQuery),
     responses((status = 200, body = LogPage))
@@ -789,11 +821,11 @@ fn list_logs() {}
 
 /// The same log as a CSV file
 ///
-/// The filters of `/logs` without its paging, up to the newest 50 000 rows. A cell that
+/// The filters of `/move-log` without its paging, up to the newest 50 000 rows. A cell that
 /// would start a spreadsheet formula starts with an apostrophe, read as text.
 #[utoipa::path(
     get,
-    path = "/logs/export",
+    path = "/move-log/export",
     tag = "tasks",
     params(LogFilter),
     responses((status = 200, description = "The log as CSV.", content_type = "text/csv",
@@ -831,7 +863,7 @@ task has started, instead of its report."),),
     responses(
         (status = 200, body = BackupFile),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
-body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+body = Accepted, headers(("Location" = String, description = "The task, under `/tasks`."),
 ("Preference-Applied" = String, description = "`respond-async`."),
 ("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 409, description = "A backup is already running, or one was taken this \

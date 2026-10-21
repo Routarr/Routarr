@@ -95,7 +95,7 @@ async fn a_pending_proposal_keeps_its_folder_as_free_space_changes() {
 
     app.simulate().await;
     assert_eq!(proposed(&app, "m-1").await.1.as_deref(), Some("/movies/anime2"));
-    let explained = app.get("/api/v1/media/m-1/explain").await;
+    let explained = app.get("/api/v1/library/m-1/explain").await;
     assert_eq!(explained.assert_ok()["target_root_folder"], "/movies/anime2");
     let revalidated =
         crate::services::routing::revalidated_targets(&app.state.pool, &["m-1".to_string()])
@@ -121,7 +121,7 @@ async fn a_title_in_any_folder_of_its_set_stays_there() {
     app.simulate().await;
 
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE action = 'move'").await, 0);
-    let explained = app.get("/api/v1/media/m-1/explain").await;
+    let explained = app.get("/api/v1/library/m-1/explain").await;
     let explained = explained.assert_ok();
     assert_eq!(explained["action"], "none");
     assert_eq!(explained["target_root_folder"], "/movies/anime2");
@@ -156,7 +156,7 @@ async fn a_title_in_a_shared_folder_is_kept_there() {
     app.execute(&["UPDATE root_folders SET category = 'standard' WHERE id = 'rf-3'"]).await;
     app.simulate().await;
 
-    let kept = app.post("/api/v1/media/m-1/keep", json!({})).await;
+    let kept = app.post("/api/v1/library/m-1/keep", json!({})).await;
 
     assert_eq!(kept.assert_status(StatusCode::CREATED)["target_category"], "standard");
     app.simulate().await;

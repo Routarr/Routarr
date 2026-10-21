@@ -496,7 +496,7 @@ pub async fn import(
             let values = [pinned.as_slice(), &[("copies", copies.as_str())]].concat();
             report.skipped.push(skip("ImportExceptionOnEveryCopy", &values));
         }
-        // As `POST /overrides` pins: by the importer, withdrawing the proposals it now decides.
+        // As `POST /exceptions` pins: by the importer, withdrawing the proposals it now decides.
         let reason = over.reason.as_deref();
         let by = identity.attribution();
         match super::overrides::pin_in(&mut tx, &media_ids, &category, reason, &by, &localizer)

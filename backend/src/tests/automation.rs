@@ -42,15 +42,15 @@ async fn put(app: &TestApp, path: &str, body: Value) -> TestResponse {
 async fn the_library_is_found_by_the_id_another_service_gives_a_title() {
     let app = two_copies().await;
 
-    let found = app.get("/api/v1/media?tmdb_id=8392").await;
+    let found = app.get("/api/v1/library?tmdb_id=8392").await;
     assert_eq!(found.assert_ok()["pagination"]["total"], 2);
     assert_eq!(found.json["data"][0]["imdb_id"], "tt0096283");
-    let found = app.get("/api/v1/media?imdb_id=tt0096283&instance_id=inst-2").await;
+    let found = app.get("/api/v1/library?imdb_id=tt0096283&instance_id=inst-2").await;
     assert_eq!(found.assert_ok()["pagination"]["total"], 1);
     assert_eq!(found.json["data"][0]["id"], "m-2");
 
     for missing in ["tmdb_id=1", "tvdb_id=8392", "imdb_id=tt0000001"] {
-        let found = app.get(&format!("/api/v1/media?{missing}")).await;
+        let found = app.get(&format!("/api/v1/library?{missing}")).await;
         assert_eq!(found.assert_ok()["pagination"]["total"], 0, "{missing}");
     }
 }
@@ -60,12 +60,12 @@ async fn a_pin_by_external_id_reaches_every_copy_and_an_instance_narrows_it() {
     let app = two_copies().await;
     let pin = json!({ "target_category": "anime", "reason": "a request bot" });
 
-    let set = put(&app, "/api/v1/overrides/external?type=movie&tmdb=8392", pin.clone()).await;
+    let set = put(&app, "/api/v1/exceptions/external?type=movie&tmdb=8392", pin.clone()).await;
     assert_eq!(set.assert_ok().as_array().unwrap().len(), 2, "{:?}", set.json);
     let both = vec![("m-1".into(), "anime".into()), ("m-2".into(), "anime".into())];
     assert_eq!(pins(&app).await, both);
 
-    let path = "/api/v1/overrides/external?type=movie&imdb=tt0096283&instance=inst-2";
+    let path = "/api/v1/exceptions/external?type=movie&imdb=tt0096283&instance=inst-2";
     let removed = app.delete(path).await;
     assert_eq!(removed.assert_ok()["deleted"], true);
     assert_eq!(pins(&app).await, vec![("m-1".into(), "anime".into())]);
@@ -73,7 +73,7 @@ async fn a_pin_by_external_id_reaches_every_copy_and_an_instance_narrows_it() {
     assert_eq!(again.assert_ok()["deleted"], false, "nothing left to remove is not a failure");
 
     let narrowed = json!({ "target_category": "standard" });
-    let path = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
+    let path = "/api/v1/exceptions/external?type=movie&tmdb=8392&instance=inst-1";
     assert_eq!(put(&app, path, narrowed).await.assert_ok().as_array().unwrap().len(), 1);
     assert_eq!(pins(&app).await, vec![("m-1".into(), "standard".into())]);
 }
@@ -84,12 +84,12 @@ async fn a_title_named_twice_or_not_at_all_is_refused_and_one_nobody_holds_is_no
     let pin = json!({ "target_category": "anime" });
 
     for query in ["type=movie", "type=movie&tmdb=8392&imdb=tt0096283", "type=film&tmdb=8392"] {
-        let refused = put(&app, &format!("/api/v1/overrides/external?{query}"), pin.clone()).await;
+        let refused = put(&app, &format!("/api/v1/exceptions/external?{query}"), pin.clone()).await;
         assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{query}: {:?}", refused.json);
     }
-    let missing = put(&app, "/api/v1/overrides/external?type=movie&tmdb=1", pin.clone()).await;
+    let missing = put(&app, "/api/v1/exceptions/external?type=movie&tmdb=1", pin.clone()).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    let missing = put(&app, "/api/v1/overrides/external?type=series&tmdb=8392", pin).await;
+    let missing = put(&app, "/api/v1/exceptions/external?type=series&tmdb=8392", pin).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND, "a movie's id names no series");
     assert!(pins(&app).await.is_empty());
 }
@@ -105,7 +105,7 @@ async fn a_pin_by_external_id_withdraws_the_pending_proposals() {
     assert!(before > 0, "the simulation proposed nothing for the film");
 
     let pin = json!({ "target_category": "anime" });
-    put(&app, "/api/v1/overrides/external?type=movie&tmdb=8392", pin).await.assert_ok();
+    put(&app, "/api/v1/exceptions/external?type=movie&tmdb=8392", pin).await.assert_ok();
 
     let after: i64 = sqlx::query_scalar(pending).fetch_one(&app.state.pool).await.unwrap();
     assert_eq!(after, 0);
@@ -118,7 +118,7 @@ async fn a_pin_by_external_id_withdraws_the_pending_proposals() {
 async fn a_pin_or_unpin_that_changes_nothing_keeps_the_proposals() {
     let app = two_copies().await;
     app.seed_anime_rule().await;
-    let first = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
+    let first = "/api/v1/exceptions/external?type=movie&tmdb=8392&instance=inst-1";
     let pin = json!({ "target_category": "anime" });
     put(&app, first, pin.clone()).await.assert_ok();
     app.simulate().await;
@@ -139,7 +139,7 @@ async fn a_pin_or_unpin_that_changes_nothing_keeps_the_proposals() {
 
     put(&app, first, pin).await.assert_ok();
     assert_eq!(standing("m-1").await, pinned, "repeating a pin withdrew what it produced");
-    let second = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-2";
+    let second = "/api/v1/exceptions/external?type=movie&tmdb=8392&instance=inst-2";
     assert_eq!(app.delete(second).await.assert_ok()["deleted"], false);
     assert_eq!(standing("m-2").await, other, "an unpin that removed nothing withdrew proposals");
 }
@@ -155,7 +155,7 @@ async fn an_asynchronous_preview_keeps_its_decisions_in_the_task() {
     let body = json!({ "persist": false });
     let started = app.send(preferring_async("/api/v1/simulate", body)).await;
     assert_eq!(started.status, StatusCode::ACCEPTED, "{:?}", started.json);
-    let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    let task = finished(&app, started.json["task_id"].as_str().unwrap()).await;
 
     let decisions = task["result"]["decisions"].as_array().expect("decisions in the result");
     assert!(!decisions.is_empty(), "the preview's proposals were dropped: {task}");
@@ -172,7 +172,7 @@ async fn a_preview_is_a_task_of_its_own_kind() {
     app.post("/api/v1/simulate", json!({ "persist": false })).await.assert_ok();
     app.post("/api/v1/simulate", json!({})).await.assert_ok();
 
-    let jobs = app.get("/api/v1/jobs").await;
+    let jobs = app.get("/api/v1/tasks").await;
     let listed = jobs.assert_ok()["data"].as_array().unwrap().clone();
     let mut kinds: Vec<&str> = listed.iter().filter_map(|job| job["kind"].as_str()).collect();
     kinds.sort_unstable();
@@ -193,11 +193,11 @@ async fn the_task_list_carries_a_report_only_when_asked() {
         async move { app.get(path).await.assert_ok()["data"][0]["result"].clone() }
     };
 
-    assert!(report("/api/v1/jobs").await.is_null(), "the list sent a report");
-    let asked = report("/api/v1/jobs?include=result").await;
+    assert!(report("/api/v1/tasks").await.is_null(), "the list sent a report");
+    let asked = report("/api/v1/tasks?include=result").await;
     assert!(asked["decisions"].is_array(), "{asked}");
-    let listed = app.get("/api/v1/jobs").await.assert_ok()["data"][0]["id"].clone();
-    let task = app.get(&format!("/api/v1/jobs/{}", listed.as_str().unwrap())).await;
+    let listed = app.get("/api/v1/tasks").await.assert_ok()["data"][0]["id"].clone();
+    let task = app.get(&format!("/api/v1/tasks/{}", listed.as_str().unwrap())).await;
     assert_eq!(task.assert_ok()["result"], asked);
 }
 
@@ -211,7 +211,7 @@ async fn a_followed_simulation_counts_the_titles_it_evaluated() {
 
     let started = app.send(preferring_async("/api/v1/simulate", json!({}))).await;
     assert_eq!(started.status, StatusCode::ACCEPTED, "{:?}", started.json);
-    let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    let task = finished(&app, started.json["task_id"].as_str().unwrap()).await;
 
     let total = task["result"]["total_media"].as_u64().unwrap();
     assert!(total > 0, "{task}");
@@ -254,7 +254,7 @@ async fn every_long_call_answered_at_once_leaves_its_report_on_the_task() {
         async move {
             let started = app.send(preferring_async(path, body)).await;
             assert_eq!(started.status, StatusCode::ACCEPTED, "{path}: {:?}", started.json);
-            let task = finished(app, started.json["job_id"].as_str().unwrap()).await;
+            let task = finished(app, started.json["task_id"].as_str().unwrap()).await;
             assert_eq!(task["status"], "success", "{path}: {task}");
             assert_eq!(task["result"][counted], 1, "{path} left no report: {task}");
         }
@@ -282,10 +282,10 @@ async fn respond_async_answers_the_started_task_whose_result_holds_the_report() 
     let location = headers[axum::http::header::LOCATION].to_str().unwrap().to_string();
     let bytes = http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes();
     let accepted: Value = serde_json::from_slice(&bytes).unwrap();
-    let job_id = accepted["job_id"].as_str().unwrap();
-    assert_eq!(location, format!("/api/v1/jobs/{job_id}"));
+    let task_id = accepted["task_id"].as_str().unwrap();
+    assert_eq!(location, format!("/api/v1/tasks/{task_id}"));
 
-    let task = finished(&app, job_id).await;
+    let task = finished(&app, task_id).await;
     assert_eq!(task["status"], "success");
     assert_eq!(task["result"]["moves_required"], 2, "{task}");
     assert_eq!(task["result"]["decisions"], json!([]), "the proposals are listed elsewhere");
@@ -308,7 +308,7 @@ async fn an_asynchronous_failure_keeps_its_code() {
 
     let started = app.send(preferring_async("/api/v1/instances/inst-1/sync", json!({}))).await;
     let task =
-        finished(&app, started.assert_status(StatusCode::ACCEPTED)["job_id"].as_str().unwrap())
+        finished(&app, started.assert_status(StatusCode::ACCEPTED)["task_id"].as_str().unwrap())
             .await;
 
     assert_eq!(task["status"], "failed", "{task}");

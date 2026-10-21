@@ -344,7 +344,7 @@ async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting()
     assert_eq!(marked, [fallback.as_str()], "{listed}");
 
     // The engine routes a title no rule matches there.
-    let explained = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    let explained = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
     assert_eq!(explained["target_category"], fallback.as_str(), "{explained}");
 
     // And the guard still protects it: deleting the category the engine falls
