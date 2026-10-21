@@ -1486,6 +1486,8 @@
   "WarnWebhookNeverDelivered": "{instance} n'a encore envoyé aucun webhook à Routarr : un nouveau titre attend donc la prochaine synchro au lieu d'être routé avant son téléchargement. Copiez son URL de webhook depuis Instances dans Radarr ou Sonarr, cochez les événements indiqués, puis appuyez sur Test.",
   "WarnBackupFailed": "La dernière sauvegarde a échoué. L'écran Tâches indique pourquoi.",
   "WarnBackupCopyFailed": "La dernière copie des sauvegardes vers {folder} a échoué. La carte Sauvegardes, dans l'onglet Maintenance des Réglages, indique pourquoi.",
+  "WarnDeprecatedApiCalled": "La clé d'application {name} appelle encore des chemins de l'API qu'une version antérieure à la 1.0 retire : {paths}. Dernier appel le {date}. L'écran Référence de l'API nomme le chemin qui remplace chacun.",
+  "WarnDeprecatedApiCalledPerson": "La clé d'API de Routarr ou une session appelle encore des chemins de l'API qu'une version antérieure à la 1.0 retire : {paths}. Dernier appel le {date}. L'écran Référence de l'API nomme le chemin qui remplace chacun.",
   "WarnBackupOverdue": "Aucune sauvegarde n'a été effectuée depuis deux fois l'intervalle défini. L'écran Tâches affiche les tentatives.",
   "WarnDataDiskLow": "Le disque qui contient les données de Routarr n'a plus que {free} d'espace libre, moins qu'il n'en faut pour une sauvegarde. Libérez de l'espace avant que la base de données ou une sauvegarde n'échoue.",
   "WarnCertificationCountry": "{name} attribue les certifications de {country}, qui ne fait pas partie des régions de certification ({regions}). Ses certifications ne comptent qu'après celles de ces régions : ajoutez {country} aux régions sur l'écran Métadonnées pour qu'elles comptent autant.",

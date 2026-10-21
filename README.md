@@ -225,7 +225,8 @@ Routarr's address, and the browser would then let it act as Routarr.
 ## Monitoring
 
 `/api/v1/metrics` serves Prometheus gauges: the instances, the library, the metadata sources, the
-backups, the disk, and every warning the interface shows, by code and severity. Scrape it with an
+backups, the disk, and every warning the interface shows, by code and severity. A counter adds the
+calls to each deprecated API path, so a script still on one shows up. Scrape it with an
 application key holding the read scope, made on the Applications screen, as a bearer token:
 
 ```yaml
