@@ -1,4 +1,4 @@
-import { onDestroy } from 'svelte';
+import { onDestroy, untrack } from 'svelte';
 
 import { ApiError } from '../api/client';
 import { t } from './i18n.svelte';
@@ -130,10 +130,11 @@ export function createAsync<T>(
   // Reading `deps()` inside the effect is what subscribes to it, so a filter
   // change re-runs the loader: a dependency contract without a dependency
   // array. With no `deps` the effect runs once, which is the load-on-mount
-  // case.
+  // case. The loader runs untracked: state it reads would reload, and cancel,
+  // the load under way whenever that state moved.
   $effect(() => {
     deps?.();
-    void load(true);
+    untrack(() => void load(true));
   });
 
   // `onDestroy` rather than the effect's own cleanup, which also runs before
