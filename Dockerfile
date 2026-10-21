@@ -105,8 +105,9 @@ FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cab
 # `ca-certificates` is load-bearing, not hygiene: reqwest verifies TLS against
 # the *platform's* trust store, so without this package every call to TMDB,
 # OMDb, TheTVDB, AniList and Tenrai fails certificate validation, and so does
-# every Arr reached over HTTPS. It is also what makes a homelab CA work: mount
-# it into /usr/local/share/ca-certificates and run update-ca-certificates.
+# every Arr reached over HTTPS. A homelab CA is mounted beside it and both are
+# named in SSL_CERT_DIR (README, install notes): the read-only root and uid
+# 1000 leave update-ca-certificates nothing it may write.
 RUN apk add --no-cache ca-certificates tzdata
 
 # What the image is, in the vocabulary a registry reads. `licenses` is the one

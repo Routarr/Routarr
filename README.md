@@ -146,6 +146,12 @@ names an archive it can open: restore that one with the server stopped, as above
     in `proxy_pass`, which would remove the prefix.
   - Caddy: `handle /routarr* { reverse_proxy routarr:9876 }`, not `handle_path`, which removes it.
   - Traefik: a ``PathPrefix(`/routarr`)`` rule without a `StripPrefix` middleware.
+- **Your own certificate authority.** An Arr served over HTTPS with a certificate from a homelab
+  CA is reached once Routarr trusts that CA. Mount the folder holding its PEM file read-only, for
+  instance `- ./certs:/certs:ro`, and set `SSL_CERT_DIR=/etc/ssl/certs:/certs`. Every folder it
+  names replaces the image's own store, so `/etc/ssl/certs` comes first and keeps the metadata
+  sources trusted. `update-ca-certificates` is not needed, and cannot run in the read-only
+  container.
 - **No media folder.** Routarr asks Radarr and Sonarr to move the files and reads none of them, so
   it mounts nothing but `config/`. Its `/config` has nothing to do with the `/data` media folder the
   TRaSH guides set up for the Arrs.
