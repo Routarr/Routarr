@@ -399,6 +399,10 @@ pub struct Explanation {
     /// False when the title's instance is switched off: no run reads it, and
     /// the move shown is only what the rules would do.
     pub instance_enabled: bool,
+    /// How each source that finds a work by search found this title, by source id: `mapping`,
+    /// read from the anime identifier table, `shared`, the MyAnimeList id another source found,
+    /// or `search`, by its title and year, which can name another work of the same name.
+    pub identified_by: std::collections::BTreeMap<String, String>,
 }
 
 /// How the engine read one rule for the title.
@@ -439,6 +443,16 @@ pub async fn explain(
 ) -> AppResult<Json<Explanation>> {
     let media = load_media(&state, &id).await?;
     let localizer: Localizer = state.localizer().await;
+    let identified_by: std::collections::BTreeMap<String, String> = sqlx::query_as(
+        "SELECT source, found_by FROM source_identifiers
+          WHERE media_type = ? AND local_key = ? AND external_id IS NOT NULL",
+    )
+    .bind(&media.media_type)
+    .bind(crate::services::metadata::local_key(&media))
+    .fetch_all(&state.pool)
+    .await?
+    .into_iter()
+    .collect();
     let instance_enabled: bool = sqlx::query_scalar("SELECT enabled FROM instances WHERE id = ?")
         .bind(&media.instance_id)
         .fetch_one(&state.pool)
@@ -521,6 +535,7 @@ pub async fn explain(
         }),
         rule_traces,
         instance_enabled,
+        identified_by,
     }))
 }
 

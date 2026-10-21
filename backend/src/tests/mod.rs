@@ -1,5 +1,6 @@
 //! Integration tests driving the real router against an in-memory database.
 
+mod anime_ids;
 mod api;
 mod applications;
 mod arr_clients;

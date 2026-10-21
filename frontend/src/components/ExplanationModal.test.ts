@@ -299,6 +299,27 @@ describe('ExplanationModal', () => {
     expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
   });
 
+  /** A search can name another work of the same title, so the way each id was found is said. */
+  it('says how each anime source found the title', () => {
+    show(
+      explanation({
+        metadata: {
+          genres: [],
+          keywords: [],
+          origin_countries: [],
+          field_sources: {},
+          sources: ['anilist', 'tenrai'],
+        } as unknown as Explanation['metadata'],
+        identified_by: { anilist: 'search', tenrai: 'mapping' },
+      }),
+    );
+
+    expect(screen.getByText(/^anilist found it by its title and year/)).toBeTruthy();
+    expect(
+      screen.getByText('tenrai found it by its identifiers, from the anime identifier table.'),
+    ).toBeTruthy();
+  });
+
   it('lists each score in the catalogue order, its votes beside it, in the reader number form', async () => {
     show(
       explanation({

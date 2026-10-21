@@ -42,6 +42,8 @@ const KNOWN: &[(&str, Kind, &str)] = &[
     ("omdb_daily_requests", Kind::Bounded(1, 1_000_000), "1000"),
     ("metadata_providers", Kind::ProviderList, crate::services::metadata::ARR),
     ("anime_search", Kind::AnimeSearch, crate::services::metadata::ANIME_SEARCH[0]),
+    // Off until somebody turns it on: the download is a request to a third party.
+    ("anime_ids_weekly", Kind::Bool, "false"),
     ("backup_enabled", Kind::Bool, "true"),
     // A week, which is what `jobs::scheduler` clamps this to when it reads it.
     // A wider bound would let the interface accept a number that is silently

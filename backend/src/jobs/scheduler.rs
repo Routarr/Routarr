@@ -332,6 +332,20 @@ pub(crate) async fn tick(
         }
     }
 
+    // Weekly, and only for whoever turned it on: the download is a request to a third party.
+    if state.bool_setting("anime_ids_weekly").await
+        && crate::services::anime_ids::weekly_due(&state.pool).await.unwrap_or(false)
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let by = Attribution::unattended(TRIGGER_SCHEDULE);
+            let origin = crate::services::anime_ids::Origin::Address;
+            if let Err(e) = crate::services::anime_ids::load(&state, &by, origin).await {
+                warn!("The weekly download of the anime identifiers failed: {e}");
+            }
+        });
+    }
+
     // Hourly in wall time: counted in ticks, a long interval would make it every few days.
     let now = tokio::time::Instant::now();
     let maintenance_due =

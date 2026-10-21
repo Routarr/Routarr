@@ -424,12 +424,17 @@ impl FetchingSource {
         }
     }
 
-    /// [`FetchingSource::fetch`], a title the source refuses read as one it
-    /// has nothing about ([`is_a_miss`]), which is stored as an empty answer.
-    pub async fn answer(&self, external_id: &str, media_type: &str) -> AppResult<ProviderMetadata> {
+    /// [`FetchingSource::fetch`], a title the source refuses ([`is_a_miss`]) answered `None`, which
+    /// is stored as an empty answer.
+    pub async fn fetched(
+        &self,
+        external_id: &str,
+        media_type: &str,
+    ) -> AppResult<Option<ProviderMetadata>> {
         match self.fetch(external_id, media_type).await {
-            Err(error) if is_a_miss(&error) => Ok(ProviderMetadata::default()),
-            other => other,
+            Ok(answer) => Ok(Some(answer)),
+            Err(error) if is_a_miss(&error) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
@@ -572,7 +577,7 @@ impl FetchingSource {
 /// Whether a source's refusal is about one title rather than the source: a 404
 /// says it does not have the title, a 400, 410 or 422 that it will never answer
 /// that id or that query. Remembered as an answer, or every pass asks again.
-fn is_a_miss(error: &AppError) -> bool {
+pub fn is_a_miss(error: &AppError) -> bool {
     matches!(error, AppError::ExternalApi { status: 400 | 404 | 410 | 422, .. })
 }
 
@@ -795,24 +800,33 @@ pub fn resolution_key(media_type: &str, local_key: &str) -> String {
     format!("{media_type}\u{1f}{local_key}")
 }
 
+/// How an identifier was found, as `source_identifiers.found_by` holds it.
+pub const BY_SEARCH: &str = "search";
+pub const BY_SHARING: &str = "shared";
+pub const BY_MAPPING: &str = "mapping";
+
 pub async fn remember_identifier(
     pool: &SqlitePool,
     source: &str,
     media_type: &str,
     local_key: &str,
     external_id: Option<&str>,
+    found_by: &str,
 ) -> AppResult<()> {
     sqlx::query(
-        "INSERT INTO source_identifiers (source, media_type, local_key, external_id, resolved_at)
-         VALUES (?, ?, ?, ?, datetime('now'))
+        "INSERT INTO source_identifiers
+                (source, media_type, local_key, external_id, resolved_at, found_by)
+         VALUES (?, ?, ?, ?, datetime('now'), ?)
          ON CONFLICT(source, media_type, local_key) DO UPDATE SET
             external_id = excluded.external_id,
-            resolved_at = excluded.resolved_at",
+            resolved_at = excluded.resolved_at,
+            found_by = excluded.found_by",
     )
     .bind(source)
     .bind(media_type)
     .bind(local_key)
     .bind(external_id)
+    .bind(found_by)
     .execute(pool)
     .await?;
 

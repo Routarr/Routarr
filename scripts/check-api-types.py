@@ -21,6 +21,8 @@ PAIRS: dict[str, str] = {
     "FolderSuggestion": "FolderSuggestion",
     "TemplateOffer": "TemplateOffer",
     "Dismissal": "Dismissal",
+    "AnimeIdsState": "AnimeIdsState",
+    "AnimeIdsLoaded": "AnimeIdsLoaded",
     "CategoryWithUsage": "Category",
     "OverrideWithMedia": "OverrideEntry",
     "MediaListItem": "MediaListItem",

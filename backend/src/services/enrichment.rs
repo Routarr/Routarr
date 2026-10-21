@@ -11,6 +11,7 @@ use tracing::{debug, info, warn};
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobHandle, JobKind};
 use crate::models::{Media, ProviderMetadata};
+use crate::services::anime_ids;
 use crate::services::metadata::{self, Addressing, FetchingSource};
 use crate::services::rate_limit::RateLimiter;
 use crate::services::routing;
@@ -182,7 +183,7 @@ async fn run_enrichment(
                 // Paced before the request, so a 429 is never earned.
                 limiter.acquire().await;
                 sent.fetch_add(1, Ordering::Relaxed);
-                let outcome = source.answer(&external_id, &media_type).await;
+                let outcome = source.fetched(&external_id, &media_type).await;
                 if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent) {
                     closed.store(true, Ordering::Relaxed);
                     return (external_id, media_type, Err(NotAsked::Deferred));
@@ -220,6 +221,13 @@ async fn run_enrichment(
         };
         match result {
             Ok(data) => {
+                // Refused, an id the table named is set aside and the title searched instead.
+                if data.is_none()
+                    && let Err(e) = anime_ids::refuse(&state.pool, source.id(), &external_id).await
+                {
+                    warn!("Could not set aside {} {external_id}: {e}", source.id());
+                }
+                let data = data.unwrap_or_default();
                 let stored =
                     store_metadata(&state.pool, source.id(), &external_id, &media_type, &data)
                         .await;
@@ -360,6 +368,7 @@ async fn resolve_identifiers(
     breaker: &Breaker,
 ) -> AppResult<usize> {
     let known = metadata::resolved_keys(&state.pool, source.id()).await?;
+    let table = anime_ids::Table::load(&state.pool).await?;
     let shared = match metadata::sharing_ids_with(source.id()) {
         Some(other) => metadata::found_identifiers(&state.pool, other).await?,
         None => Default::default(),
@@ -378,10 +387,6 @@ async fn resolve_identifiers(
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for row in rows {
-        let genres = crate::models::genres_from(row.genres.as_deref());
-        if !metadata::may_search(&scope, &genres, row.series_type.as_deref()) {
-            continue;
-        }
         let key = metadata::local_key_of(
             row.tmdb_id,
             row.tvdb_id,
@@ -390,17 +395,29 @@ async fn resolve_identifiers(
             row.year,
         );
         let dedup = metadata::resolution_key(&row.media_type, &key);
-        if known.contains(&dedup) || !seen.insert(dedup.clone()) {
+        if known.contains(&dedup) || seen.contains(&dedup) {
             continue;
         }
-        if let Some(external) = shared.get(&dedup) {
+        // Read whatever the title's genres say: the table holds anime alone, and costs no request.
+        let mapped = table
+            .find(&row.media_type, row.tmdb_id, row.tvdb_id, row.imdb_id.as_deref())
+            .and_then(|ids| ids.of(source.id()))
+            .filter(|external| !table.refused(source.id(), external));
+        let found = match (mapped, shared.get(&dedup)) {
+            (Some(external), _) => Some((external, metadata::BY_MAPPING)),
+            (None, Some(external)) => Some((external.clone(), metadata::BY_SHARING)),
+            (None, None) => None,
+        };
+        if let Some((external, found_by)) = found {
+            seen.insert(dedup);
             let source = source.id();
             if let Err(e) = metadata::remember_identifier(
                 &state.pool,
                 source,
                 &row.media_type,
                 &key,
-                Some(external),
+                Some(&external),
+                found_by,
             )
             .await
             {
@@ -408,6 +425,11 @@ async fn resolve_identifiers(
             }
             continue;
         }
+        let genres = crate::models::genres_from(row.genres.as_deref());
+        if !metadata::may_search(&scope, &genres, row.series_type.as_deref()) {
+            continue;
+        }
+        seen.insert(dedup);
         pending.push((key, row.media_type, row.title, row.year));
     }
 
@@ -457,6 +479,7 @@ async fn resolve_identifiers(
                     &media_type,
                     &key,
                     external_id.as_deref(),
+                    metadata::BY_SEARCH,
                 )
                 .await;
                 if let Err(e) = remembered {
@@ -574,6 +597,17 @@ pub async fn ask_now(
     let scope = state.setting::<String>("anime_search").await;
     let searchable =
         metadata::may_search(&scope, &media.genre_list(), media.series_type.as_deref());
+    let table = anime_ids::Table::for_title(
+        &state.pool,
+        &media.media_type,
+        media.tmdb_id,
+        media.tvdb_id,
+        media.imdb_id.as_deref(),
+    )
+    .await
+    .unwrap_or_default();
+    let mapped_ids =
+        table.find(&media.media_type, media.tmdb_id, media.tvdb_id, media.imdb_id.as_deref());
     for source in state.metadata_sources().await {
         if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             break;
@@ -588,6 +622,9 @@ pub async fn ask_now(
         // A search on record that found nothing is not run again here: the
         // enrichment pass searches again once the miss is old enough.
         let missed = identifiers.get(&searched).is_some_and(Option::is_none);
+        let mapped = mapped_ids
+            .and_then(|ids| ids.of(source.id()))
+            .filter(|external| !table.refused(source.id(), external));
         let shared = metadata::sharing_ids_with(source.id()).and_then(|other| {
             let theirs = (other.to_string(), media.media_type.clone(), metadata::local_key(media));
             identifiers.get(&theirs).cloned().flatten()
@@ -602,7 +639,14 @@ pub async fn ask_now(
         let pace = state.paces.of(&source);
         let external = match (known, shared, source.addressing()) {
             (Some(external), _, _) => external,
+            (None, _, Addressing::Search) if mapped.is_some() => {
+                let external = mapped.unwrap_or_default();
+                fresh.found_by.insert(searched.clone(), metadata::BY_MAPPING);
+                fresh.identifiers.insert(searched, Some(external.clone()));
+                external
+            }
             (None, Some(external), Addressing::Search) => {
+                fresh.found_by.insert(searched.clone(), metadata::BY_SHARING);
                 fresh.identifiers.insert(searched, Some(external.clone()));
                 external
             }
@@ -632,7 +676,7 @@ pub async fn ask_now(
             continue;
         }
         pace.acquire().await;
-        let fetched = source.answer(&external, &media.media_type).await;
+        let fetched = source.fetched(&external, &media.media_type).await;
         if let (Some(quota), Err(error)) = (&quota, &fetched)
             && crate::integrations::is_quota_spent(error)
         {
@@ -642,8 +686,17 @@ pub async fn ask_now(
             continue;
         }
         source.paced_after(&pace, &fetched).await;
-        if let Ok(answer) = fetched {
-            fresh.metadata.insert(key(&external), answer);
+        match fetched {
+            Ok(Some(answer)) => {
+                fresh.metadata.insert(key(&external), answer);
+            }
+            Ok(None) => {
+                if let Err(e) = anime_ids::refuse(&state.pool, source.id(), &external).await {
+                    warn!("Could not set aside {} {external}: {e}", source.id());
+                }
+                fresh.metadata.insert(key(&external), Default::default());
+            }
+            Err(_) => {}
         }
     }
     fresh
@@ -742,13 +795,16 @@ async fn forget_title(
 /// Store what [`ask_now`] found, as a pass stores it, and answer how many
 /// answers that was.
 async fn store_fresh(state: &AppState, fresh: &routing::Fresh) -> AppResult<usize> {
-    for ((source, media_type, local_key), external) in &fresh.identifiers {
+    for (key, external) in &fresh.identifiers {
+        let (source, media_type, local_key) = key;
+        let found_by = fresh.found_by.get(key).copied().unwrap_or(metadata::BY_SEARCH);
         metadata::remember_identifier(
             &state.pool,
             source,
             media_type,
             local_key,
             external.as_deref(),
+            found_by,
         )
         .await?;
     }

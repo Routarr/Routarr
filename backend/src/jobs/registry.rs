@@ -39,6 +39,8 @@ pub enum JobKind {
     Backup,
     /// The archives brought into `ROUTARR_BACKUP_COPY_DIR`, after each backup.
     BackupCopy,
+    /// The anime identifier table, downloaded or imported, then given to the library's titles.
+    AnimeIds,
     /// The unattended loop itself, recorded only when a pass *panicked*.
     ///
     /// Not a job anyone starts: the individual tasks keep their own kinds.
@@ -60,6 +62,7 @@ impl JobKind {
             JobKind::Maintenance => "maintenance",
             JobKind::Backup => "backup",
             JobKind::BackupCopy => "backup_copy",
+            JobKind::AnimeIds => "anime_ids",
             JobKind::Scheduler => "scheduler",
         }
     }

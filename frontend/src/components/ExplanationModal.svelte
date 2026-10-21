@@ -36,6 +36,12 @@
 
   // Cut where the sources go, so the arrows drawn between them mirror.
   const sourcesLine = $derived(t('MetadataSourcesLine', { sources: '\u0000' }).split('\u0000'));
+  /** How a source that finds a work by search found this title, by `identified_by`'s values. */
+  const IDENTIFIED: Record<string, string> = {
+    mapping: 'IdentifiedByMapping',
+    shared: 'IdentifiedByShared',
+    search: 'IdentifiedBySearch',
+  };
 
   /**
    * Each source named and linked to its site, as the sources' terms ask of
@@ -431,6 +437,14 @@
           {#if index > 0}<span class="dir-aware"> → </span>{/if}{@render named(source)}
         {/each}{sourcesLine[1]}
       </p>
+      <!-- A search can name another work of the same title: said, so a wrong match is seen. -->
+      {#each Object.entries(view.identified_by) as [source, how] (source)}
+        <p class="text-muted text-sm">
+          {t(IDENTIFIED[how] ?? 'IdentifiedBySearch', {
+            source: providerOf(source)?.display_name ?? source,
+          })}
+        </p>
+      {/each}
     </div>
   {:else}
     <div class="banner banner-warning">{t('NoMetadataCached')}</div>

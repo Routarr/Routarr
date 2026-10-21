@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod anime_ids;
 pub mod applications;
 pub mod audit;
 pub mod auto_apply;

@@ -325,6 +325,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
       'SettingsMetadataSources',
       'SettingsMetadataCoverage',
       'SourceRefreshTitle',
+      'AnimeIds',
       'SourceCreditsTitle',
     ],
   },
@@ -411,6 +412,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
 /** What each card's "?" says, by the id its title is drawn with. */
 export const CARD_HELP: Readonly<Record<string, CardHelp>> = {
   Account: { title: 'Account', text: 'HelpCardAccount' },
+  AnimeIds: { title: 'AnimeIds', text: 'HelpCardAnimeIds' },
   ApiDeprecated: { title: 'ApiDeprecated', text: 'HelpCardApiDeprecated' },
   ApiSchemas: { title: 'ApiSchemas', text: 'HelpCardApiSchemas' },
   ApiTagBackups: { title: 'ApiTagBackups', text: 'HelpCardApiTagBackups' },

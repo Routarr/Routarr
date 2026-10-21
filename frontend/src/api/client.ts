@@ -27,6 +27,8 @@ import type {
   MappingConflict,
   FolderSuggestion,
   Dismissal,
+  AnimeIdsState,
+  AnimeIdsLoaded,
   BackupFile,
   BackupList,
   Localization,
@@ -421,6 +423,15 @@ export const api = {
     request<unknown>(`/root-folders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getMappingConflicts: (signal?: AbortSignal) =>
     request<MappingConflict[]>('/root-folders/conflicts', { signal }),
+  getAnimeIds: (signal?: AbortSignal) => request<AnimeIdsState>('/sources/anime-ids', { signal }),
+  downloadAnimeIds: () =>
+    followed<AnimeIdsLoaded>('/sources/anime-ids/download', { method: 'POST' }),
+  importAnimeIds: (file: File) =>
+    followed<AnimeIdsLoaded>('/sources/anime-ids/import', {
+      method: 'POST',
+      body: file,
+      headers: { 'Content-Type': 'application/json' },
+    }),
   getFolderSuggestions: (signal?: AbortSignal) =>
     request<FolderSuggestion[]>('/root-folders/suggestions', { signal }),
   dismissFolderSuggestion: (id: string) =>
