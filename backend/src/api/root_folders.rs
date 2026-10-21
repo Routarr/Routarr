@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 use crate::models::*;
+use crate::services::folder_suggestions::{self, Reason};
 use crate::state::AppState;
 
 type RootFolderRow = (
@@ -297,6 +298,178 @@ fn gone_instance(e: sqlx::Error, instance_id: &str) -> AppError {
     }
 }
 
+/// A category suggested for a folder no category leads to yet, read from its name.
+#[derive(Debug, Serialize)]
+pub struct FolderSuggestion {
+    pub root_folder_id: String,
+    pub instance_id: String,
+    pub instance_name: String,
+    pub path: String,
+    /// The category to map, `None` when the name says several and the person picks.
+    pub category: Option<String>,
+    /// Every category the name says, the suggested one alone when it says one.
+    pub choices: Vec<String>,
+    /// Why, in the interface language.
+    pub reason: String,
+    /// The template whose family the name says, while the library holds none of its rules.
+    pub template: Option<TemplateOffer>,
+    pub dismissed: bool,
+}
+
+/// A rule template a suggestion offers, by id and by its name in the interface language.
+#[derive(Debug, Serialize)]
+pub struct TemplateOffer {
+    pub id: &'static str,
+    pub name: String,
+}
+
+/// What a dismissal answers.
+#[derive(Debug, Serialize)]
+pub struct Dismissal {
+    pub dismissed: bool,
+}
+
+/// `GET /root-folders/suggestions`: a category for each unmapped folder of an enabled instance
+/// whose name says one, computed at each read. A category the instance already leads to through
+/// another folder is never suggested, nor one two of its folders would both take.
+pub async fn suggestions(State(state): State<AppState>) -> AppResult<Json<Vec<FolderSuggestion>>> {
+    let localizer = state.localizer().await;
+    let default = AppState::default_category(&state.pool).await?;
+    let known: Vec<String> = sqlx::query_scalar("SELECT name FROM categories ORDER BY name")
+        .fetch_all(&state.pool)
+        .await?;
+    let mapped: std::collections::HashSet<(String, String)> =
+        sqlx::query_as("SELECT instance_id, category FROM root_folders WHERE category IS NOT NULL")
+            .fetch_all(&state.pool)
+            .await?
+            .into_iter()
+            .collect();
+    let templated: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT substr(template, 1, instr(template, '@') - 1) FROM rules
+          WHERE template IS NOT NULL",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let folders: Vec<(String, String, String, String, bool)> = sqlx::query_as(
+        "SELECT rf.id, rf.instance_id, i.name, rf.path,
+                EXISTS(SELECT 1 FROM folder_suggestion_dismissals d
+                        WHERE d.instance_id = rf.instance_id AND d.path = rf.path COLLATE path)
+           FROM root_folders rf JOIN instances i ON i.id = rf.instance_id
+          WHERE rf.category IS NULL AND i.enabled = 1
+          ORDER BY i.name, rf.path",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut found = Vec::new();
+    for (root_folder_id, instance_id, instance_name, path, dismissed) in folders {
+        let Some(mut suggestion) = folder_suggestions::suggest(&path, &known, &localizer, &default)
+        else {
+            continue;
+        };
+        let free = |category: &String| !mapped.contains(&(instance_id.clone(), category.clone()));
+        if suggestion.category.as_ref().is_some_and(|category| !free(category)) {
+            continue;
+        }
+        suggestion.choices.retain(free);
+        if suggestion.choices.is_empty() {
+            continue;
+        }
+        let reason = match &suggestion.reason {
+            Reason::Existing => {
+                let category = suggestion.choices[0].as_str();
+                localizer.translate("FolderSuggestionExisting", &[("category", category)])
+            }
+            Reason::Named(word) => localizer.translate("FolderSuggestionNamed", &[("value", word)]),
+            Reason::Main => localizer.translate("FolderSuggestionMain", &[("category", &default)]),
+            Reason::Ambiguous => localizer.translate("FolderSuggestionAmbiguous", &[]),
+        };
+        let template = suggestion
+            .template
+            .filter(|id| !templated.iter().any(|t| t == id))
+            .and_then(crate::services::templates::find)
+            .map(|template| TemplateOffer {
+                id: template.id,
+                name: localizer.translate(template.name, &[]),
+            });
+        found.push(FolderSuggestion {
+            root_folder_id,
+            instance_id,
+            instance_name,
+            path,
+            category: suggestion.category,
+            choices: suggestion.choices,
+            reason,
+            template,
+            dismissed,
+        });
+    }
+
+    // Two folders of one instance saying one category: the person says which it leads to.
+    let mut said: std::collections::HashMap<(String, String), usize> = Default::default();
+    for each in &found {
+        if let Some(category) = &each.category {
+            *said.entry((each.instance_id.clone(), category.clone())).or_default() += 1;
+        }
+    }
+    for each in &mut found {
+        let key = each.category.clone().map(|category| (each.instance_id.clone(), category));
+        if key.is_some_and(|key| said[&key] > 1) {
+            let category = each.category.take().unwrap_or_default();
+            each.reason = localizer.translate(
+                "FolderSuggestionShared",
+                &[("instance", &each.instance_name), ("category", &category)],
+            );
+        }
+    }
+    Ok(Json(found))
+}
+
+/// `POST /root-folders/{id}/dismissal`: the folder's suggestion stays hidden, through syncs,
+/// until shown again.
+pub async fn dismiss(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Dismissal>> {
+    let stored = sqlx::query(
+        "INSERT INTO folder_suggestion_dismissals (instance_id, path)
+         SELECT instance_id, path FROM root_folders WHERE id = ?
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&id)
+    .execute(&state.pool)
+    .await?;
+    if stored.rows_affected() == 0 && !folder_exists(&state, &id).await? {
+        return Err(AppError::NotFound("No such folder".into()));
+    }
+    Ok(Json(Dismissal { dismissed: true }))
+}
+
+/// `DELETE /root-folders/{id}/dismissal`: the folder's suggestion shows again.
+pub async fn undismiss(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Dismissal>> {
+    if !folder_exists(&state, &id).await? {
+        return Err(AppError::NotFound("No such folder".into()));
+    }
+    sqlx::query(
+        "DELETE FROM folder_suggestion_dismissals
+          WHERE (instance_id, path) IN (SELECT instance_id, path FROM root_folders WHERE id = ?)",
+    )
+    .bind(&id)
+    .execute(&state.pool)
+    .await?;
+    Ok(Json(Dismissal { dismissed: false }))
+}
+
+async fn folder_exists(state: &AppState, id: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM root_folders WHERE id = ?)")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?)
+}
+
 /// A destination as declared.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Declared {
@@ -325,11 +498,16 @@ pub async fn delete(
     crate::race::checked("root_folders::delete", &id).await;
     // The statement is its own check: a sync may promote the folder to the
     // Arr's own at any moment, and that one, with its category, stays.
-    let deleted = sqlx::query("DELETE FROM root_folders WHERE id = ? AND origin = 'declared'")
-        .bind(&id)
-        .execute(&state.pool)
-        .await?
-        .rows_affected();
+    let deleted: Option<String> = sqlx::query_scalar(
+        "DELETE FROM root_folders WHERE id = ? AND origin = 'declared' RETURNING instance_id",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?;
+    if let Some(instance_id) = &deleted {
+        folder_suggestions::forget_dismissals_without_folder(&state.pool, instance_id).await?;
+    }
+    let deleted = u64::from(deleted.is_some());
     if deleted == 0 {
         let still_there: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM root_folders WHERE id = ?)")

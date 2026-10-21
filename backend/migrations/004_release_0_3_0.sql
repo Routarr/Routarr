@@ -92,3 +92,12 @@ CREATE TABLE deprecated_calls (
     logged_on TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (caller_kind, caller_id, method, path)
 );
+
+-- Each folder whose suggested category a person dismissed, by its path on its instance, so a sync
+-- keeps it hidden. Dropped with the instance, or once no folder of the instance holds the path.
+CREATE TABLE folder_suggestion_dismissals (
+    instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (instance_id, path)
+);

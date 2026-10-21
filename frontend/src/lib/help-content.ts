@@ -30,6 +30,7 @@ export const TERMS: Readonly<Record<string, Term>> = {
   Exclusion: { name: 'TermExclusion', text: 'TermTextExclusion' },
   FailedDecisions: { name: 'FailedDecisions', text: 'TermTextFailedDecisions' },
   FolderMapping: { name: 'TermFolderMapping', text: 'TermTextFolderMapping' },
+  FolderSuggestion: { name: 'TermFolderSuggestion', text: 'TermTextFolderSuggestion' },
   Guardrails: { name: 'SettingsTabGuardrails', text: 'TermTextGuardrails' },
   Inaccessible: { name: 'Inaccessible', text: 'TermTextInaccessible' },
   InactiveSource: { name: 'TermInactiveSource', text: 'TermTextInactiveSource' },
@@ -294,6 +295,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
       'Destination',
       'DefaultCategory',
       'Inaccessible',
+      'FolderSuggestion',
     ],
     problems: [
       { problem: 'HelpProblemCategories1', fix: 'HelpFixCategories1', to: '/instances' },
@@ -301,7 +303,7 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
       { problem: 'HelpProblemCategories3', fix: 'HelpFixCategories3', to: '/instances' },
       { problem: 'HelpProblemCategories4', fix: 'HelpFixCategories4' },
     ],
-    cards: ['FolderMappings', 'Categories'],
+    cards: ['FolderSuggestions', 'FolderMappings', 'Categories'],
   },
   '/sources': {
     purpose: 'HelpPurposeMetadataSources',
@@ -427,6 +429,7 @@ export const CARD_HELP: Readonly<Record<string, CardHelp>> = {
   Categories: { title: 'Categories', text: 'HelpCardCategories' },
   DashboardInstances: { title: 'Instances', text: 'HelpCardDashboardInstances' },
   FolderMappings: { title: 'FolderMappings', text: 'HelpCardFolderMappings' },
+  FolderSuggestions: { title: 'FolderSuggestions', text: 'HelpCardFolderSuggestions' },
   GuideRestart: { title: 'GuideTitle', text: 'HelpCardGuideRestart' },
   GuideTitle: { title: 'GuideTitle', text: 'HelpCardGuideTitle' },
   HealthMetadataSources: {

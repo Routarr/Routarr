@@ -3070,6 +3070,62 @@ select.form-select {
   }
 }
 
+/* The categories folder names suggest: the folder and why on the left, the choice on the right. */
+.suggestion-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  background-color: var(--bg-input);
+}
+
+.suggestion-row + .suggestion-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.suggestion-row.is-mapped {
+  background-color: var(--bg-surface);
+}
+
+.suggestion-row.is-dismissed .suggestion-what {
+  opacity: 0.7;
+}
+
+.suggestion-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestion-actions > .form-select {
+  width: auto;
+  min-width: 160px;
+}
+
+.suggestion-foot {
+  display: flex;
+  margin-top: 8px;
+}
+
 /* A line under a template or its preview, with the icon that says its kind. */
 .template-note {
   display: flex;

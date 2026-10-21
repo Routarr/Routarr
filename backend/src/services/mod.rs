@@ -6,6 +6,7 @@ pub mod backup;
 pub mod connection;
 pub mod enrichment;
 pub mod executor;
+pub mod folder_suggestions;
 pub mod maintenance;
 pub mod metadata;
 pub mod notify;

@@ -25,6 +25,8 @@ import type {
   LogEntry,
   MaintenanceReport,
   MappingConflict,
+  FolderSuggestion,
+  Dismissal,
   BackupFile,
   BackupList,
   Localization,
@@ -419,6 +421,12 @@ export const api = {
     request<unknown>(`/root-folders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getMappingConflicts: (signal?: AbortSignal) =>
     request<MappingConflict[]>('/root-folders/conflicts', { signal }),
+  getFolderSuggestions: (signal?: AbortSignal) =>
+    request<FolderSuggestion[]>('/root-folders/suggestions', { signal }),
+  dismissFolderSuggestion: (id: string) =>
+    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'POST' }),
+  restoreFolderSuggestion: (id: string) =>
+    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'DELETE' }),
   updateRootFolderCategory: (id: string, category: string | null, addToSet = false) =>
     request<unknown>(`/root-folders/${id}/category`, {
       method: 'PUT',

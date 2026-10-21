@@ -299,6 +299,11 @@ impl FakeArr {
         self.more_root_folders.lock().expect("lock").push(folder);
     }
 
+    /// From now on the folders `report_root_folder` added are reported no more.
+    pub fn withdraw_reported_root_folders(&self) {
+        self.more_root_folders.lock().expect("lock").clear();
+    }
+
     /// From now on the root folder at `path` is reported as not answering.
     pub fn put_to_sleep(&self, path: &str) {
         self.asleep.lock().expect("lock").push(path.to_string());

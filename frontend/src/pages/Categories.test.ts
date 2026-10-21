@@ -6,7 +6,7 @@ import { renderWithI18n } from '../test/render';
 import { category, instance as fixtureInstance } from '../test/fixtures';
 import { statusRevision } from '../lib/status.svelte';
 import { api, ApiError } from '../api/client';
-import type { Category, MappingConflict, RootFolder } from '../api/types';
+import type { Category, FolderSuggestion, MappingConflict, RootFolder } from '../api/types';
 import { answerConfirmation } from '../test/confirm';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
@@ -44,7 +44,9 @@ function show(
   conflicts: MappingConflict[] = [],
   // One instance is the usual install, and a second makes the form's choice observable.
   instances = [instance('i1', 'Radarr')],
+  suggestions: FolderSuggestion[] = [],
 ) {
+  vi.spyOn(api, 'getFolderSuggestions').mockResolvedValue(suggestions);
   vi.spyOn(api, 'getRootFolders').mockResolvedValue(folders);
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   vi.spyOn(api, 'getMappingConflicts').mockResolvedValue(conflicts);
@@ -534,5 +536,163 @@ describe('for a reader', () => {
     expect(offered()).toEqual([]);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.queryByLabelText('Destination folder')).toBeNull();
+  });
+});
+
+function suggestion(over: Partial<FolderSuggestion> = {}): FolderSuggestion {
+  return {
+    root_folder_id: 'rf-anime',
+    instance_id: 'i1',
+    instance_name: 'Radarr',
+    path: '/movies/anime',
+    category: 'anime',
+    choices: ['anime'],
+    reason: 'The folder name says anime.',
+    template: { id: 'anime', name: 'Anime' },
+    dismissed: false,
+    ...over,
+  };
+}
+
+const unmapped = (id: string, path: string) => folder({ id, path, category: null });
+
+describe('folder suggestions', () => {
+  /**
+   * A category the library lacks is made, then the folder mapped, and the row turns into what
+   * was done: an undo, and the template's rules on that category.
+   */
+  it('maps a suggested folder, making its category first, and offers the rules after', async () => {
+    const create = vi
+      .spyOn(api, 'createCategory')
+      .mockResolvedValue(category({ id: 'c-anime', name: 'anime' }));
+    const map = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
+    show([unmapped('rf-anime', '/movies/anime')], [category({ name: 'standard' })], [], undefined, [
+      suggestion(),
+    ]);
+
+    const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+    expect(within(card).getByText('The folder name says anime.')).toBeTruthy();
+    await fireEvent.click(within(card).getByRole('button', { name: 'Map – /movies/anime' }));
+
+    await screen.findByText('/movies/anime is mapped to anime.');
+    expect(create).toHaveBeenCalledWith({ name: 'anime' });
+    expect(map).toHaveBeenCalledWith('rf-anime', 'anime');
+    const rules = within(card).getByRole('link', { name: 'Add the Anime rules – /movies/anime' });
+    expect(rules.getAttribute('href')).toBe('/rules?template=anime&category=anime');
+    expect(within(card).getByRole('button', { name: 'Undo – /movies/anime' })).toBeTruthy();
+  });
+
+  it('undoes a map, removing the category it made and nothing else', async () => {
+    vi.spyOn(api, 'createCategory').mockResolvedValue(category({ id: 'c-anime', name: 'anime' }));
+    const map = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
+    const remove = vi.spyOn(api, 'deleteCategory').mockResolvedValue({});
+    const kids = suggestion({
+      root_folder_id: 'rf-kids',
+      path: '/movies/kids',
+      category: 'kids',
+      choices: ['kids'],
+      template: null,
+    });
+    show(
+      [unmapped('rf-anime', '/movies/anime'), unmapped('rf-kids', '/movies/kids')],
+      [category({ name: 'standard' }), category({ id: 'c-kids', name: 'kids' })],
+      [],
+      undefined,
+      [suggestion(), kids],
+    );
+    const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+
+    await fireEvent.click(within(card).getByRole('button', { name: 'Map – /movies/kids' }));
+    await fireEvent.click(await within(card).findByRole('button', { name: 'Undo – /movies/kids' }));
+    await screen.findByText('/movies/kids leads to no category again.');
+    expect(map).toHaveBeenLastCalledWith('rf-kids', null);
+    expect(remove).not.toHaveBeenCalled();
+
+    await fireEvent.click(within(card).getByRole('button', { name: 'Map – /movies/anime' }));
+    await fireEvent.click(
+      await within(card).findByRole('button', { name: 'Undo – /movies/anime' }),
+    );
+    await waitFor(() => expect(remove).toHaveBeenCalledWith('c-anime'));
+  });
+
+  /** An ambiguous name waits for a choice, and Map all leaves it, saying what it mapped. */
+  it('maps every row that names one category, and leaves a choice to the person', async () => {
+    vi.spyOn(api, 'createCategory').mockResolvedValue(category({ name: 'x' }));
+    const map = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
+    const ambiguous = suggestion({
+      root_folder_id: 'rf-both',
+      path: '/movies/kids-anime',
+      category: null,
+      choices: ['kids', 'anime'],
+      reason: 'The folder name says several categories: pick the one it holds.',
+      template: null,
+    });
+    const docs = suggestion({
+      root_folder_id: 'rf-docs',
+      path: '/movies/docs',
+      category: 'documentaries',
+      choices: ['documentaries'],
+    });
+    show([], [category({ name: 'standard' })], [], undefined, [suggestion(), ambiguous, docs]);
+    const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+
+    expect(within(card).getByRole('button', { name: 'Map – /movies/kids-anime' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    await fireEvent.click(within(card).getByRole('button', { name: 'Map all' }));
+
+    await screen.findByText('Folders mapped: 2.');
+    expect(map.mock.calls.map(([id]) => id)).toEqual(['rf-anime', 'rf-docs']);
+  });
+
+  it('says which folders a Map all could not map, and maps the others', async () => {
+    vi.spyOn(api, 'createCategory').mockResolvedValue(category({ name: 'x' }));
+    vi.spyOn(api, 'updateRootFolderCategory').mockImplementation(async (id) => {
+      if (id === 'rf-docs') throw new ApiError('Taken meanwhile.', 409, 'conflict');
+      return {};
+    });
+    const docs = suggestion({
+      root_folder_id: 'rf-docs',
+      path: '/movies/docs',
+      category: 'documentaries',
+      choices: ['documentaries'],
+    });
+    show([], [category({ name: 'standard' })], [], undefined, [suggestion(), docs]);
+    const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+
+    await fireEvent.click(within(card).getByRole('button', { name: 'Map all' }));
+
+    await screen.findByText('Folders mapped: 1. These could not be:');
+    expect(screen.getByText('/movies/docs: Taken meanwhile.')).toBeTruthy();
+  });
+
+  /** Dismissed, a row leaves the list until asked for, and comes back on demand. */
+  it('hides a dismissed suggestion and shows it again on demand', async () => {
+    const dismiss = vi.spyOn(api, 'dismissFolderSuggestion').mockResolvedValue({ dismissed: true });
+    const restore = vi
+      .spyOn(api, 'restoreFolderSuggestion')
+      .mockResolvedValue({ dismissed: false });
+    show([], [category({ name: 'standard' })], [], undefined, [suggestion()]);
+    const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+
+    vi.spyOn(api, 'getFolderSuggestions').mockResolvedValue([suggestion({ dismissed: true })]);
+    await fireEvent.click(within(card).getByRole('button', { name: 'Dismiss – /movies/anime' }));
+    expect(dismiss).toHaveBeenCalledWith('rf-anime');
+    await waitFor(() => expect(within(card).queryByText('/movies/anime')).toBeNull());
+
+    await fireEvent.click(
+      within(card).getByRole('button', { name: 'Show the dismissed suggestions (1)' }),
+    );
+    await fireEvent.click(
+      within(card).getByRole('button', { name: 'Suggest again – /movies/anime' }),
+    );
+    expect(restore).toHaveBeenCalledWith('rf-anime');
+  });
+
+  it('shows no card while no folder name suggests anything', async () => {
+    show([folder()], [category({ name: 'standard' })]);
+    await screen.findByText('/data/films');
+    expect(screen.queryByRole('region', { name: 'Suggested from folder names' })).toBeNull();
   });
 });

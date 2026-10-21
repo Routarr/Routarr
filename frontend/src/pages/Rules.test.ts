@@ -623,6 +623,19 @@ describe('the templates', () => {
     window.history.replaceState({}, '', '/rules');
   });
 
+  /** A folder just mapped sends its template here, on the category it now leads to. */
+  it('opens the template a mapped folder offers, on the category of that folder', async () => {
+    window.history.replaceState({}, '', '/rules?template=documentaries&category=docus');
+    vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
+    vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    show([rule()]);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Category')).toHaveProperty('value', 'docus');
+    expect(window.location.search).toBe('');
+    window.history.replaceState({}, '', '/rules');
+  });
+
   /** A household language the library holds no film in is still named, not a bare code. */
   it('names the languages the household watches in from the whole vocabulary', async () => {
     vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({

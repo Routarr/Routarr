@@ -35,7 +35,7 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { handFocus } from '../lib/focus';
   import { href } from '../lib/router.svelte';
-  import { takeQueryFlag } from '../api/onboarding';
+  import { takeQueryFlag, takeQueryValue } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -105,6 +105,16 @@
 
   const templates = createAsync((signal) => api.getTemplates(signal));
   let choosing = $state<TemplateSummary | null>(null);
+
+  // Sent from a folder just mapped: its template's dialog opens on that folder's category.
+  let templateRequested = takeQueryValue('template');
+  const categoryRequested = takeQueryValue('category');
+  $effect(() => {
+    if (templateRequested === null || !templates.data || access.readOnly) return;
+    const found = templates.data.find((template) => template.id === templateRequested);
+    templateRequested = null;
+    if (found) choosing = { ...found, category: categoryRequested ?? found.category };
+  });
 
   // Sent to `#templates` by the guide or the header, the gallery takes the focus once drawn.
   let templatesRequested = $state(window.location.hash === '#templates');
