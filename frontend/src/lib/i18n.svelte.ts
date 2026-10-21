@@ -84,6 +84,7 @@ function use(dictionary: Localization): void {
   // the interface around with nothing to change here.
   state.direction = dictionary.direction;
   document.documentElement.dir = state.direction;
+  applyTheme(dictionary.theme);
 }
 
 /**

@@ -29,6 +29,11 @@ interface NavItem extends Route {
   icon: Component<LucideProps>;
 }
 
+interface NavGroup {
+  key: string | null;
+  items: NavItem[];
+}
+
 /**
  * The icon each destination is drawn with. Keyed by path rather than written
  * into the route table so the table stays readable without a Svelte runtime.
@@ -67,10 +72,20 @@ export function iconFor(route: Route): Component<LucideProps> {
  * the command palette searches it, and two copies of a route table is how a
  * destination ends up reachable from one and not the other.
  */
-export const GROUPS: { key: string | null; items: NavItem[] }[] = ROUTE_GROUPS.map((group) => ({
+const GROUPS: NavGroup[] = ROUTE_GROUPS.map((group) => ({
   key: group.key,
   items: group.items.map((route) => ({ ...route, icon: iconFor(route) })),
 }));
 
-/** Every destination, flat: what a search over the navigation reads. */
-export const DESTINATIONS: NavItem[] = GROUPS.flatMap((group) => group.items);
+/** The groups offered to the owner, or to a reader, who is offered no screen of the owner's. */
+export function groupsFor(readOnly: boolean): NavGroup[] {
+  if (!readOnly) return GROUPS;
+  return GROUPS.map((group) => ({
+    key: group.key,
+    items: group.items.filter((item) => !item.owner),
+  })).filter((group) => group.items.length > 0);
+}
+
+/** Every destination offered, flat: what a search over the navigation reads. */
+export const destinationsFor = (readOnly: boolean): NavItem[] =>
+  groupsFor(readOnly).flatMap((group) => group.items);

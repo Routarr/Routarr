@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
 import { template, templatePreview } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
+import { publishAccess } from '../lib/access.svelte';
 import TemplateDialog from './TemplateDialog.svelte';
 import type { Facet, TemplateSummary, TemplateTitle } from '../api/types';
 
@@ -296,5 +297,21 @@ describe('TemplateDialog', () => {
 
     expect(await screen.findByText('The category name is refused.')).toBeTruthy();
     expect(onAdded).not.toHaveBeenCalled();
+  });
+});
+
+describe('for a reader', () => {
+  /** Adding a template writes rules, which a reader is refused. */
+  it('offers the add to the owner and not to a reader', async () => {
+    vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    open(template());
+    expect(await screen.findByRole('button', { name: 'Add' })).toBeInTheDocument();
+    cleanup();
+
+    publishAccess(true);
+    open(template());
+
+    await screen.findByRole('button', { name: 'Cancel' });
+    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
   });
 });

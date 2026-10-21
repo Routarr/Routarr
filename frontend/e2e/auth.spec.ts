@@ -44,6 +44,24 @@ test('the provider signs the browser in @oidc', async ({ page }) => {
 });
 
 /**
+ * A member of the read group reads and changes nothing: the shell says so, offers none of the
+ * owner's screens, and a screen keeps its rows and drops its writes.
+ */
+test('a member of the read group signs in to read only @oidc', async ({ page, request }) => {
+  await request.post(`${process.env.ROUTARR_E2E_OIDC}/next`, {
+    data: { sub: 'e2e-reader', groups: ['e2e-family'] },
+  });
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Sign in with your provider' }).click();
+
+  await expect(page.getByRole('status', { name: 'Read only' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Rules', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Rules' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New rule' })).toHaveCount(0);
+});
+
+/**
  * The first screen every new user sees, in each mode: the one the sweep of the
  * application screens never reaches, since it opens behind a session.
  */

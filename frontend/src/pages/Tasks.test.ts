@@ -7,6 +7,7 @@ import { job, paginated } from '../test/fixtures';
 import { nthCall } from '../test/spy';
 import { api } from '../api/client';
 import Tasks from './Tasks.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import { answerConfirmation } from '../test/confirm';
 
 /**
@@ -152,5 +153,23 @@ describe('Tasks', () => {
     expect(getJobs.mock.calls.length).toBe(settled);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(getJobs.mock.calls.length).toBeGreaterThan(settled);
+  });
+});
+
+describe('for a reader', () => {
+  /** A stop is a write to a running task, which a reader is refused. */
+  it('offers the owner the stop of a running apply, and a reader none', async () => {
+    vi.spyOn(api, 'getJobs').mockResolvedValue(
+      paginated([job({ id: 'j-apply', kind: 'apply', status: 'running' })]),
+    );
+    const { unmount } = show();
+    expect(await screen.findByRole('button', { name: /^Stop/ })).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    expect(await screen.findByRole('row', { name: /Apply/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Stop/ })).toBeNull();
   });
 });

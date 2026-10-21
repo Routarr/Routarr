@@ -51,15 +51,16 @@ fn shown(
     let key_set = key_set(state, &instance);
     let response =
         InstanceResponse::from_instance(instance, &state.config.base_path, localizer, key_set);
-    match identity.application {
-        Some(_) => InstanceResponse {
+    // The webhook address carries a token that posts as the Arr.
+    match identity.is_owner() {
+        false => InstanceResponse {
             webhook_url: None,
             webhook_path: None,
             webhook_token: None,
             api_key_masked: String::new(),
             ..response
         },
-        None => response,
+        true => response,
     }
 }
 

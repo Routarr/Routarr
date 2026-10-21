@@ -103,6 +103,9 @@
               <span class="text-md">{session.subject}</span>
             {/if}
             <span class="badge badge-kind">{t(`SessionSource${capitalize(session.source)}`)}</span>
+            {#if session.reach === 'read'}
+              <span class="badge badge-value muted">{t('ReadOnly')}</span>
+            {/if}
             {#if session.current}
               <span class="badge badge-info">{t('ThisSession')}</span>
             {/if}

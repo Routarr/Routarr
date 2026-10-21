@@ -20,8 +20,12 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('App', () => {
   it('reports a screen whose code no longer loads, and offers a reload', async () => {
-    vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
     vi.spyOn(api, 'getOnboarding').mockResolvedValue(onboardingStatus([], { state: 'done' }));
+    vi.spyOn(api, 'getMe').mockResolvedValue({
+      subject: 'admin',
+      expires_at: null,
+      read_only: false,
+    });
     vi.spyOn(api, 'authMode').mockResolvedValue({
       mode: 'apikey',
       api_key_configured: true,

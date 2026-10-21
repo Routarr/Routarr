@@ -7,6 +7,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { RefreshCw } from '../lib/icons';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { access } from '../lib/access.svelte';
   import { invalidateStatus, statusRevision } from '../lib/status.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
@@ -62,16 +63,18 @@
     {#each asked as provider (provider.id)}
       <div class="source-row">
         <span class="source-name">{provider.display_name}</span>
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          disabled={running !== null}
-          aria-label="{t('SourceRefresh')} – {provider.display_name}"
-          onclick={() => void refresh(provider)}
-        >
-          <RefreshCw size={14} />
-          {t('SourceRefresh')}
-        </button>
+        {#if !access.readOnly}
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            disabled={running !== null}
+            aria-label="{t('SourceRefresh')} – {provider.display_name}"
+            onclick={() => void refresh(provider)}
+          >
+            <RefreshCw size={14} />
+            {t('SourceRefresh')}
+          </button>
+        {/if}
       </div>
     {/each}
   </div>

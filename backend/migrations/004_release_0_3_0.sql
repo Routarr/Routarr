@@ -73,3 +73,7 @@ CREATE TABLE backup_copy_folders (
     path TEXT PRIMARY KEY,
     adopted_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- What a person signed in may reach: everything, or what an application key's read scope reads.
+-- Set at sign-in from the OIDC read lists and kept for the session.
+ALTER TABLE sessions ADD COLUMN reach TEXT NOT NULL DEFAULT 'full' CHECK (reach IN ('full', 'read'));

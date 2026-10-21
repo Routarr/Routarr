@@ -10,6 +10,7 @@ import { media as film, explainedMedia } from '../test/fixtures';
 import type { MediaListItem } from '../api/types';
 import { api } from '../api/client';
 import { router } from '../lib/router.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import CommandPalette from './CommandPalette.svelte';
 
 /**
@@ -371,5 +372,21 @@ describe('CommandPalette', () => {
     await userEvent.click(within(group).getByRole('option', { name: /Quokka/ }));
 
     expect(onHelp).toHaveBeenCalledWith(SCREENS.find((path) => HELP[path]!.terms.includes(term)));
+  });
+});
+
+describe('for a reader', () => {
+  /** A destination a reader is refused would open on a refusal. */
+  it('offers a reader no screen the owner alone reads', async () => {
+    publishAccess(true);
+    show();
+
+    const options = await screen.findAllByRole('option');
+    const names = options.map((option) => option.querySelector('.palette-name')?.textContent);
+    expect(options).toHaveLength(SCREENS.length - 4);
+    for (const name of ['Settings', 'Metadata sources', 'Applications', 'Security log']) {
+      expect(names).not.toContain(name);
+    }
+    expect(names).toContain('Simulation');
   });
 });

@@ -24,6 +24,7 @@
     type TitleFilter,
   } from '../components/DecisionFilterFields.svelte';
   import { reportMoves } from '../lib/moves';
+  import { access } from '../lib/access.svelte';
 
   const STATUS_TONE: Record<string, string> = {
     applied: 'badge-success',
@@ -303,7 +304,7 @@
   <ErrorBanner message={runs.error} onDismiss={() => (runs.error = null)} />
 
   <ErrorBanner message={revertible.error} onDismiss={() => (revertible.error = null)} />
-  {#if revertible.data}
+  {#if revertible.data && !access.readOnly}
     <div class="card">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <label class="flex items-center gap-2 cursor-pointer">
@@ -404,7 +405,7 @@
                   {/if}
                 </td>
                 <td>
-                  {#if decision.revertible}
+                  {#if decision.revertible && !access.readOnly}
                     <button
                       id={revertId(index)}
                       class="btn btn-secondary btn-sm"

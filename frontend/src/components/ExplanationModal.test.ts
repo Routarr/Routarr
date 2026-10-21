@@ -7,6 +7,7 @@ import { category, explainedMedia, explanation } from '../test/fixtures';
 import type { Explanation, MetadataProvider } from '../api/types';
 import { ApiError, api } from '../api/client';
 import ExplanationModal from './ExplanationModal.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 /**
  * The panel, the source catalogue left unanswered unless a test answers it:
@@ -495,5 +496,26 @@ describe('ExplanationModal', () => {
       .getByText('Genre contains [Animation]')
       .closest('.explain-row') as HTMLElement;
     expect(within(row).getByText('unknown')).toBeTruthy();
+  });
+});
+
+/** Asking the sources, keeping a title and pinning a case all write, which a reader is refused. */
+describe('for a reader', () => {
+  const ACTIONS = ['Ask the sources again', 'Keep here', 'Pin as test'];
+  const offered = () => ACTIONS.filter((name) => screen.queryByRole('button', { name }));
+
+  it('offers the owner the three actions, and a reader the explanation alone', async () => {
+    const { unmount } = show(explanation());
+    await screen.findByRole('heading', { name: 'Akira' });
+    expect(offered()).toEqual(ACTIONS);
+    unmount();
+
+    publishAccess(true);
+    show(explanation());
+
+    await screen.findByRole('heading', { name: 'Akira' });
+    expect(screen.getByText('/data/anime')).toBeInTheDocument();
+    expect(offered()).toEqual([]);
+    expect(screen.queryByLabelText('Expected category')).toBeNull();
   });
 });

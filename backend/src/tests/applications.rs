@@ -135,7 +135,7 @@ async fn an_application_reads_the_instances_without_their_webhook_or_key() {
 /// What a key holding only `read` is refused, written by hand: a grant lowered to `read` in
 /// `GRANTS` moves the walk above with it, and leaves this list behind.
 const BEYOND_READ: &[(&str, &str)] = &[
-    ("GET", "/api/v1/health"),
+    ("GET", "/api/v1/health?probe=true"),
     ("POST", "/api/v1/instances/sync"),
     ("POST", "/api/v1/instances/probe/sync"),
     ("POST", "/api/v1/simulate"),
@@ -686,11 +686,11 @@ async fn an_application_asking_who_it_is_reads_its_own_name() {
     }
 }
 
-/// `enrich=true` asks every metadata source now, on the owner's quotas, as
-/// the `operate` probes of `/health` do. A read key places from what is
-/// cached, and asking the sources takes `operate`.
+/// `enrich=true` asks every metadata source now, on the owner's quotas, and a probe of
+/// `/health` every Arr and every source. A read key places from what is cached and reads the
+/// last probe's findings, and asking now takes `operate`.
 #[tokio::test]
-async fn asking_the_sources_now_takes_the_operate_scope() {
+async fn asking_the_sources_or_the_arrs_now_takes_the_operate_scope() {
     let app = TestApp::new().await;
     app.seed_library().await;
     let reader = mint(&app, None, json!({ "name": "dashboard" })).await;
@@ -706,6 +706,15 @@ async fn asking_the_sources_now_takes_the_operate_scope() {
         StatusCode::FORBIDDEN
     );
     assert_ne!(send(&app, "GET", enriched, None, None).await.status, StatusCode::FORBIDDEN);
+
+    let read = send(&app, "GET", "/api/v1/health", Some(&reader), None).await;
+    assert_ne!(read.status, StatusCode::FORBIDDEN, "{:?}", read.json);
+    assert_eq!(read.json["instances"][0]["status"], "unchecked", "a read key probed the Arr");
+    let probe = "/api/v1/health?probe=true";
+    let refused = send(&app, "GET", probe, Some(&reader), None).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
+    let probed = send(&app, "GET", probe, Some(&operator), None).await;
+    assert_ne!(probed.json["instances"][0]["status"], "unchecked", "{:?}", probed.json);
 }
 
 #[tokio::test]

@@ -298,6 +298,10 @@ pub struct Config {
     pub oidc_allowed_subjects: Vec<String>,
     /// The groups whose members are let in, read from `oidc_groups_claim`.
     pub oidc_allowed_groups: Vec<String>,
+    /// Those let in to read alone, what an application key with the read scope reads. Named
+    /// in the lists above too, a person has full access.
+    pub oidc_read_subjects: Vec<String>,
+    pub oidc_read_groups: Vec<String>,
     pub oidc_groups_claim: String,
     /// Lets in every account the provider authenticates, which the operator
     /// has to say in so many words.
@@ -379,6 +383,8 @@ impl std::fmt::Debug for Config {
             oidc_redirect_url,
             oidc_allowed_subjects,
             oidc_allowed_groups,
+            oidc_read_subjects,
+            oidc_read_groups,
             oidc_groups_claim,
             oidc_allow_anyone,
             cors_origins,
@@ -424,6 +430,8 @@ impl std::fmt::Debug for Config {
             .field("oidc_redirect_url", oidc_redirect_url)
             .field("oidc_allowed_subjects", oidc_allowed_subjects)
             .field("oidc_allowed_groups", oidc_allowed_groups)
+            .field("oidc_read_subjects", oidc_read_subjects)
+            .field("oidc_read_groups", oidc_read_groups)
             .field("oidc_groups_claim", oidc_groups_claim)
             .field("oidc_allow_anyone", oidc_allow_anyone)
             .field("cors_origins", cors_origins)
@@ -566,6 +574,8 @@ impl Config {
             oidc_redirect_url: non_empty("ROUTARR_OIDC_REDIRECT_URL"),
             oidc_allowed_subjects: list("ROUTARR_OIDC_ALLOWED_SUBJECTS"),
             oidc_allowed_groups: list("ROUTARR_OIDC_ALLOWED_GROUPS"),
+            oidc_read_subjects: list("ROUTARR_OIDC_READ_SUBJECTS"),
+            oidc_read_groups: list("ROUTARR_OIDC_READ_GROUPS"),
             oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
             oidc_allow_anyone: env_parse("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
             cors_origins: origins_from(non_empty("ROUTARR_CORS_ORIGINS")),
@@ -806,19 +816,45 @@ impl Config {
         required(&self.oidc_client_id, CLIENT_ID)?;
         required(&self.oidc_client_secret, CLIENT_SECRET)?;
         let redirect = required(&self.oidc_redirect_url, REDIRECT)?;
+        const SUBJECTS: &str = "ROUTARR_OIDC_ALLOWED_SUBJECTS";
+        const GROUPS: &str = "ROUTARR_OIDC_ALLOWED_GROUPS";
+        const ANYONE: &str = "ROUTARR_OIDC_ALLOW_ANYONE";
+        const READ_SUBJECTS: &str = "ROUTARR_OIDC_READ_SUBJECTS";
+        const READ_GROUPS: &str = "ROUTARR_OIDC_READ_GROUPS";
+        let readers = !self.oidc_read_subjects.is_empty() || !self.oidc_read_groups.is_empty();
         if self.oidc_allowed_subjects.is_empty()
             && self.oidc_allowed_groups.is_empty()
             && !self.oidc_allow_anyone
         {
-            const SUBJECTS: &str = "ROUTARR_OIDC_ALLOWED_SUBJECTS";
-            const GROUPS: &str = "ROUTARR_OIDC_ALLOWED_GROUPS";
-            const ANYONE: &str = "ROUTARR_OIDC_ALLOW_ANYONE";
+            if readers {
+                return Err(AppError::Config(format!(
+                    "{READ_SUBJECTS} or {READ_GROUPS} names who may read, and nobody may sign \
+                     in to run Routarr. Set {SUBJECTS} or {GROUPS} for whoever does"
+                )));
+            }
             return Err(AppError::Config(format!(
                 "With ROUTARR_AUTH=oidc and nobody named, every account the provider \
                  authenticates would get full access. Set {SUBJECTS} to the sub of each person, \
                  or {GROUPS} to the groups whose members may sign in, or {ANYONE}=true to let \
                  every account of the provider in"
             )));
+        }
+        if self.oidc_allow_anyone && readers {
+            return Err(AppError::Config(format!(
+                "{ANYONE}=true gives every account of the provider full access, so {READ_SUBJECTS} \
+                 and {READ_GROUPS} would make nobody a reader. Unset one or the other"
+            )));
+        }
+        for (full, read, full_list, read_list) in [
+            (SUBJECTS, READ_SUBJECTS, &self.oidc_allowed_subjects, &self.oidc_read_subjects),
+            (GROUPS, READ_GROUPS, &self.oidc_allowed_groups, &self.oidc_read_groups),
+        ] {
+            if let Some(both) = read_list.iter().find(|name| full_list.contains(name)) {
+                return Err(AppError::Config(format!(
+                    "{full} and {read} both name '{both}'. Name it in {full} for full access, or \
+                     in {read} to read alone"
+                )));
+            }
         }
         for (name, url) in [(ISSUER, issuer), (REDIRECT, redirect)] {
             if !reaches_over_tls(&url) {
@@ -865,6 +901,8 @@ impl Config {
             oidc_redirect_url: None,
             oidc_allowed_subjects: vec![],
             oidc_allowed_groups: vec![],
+            oidc_read_subjects: vec![],
+            oidc_read_groups: vec![],
             oidc_groups_claim: "groups".into(),
             oidc_allow_anyone: false,
             cors_origins: vec![],
@@ -1430,6 +1468,35 @@ mod tests {
         config.oidc_allowed_groups.clear();
         config.oidc_allow_anyone = true;
         assert!(config.validate().is_ok());
+    }
+
+    /// The read lists make readers of those named there alone. Refused at start: readers with
+    /// nobody to run Routarr, readers anyone's full access would swallow, and a name in both
+    /// lists, which full access would silently win.
+    #[test]
+    fn oidc_read_lists_that_cannot_hold_refuse_to_start() {
+        let mut config = oidc_config();
+        config.oidc_read_groups = vec!["family".into()];
+        assert!(config.validate().is_ok());
+
+        config.oidc_allowed_subjects.clear();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_OIDC_ALLOWED_SUBJECTS"), "{err}");
+        assert!(!err.contains("every account"), "{err}");
+
+        config.oidc_allow_anyone = true;
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_OIDC_ALLOW_ANYONE"), "{err}");
+
+        let mut config = oidc_config();
+        config.oidc_read_subjects = vec!["u-42".into()];
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("'u-42'"), "{err}");
+        let mut config = oidc_config();
+        config.oidc_allowed_groups = vec!["media".into()];
+        config.oidc_read_groups = vec!["media".into()];
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_OIDC_READ_GROUPS") && err.contains("'media'"), "{err}");
     }
 
     /// Each of the four is needed before anyone can sign in, and a start that

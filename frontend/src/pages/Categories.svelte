@@ -21,6 +21,7 @@
   import { invalidateStatus } from '../lib/status.svelte';
   import { handFocus } from '../lib/focus';
   import { holdUnsaved } from '../lib/unsaved.svelte';
+  import { access } from '../lib/access.svelte';
 
   const bundle = createAsync(async (signal) => {
     const [folders, categories, conflicts, instances] = await Promise.all([
@@ -204,12 +205,14 @@
       <h1 class="page-title">{t('CategoriesAndFolders')}</h1>
       <p class="page-subtitle">{t('CategoriesSubtitle')}</p>
     </div>
-    <div class="flex gap-2">
-      <button class="btn btn-primary" onclick={() => openDialog(() => (creating = true))}>
-        <Plus size={16} />
-        {t('NewCategory')}
-      </button>
-    </div>
+    {#if !access.readOnly}
+      <div class="flex gap-2">
+        <button class="btn btn-primary" onclick={() => openDialog(() => (creating = true))}>
+          <Plus size={16} />
+          {t('NewCategory')}
+        </button>
+      </div>
+    {/if}
   </div>
 
   <ErrorBanner
@@ -286,29 +289,37 @@
                   {/if}
                 </td>
                 <td>
-                  <div class="flex gap-2">
-                    <select
-                      id="folder-{folder.id}-category"
-                      class="form-select"
-                      aria-label={t('CategoryForFolder', { path: folder.path })}
-                      value={pickedFor(folder)}
-                      onchange={(event) => (picked[folder.id] = event.currentTarget.value)}
-                    >
-                      <option value="">{t('Unmapped')}</option>
-                      {#each categories as category (category.id)}
-                        <option value={category.name}>{category.name}</option>
-                      {/each}
-                    </select>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      disabled={pickedFor(folder) === (folder.category ?? '')}
-                      aria-label="{t('Save')} – {folder.path}"
-                      onclick={() => void saveCategory(folder)}
-                    >
-                      {t('Save')}
-                    </button>
-                  </div>
+                  {#if access.readOnly}
+                    {#if folder.category}
+                      <span class="badge badge-value">{folder.category}</span>
+                    {:else}
+                      <span class="text-muted">{t('Unmapped')}</span>
+                    {/if}
+                  {:else}
+                    <div class="flex gap-2">
+                      <select
+                        id="folder-{folder.id}-category"
+                        class="form-select"
+                        aria-label={t('CategoryForFolder', { path: folder.path })}
+                        value={pickedFor(folder)}
+                        onchange={(event) => (picked[folder.id] = event.currentTarget.value)}
+                      >
+                        <option value="">{t('Unmapped')}</option>
+                        {#each categories as category (category.id)}
+                          <option value={category.name}>{category.name}</option>
+                        {/each}
+                      </select>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        disabled={pickedFor(folder) === (folder.category ?? '')}
+                        aria-label="{t('Save')} – {folder.path}"
+                        onclick={() => void saveCategory(folder)}
+                      >
+                        {t('Save')}
+                      </button>
+                    </div>
+                  {/if}
                   {#if folder.category && sharing(folder, folder.category).length > 0}
                     <span class="status-reason">
                       {t('MappingSharedWith', {
@@ -322,7 +333,7 @@
                 <td>
                   <!-- Only what Routarr owns. A folder the instance reports
                        would come back on the next sync, without its category. -->
-                  {#if folder.origin === 'declared'}
+                  {#if folder.origin === 'declared' && !access.readOnly}
                     <button
                       id={removeId(index)}
                       class="btn btn-danger btn-sm"
@@ -356,35 +367,37 @@
 
     <!-- Under the table it adds to, not on a screen of its own: what an
          operator is doing here is completing the list above. -->
-    <form novalidate class="form-row mt-4" onsubmit={declare}>
-      <div class="form-group">
-        <label class="form-label" for="declare-instance">{t('Instance')}</label>
-        <select id="declare-instance" class="form-select" bind:value={target}>
-          {#each instances as instance (instance.id)}
-            <option value={instance.id}>{instance.name}</option>
-          {/each}
-        </select>
-      </div>
-      <!-- A base width, so on a phone the path takes a line of its own rather
-           than folding its caption beside the instance picker. -->
-      <div class="form-group flex-fill-240">
-        <label class="form-label" for="declare-path">{t('DeclareDestination')}</label>
-        <input
-          id="declare-path"
-          class="form-input mono"
-          bind:value={targetPath}
-          placeholder={t('DeclareDestinationPlaceholder')}
-        />
-      </div>
-      <button
-        class="btn btn-secondary"
-        type="submit"
-        disabled={!targetPath.trim() || !target || declaring}
-      >
-        {declaring ? t('Saving') : t('AddDestination')}
-      </button>
-    </form>
-    <p class="text-muted text-sm mt-1">{t('DeclareDestinationHelp')}</p>
+    {#if !access.readOnly}
+      <form novalidate class="form-row mt-4" onsubmit={declare}>
+        <div class="form-group">
+          <label class="form-label" for="declare-instance">{t('Instance')}</label>
+          <select id="declare-instance" class="form-select" bind:value={target}>
+            {#each instances as instance (instance.id)}
+              <option value={instance.id}>{instance.name}</option>
+            {/each}
+          </select>
+        </div>
+        <!-- A base width, so on a phone the path takes a line of its own rather
+             than folding its caption beside the instance picker. -->
+        <div class="form-group flex-fill-240">
+          <label class="form-label" for="declare-path">{t('DeclareDestination')}</label>
+          <input
+            id="declare-path"
+            class="form-input mono"
+            bind:value={targetPath}
+            placeholder={t('DeclareDestinationPlaceholder')}
+          />
+        </div>
+        <button
+          class="btn btn-secondary"
+          type="submit"
+          disabled={!targetPath.trim() || !target || declaring}
+        >
+          {declaring ? t('Saving') : t('AddDestination')}
+        </button>
+      </form>
+      <p class="text-muted text-sm mt-1">{t('DeclareDestinationHelp')}</p>
+    {/if}
   </div>
 
   <div class="card">
@@ -423,45 +436,47 @@
               <td><Count value={category.rule_count} /></td>
               <td><Count value={category.root_folder_count} /></td>
               <td>
-                <div class="flex gap-2">
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    aria-label="{t('RenameCategory')} – {category.name}"
-                    title={t('RenameCategory')}
-                    onclick={() =>
-                      openDialog(() => {
-                        renaming = category;
-                        newName = category.name;
-                      })}
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {#if !category.is_default}
+                {#if !access.readOnly}
+                  <div class="flex gap-2">
                     <button
-                      id={deleteCategoryId(index)}
-                      class="btn btn-danger btn-sm"
-                      aria-label="{t('Delete')} – {category.name}"
-                      title={t('Delete')}
-                      onclick={async () => {
-                        if (
-                          await askConfirmation(
-                            t('ConfirmDeleteCategory', { name: category.name }),
-                            'Delete',
-                          )
-                        ) {
-                          await act(() => api.deleteCategory(category.id), t('CategoryDeleted'));
-                          void handFocus(
-                            deleteCategoryId(index),
-                            deleteCategoryId(index - 1),
-                            'categories-table',
-                          );
-                        }
-                      }}
+                      class="btn btn-secondary btn-sm"
+                      aria-label="{t('RenameCategory')} – {category.name}"
+                      title={t('RenameCategory')}
+                      onclick={() =>
+                        openDialog(() => {
+                          renaming = category;
+                          newName = category.name;
+                        })}
                     >
-                      <Trash2 size={14} />
+                      <Pencil size={14} />
                     </button>
-                  {/if}
-                </div>
+                    {#if !category.is_default}
+                      <button
+                        id={deleteCategoryId(index)}
+                        class="btn btn-danger btn-sm"
+                        aria-label="{t('Delete')} – {category.name}"
+                        title={t('Delete')}
+                        onclick={async () => {
+                          if (
+                            await askConfirmation(
+                              t('ConfirmDeleteCategory', { name: category.name }),
+                              'Delete',
+                            )
+                          ) {
+                            await act(() => api.deleteCategory(category.id), t('CategoryDeleted'));
+                            void handFocus(
+                              deleteCategoryId(index),
+                              deleteCategoryId(index - 1),
+                              'categories-table',
+                            );
+                          }
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
               </td>
             </tr>
           {/each}

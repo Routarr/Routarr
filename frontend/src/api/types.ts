@@ -184,6 +184,8 @@ export interface Localization {
   counts: string[];
   /** The placeholders that hold a machine format, isolated in a right-to-left sentence. */
   isolated: string[];
+  /** The `ui_theme` setting, applied with the strings. */
+  theme: string;
 }
 
 export interface BackupFile {
@@ -226,6 +228,15 @@ export interface AuthMode {
   api_key_pinned: boolean;
 }
 
+/** Who a request is, which the shell reads once the gate has let the person in. */
+export interface Me {
+  subject: string;
+  /** When the application key the request carries stops being accepted, else null. */
+  expires_at: string | null;
+  /** A person let in to read alone, refused every other call with 403 `read_only`. */
+  read_only: boolean;
+}
+
 /**
  * The proof a session gives before it makes or withdraws a key: the password in `forms`, the
  * API key in `apikey`. A header key, or an OpenID Connect sign-in within ten minutes, needs none.
@@ -241,6 +252,8 @@ export interface Session {
   subject: string;
   /** The mode that opened it. */
   source: 'forms' | 'oidc' | 'apikey';
+  /** `read` for a person the OpenID Connect read lists let in, who reads alone. */
+  reach: 'full' | 'read';
   created_at: string;
   last_used_at: string;
   expires_at: string;

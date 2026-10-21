@@ -10,6 +10,7 @@ import { statusRevision } from '../lib/status.svelte';
 import { api } from '../api/client';
 import { withBase } from '../test/base';
 import Dashboard from './Dashboard.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 /**
  * The dashboard answers one question (is there anything waiting for me?), and
@@ -257,5 +258,38 @@ describe('Dashboard', () => {
     const before = statusRevision();
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(statusRevision()).toBe(before + 1);
+  });
+});
+
+describe('for a reader', () => {
+  /** Each of the guide's choices writes, which a reader is refused. */
+  it('shows the owner the guide, and a reader the dashboard without it', async () => {
+    publishOnboarding(onboardingStatus());
+    bothReturn(health());
+    const { unmount } = show();
+    expect(await screen.findByRole('heading', { name: 'Getting started' })).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    expect(await screen.findByText('No instance connected yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Getting started' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Skip the guide' })).toBeNull();
+  });
+
+  /** The server answers a reader without a probe, so no answer from the Arr is on its way. */
+  it('says an unprobed instance is unknown to a reader, and still being checked to the owner', async () => {
+    bothReturn(health({ instances: [healthInstance({ status: 'unchecked' })] }));
+    const { unmount } = show();
+    expect(await screen.findByText('Checking…')).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(within(row).getByText('unknown')).toBeInTheDocument();
+    expect(screen.queryByText('Checking…')).toBeNull();
   });
 });
