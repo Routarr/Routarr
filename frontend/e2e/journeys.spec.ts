@@ -224,6 +224,32 @@ test.describe('the templates', () => {
   });
 });
 
+test.describe('folder suggestions', () => {
+  /** A folder named for its category is mapped in one click, and leads on to its template. */
+  test('a folder named like a category is mapped from its suggestion', async ({
+    page,
+    instanceId,
+  }) => {
+    await api(`/root-folders/rf-${instanceId}-2/category`, {
+      method: 'PUT',
+      body: JSON.stringify({ category: null }),
+    });
+    await openScreen(page, '/categories');
+
+    const card = page.getByRole('region', { name: 'Suggested from folder names' });
+    await expect(card.getByText('Named like the category anime.')).toBeVisible();
+    await card.getByRole('button', { name: 'Map – /movies/anime' }).click();
+
+    await expect(page.getByText('/movies/anime is mapped to anime.')).toBeVisible();
+    await expect(page.getByLabel('Category for /movies/anime', { exact: true })).toHaveValue(
+      'anime',
+    );
+    await card.getByRole('link', { name: 'Add the Anime rules – /movies/anime' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Anime' });
+    await expect(dialog.getByLabel('Category')).toHaveValue('anime');
+  });
+});
+
 test.describe('guardrails are visible', () => {
   test('the shell states whether writing is possible', async ({ page }) => {
     await page.goto('/');

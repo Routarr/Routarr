@@ -219,6 +219,11 @@ fn build_router(state: AppState) -> Router {
         .route("/root-folders", get(api::root_folders::list).post(api::root_folders::create))
         .route("/root-folders/{id}", axum::routing::delete(api::root_folders::delete))
         .route("/root-folders/conflicts", get(api::root_folders::conflicts))
+        .route("/root-folders/suggestions", get(api::root_folders::suggestions))
+        .route(
+            "/root-folders/{id}/dismissal",
+            post(api::root_folders::dismiss).delete(api::root_folders::undismiss),
+        )
         .route("/root-folders/{id}/category", put(api::root_folders::update_category))
         .route("/categories", get(api::categories::list).post(api::categories::create))
         .route("/categories/{id}", put(api::categories::rename).delete(api::categories::remove))

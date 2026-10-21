@@ -1,5 +1,6 @@
 <script lang="ts">
   import CardTitle from '../components/CardTitle.svelte';
+  import FolderSuggestions from '../components/FolderSuggestions.svelte';
   import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
@@ -24,13 +25,15 @@
   import { access } from '../lib/access.svelte';
 
   const bundle = createAsync(async (signal) => {
-    const [folders, categories, conflicts, instances] = await Promise.all([
+    const [folders, categories, conflicts, instances, suggestions] = await Promise.all([
       api.getRootFolders(signal),
       api.getCategories(signal),
       api.getMappingConflicts(signal),
       api.getInstances(signal),
+      // The owner's to accept: a reader is refused the route.
+      access.readOnly ? [] : api.getFolderSuggestions(signal),
     ]);
-    return { folders, categories, conflicts, instances };
+    return { folders, categories, conflicts, instances, suggestions };
   });
 
   const outcome = createOutcome();
@@ -233,6 +236,15 @@
     title={t('DiagnosticWarnings', { count: warnings.length })}
     items={warnings.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
   />
+
+  {#if bundle.data}
+    <FolderSuggestions
+      suggestions={bundle.data.suggestions}
+      {categories}
+      {outcome}
+      onChanged={() => bundle.reload()}
+    />
+  {/if}
 
   <div class="card">
     <div class="card-header">

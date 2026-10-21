@@ -99,8 +99,14 @@ export function requiredNumber(status: OnboardingStatus, id: OnboardingStep['id'
  * back button would open its dialog again.
  */
 export function takeQueryFlag(name: string): boolean {
+  return takeQueryValue(name) !== null;
+}
+
+/** The value of `name` in the address, taken out of it as `takeQueryFlag` takes a flag. */
+export function takeQueryValue(name: string): string | null {
   const params = new URLSearchParams(window.location.search);
-  if (!params.has(name)) return false;
+  const value = params.get(name);
+  if (value === null) return null;
   params.delete(name);
   const query = params.toString();
   window.history.replaceState(
@@ -108,5 +114,5 @@ export function takeQueryFlag(name: string): boolean {
     '',
     `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
   );
-  return true;
+  return value;
 }

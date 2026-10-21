@@ -29,6 +29,7 @@ pub mod fake_oidc;
 pub mod fake_sources;
 pub mod fake_tmdb;
 mod folder_sets;
+mod folder_suggestions;
 mod keep;
 mod limits;
 mod live_arrs;

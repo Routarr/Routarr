@@ -1119,3 +1119,29 @@ export interface LibraryFacets {
 export type FacetAxis = {
   [K in keyof LibraryFacets]: LibraryFacets[K] extends Facet[] ? K : never;
 }[keyof LibraryFacets];
+
+/** A rule template a folder suggestion offers, by id and by its name in the interface language. */
+export interface TemplateOffer {
+  id: string;
+  name: string;
+}
+
+/** A category suggested for a folder no category leads to, read from its name. */
+export interface FolderSuggestion {
+  root_folder_id: string;
+  instance_id: string;
+  instance_name: string;
+  path: string;
+  /** Null when the name says several categories and the person picks. */
+  category: string | null;
+  choices: string[];
+  /** Why, in the interface language. */
+  reason: string;
+  /** Offered while the library holds none of the template's rules. */
+  template: TemplateOffer | null;
+  dismissed: boolean;
+}
+
+export interface Dismissal {
+  dismissed: boolean;
+}

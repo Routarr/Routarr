@@ -469,6 +469,13 @@ async fn do_sync(
                 .rows_affected(),
                 Folders::Mounts(_) => 0,
             };
+            if matches!(folders, Folders::Listed(_)) {
+                crate::services::folder_suggestions::forget_dismissals_without_folder(
+                    &mut *tx,
+                    &instance.id,
+                )
+                .await?;
+            }
 
             (removed, stale_folders)
         };
