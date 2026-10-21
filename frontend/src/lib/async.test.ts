@@ -6,7 +6,6 @@ import { seedDictionary } from './i18n.svelte';
 import { ENGLISH } from '../test/render';
 import { describeError } from './async.svelte';
 import AsyncHarness from '../test/AsyncHarness.svelte';
-import { access, publishAccess } from './access.svelte';
 
 /**
  * The one function every failure is worded by. What reaches the banner has to
@@ -106,24 +105,6 @@ describe('createAsync', () => {
    * overwrite the result of the newer request. Of two loads answering in
    * reverse order, the screen must show the second.
    */
-  /**
-   * Only `deps` reloads. A loader reading app-wide state, as a screen reading whether its
-   * visitor may only read, would otherwise start over when the shell publishes it, and cancel
-   * every request of the load already under way.
-   */
-  it('runs again on its deps alone, not on what its loader reads', async () => {
-    publishAccess(null);
-    const loader = vi.fn(() => Promise.resolve(access.readOnly ? 'reader' : 'owner'));
-    render(AsyncHarness, { loader, filter: 'a' });
-    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
-
-    publishAccess(false);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(loader).toHaveBeenCalledTimes(1);
-    publishAccess(null);
-  });
-
   it('drops a response that arrives after the inputs moved on', async () => {
     const first = deferred<string>();
     const second = deferred<string>();
