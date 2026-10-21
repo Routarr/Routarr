@@ -2,7 +2,7 @@
   import CardTitle from '../components/CardTitle.svelte';
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes, setFields } from '../api/format';
-  import { api, type Following } from '../api/client';
+  import { ApiError, api, type Following } from '../api/client';
   import type { Decision, DecisionFilter, SimulationResult } from '../api/types';
   import { FIELDS } from '../lib/settings';
   import { createAsync, describeError } from '../lib/async.svelte';
@@ -30,6 +30,7 @@
   } from '../components/DecisionFilterFields.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { access } from '../lib/access.svelte';
 
   let result = $state<SimulationResult | null>(null);
   const selected = new SvelteSet<string>();
@@ -66,13 +67,27 @@
   let cap = $state(Infinity);
 
   /**
+   * The settings' batch limit, else its default. A reader is refused the settings: asked before
+   * the shell knows who reads, the refusal would otherwise fail the whole list.
+   */
+  async function batchLimit(signal: AbortSignal): Promise<number> {
+    if (access.readOnly) return BATCH_LIMIT;
+    try {
+      return Number((await api.getSettings(signal)).batch_limit) || BATCH_LIMIT;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) return BATCH_LIMIT;
+      throw err;
+    }
+  }
+
+  /**
    * The run's proposals, else every pending decision, as the top bar counts them. A run's moves
    * are preselected up to the batch limit in the same update as the rows, or select-all turns
    * clickable while unticked.
    */
   const list = createAsync(
     async (signal) => {
-      limit ??= Number((await api.getSettings(signal)).batch_limit) || BATCH_LIMIT;
+      limit ??= await batchLimit(signal);
       cap = limit;
       const scope = result ? { simulation_id: result.simulation_id } : { status: 'pending' };
       const loaded = await api.getDecisions(
@@ -312,18 +327,20 @@
       <h1 class="page-title">{t('Simulation')}</h1>
       <p class="page-subtitle">{t('SimulationSubtitle')}</p>
     </div>
-    <div class="flex gap-2">
-      <!-- The primary action is the next step: apply once there are moves, else run. -->
-      <button
-        id="simulation-run"
-        class="btn {movable.length > 0 ? 'btn-secondary' : 'btn-primary'}"
-        onclick={() => void run()}
-        disabled={busy !== null}
-      >
-        <Play size={16} />
-        {busy === 'run' ? t('EvaluatingRules') : t('RunSimulation')}
-      </button>
-    </div>
+    {#if !access.readOnly}
+      <div class="flex gap-2">
+        <!-- The primary action is the next step: apply once there are moves, else run. -->
+        <button
+          id="simulation-run"
+          class="btn {movable.length > 0 ? 'btn-secondary' : 'btn-primary'}"
+          onclick={() => void run()}
+          disabled={busy !== null}
+        >
+          <Play size={16} />
+          {busy === 'run' ? t('EvaluatingRules') : t('RunSimulation')}
+        </button>
+      </div>
+    {/if}
   </div>
 
   {#if busy === 'run' && progress && progress.total > 0}
@@ -472,7 +489,7 @@
     </div>
   </FilterBar>
 
-  {#if movable.length > 0}
+  {#if movable.length > 0 && !access.readOnly}
     <div class="card">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <label class="flex items-center gap-2 cursor-pointer">
@@ -527,14 +544,16 @@
         <thead>
           <tr>
             <th class="w-40">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                disabled={movable.length === 0}
-                onchange={() => select(allSelected ? [] : selectable.map((d) => d.id))}
-                title={t('SelectEveryMove')}
-                aria-label={t('SelectEveryMove')}
-              />
+              {#if !access.readOnly}
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  disabled={movable.length === 0}
+                  onchange={() => select(allSelected ? [] : selectable.map((d) => d.id))}
+                  title={t('SelectEveryMove')}
+                  aria-label={t('SelectEveryMove')}
+                />
+              {/if}
             </th>
             <th>{t('Media')}</th>
             <th>{t('Current')}</th>
@@ -570,8 +589,8 @@
               <DecisionRow
                 {decision}
                 selected={selected.has(decision.id)}
-                onToggle={() => toggle(decision.id)}
-                onKeep={() => void keep(decision)}
+                onToggle={access.readOnly ? undefined : () => toggle(decision.id)}
+                onKeep={access.readOnly ? undefined : () => void keep(decision)}
               />
             {/each}
           {/if}

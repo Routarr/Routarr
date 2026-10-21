@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What `scripts/check-api-breaks.sh` asks of the contract besides oasdiff.
 
-    python3 scripts/contract-breaks.py RELEASED.json CURRENT.json
+    python3 scripts/contract-breaks.py RELEASED.json CURRENT.json [ACCEPTED.txt]
 
 oasdiff compares the operations, and reads neither the scope an operation is
 granted under nor a schema no operation returns. Two promises live there:
@@ -13,7 +13,8 @@ granted under nor a schema no operation returns. Two promises live there:
   one. A receiver reads it whole, the schemas it names included: a property
   removed, a type changed or a field no longer required breaks it.
 
-Prints one line per break and exits 1 when there is any.
+Prints one line per break and exits 1 when there is any. A break written whole as a line of
+ACCEPTED, the release's list of breaks it names in its notes, is not one.
 """
 
 import json
@@ -87,6 +88,12 @@ def payload_breaks(released: dict, current: dict, name: str) -> list[str]:
     return breaks
 
 
+def unaccepted(problems: list[str], accepted: str) -> list[str]:
+    """The `problems` no line of `accepted` names whole."""
+    lines = {line.strip() for line in accepted.splitlines()}
+    return [problem for problem in problems if problem not in lines]
+
+
 def main(argv: list[str]) -> int:
     with open(argv[1]) as file:
         released = json.load(file)
@@ -95,6 +102,9 @@ def main(argv: list[str]) -> int:
     problems = scope_changes(released, current)
     for name in PAYLOADS:
         problems += payload_breaks(released, current, name)
+    if len(argv) > 3:
+        with open(argv[3]) as file:
+            problems = unaccepted(problems, file.read())
     for problem in problems:
         print(f"error: {problem}")
     return 1 if problems else 0

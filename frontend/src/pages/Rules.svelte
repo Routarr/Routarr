@@ -54,6 +54,7 @@
   import { downloadJson } from '../lib/download';
   import { readJsonFile } from '../lib/upload';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { access } from '../lib/access.svelte';
 
   // Keyed on the union, so a media type added without a label fails the type check.
   const MEDIA_TYPE_KEY: Record<RuleMediaType, string> = {
@@ -178,7 +179,7 @@
   $effect(() => {
     if (createRequested && bundle.data) {
       createRequested = false;
-      openCreate();
+      if (!access.readOnly) openCreate();
     }
   });
 
@@ -276,25 +277,29 @@
       <p class="page-subtitle">{t('RulesSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <FileButton
-        label={t('Import')}
-        accept="application/json"
-        onFile={(file) => void importBundle(file)}
-      />
+      {#if !access.readOnly}
+        <FileButton
+          label={t('Import')}
+          accept="application/json"
+          onFile={(file) => void importBundle(file)}
+        />
+      {/if}
       <button class="btn btn-secondary" onclick={exportBundle} disabled={rules.length === 0}>
         <Download size={16} />
         {t('Export')}
       </button>
-      {#if templates.data && rules.length > 0}
-        <a class="btn btn-secondary" href={href('/rules#templates')}>
-          <LayoutTemplate size={16} />
-          {t('Templates')}
-        </a>
+      {#if !access.readOnly}
+        {#if templates.data && rules.length > 0}
+          <a class="btn btn-secondary" href={href('/rules#templates')}>
+            <LayoutTemplate size={16} />
+            {t('Templates')}
+          </a>
+        {/if}
+        <button id="rules-new" class="btn btn-primary" onclick={openCreate}>
+          <Plus size={16} />
+          {t('NewRule')}
+        </button>
       {/if}
-      <button id="rules-new" class="btn btn-primary" onclick={openCreate}>
-        <Plus size={16} />
-        {t('NewRule')}
-      </button>
     </div>
   </div>
 
@@ -318,7 +323,7 @@
     <LibraryFacetsPanel facets={library.data} captionOf={(type) => specByType.get(type)?.label} />
   {/if}
 
-  {#if templates.data && rules.length === 0 && !bundle.loading}
+  {#if templates.data && rules.length === 0 && !bundle.loading && !access.readOnly}
     <TemplateGallery templates={templates.data} onChoose={(template) => (choosing = template)} />
   {/if}
   <ErrorBanner message={templates.error} onRetry={() => void templates.reload()} />
@@ -425,64 +430,66 @@
                   </ul>
                 </td>
                 <td>
-                  <div class="flex gap-2">
-                    <button
-                      id="rule-{rule.id}-raise"
-                      class="btn btn-secondary btn-sm"
-                      disabled={index === 0}
-                      title={t('RaisePriority')}
-                      aria-label="{t('RaisePriority')} – {rule.name}"
-                      onclick={() => void move(index, -1)}
-                    >
-                      <MoveUp size={14} />
-                    </button>
-                    <button
-                      id="rule-{rule.id}-lower"
-                      class="btn btn-secondary btn-sm"
-                      disabled={index === rules.length - 1}
-                      title={t('LowerPriority')}
-                      aria-label="{t('LowerPriority')} – {rule.name}"
-                      onclick={() => void move(index, 1)}
-                    >
-                      <MoveDown size={14} />
-                    </button>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      title={t('Edit')}
-                      aria-label="{t('Edit')} – {rule.name}"
-                      onclick={() => openEdit(rule)}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <ActionMenu
-                      id={menuId(index)}
-                      label="{t('Actions')} – {rule.name}"
-                      actions={[
-                        {
-                          label: t('Duplicate'),
-                          icon: copyIcon,
-                          onSelect: () =>
-                            void act(() => api.duplicateRule(rule.id), t('RuleDuplicated')),
-                        },
-                        {
-                          label: t('Delete'),
-                          icon: trashIcon,
-                          danger: true,
-                          onSelect: async () => {
-                            if (
-                              await askConfirmation(
-                                t('ConfirmDeleteRule', { name: rule.name }),
-                                'Delete',
-                              )
-                            ) {
-                              await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
-                              void handFocus(menuId(index), menuId(index - 1), 'rules-table');
-                            }
+                  {#if !access.readOnly}
+                    <div class="flex gap-2">
+                      <button
+                        id="rule-{rule.id}-raise"
+                        class="btn btn-secondary btn-sm"
+                        disabled={index === 0}
+                        title={t('RaisePriority')}
+                        aria-label="{t('RaisePriority')} – {rule.name}"
+                        onclick={() => void move(index, -1)}
+                      >
+                        <MoveUp size={14} />
+                      </button>
+                      <button
+                        id="rule-{rule.id}-lower"
+                        class="btn btn-secondary btn-sm"
+                        disabled={index === rules.length - 1}
+                        title={t('LowerPriority')}
+                        aria-label="{t('LowerPriority')} – {rule.name}"
+                        onclick={() => void move(index, 1)}
+                      >
+                        <MoveDown size={14} />
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        title={t('Edit')}
+                        aria-label="{t('Edit')} – {rule.name}"
+                        onclick={() => openEdit(rule)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <ActionMenu
+                        id={menuId(index)}
+                        label="{t('Actions')} – {rule.name}"
+                        actions={[
+                          {
+                            label: t('Duplicate'),
+                            icon: copyIcon,
+                            onSelect: () =>
+                              void act(() => api.duplicateRule(rule.id), t('RuleDuplicated')),
                           },
-                        },
-                      ]}
-                    />
-                  </div>
+                          {
+                            label: t('Delete'),
+                            icon: trashIcon,
+                            danger: true,
+                            onSelect: async () => {
+                              if (
+                                await askConfirmation(
+                                  t('ConfirmDeleteRule', { name: rule.name }),
+                                  'Delete',
+                                )
+                              ) {
+                                await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
+                                void handFocus(menuId(index), menuId(index - 1), 'rules-table');
+                              }
+                            },
+                          },
+                        ]}
+                      />
+                    </div>
+                  {/if}
                 </td>
               </tr>
             {/each}
@@ -492,7 +499,7 @@
     </TableRegion>
   </div>
 
-  {#if templates.data && rules.length > 0}
+  {#if templates.data && rules.length > 0 && !access.readOnly}
     <TemplateGallery templates={templates.data} onChoose={(template) => (choosing = template)} />
   {/if}
 

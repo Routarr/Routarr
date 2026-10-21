@@ -40,7 +40,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
   path on a drive letter or a network share is compared as Windows compares it, whatever its case
   or separator. Sonarr 3 works too, a new series routed at the next sync rather than before it
   downloads.
-- **Authentication on by default**: API key, a single account, or OpenID Connect.
+- **Authentication on by default**: API key, a single account, or OpenID Connect, where the
+  people of a group can be let in to read alone.
 - **Keys for other applications**, each limited to what you allow. Every key reads, and may also
   operate (sync, simulate, apply, revert, run the rule tests, take a backup), set exceptions, or
   configure the rules, categories and folders, with the guardrails it may answer on its own.
@@ -206,8 +207,13 @@ List the proxy in `ROUTARR_TRUSTED_PROXIES`, by address or by range such as `172
 the client it forwards in `X-Forwarded-For` is counted, not the proxy. In `oidc` mode the provider
 and the redirect URL have to be `https://`, except on `localhost`, and
 `ROUTARR_OIDC_ALLOWED_SUBJECTS` or `ROUTARR_OIDC_ALLOWED_GROUPS` names who may sign in: a provider
-left at its defaults would let every account of its directory in. In `external` mode, publish the port to
-the proxy alone: the proxy is what signs people in. In `forms` mode, a lost password is reset with
+left at its defaults would let every account of its directory in. `ROUTARR_OIDC_READ_SUBJECTS` and
+`ROUTARR_OIDC_READ_GROUPS` name who may sign in to read alone: the library, the proposals, the
+history and the tasks, what a key's read scope reaches, never a move or a setting. Someone the
+first two let in as well has full access. A group is read from the ID token: Authelia keeps groups
+in userinfo unless a claims policy adds them, and Keycloak sends them through a group membership
+mapper. In `external` mode, publish the port to the proxy alone: the proxy is what signs people
+in. In `forms` mode, a lost password is reset with
 `docker exec routarr /app/routarr reset-account`, which prints a new one and signs everyone out.
 Add `--revoke-keys` to revoke every application key and replace the API key as well.
 `docker exec routarr /app/routarr --help` lists every command.

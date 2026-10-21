@@ -40,6 +40,7 @@
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
   import { href, navigate } from '../lib/router.svelte';
   import { holdUnsaved } from '../lib/unsaved.svelte';
+  import { access } from '../lib/access.svelte';
   import { downloadJson } from '../lib/download';
   import { readJsonFile } from '../lib/upload';
 
@@ -553,7 +554,7 @@
 
       <!-- Where a browser signs in: an open instance, or one behind a proxy
            that authenticates for it, holds no session. -->
-      {#if section === 'security' && (auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' || auth.data?.mode === 'apikey')}
+      {#if section === 'security' && !access.readOnly && (auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' || auth.data?.mode === 'apikey')}
         <SessionsCard {outcome} />
       {/if}
 

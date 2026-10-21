@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -11,6 +11,7 @@ import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import { ApiError, api } from '../api/client';
 import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
+import { publishAccess } from '../lib/access.svelte';
 import RuleEditor from './RuleEditor.svelte';
 
 /**
@@ -763,5 +764,25 @@ describe('a condition field holding what it cannot read', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete – TheTVDB id is' }));
     await waitFor(() => expect(save).toBeEnabled());
+  });
+});
+
+/** Both ask what the server keeps to whoever edits a rule, which a reader is refused. */
+describe('for a reader', () => {
+  it('offers the preview and the save to the owner, and neither to a reader', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const offered = () =>
+      ['Preview impact', 'Save rule'].filter((name) => screen.queryByRole('button', { name }));
+    render();
+    await screen.findByLabelText('Rule name');
+    expect(offered()).toEqual(['Preview impact', 'Save rule']);
+    cleanup();
+
+    publishAccess(true);
+    render();
+
+    await screen.findByLabelText('Rule name');
+    expect(offered()).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ import { renderWithI18n } from '../test/render';
 import { href, navigate } from '../lib/router.svelte';
 import { withBase } from '../test/base';
 import { click } from '../test/links';
+import { publishAccess } from '../lib/access.svelte';
 import Sidebar from './Sidebar.svelte';
 
 /**
@@ -159,5 +160,26 @@ describe('Sidebar', () => {
     show();
     expect(screen.queryByText(/^Warnings: \d+/)).toBeNull();
     expect(screen.queryByText(/^Running tasks: \d+/)).toBeNull();
+  });
+});
+
+describe('for a reader', () => {
+  /** Every read those screens make is refused to a reader, the first included. */
+  it('lists no screen the owner alone reads, nor a group left with none', async () => {
+    publishAccess(true);
+    show();
+
+    const links = await screen.findAllByRole('link');
+    const shown = links.map((link) => link.getAttribute('title'));
+    for (const name of ['Settings', 'Metadata sources', 'Applications', 'Security log']) {
+      expect(shown).not.toContain(name);
+    }
+    expect(shown).toEqual(expect.arrayContaining(['Rules', 'Instances', 'API reference']));
+    expect(links).toHaveLength(SCREENS.length - 4);
+    // Each group heading names a list that still holds an entry.
+    for (const heading of document.querySelectorAll('.nav-group')) {
+      const list = document.querySelector(`[aria-labelledby="${heading.id}"]`);
+      expect(list?.querySelectorAll('a').length).toBeGreaterThan(0);
+    }
   });
 });

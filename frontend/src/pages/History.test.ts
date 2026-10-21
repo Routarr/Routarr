@@ -8,6 +8,7 @@ import { decision, instance, job, paginated, rule } from '../test/fixtures';
 import { api, ApiError } from '../api/client';
 import { answerConfirmation } from '../test/confirm';
 import History from './History.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 /**
  * The audit trail, and the only screen that can undo a move. A revert asks once, in one dialog,
@@ -564,5 +565,31 @@ describe('narrowing and reverting many', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText('Akira: refused')).toBeTruthy();
+  });
+});
+
+describe('for a reader', () => {
+  /** A revert moves files back, which a reader is refused, one move or all of them. */
+  it('offers the owner the reverts, and shows a reader the moves without them', async () => {
+    vi.mocked(api.countDecisions).mockResolvedValue(3);
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([
+        decision({ status: 'applied', revertible: true, applied_at: '2026-08-27 11:00:00' }),
+      ]),
+    );
+    const offered = () =>
+      [/^Revert – Akira$/, /^Revert all/].filter((name) => screen.queryByRole('button', { name }));
+    const { unmount } = show();
+    await screen.findByRole('button', { name: 'Revert all (3)' });
+    expect(offered()).toHaveLength(2);
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    expect(await screen.findByText('Akira')).toBeInTheDocument();
+    await waitFor(() => expect(api.countDecisions).toHaveBeenCalledTimes(2));
+    expect(offered()).toEqual([]);
+    expect(screen.queryByLabelText(/Move the files on disk too/)).toBeNull();
   });
 });

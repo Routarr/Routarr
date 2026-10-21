@@ -16,6 +16,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import Pager from '../components/Pager.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import { access } from '../lib/access.svelte';
 
   /** Backend enum values are lower-case, and the dictionary keys are PascalCase. */
   // `sync_all` reads `JobSyncAll`, as the backend's test of the labels builds it.
@@ -179,7 +180,7 @@
                   {/if}
                 </td>
                 <td>
-                  {#if job.status === 'running' && CANCELLABLE.has(job.kind)}
+                  {#if job.status === 'running' && CANCELLABLE.has(job.kind) && !access.readOnly}
                     <button
                       type="button"
                       class="btn btn-secondary btn-sm"

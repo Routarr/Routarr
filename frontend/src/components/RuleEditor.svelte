@@ -19,6 +19,7 @@
   import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import { holdUnsaved } from '../lib/unsaved.svelte';
+  import { access } from '../lib/access.svelte';
   import ConditionList from './ConditionList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import Modal from './Modal.svelte';
@@ -469,24 +470,27 @@
       <button type="button" class="btn btn-secondary" onclick={() => void close()}>
         {t('Cancel')}
       </button>
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="btn btn-secondary"
-          onclick={runPreview}
-          disabled={busy !== null || draft.conditions.length === 0 || !wholePriority}
-        >
-          <FlaskConical size={16} />
-          {busy === 'preview' ? t('Simulating') : t('PreviewImpact')}
-        </button>
-        <button
-          type="submit"
-          class="btn btn-primary"
-          disabled={busy !== null || blocking || !wholePriority || unreadable > 0}
-        >
-          {busy === 'save' ? t('Saving') : t('SaveRule')}
-        </button>
-      </div>
+      <!-- A reader is refused both: the server keeps them to whoever edits a rule. -->
+      {#if !access.readOnly}
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            onclick={runPreview}
+            disabled={busy !== null || draft.conditions.length === 0 || !wholePriority}
+          >
+            <FlaskConical size={16} />
+            {busy === 'preview' ? t('Simulating') : t('PreviewImpact')}
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            disabled={busy !== null || blocking || !wholePriority || unreadable > 0}
+          >
+            {busy === 'save' ? t('Saving') : t('SaveRule')}
+          </button>
+        </div>
+      {/if}
     </div>
   </form>
 </Modal>

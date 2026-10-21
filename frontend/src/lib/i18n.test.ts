@@ -31,11 +31,32 @@ describe('loadDictionary', () => {
       strings: {},
       counts: [],
       isolated: [],
+      theme: 'dark',
     });
 
     await loadDictionary();
 
     expect(document.documentElement.lang).toBe('nb-NO');
+  });
+});
+
+/** The theme is a server setting carried with the strings, so the first frame paints in it. */
+describe('the theme the dictionary carries', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it('is applied with the strings, and auto leaves the system to decide', async () => {
+    const dictionary = { language: 'en', direction: 'ltr' as const, strings: {}, counts: [] };
+    vi.spyOn(api, 'getLocalization')
+      .mockResolvedValueOnce({ ...dictionary, isolated: [], theme: 'light' })
+      .mockResolvedValueOnce({ ...dictionary, isolated: [], theme: 'auto' });
+
+    await loadDictionary();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    await loadDictionary();
+    expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 });
 
@@ -55,6 +76,7 @@ describe('a count in a sentence', () => {
       strings: { Moved: 'Moved: {applied} of {requested}' },
       counts: ['applied'],
       isolated: [],
+      theme: 'dark',
     });
     await loadDictionary();
 
@@ -101,6 +123,7 @@ describe('a path in a sentence', () => {
         strings: { Declared: 'أضيفت {path}' },
         counts: [],
         isolated: ['path'],
+        theme: 'dark',
       });
       await loadDictionary();
 
@@ -128,6 +151,7 @@ describe('the dictionary the page carries', () => {
       strings: { Dashboard: 'Tableau de bord' },
       counts: [],
       isolated: [],
+      theme: 'dark',
     });
     document.head.append(carried);
 
@@ -146,6 +170,7 @@ describe('the dictionary the page carries', () => {
       strings: { Dashboard: 'Übersicht' },
       counts: [],
       isolated: [],
+      theme: 'dark',
     });
 
     await startDictionary();

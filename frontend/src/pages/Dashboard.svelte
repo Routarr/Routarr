@@ -9,6 +9,7 @@
   import { formatCount, formatRelative, formatTimestamp } from '../api/format';
   import { createOutcome } from '../lib/outcome.svelte';
   import { onboarding } from '../lib/onboarding.svelte';
+  import { access } from '../lib/access.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { outsideTheGuide } from '../api/onboarding';
   import Count from '../components/Count.svelte';
@@ -87,7 +88,8 @@
       message={onboarding.failure ? t('GuideUnavailable', { error: onboarding.failure }) : null}
       onRetry={invalidateStatus}
     />
-    {#if onboarding.current}
+    <!-- Its choices write, which a reader is refused. -->
+    {#if onboarding.current && !access.readOnly}
       <GettingStarted status={onboarding.current} {outcome} />
     {/if}
 
@@ -179,9 +181,10 @@
                     </span>
                   </td>
                   <td>
-                    <!-- Still unchecked once the probe failed is not being checked. -->
+                    <!-- Still unchecked once the probe failed is not being checked, nor
+                         for a reader, whose read the server answers without a probe. -->
                     <InstanceStatus
-                      status={probed.error && instance.status === 'unchecked'
+                      status={(probed.error || access.readOnly) && instance.status === 'unchecked'
                         ? 'unknown'
                         : instance.status}
                       detail={instance.detail}

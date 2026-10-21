@@ -17,6 +17,7 @@ const session = (handle: string, overrides: Partial<Session> = {}): Session => (
   handle,
   subject: 'admin',
   source: 'forms',
+  reach: 'full',
   created_at: '2026-10-01 08:00:00',
   last_used_at: '2026-10-06 09:30:00',
   expires_at: '2026-10-31 08:00:00',
@@ -60,6 +61,16 @@ describe('SessionsCard', () => {
     // A key names nobody: its source says all there is.
     expect(row(here).getByText('admin')).toBeInTheDocument();
     expect(row(there).queryByText('apikey')).toBeNull();
+  });
+
+  /** A person the read lists let in holds a session the owner may want to tell apart. */
+  it('marks the session of a person who reads alone, and only that one', async () => {
+    mount([HERE, session('cccc', { subject: 'guest', source: 'oidc', reach: 'read' })]);
+
+    const [here, reader] = await ends();
+    const row = (button: HTMLElement | undefined) => within(button!.parentElement!);
+    expect(row(reader).getByText('Read only')).toBeInTheDocument();
+    expect(row(here).queryByText('Read only')).toBeNull();
   });
 
   /**

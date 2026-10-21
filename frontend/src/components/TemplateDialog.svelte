@@ -21,6 +21,7 @@
   import { formatCount } from '../api/format';
   import { Info } from '../lib/icons';
   import { i18n, t } from '../lib/i18n.svelte';
+  import { access } from '../lib/access.svelte';
 
   /** What adding one template asks, and what it would do, before it is added. */
   let {
@@ -402,9 +403,11 @@
 
     <div class="dialog-actions">
       <button type="button" class="btn btn-secondary" onclick={onClose}>{t('Cancel')}</button>
-      <button type="submit" class="btn btn-primary" disabled={!ready || adding}>
-        {t(action)}
-      </button>
+      {#if !access.readOnly}
+        <button type="submit" class="btn btn-primary" disabled={!ready || adding}>
+          {t(action)}
+        </button>
+      {/if}
     </div>
   </form>
 </Modal>

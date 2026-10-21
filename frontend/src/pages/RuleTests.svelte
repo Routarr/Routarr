@@ -7,6 +7,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatTimestamp } from '../api/format';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { access } from '../lib/access.svelte';
   import { Play, Trash2 } from '../lib/icons';
   import type { RuleTestResult, RuleTestRun } from '../api/types';
   import NoValue from '../components/NoValue.svelte';
@@ -90,12 +91,18 @@
       <h1 class="page-title">{t('RuleTests')}</h1>
       <p class="page-subtitle">{t('RuleTestsSubtitle')}</p>
     </div>
-    <div class="flex gap-2">
-      <button class="btn btn-primary" disabled={busy || total === 0} onclick={() => void runAll()}>
-        <Play size={16} class={busy ? 'spin' : ''} />
-        {busy ? t('RunningRuleTests') : t('RunRuleTests')}
-      </button>
-    </div>
+    {#if !access.readOnly}
+      <div class="flex gap-2">
+        <button
+          class="btn btn-primary"
+          disabled={busy || total === 0}
+          onclick={() => void runAll()}
+        >
+          <Play size={16} class={busy ? 'spin' : ''} />
+          {busy ? t('RunningRuleTests') : t('RunRuleTests')}
+        </button>
+      </div>
+    {/if}
   </div>
 
   <ErrorBanner
@@ -172,15 +179,17 @@
                   {/if}
                 </td>
                 <td>
-                  <button
-                    id={deleteId(index)}
-                    class="btn btn-danger btn-sm"
-                    aria-label="{t('Delete')} – {testCase.name}"
-                    title={t('Delete')}
-                    onclick={() => void remove(testCase.id, testCase.name, index)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {#if !access.readOnly}
+                    <button
+                      id={deleteId(index)}
+                      class="btn btn-danger btn-sm"
+                      aria-label="{t('Delete')} – {testCase.name}"
+                      title={t('Delete')}
+                      onclick={() => void remove(testCase.id, testCase.name, index)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  {/if}
                 </td>
               </tr>
             {/each}

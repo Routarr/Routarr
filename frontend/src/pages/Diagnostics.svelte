@@ -15,6 +15,7 @@
   import BannerList from '../components/BannerList.svelte';
   import InstanceStatus from '../components/InstanceStatus.svelte';
   import TableRegion from '../components/TableRegion.svelte';
+  import { access } from '../lib/access.svelte';
 
   // The shell counts what a probe records without probing. Opening the screen reads a recent
   // probe again, and a recheck asks every Arr and source anew.
@@ -108,7 +109,15 @@
                         {instance.instance_type}
                       </span>
                     </td>
-                    <td><InstanceStatus status={instance.status} detail={instance.detail} /></td>
+                    <!-- A reader's read is answered without a probe: nothing is being checked. -->
+                    <td>
+                      <InstanceStatus
+                        status={access.readOnly && instance.status === 'unchecked'
+                          ? 'unknown'
+                          : instance.status}
+                        detail={instance.detail}
+                      />
+                    </td>
                     <td class="mono">
                       {#if instance.version}{instance.version}{:else}<NoValue />{/if}
                     </td>

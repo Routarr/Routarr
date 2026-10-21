@@ -13,6 +13,7 @@ import { dropFocus } from '../test/focus';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import { readBackend } from '../test/backend';
 
 const readOf = (over: Partial<WebhookCheck> = {}): WebhookCheck => ({
@@ -1184,4 +1185,34 @@ it('tests the connection of the instance whose row was used', async () => {
 
   expect(await screen.findByText('Sonarr: connected (v4.0.1), root folders: 2')).toBeTruthy();
   expect(probe).toHaveBeenCalledExactlyOnceWith('i2');
+});
+
+/** Every action on an instance writes or reaches the Arr, which a reader is refused. */
+describe('for a reader', () => {
+  const offered = () =>
+    ['Sync all', 'Add instance', 'Sync now – Radarr', 'Edit – Radarr', 'Actions – Radarr'].filter(
+      (name) => screen.queryByRole('button', { name }),
+    );
+
+  it('offers the owner every action on an instance, and a reader none', async () => {
+    const { unmount } = show([instance()]);
+    await screen.findByRole('button', { name: 'Edit – Radarr' });
+    expect(offered()).toHaveLength(5);
+    unmount();
+
+    publishAccess(true);
+    show([instance()]);
+
+    expect(await screen.findByRole('row', { name: /Radarr/ })).toBeInTheDocument();
+    expect(offered()).toEqual([]);
+  });
+
+  it('opens no form for a reader sent with ?add=1', async () => {
+    window.history.replaceState({}, '', '/instances?add=1');
+    publishAccess(true);
+    show([instance()]);
+
+    await screen.findByRole('row', { name: /Radarr/ });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

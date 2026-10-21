@@ -3,7 +3,8 @@
 
 A real server the release binary can reach, as fake_arr.py is, beside the
 in-process one of backend/src/tests/fake_oidc.rs. It signs in whoever reaches its
-authorization endpoint, as a provider signs in the person at the keyboard, and
+authorization endpoint, as a provider signs in the person at the keyboard, the
+operator unless `POST /next` named someone else for the next sign-in, and
 gives a token only for a code it issued, to the client it was issued for, with
 the verifier its challenge was made from. Like a provider left at its defaults,
 it takes the client's credentials as HTTP Basic and refuses them in the body.
@@ -29,6 +30,8 @@ SUBJECT = "e2e-operator"
 
 # Each code is spent by the one token request it answers.
 ISSUED = {}
+# Who the next sign-in is, `sub` and `groups`, set by a spec and spent by that sign-in.
+NEXT = {}
 
 
 def b64url(data):
@@ -82,7 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 return self._send({"error": "invalid_request"}, 400)
             code = secrets.token_urlsafe(16)
-            ISSUED[code] = asked
+            ISSUED[code] = {**asked, "who": dict(NEXT)}
+            NEXT.clear()
             back = urlencode({"code": code, "state": asked["state"]})
             self.send_response(302)
             self.send_header("Location", f"{asked['redirect_uri']}?{back}")
@@ -91,9 +95,13 @@ class Handler(BaseHTTPRequestHandler):
         return self._send({}, 404)
 
     def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if urlsplit(self.path).path == "/next":
+            NEXT.clear()
+            NEXT.update(json.loads(self.rfile.read(length) or b"{}"))
+            return self._send({})
         if urlsplit(self.path).path != "/token":
             return self._send({}, 404)
-        length = int(self.headers.get("Content-Length", 0))
         form = single(parse_qs(self.rfile.read(length).decode()))
         asked = ISSUED.pop(form.get("code", ""), None)
         verifier = form.get("code_verifier", "").encode()
@@ -110,14 +118,17 @@ class Handler(BaseHTTPRequestHandler):
         ):
             return self._send({"error": "invalid_grant"}, 400)
         now = int(time.time())
+        who = asked.get("who", {})
         claims = {
             "iss": ISSUER,
-            "sub": SUBJECT,
+            "sub": who.get("sub", SUBJECT),
             "aud": CLIENT_ID,
             "iat": now,
             "exp": now + 300,
             "nonce": asked.get("nonce"),
         }
+        if "groups" in who:
+            claims["groups"] = who["groups"]
         header = b64url(json.dumps({"alg": "none", "typ": "JWT"}).encode())
         payload = b64url(json.dumps(claims).encode())
         return self._send(

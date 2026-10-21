@@ -10,6 +10,7 @@
   import { invalidateStatus } from '../lib/status.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { href } from '../lib/router.svelte';
+  import { access } from '../lib/access.svelte';
   import NoValue from './NoValue.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
@@ -247,78 +248,80 @@
     </button>
   </div>
 
-  <div class="explain-actions">
-    <div class="explain-action">
-      <button
-        class="btn btn-secondary btn-sm"
-        disabled={refreshing}
-        onclick={() => void refresh()}
-        aria-describedby="explain-refresh-hint"
-      >
-        <RefreshCw size={14} />
-        {t('RefreshTitleMetadata')}
-      </button>
-      <p id="explain-refresh-hint" class="form-hint">{t('RefreshTitleMetadataHint')}</p>
-    </div>
-    <div class="explain-action">
-      <button
-        class="btn btn-secondary btn-sm"
-        disabled={keeping || kept || view.current_category === null}
-        onclick={() => void keep()}
-        aria-describedby="explain-keep-hint"
-      >
-        <Lock size={14} />
-        {t('KeepHere')}
-      </button>
-      <p id="explain-keep-hint" class="form-hint">
-        {#if view.current_category === null}
-          {t('KeepHereUnmapped')}
-          <a class="text-link" href={href('/categories')}>{t('GuideCategoriesAction')}</a>
-        {:else if kept}
-          {t('KeptHere', { category: view.current_category })}
-        {:else}
-          {t('KeepHereHint', { category: view.current_category })}
-        {/if}
-      </p>
-    </div>
-    <div class="explain-action">
-      <div class="form-group">
-        <label class="form-label" for="explain-pin-category">{t('PinExpectedCategory')}</label>
-        <select
-          id="explain-pin-category"
-          class="form-select"
-          value={expected}
-          disabled={pinned}
-          onchange={(event) => (chosen = event.currentTarget.value)}
+  {#if !access.readOnly}
+    <div class="explain-actions">
+      <div class="explain-action">
+        <button
+          class="btn btn-secondary btn-sm"
+          disabled={refreshing}
+          onclick={() => void refresh()}
+          aria-describedby="explain-refresh-hint"
         >
-          {#each categoryNames as name (name)}
-            <option value={name}>{name}</option>
-          {/each}
-        </select>
+          <RefreshCw size={14} />
+          {t('RefreshTitleMetadata')}
+        </button>
+        <p id="explain-refresh-hint" class="form-hint">{t('RefreshTitleMetadataHint')}</p>
       </div>
-      <!-- Disabled once taken rather than hidden: a button that vanishes leaves
-           the user unsure whether it worked. -->
-      <button
-        class="btn btn-secondary btn-sm"
-        disabled={pinning || pinned}
-        onclick={() => void pin()}
-        aria-describedby="explain-pin-hint{view.override_category ? ' explain-pin-rules' : ''}"
-      >
-        <ShieldCheck size={14} />
-        {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
-      </button>
-      <p id="explain-pin-hint" class="form-hint">
-        {expectsOther
-          ? t('PinAsRuleTestExpectedHint', { category: expected })
-          : t('PinAsRuleTestHint')}
-      </p>
-      {#if view.override_category && !expectsOther}
-        <p id="explain-pin-rules" class="form-hint">
-          {t('PinRulesUnderException', { category: view.rules_category })}
+      <div class="explain-action">
+        <button
+          class="btn btn-secondary btn-sm"
+          disabled={keeping || kept || view.current_category === null}
+          onclick={() => void keep()}
+          aria-describedby="explain-keep-hint"
+        >
+          <Lock size={14} />
+          {t('KeepHere')}
+        </button>
+        <p id="explain-keep-hint" class="form-hint">
+          {#if view.current_category === null}
+            {t('KeepHereUnmapped')}
+            <a class="text-link" href={href('/categories')}>{t('GuideCategoriesAction')}</a>
+          {:else if kept}
+            {t('KeptHere', { category: view.current_category })}
+          {:else}
+            {t('KeepHereHint', { category: view.current_category })}
+          {/if}
         </p>
-      {/if}
+      </div>
+      <div class="explain-action">
+        <div class="form-group">
+          <label class="form-label" for="explain-pin-category">{t('PinExpectedCategory')}</label>
+          <select
+            id="explain-pin-category"
+            class="form-select"
+            value={expected}
+            disabled={pinned}
+            onchange={(event) => (chosen = event.currentTarget.value)}
+          >
+            {#each categoryNames as name (name)}
+              <option value={name}>{name}</option>
+            {/each}
+          </select>
+        </div>
+        <!-- Disabled once taken rather than hidden: a button that vanishes leaves
+             the user unsure whether it worked. -->
+        <button
+          class="btn btn-secondary btn-sm"
+          disabled={pinning || pinned}
+          onclick={() => void pin()}
+          aria-describedby="explain-pin-hint{view.override_category ? ' explain-pin-rules' : ''}"
+        >
+          <ShieldCheck size={14} />
+          {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
+        </button>
+        <p id="explain-pin-hint" class="form-hint">
+          {expectsOther
+            ? t('PinAsRuleTestExpectedHint', { category: expected })
+            : t('PinAsRuleTestHint')}
+        </p>
+        {#if view.override_category && !expectsOther}
+          <p id="explain-pin-rules" class="form-hint">
+            {t('PinRulesUnderException', { category: view.rules_category })}
+          </p>
+        {/if}
+      </div>
     </div>
-  </div>
+  {/if}
 
   <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
   <ErrorBanner message={categories.error} onRetry={() => void categories.reload()} />

@@ -14,7 +14,8 @@
   }: {
     decision: Decision;
     selected: boolean;
-    onToggle: () => void;
+    /** Selects the move for an apply, which a reader is offered no box for. */
+    onToggle?: () => void;
     /** Keeps the title where it is, offered on a pending proposal whose folder has a category. */
     onKeep?: () => void;
   } = $props();
@@ -53,7 +54,7 @@
 
 <tr>
   <td>
-    {#if decision.action === 'move'}
+    {#if decision.action === 'move' && onToggle}
       <input
         type="checkbox"
         checked={selected}

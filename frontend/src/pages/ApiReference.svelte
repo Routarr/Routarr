@@ -16,6 +16,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import { href } from '../lib/router.svelte';
+  import { access } from '../lib/access.svelte';
   import { Download } from '../lib/icons';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
@@ -226,9 +227,12 @@
          downloads: on this screen it is a page of English before the first
          operation. What a reader needs from it is where the key comes from. -->
     <div class="card">
+      <!-- Named, not linked, for a reader, whom the screen refuses. -->
       <p>
-        {keysLine[0]}<a class="text-link" href={href('/applications')}>{t('Applications')}</a
-        >{keysLine[1]}
+        {keysLine[0]}{#if access.readOnly}{t('Applications')}{:else}<a
+            class="text-link"
+            href={href('/applications')}>{t('Applications')}</a
+          >{/if}{keysLine[1]}
       </p>
       <p class="text-muted text-sm mt-1">{t('ApiReferenceEnglish')}</p>
     </div>

@@ -459,17 +459,46 @@ pub(crate) fn stored(id: &str) -> String {
     hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// What a person signed in may reach: everything, or what an application key's read scope
+/// reads. Only an OIDC sign-in opens a reader's session, from the read lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Reach {
+    #[default]
+    Full,
+    Read,
+}
+
+impl Reach {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Reach::Full => "full",
+            Reach::Read => "read",
+        }
+    }
+
+    /// As stored, any value but `full` read as `read`, so a damaged row grants less.
+    fn stored(value: &str) -> Self {
+        if value == "full" { Reach::Full } else { Reach::Read }
+    }
+}
+
 /// Open a session and return its opaque id.
-pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> AppResult<String> {
+pub async fn open_session(
+    pool: &SqlitePool,
+    subject: &str,
+    source: &str,
+    reach: Reach,
+) -> AppResult<String> {
     let id = crate::crypto::generate_secret()?;
     sqlx::query(
-        "INSERT INTO sessions (id, subject, source, expires_at)
-         VALUES (?, ?, ?, datetime('now', ?))",
+        "INSERT INTO sessions (id, subject, source, expires_at, reach)
+         VALUES (?, ?, ?, datetime('now', ?), ?)",
     )
     .bind(stored(&id))
     .bind(subject)
     .bind(source)
     .bind(format!("+{} seconds", opening_seconds(source)))
+    .bind(reach.as_str())
     .execute(pool)
     .await?;
     Ok(id)
@@ -478,6 +507,7 @@ pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> App
 /// A live session, as answering it left it.
 pub struct Session {
     pub subject: String,
+    pub reach: Reach,
     /// When it was opened, in Unix seconds: what a recent sign-in is read from.
     pub opened_at: i64,
     /// The seconds the browser's cookie is given again for, when answering it
@@ -498,8 +528,8 @@ pub struct Session {
 /// a format twice.
 pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResult<Option<Session>> {
     let lifetime = format!("-{} hours", lifetime_hours(source));
-    let live: Option<(String, i64)> = sqlx::query_as(
-        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER) FROM sessions
+    let live: Option<(String, i64, String)> = sqlx::query_as(
+        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER), reach FROM sessions
          WHERE id = ? AND source = ? AND expires_at > datetime('now')
            AND created_at > datetime('now', ?)",
     )
@@ -508,7 +538,7 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
     .bind(&lifetime)
     .fetch_optional(pool)
     .await?;
-    let Some((subject, opened_at)) = live else {
+    let Some((subject, opened_at, reach)) = live else {
         return Ok(None);
     };
 
@@ -535,7 +565,7 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
     .await
     .ok()
     .flatten();
-    Ok(Some(Session { subject, opened_at, renewed }))
+    Ok(Some(Session { subject, reach: Reach::stored(&reach), opened_at, renewed }))
 }
 
 /// One session as the owner sees it on the sessions screen: never its id,
@@ -548,6 +578,8 @@ pub struct Listed {
     pub subject: String,
     /// The mode that opened it: `forms`, `oidc` or `apikey`.
     pub source: String,
+    /// `full`, or `read` for a person the OIDC read lists let in.
+    pub reach: String,
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub created_at: String,
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
@@ -562,7 +594,8 @@ pub struct Listed {
 /// The live sessions, newest first, `current` set on the one `id` opens.
 pub async fn list_sessions(pool: &SqlitePool, current: Option<&str>) -> AppResult<Vec<Listed>> {
     let mut listed: Vec<Listed> = sqlx::query_as(
-        "SELECT substr(id, 1, 16) AS handle, subject, source, created_at, last_used_at, expires_at
+        "SELECT substr(id, 1, 16) AS handle, subject, source, reach, created_at, last_used_at,
+                expires_at
            FROM sessions WHERE expires_at > datetime('now') ORDER BY created_at DESC, id",
     )
     .fetch_all(pool)
@@ -925,7 +958,7 @@ mod tests {
         .unwrap();
         assert!(ends);
 
-        let id = open_session(&pool, "u-42", "oidc").await.unwrap();
+        let id = open_session(&pool, "u-42", "oidc", Reach::Full).await.unwrap();
         let session = live_session(&pool, &id, "oidc").await.unwrap().unwrap();
         assert_eq!(session.renewed, None, "a session already at its lifetime was written to");
     }
@@ -972,7 +1005,7 @@ mod tests {
     #[tokio::test]
     async fn a_session_answers_until_it_is_closed() {
         let pool = crate::db::test_pool().await;
-        let id = open_session(&pool, "admin", "forms").await.unwrap();
+        let id = open_session(&pool, "admin", "forms", Reach::Full).await.unwrap();
 
         assert_eq!(
             live_session(&pool, &id, "forms").await.unwrap().map(|s| s.subject).as_deref(),
@@ -992,7 +1025,7 @@ mod tests {
         let dir = crate::tests::TempDir::new("accounts-pw");
         ensure_account(&pool, &dir.join("routarr.password")).await.unwrap();
 
-        let id = open_session(&pool, "admin", "forms").await.unwrap();
+        let id = open_session(&pool, "admin", "forms", Reach::Full).await.unwrap();
         set_password(&pool, std::path::Path::new("/nonexistent/routarr.password"), "a new one")
             .await
             .unwrap();

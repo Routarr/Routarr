@@ -2814,13 +2814,18 @@
               "null"
             ]
           },
+          "read_only": {
+            "description": "A person signed in to read alone, whose every other call answers 403 `read_only`.\nFalse for everyone else, an application key included, which its scopes hold.",
+            "type": "boolean"
+          },
           "subject": {
             "description": "An application's name, the signed-in person, `apikey` for the owner's\nkey, or `anonymous` where the mode asks for nothing.",
             "type": "string"
           }
         },
         "required": [
-          "subject"
+          "subject",
+          "read_only"
         ],
         "type": "object"
       },
@@ -6527,7 +6532,7 @@
         "operationId": "health",
         "parameters": [
           {
-            "description": "`false` reads the database alone: every enabled instance reads `unchecked`, every source\n`connected: null`, and `warnings` repeat what the last probe found. Defaults to true,\nexcept for a request another site set off.",
+            "description": "`false` reads the database alone: every enabled instance reads `unchecked`, every source\n`connected: null`, and `warnings` repeat what the last probe found. Defaults to true for\na caller holding the operate scope, false otherwise and for a request another site set\noff. `true` needs the operate scope.",
             "in": "query",
             "name": "probe",
             "required": false,
@@ -6580,7 +6585,7 @@
         "tags": [
           "status"
         ],
-        "x-routarr-scope": "operate"
+        "x-routarr-scope": "read"
       }
     },
     "/instances": {

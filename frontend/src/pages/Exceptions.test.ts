@@ -8,6 +8,7 @@ import { media, paginated } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { Category, OverrideEntry } from '../api/types';
 import Exceptions from './Exceptions.svelte';
+import { publishAccess } from '../lib/access.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 
@@ -369,5 +370,24 @@ describe('more exceptions than a page holds', () => {
     await waitFor(() =>
       expect(list).toHaveBeenLastCalledWith({ page: 1, per_page: 50 }, expect.any(AbortSignal)),
     );
+  });
+});
+
+/** A reader is refused both the pin and its removal: the list is what they may read. */
+describe('for a reader', () => {
+  const offered = () =>
+    ['New exception', 'Delete – Akira'].filter((name) => screen.queryByRole('button', { name }));
+
+  it('offers the owner the new exception and the delete, and a reader neither', async () => {
+    const { unmount } = show([override()]);
+    await screen.findByText('Akira');
+    expect(offered()).toEqual(['New exception', 'Delete – Akira']);
+    unmount();
+
+    publishAccess(true);
+    show([override({ reason: 'Kept by hand' })]);
+
+    expect(await screen.findByText('Kept by hand')).toBeInTheDocument();
+    expect(offered()).toEqual([]);
   });
 });

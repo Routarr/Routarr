@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
-import { renderWithI18n } from '../test/render';
+import { ENGLISH, renderWithI18n } from '../test/render';
 import { invalidateStatus } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
 import type { OnboardingStatus, Status } from '../api/types';
 import LayoutHarness from '../test/LayoutHarness.svelte';
 import { withBase } from '../test/base';
+import { SCREENS } from '../lib/routes';
 import { onboardingStatus, warning } from '../test/fixtures';
 import { onboarding, publishOnboarding, publishOnboardingFailure } from '../lib/onboarding.svelte';
 import { navigate } from '../lib/router.svelte';
+import { access, publishAccess } from '../lib/access.svelte';
 
 /**
  * The chrome. It answers one question above all others (will the next click
@@ -31,11 +33,16 @@ function status(over: Partial<Status> = {}): Status {
   };
 }
 
-function show(guide: OnboardingStatus = onboardingStatus([], { state: 'done' })) {
-  // The theme is a server setting, fetched on mount. Unmocked it reaches for a
-  // dev server that is not running and fills the output with connection errors.
-  vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
+/** Who `/auth/me` says reads: the owner, unless a test signs a reader in. */
+function signedIn(readOnly = false) {
+  return vi
+    .spyOn(api, 'getMe')
+    .mockResolvedValue({ subject: 'admin', expires_at: null, read_only: readOnly });
+}
+
+function show(guide: OnboardingStatus = onboardingStatus([], { state: 'done' }), readOnly = false) {
   vi.spyOn(api, 'getOnboarding').mockResolvedValue(guide);
+  signedIn(readOnly);
   return renderWithI18n(LayoutHarness);
 }
 
@@ -443,6 +450,7 @@ describe('Layout', () => {
       .spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ warnings: [warning('unmapped'), warning('no key')] }))
       .mockResolvedValue(status({ warnings: [warning('no key')] }));
+    signedIn();
     renderWithI18n(LayoutHarness);
 
     // Both read the same answer: the bar's attention control and the entry in
@@ -467,6 +475,7 @@ describe('Layout', () => {
     vi.spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ warnings: [warning('unmapped')] }))
       .mockResolvedValue(status({ warnings: [] }));
+    signedIn();
     renderWithI18n(LayoutHarness);
 
     expect(await screen.findByText('Warnings: 1')).toBeInTheDocument();
@@ -612,11 +621,11 @@ describe('Layout', () => {
    */
   it('reads the guide again after a write and on every navigation', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
-    vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
     vi.spyOn(api, 'getOnboarding')
       .mockResolvedValueOnce(onboardingStatus(['instance']))
       .mockResolvedValueOnce(onboardingStatus(['instance', 'categories']))
       .mockResolvedValue(onboardingStatus(['instance', 'categories', 'rule']));
+    signedIn();
     renderWithI18n(LayoutHarness);
     const pill = (done: number) =>
       screen.findByRole('link', {
@@ -656,10 +665,119 @@ describe('Layout', () => {
   /** The dashboard, where the guide lives, says so rather than showing nothing. */
   it('publishes a guide it could not read', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
-    vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
     vi.spyOn(api, 'getOnboarding').mockRejectedValue(new ApiError('locked', 503, 'unavailable'));
+    signedIn();
     renderWithI18n(LayoutHarness);
 
     await vi.waitFor(() => expect(onboarding.failure).toContain('locked'));
+  });
+
+  /** A reader is spared the controls the server would refuse, and told so once, in the bar. */
+  it('marks the bar read only for a reader, and says what that means', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show(undefined, true);
+
+    const mark = await screen.findByRole('status', { name: 'Read only' });
+    expect(mark).toHaveTextContent('Read only');
+    expect(mark).toHaveAccessibleDescription(ENGLISH.ReadOnlyHelp);
+    // Beside the mode, which still says whether the owner's writes are held.
+    expect(screen.getByLabelText('Dry-run: writes blocked')).toBeInTheDocument();
+  });
+
+  it('shows the owner no read-only mark', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+
+    await vi.waitFor(() => expect(access.known).toBe(true));
+    expect(screen.queryByRole('status', { name: 'Read only' })).toBeNull();
+  });
+
+  /** Every read those screens make is refused to a reader: a link to one leads to a failure. */
+  it('offers a reader none of the screens the owner alone reads', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show(undefined, true);
+    await screen.findByRole('status', { name: 'Read only' });
+
+    const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
+    for (const name of ['Settings', 'Metadata sources', 'Applications', 'Security log']) {
+      expect(within(navigation).queryByRole('link', { name })).toBeNull();
+    }
+    for (const name of ['Rules', 'Simulation', 'Diagnostics', 'API reference']) {
+      expect(within(navigation).getByRole('link', { name })).toBeInTheDocument();
+    }
+  });
+
+  it('offers the owner every screen', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+    await vi.waitFor(() => expect(access.known).toBe(true));
+
+    const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
+    expect(within(navigation).getAllByRole('link')).toHaveLength(SCREENS.length);
+  });
+
+  /** The guide is refused to a reader, and asked before the answer it would be refused too. */
+  it('reads the guide once the owner is known, and never for a reader', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    const guide = vi.spyOn(api, 'getOnboarding').mockResolvedValue(onboardingStatus());
+    let answer: (readOnly: boolean) => void = () => {};
+    vi.spyOn(api, 'getMe').mockReturnValue(
+      new Promise((resolve) => {
+        answer = (readOnly) => resolve({ subject: 'admin', expires_at: null, read_only: readOnly });
+      }),
+    );
+    const { unmount } = renderWithI18n(LayoutHarness);
+
+    await screen.findByLabelText('Dry-run: writes blocked');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(guide).not.toHaveBeenCalled();
+    answer(true);
+    await screen.findByRole('status', { name: 'Read only' });
+    navigate('/rules');
+    invalidateStatus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(guide).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: /Getting started/ })).toBeNull();
+    unmount();
+
+    // The positive control: the same shell, told of the owner, reads it.
+    publishAccess(null);
+    signedIn();
+    renderWithI18n(LayoutHarness);
+    expect(await screen.findByRole('link', { name: /Getting started/ })).toBeTruthy();
+    expect(guide).toHaveBeenCalled();
+  });
+
+  /** Asked behind the gate, the question is one more refusal for a browser with no session. */
+  it('asks who reads only once the gate has let the person in', async () => {
+    vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
+    const me = signedIn();
+    renderWithI18n(LayoutHarness);
+
+    await screen.findByText('This Routarr needs an API key');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(me).not.toHaveBeenCalled();
+  });
+
+  /** Unanswered, the guide would wait for good: the next status read asks again. */
+  it('asks again who reads at the next status read when the first answer failed', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'getOnboarding').mockResolvedValue(onboardingStatus());
+    const me = vi
+      .spyOn(api, 'getMe')
+      .mockRejectedValueOnce(new ApiError('later', 503, 'unavailable'))
+      .mockResolvedValue({ subject: 'admin', expires_at: null, read_only: false });
+    renderWithI18n(LayoutHarness);
+    await vi.waitFor(() => expect(me).toHaveBeenCalledTimes(1));
+    expect(access.known).toBe(false);
+
+    invalidateStatus();
+
+    expect(await screen.findByRole('link', { name: /Getting started/ })).toBeTruthy();
+    expect(me).toHaveBeenCalledTimes(2);
+    // Known, it is not asked again at each poll.
+    invalidateStatus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(me).toHaveBeenCalledTimes(2);
   });
 });

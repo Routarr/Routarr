@@ -7,11 +7,10 @@
 //! reads. Nothing downstream knows which mode produced it, and that is the
 //! point: adding a mode is one arm here, not a change everywhere.
 //!
-//! There are no roles among people. The Servarr applications have none either:
-//! their `User` model carries a name and a password hash and nothing else, and
-//! a single account. A person's access is all or nothing, and who gets in is
-//! the mode's business. An application key is the one exception: it reaches
-//! only what its scopes grant, whatever the mode (`api::applications`).
+//! People have two levels at most. A person has full access, except one the OIDC read lists
+//! let in, who reaches what the read scope of an application key reaches. Forms keeps one
+//! account, and the other modes name nobody. An application key reaches only what its scopes
+//! grant, whatever the mode (`api::applications`).
 
 use std::net::IpAddr;
 
@@ -26,7 +25,8 @@ use crate::AppState;
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
 use crate::jobs::Attribution;
-use crate::services::applications::{self, Grant, Resolved, TOKEN_PREFIX};
+use crate::services::accounts::Reach;
+use crate::services::applications::{self, Grant, Resolved, Scope, TOKEN_PREFIX};
 use crate::services::executor::Confirmed;
 use crate::services::{accounts, audit};
 
@@ -49,17 +49,17 @@ fn attempt_cookie(state: &str) -> String {
 
 /// Who is making a request, once a mode has decided.
 ///
-/// A person carries no role: there is one level of access, and the mode
-/// decides who reaches it. An application carries its [`Grant`]. The subject
+/// A person reaches everything, or reads alone ([`Reach`]). An application carries its
+/// [`Grant`]. The subject
 /// is what the `subject` column of `jobs`, `decisions`, `execution_logs` and
 /// `overrides` records, when anybody is named (see [`Identity::actor`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub subject: String,
     pub source: AuthMode,
-    /// What an application key allows. `None` for a person, who may do
-    /// everything.
+    /// What an application key allows. `None` for a person, whose `reach` says.
     pub application: Option<Grant>,
+    pub reach: Reach,
     /// When the session this request carries was opened, in Unix seconds, for
     /// a person signed in through one. `None` for a key sent in a header.
     pub signed_in_at: Option<i64>,
@@ -68,15 +68,22 @@ pub struct Identity {
 impl Identity {
     /// The caller nobody had to name: `none` lets everyone through under it.
     fn anonymous(source: AuthMode) -> Self {
-        Self { subject: "anonymous".to_string(), source, application: None, signed_in_at: None }
+        Self::person("anonymous".to_string(), source)
     }
 
     fn person(subject: String, source: AuthMode) -> Self {
-        Self { subject, source, application: None, signed_in_at: None }
+        Self { subject, source, application: None, reach: Reach::Full, signed_in_at: None }
     }
 
     fn application(grant: Grant, source: AuthMode) -> Self {
-        Self { subject: grant.name.clone(), source, application: Some(grant), signed_in_at: None }
+        let subject = grant.name.clone();
+        Self { subject, source, application: Some(grant), reach: Reach::Full, signed_in_at: None }
+    }
+
+    /// A person with full access, who reads what no application key or reader may: the
+    /// webhook address of an instance, the default flag of a category.
+    pub fn is_owner(&self) -> bool {
+        self.application.is_none() && self.reach == Reach::Full
     }
 
     /// The name worth recording on a write, if anybody vouched for one.
@@ -123,10 +130,13 @@ impl Identity {
         }
     }
 
-    /// Whether this caller holds `scope`: an application its grant's, anyone
-    /// else every scope.
-    pub fn holds(&self, scope: crate::services::applications::Scope) -> bool {
-        self.application.as_ref().is_none_or(|grant| grant.allows(scope))
+    /// Whether this caller holds `scope`: an application its grant's, a reader the read scope,
+    /// anyone else every scope.
+    pub fn holds(&self, scope: Scope) -> bool {
+        match &self.application {
+            Some(grant) => grant.allows(scope),
+            None => self.reach == Reach::Full || scope == Scope::Read,
+        }
     }
 
     /// Who asked, as this caller may read it. An application reads its own
@@ -341,6 +351,17 @@ pub async fn authenticate(
     };
 
     match identity {
+        // A reader reaches what the read scope grants a key, and nothing the owner keeps.
+        Some(identity)
+            if identity.reach == Reach::Read
+                && super::applications::asked(&request).1 != Some(Scope::Read) =>
+        {
+            let (route, _) = super::applications::asked(&request);
+            let event = refusal(audit::Kind::Scope, "AuditReaderRefused").with("route", route);
+            refused(&state, client, audit::Event { subject: Some(&identity.subject), ..event });
+            let message = state.localizer().await.translate("ErrorReadOnly", &[]);
+            read_only(&message)
+        }
         Some(identity) => {
             request.extensions_mut().insert(identity);
             let mut response = next.run(request).await;
@@ -454,6 +475,7 @@ async fn session_identity(
         .and_then(|cookie| axum::http::HeaderValue::from_str(&cookie).ok());
     let identity = Identity {
         signed_in_at: Some(session.opened_at),
+        reach: session.reach,
         ..Identity::person(session.subject, mode)
     };
     Some((identity, renewal))
@@ -552,6 +574,17 @@ fn split_port(authority: &str) -> (&str, Option<u16>) {
         },
         None => (authority, None),
     }
+}
+
+/// Refused to a reader, with the `reason` the interface keys on.
+fn read_only(message: &str) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        axum::Json(serde_json::json!({
+            "error": "forbidden", "message": message, "reason": "read_only",
+        })),
+    )
+        .into_response()
 }
 
 fn forbidden(message: &str) -> Response {
@@ -741,8 +774,13 @@ pub async fn login(
     }
     state.sign_in.succeeded(client);
 
-    match accounts::open_session(&state.pool, credentials.username.trim(), AuthMode::Forms.as_str())
-        .await
+    match accounts::open_session(
+        &state.pool,
+        credentials.username.trim(),
+        AuthMode::Forms.as_str(),
+        Reach::Full,
+    )
+    .await
     {
         Ok(id) => {
             let name = credentials.username.trim();
@@ -804,7 +842,7 @@ pub async fn key_session(
     state.sign_in.succeeded(client);
 
     let source = AuthMode::ApiKey.as_str();
-    match accounts::open_session(&state.pool, "apikey", source).await {
+    match accounts::open_session(&state.pool, "apikey", source, Reach::Full).await {
         Ok(id) => {
             let person = Identity::person("apikey".to_string(), AuthMode::ApiKey);
             let event = allowed(audit::Kind::SignIn, "AuditKeySessionOpened");
@@ -862,12 +900,16 @@ pub struct Me {
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub expires_at: Option<String>,
+    /// A person signed in to read alone, whose every other call answers 403 `read_only`.
+    /// False for everyone else, an application key included, which its scopes hold.
+    pub read_only: bool,
 }
 
-/// Who this request is, for a shell that wants to show a name.
+/// Who this request is, for a shell that shows a name and hides what a reader cannot do.
 pub async fn me(axum::Extension(identity): axum::Extension<Identity>) -> super::Json<Me> {
     let expires_at = identity.application.as_ref().and_then(|grant| grant.expires_at.clone());
-    super::Json(Me { subject: identity.subject, expires_at })
+    let read_only = identity.reach == Reach::Read;
+    super::Json(Me { subject: identity.subject, expires_at, read_only })
 }
 
 /// Send the browser to the provider.
@@ -999,8 +1041,8 @@ pub async fn oidc_callback(
         Some(screen) => format!("{home}{}", screen.trim_start_matches('/')),
         None => home.clone(),
     };
-    let subject = match crate::services::oidc::finish(&state, &code, attempt).await {
-        Ok(subject) => subject,
+    let (subject, reach) = match crate::services::oidc::finish(&state, &code, attempt).await {
+        Ok(signed_in) => signed_in,
         Err(e) => {
             let event = refusal(audit::Kind::SignIn, "AuditOidcRefused").with("reason", e);
             state.audit.record(event.by(None, client));
@@ -1008,12 +1050,16 @@ pub async fn oidc_callback(
         }
     };
 
-    match accounts::open_session(&state.pool, &subject, AuthMode::Oidc.as_str()).await {
+    match accounts::open_session(&state.pool, &subject, AuthMode::Oidc.as_str(), reach).await {
         // Appended: an array of headers inserts each one, so the second cookie
         // would replace the session the browser is being handed.
         Ok(id) => {
-            let person = Identity::person(subject.clone(), AuthMode::Oidc);
-            audited(&state, &person, client, allowed(audit::Kind::SignIn, "AuditOidcSignedIn"));
+            let person = Identity { reach, ..Identity::person(subject.clone(), AuthMode::Oidc) };
+            let signed_in = match reach {
+                Reach::Full => "AuditOidcSignedIn",
+                Reach::Read => "AuditOidcSignedInToRead",
+            };
+            audited(&state, &person, client, allowed(audit::Kind::SignIn, signed_in));
             (
                 axum::response::AppendHeaders([
                     (

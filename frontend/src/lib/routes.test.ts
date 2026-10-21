@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { SCREENS, screenKey } from './routes';
-import { iconFor } from './navigation';
+import { destinationsFor, groupsFor, iconFor } from './navigation';
 
 /**
  * The route table is data so the e2e sweeps can read it, and the icons are
@@ -46,5 +46,23 @@ describe('screenKey', () => {
     expect(screenKey('/rule-tests')).toBe('RuleTests');
     expect(screenKey('/')).toBe('Dashboard');
     expect(screenKey('/rules/nope')).toBe('NotFoundTitle');
+  });
+});
+
+describe('what a reader is offered', () => {
+  /** The owner's screens answer a reader with a refusal from their first read. */
+  it("offers the owner every screen, and a reader all but the owner's four", () => {
+    expect(destinationsFor(false).map((item) => item.to)).toEqual(SCREENS);
+    expect(destinationsFor(true).map((item) => item.to)).toEqual(
+      SCREENS.filter(
+        (screen) => !['/security-log', '/sources', '/settings', '/applications'].includes(screen),
+      ),
+    );
+  });
+
+  /** A group heading over nothing reads as a section the reader cannot open. */
+  it('offers a reader no group left without a screen', () => {
+    expect(groupsFor(true).length).toBeGreaterThan(3);
+    for (const group of groupsFor(true)) expect(group.items.length).toBeGreaterThan(0);
   });
 });

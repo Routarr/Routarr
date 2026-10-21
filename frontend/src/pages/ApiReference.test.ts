@@ -6,6 +6,7 @@ import { renderWithI18n } from '../test/render';
 import { api } from '../api/client';
 import type { OpenApiDocument } from '../api/openapi';
 import ApiReference from './ApiReference.svelte';
+import { publishAccess } from '../lib/access.svelte';
 
 /**
  * The reference reads the contract the running version serves, groups it by
@@ -146,5 +147,23 @@ describe('ApiReference', () => {
     const example = screen.getByRole('region', { name: 'Example – POST /decisions/apply' });
     expect(example).toHaveAttribute('tabindex', '0');
     expect(example).toHaveClass('api-example');
+  });
+});
+
+describe('for a reader', () => {
+  /** Keys are made on a screen a reader is refused, so it is named and not linked. */
+  it('links the owner to the screen that makes keys, and names it to a reader', async () => {
+    const { unmount } = show();
+    expect(await screen.findByRole('link', { name: 'Applications' })).toBeInTheDocument();
+    unmount();
+
+    publishAccess(true);
+    show();
+
+    const line = await screen.findByText(/Each call sends a key made on the/);
+    expect(line).toHaveTextContent(
+      'Each call sends a key made on the Applications screen, in its X-Api-Key header.',
+    );
+    expect(screen.queryByRole('link', { name: 'Applications' })).toBeNull();
   });
 });
