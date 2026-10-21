@@ -4,13 +4,14 @@
 //!
 //! ```bash
 //! cargo test live_sources -- --ignored --nocapture --test-threads=1   # keyless only
-//! TMDB_API_KEY=… OMDB_API_KEY=… TVDB_API_KEY=… cargo test live_sources -- --ignored  # everything
+//! TMDB_API_KEY=… OMDB_API_KEY=… TVDB_API_KEY=… MAL_CLIENT_ID=… cargo test live_sources -- --ignored
 //! ```
 //!
 //! A source with no credential skips itself, so the keyless pair runs for anyone.
 
 use crate::config::Config;
 use crate::integrations::anilist::AniListClient;
+use crate::integrations::myanimelist::MyAnimeListClient;
 use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tenrai::TenraiClient;
 use crate::integrations::tmdb::TmdbClient;
@@ -124,6 +125,32 @@ async fn tenrai_answers_the_shape_the_client_expects() {
     };
     assert!(!bebop.keywords.is_empty(), "no themes or demographics came back");
     println!("Tenrai {}: {:?} / {:?}", matched.id, details.genres, bebop.keywords);
+}
+
+/// The official API finds the reference film among its search's entries and answers it in the
+/// families Tenrai does, its one `genres` list sorted by id.
+#[tokio::test]
+#[ignore = "hits the real MyAnimeList API; needs MAL_CLIENT_ID"]
+async fn myanimelist_answers_the_shape_the_client_expects() {
+    let Ok(client_id) = std::env::var("MAL_CLIENT_ID") else {
+        eprintln!("skipped: MAL_CLIENT_ID is not set");
+        return;
+    };
+    let mal = MyAnimeListClient::new(
+        client(),
+        &client_id,
+        crate::integrations::myanimelist::DEFAULT_BASE_URL,
+    );
+
+    let found = mal.search("My Neighbor Totoro", "movie").await.expect("MyAnimeList search");
+    let totoro = found.iter().find(|c| c.id == 523).expect("Totoro among the films found");
+    assert_eq!(totoro.year, Some(1988), "start_date drifted");
+    let details = mal.get_details(523).await.expect("MyAnimeList details");
+    assert!(details.genres.iter().any(|genre| genre == "Adventure"), "{:?}", details.genres);
+    assert!(details.keywords.iter().any(|keyword| keyword == "kids"), "{:?}", details.keywords);
+    assert_eq!(details.certification.as_deref(), Some("G"));
+    assert!(details.ratings.contains_key("mal"), "no score read");
+    println!("MyAnimeList 523: {:?} / {:?}", details.genres, details.keywords);
 }
 
 #[tokio::test]

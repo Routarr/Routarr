@@ -17,6 +17,7 @@
     omdb: 'CreditOmdb',
     anilist: 'CreditAnilist',
     tenrai: 'CreditTenrai',
+    myanimelist: 'CreditMyAnimeList',
   };
   const OMDB_LICENCE = 'https://creativecommons.org/licenses/by-nc/4.0/';
   /** The licence's own name, which every language writes as it is. */

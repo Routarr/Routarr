@@ -548,6 +548,78 @@ async fn tenrai_themes_and_demographics_become_keywords() {
     assert_eq!(certification.as_deref(), Some("G"));
 }
 
+/// MyAnimeList's official API answers in Tenrai's families, its one `genres` list sorted by id,
+/// so a rule reads the same whichever of the two answered. Its search takes no type, so a film
+/// is told from the series by the entry's own type, and `nsfw` keeps new entries in view.
+#[tokio::test]
+async fn myanimelist_answers_in_the_families_tenrai_answers_in() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "myanimelist").await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    assert_eq!(asked(&sources, "myanimelist"), ["523"], "another work was described");
+    let (genres, keywords, certification, _) = cached(&app, "myanimelist").await.expect("cached");
+    assert_eq!(genres, r#"["Adventure"]"#);
+    assert_eq!(keywords, r#"["iyashikei","kids"]"#);
+    assert_eq!(certification.as_deref(), Some("G"));
+    let recorded = sources.recorded();
+    assert!(recorded.formats.contains(&("myanimelist", Some("true".into()))), "no nsfw");
+    let sent: Vec<&String> = recorded
+        .credentials
+        .iter()
+        .filter(|(source, _)| *source == "myanimelist")
+        .map(|(_, id)| id)
+        .collect();
+    assert!(!sent.is_empty() && sent.iter().all(|id| *id == super::fake_sources::MAL_CLIENT_ID));
+}
+
+/// Tenrai and the official API name a work by one MyAnimeList id: a title the one found is not
+/// searched for again by the other, whose searches are what MyAnimeList limits most.
+#[tokio::test]
+async fn a_title_tenrai_found_is_not_searched_again_on_myanimelist() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "tenrai").await;
+    let by = crate::jobs::Attribution::manual(None);
+    enrichment::enrich_all_media(&app.state, &by).await.unwrap();
+    app.store_setting("metadata_providers", "myanimelist").await;
+
+    enrichment::enrich_all_media(&app.state, &by).await.unwrap();
+
+    let searched = sources.recorded().searches.iter().filter(|(s, _)| *s == "myanimelist").count();
+    assert_eq!(searched, 0, "the shared id was searched for again");
+    assert_eq!(asked(&sources, "myanimelist"), ["523"]);
+    let shared: Option<String> = sqlx::query_scalar(
+        "SELECT external_id FROM source_identifiers WHERE source = 'myanimelist'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(shared.as_deref(), Some("523"));
+}
+
+/// A client ID MyAnimeList does not know answers a 400, which as is would write every title down
+/// as found nowhere. Read as the key refused, it records nothing, and the probe says so.
+#[tokio::test]
+async fn a_myanimelist_client_id_refused_is_said_and_writes_no_miss() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,myanimelist").await;
+    let mut config = (*app.state.config).clone();
+    config.mal_client_id = Some("not-a-client".into());
+    let app = TestApp::around(app.state.clone().with_config(config));
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let remembered =
+        app.count("SELECT COUNT(*) FROM source_identifiers WHERE source = 'myanimelist'").await;
+    assert_eq!(remembered, 0, "a refused key wrote a miss");
+    assert_eq!(probe_verdicts(&app).await, ["source_key_refused"]);
+}
+
 // ------------------------------------------------------------- all together
 
 #[tokio::test]
@@ -1058,6 +1130,9 @@ async fn a_probe_names_why_a_source_did_not_answer() {
     for (status, order, verdict) in [
         (429, "arr,tenrai", "source_rate_limited"),
         (429, "arr,anilist", "source_rate_limited"),
+        (429, "arr,myanimelist", "source_rate_limited"),
+        // A 403 with the client ID sent is MyAnimeList's front blocking the address.
+        (403, "arr,myanimelist", "source_rate_limited"),
         (401, "arr,tvdb", "source_key_refused"),
         (401, "arr,omdb", "source_key_refused"),
         (401, "arr,anilist", "source_unreachable"),

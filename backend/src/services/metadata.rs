@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::anilist::AniListClient;
+use crate::integrations::myanimelist::MyAnimeListClient;
 use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tenrai::TenraiClient;
 use crate::integrations::tmdb::TmdbClient;
@@ -24,6 +25,8 @@ pub const ANILIST: &str = "anilist";
 pub const TENRAI: &str = "tenrai";
 pub const OMDB: &str = "omdb";
 pub const TVDB: &str = "tvdb";
+/// MyAnimeList's official API, beside Tenrai's reading of the same site.
+pub const MYANIMELIST: &str = "myanimelist";
 
 /// The most days TMDB's terms let one of its answers be kept: six months.
 pub const TMDB_CACHE_DAYS: i64 = 180;
@@ -139,6 +142,23 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         fetched: true,
         needs_key: false,
         key_env: None,
+        addressing: Addressing::Search,
+        fields: &[
+            MetadataField::Genres,
+            MetadataField::Keywords,
+            MetadataField::Certification,
+            MetadataField::Ratings,
+        ],
+        media_types: EVERY_MEDIA_TYPE,
+        website: Some("https://myanimelist.net"),
+    },
+    ProviderInfo {
+        id: MYANIMELIST,
+        display_name: "MyAnimeList",
+        fetched: true,
+        // A client ID each installation makes for itself: MyAnimeList lets nobody share one.
+        needs_key: true,
+        key_env: Some("MAL_CLIENT_ID"),
         addressing: Addressing::Search,
         fields: &[
             MetadataField::Genres,
@@ -288,6 +308,7 @@ pub enum FetchingSource {
     Tmdb(TmdbClient),
     AniList(AniListClient),
     Tenrai(TenraiClient),
+    MyAnimeList(MyAnimeListClient),
     Omdb(OmdbClient),
     Tvdb(TvdbClient),
 }
@@ -298,6 +319,7 @@ impl FetchingSource {
             Self::Tmdb(_) => TMDB,
             Self::AniList(_) => ANILIST,
             Self::Tenrai(_) => TENRAI,
+            Self::MyAnimeList(_) => MYANIMELIST,
             Self::Omdb(_) => OMDB,
             Self::Tvdb(_) => TVDB,
         }
@@ -323,6 +345,13 @@ impl FetchingSource {
                 if client.base_url() == crate::integrations::tenrai::DEFAULT_BASE_URL =>
             {
                 Some((60, 3))
+            }
+            // MyAnimeList publishes no rate, and its front blocks an address that keeps up more
+            // than about one a second.
+            Self::MyAnimeList(client)
+                if client.base_url() == crate::integrations::myanimelist::DEFAULT_BASE_URL =>
+            {
+                Some((60, 1))
             }
             // A daily quota rather than a rate, but a modest ceiling spares a hobby server.
             Self::Omdb(client)
@@ -360,11 +389,12 @@ impl FetchingSource {
         }
     }
 
-    /// How many of this source's requests may be in flight at once. Tenrai limits each address,
-    /// and more would only earn the 429 that stops the whole pass.
+    /// How many of this source's requests may be in flight at once. Tenrai and MyAnimeList limit
+    /// each address, and more would only earn the refusal that stops the whole pass.
     pub fn concurrency(&self, configured: usize) -> usize {
         match self {
             Self::Tenrai(_) => configured.min(2),
+            Self::MyAnimeList(_) => 1,
             _ => configured,
         }
     }
@@ -374,6 +404,7 @@ impl FetchingSource {
             Self::Tmdb(client) => client.test_connection().await,
             Self::AniList(client) => client.test_connection().await,
             Self::Tenrai(client) => client.test_connection().await,
+            Self::MyAnimeList(client) => client.test_connection().await,
             Self::Omdb(client) => client.test_connection().await,
             Self::Tvdb(client) => client.test_connection().await,
         }
@@ -427,6 +458,14 @@ impl FetchingSource {
                     candidates.into_iter().map(|c| (c.id.to_string(), c.year, c.titles)),
                 ))
             }
+            Self::MyAnimeList(client) => {
+                let candidates = client.search(title, media_type).await?;
+                Ok(pick_candidate(
+                    title,
+                    year,
+                    candidates.into_iter().map(|c| (c.id.to_string(), c.year, c.titles)),
+                ))
+            }
             // Every other source is addressed by an id the library already has.
             _ => Ok(None),
         }
@@ -468,6 +507,22 @@ impl FetchingSource {
                     genres: details.genres,
                     keywords: details.keywords,
                     // MyAnimeList rates in a system of its own.
+                    certification_scale: details
+                        .certification
+                        .as_ref()
+                        .map(|_| crate::integrations::certification::MAL.to_string()),
+                    certification: details.certification,
+                    status: details.status,
+                    overview: details.overview,
+                    ratings: details.ratings,
+                    ..Default::default()
+                }
+            }
+            Self::MyAnimeList(client) => {
+                let details = client.get_details(numeric(external_id, "MyAnimeList")?).await?;
+                ProviderMetadata {
+                    genres: details.genres,
+                    keywords: details.keywords,
                     certification_scale: details
                         .certification
                         .as_ref()
@@ -691,6 +746,31 @@ pub async fn resolved_keys(pool: &SqlitePool, source: &str) -> AppResult<HashSet
         })
         .map(|(key, _, _)| key)
         .collect())
+}
+
+/// The source naming a work by the same MyAnimeList id as `source`: what one found by search,
+/// the other takes without searching, since a search is what MyAnimeList limits most.
+pub fn sharing_ids_with(source: &str) -> Option<&'static str> {
+    match source {
+        TENRAI => Some(MYANIMELIST),
+        MYANIMELIST => Some(TENRAI),
+        _ => None,
+    }
+}
+
+/// The identifiers `source` found by search, by [`resolution_key`].
+pub async fn found_identifiers(
+    pool: &SqlitePool,
+    source: &str,
+) -> AppResult<HashMap<String, String>> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT media_type, local_key, external_id FROM source_identifiers
+          WHERE source = ? AND external_id IS NOT NULL",
+    )
+    .bind(source)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(kind, key, id)| (resolution_key(&kind, &key), id)).collect())
 }
 
 /// The values of `anime_search`: AniList and MyAnimeList searched for the

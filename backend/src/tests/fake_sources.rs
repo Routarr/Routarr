@@ -1,6 +1,6 @@
-//! In-process stand-ins for AniList, Tenrai, OMDb and TheTVDB.
+//! In-process stand-ins for AniList, Tenrai, MyAnimeList, OMDb and TheTVDB.
 //!
-//! One server, four shapes: they are exercised together, since a library
+//! One server, five shapes: they are exercised together, since a library
 //! enriched by several sources at once is the whole point, and one listener
 //! keeps the test setup to a single line. Everything is recorded, so a test can
 //! assert on what actually went over the wire rather than on what the client
@@ -45,6 +45,8 @@ pub const ANILIST_ID: i64 = 523;
 /// The requests a minute AniList states beside each answer.
 pub const ANILIST_LIMIT: u32 = 20;
 pub const MAL_ID: &str = "523";
+/// The client ID the MyAnimeList stand-in knows, any other refused as the real API refuses it.
+pub const MAL_CLIENT_ID: &str = "mal-client";
 pub const IMDB_ID: &str = "tt0096283";
 pub const TVDB_ID: &str = "76885";
 
@@ -138,6 +140,8 @@ impl FakeSources {
             .route("/tenrai/anime", get(tenrai_search))
             .route("/tenrai/anime/{id}/full", get(tenrai_details))
             .route("/tenrai/anime/{id}", get(tenrai_details))
+            .route("/myanimelist/anime", get(mal_search))
+            .route("/myanimelist/anime/{id}", get(mal_details))
             // OMDb answers everything on its root.
             .route("/omdb", get(omdb))
             // TheTVDB: a login, then bearer-authenticated reads.
@@ -199,6 +203,9 @@ impl FakeSources {
     }
     pub fn tenrai_url(&self) -> String {
         format!("{}/tenrai", self.base_url)
+    }
+    pub fn myanimelist_url(&self) -> String {
+        format!("{}/myanimelist", self.base_url)
     }
     pub fn omdb_url(&self) -> String {
         format!("{}/omdb", self.base_url)
@@ -421,6 +428,86 @@ async fn tenrai_details(
             "status": "Finished Airing",
             "synopsis": "Two sisters meet a forest spirit."
         }
+    })))
+}
+
+// -------------------------------------------------------------- MyAnimeList
+
+/// The client ID the request carries, written down, and the refusal of one the API does not
+/// know: a 400, not a 401.
+fn mal_client(
+    state: &FakeState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let sent = headers.get("x-mal-client-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    state.recorded.lock().expect("lock").credentials.push(("myanimelist", sent.to_string()));
+    if sent != MAL_CLIENT_ID {
+        let refused = serde_json::json!({ "message": "Invalid client id", "error": "bad_request" });
+        return Err((StatusCode::BAD_REQUEST, Json(refused)));
+    }
+    if let Some(status) = state.fail_with {
+        return Err((StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({}))));
+    }
+    Ok(())
+}
+
+/// Its search takes no type, so a film's search answers the series too.
+async fn mal_search(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    record(&state, "/myanimelist/anime");
+    mal_client(&state, &headers)?;
+    let search = params.get("q").cloned().unwrap_or_default();
+    {
+        let mut recorded = state.recorded.lock().expect("lock");
+        recorded.searches.push(("myanimelist", search));
+        recorded.formats.push(("myanimelist", params.get("nsfw").cloned()));
+    }
+    let released = if state.matching_year { 1988 } else { 1972 };
+    Ok(Json(serde_json::json!({
+        "data": [
+            { "node": { "id": 1, "title": "Cowboy Bebop", "start_date": "1998-04-03",
+                "media_type": "tv", "alternative_titles": { "synonyms": [], "en": "Cowboy Bebop",
+                "ja": "" } } },
+            { "node": { "id": 523, "title": "Tonari no Totoro",
+                "start_date": format!("{released}-04-16"), "media_type": "movie",
+                "alternative_titles": { "synonyms": ["Totoro"], "en": "My Neighbor Totoro",
+                "ja": "となりのトトロ" } } }
+        ],
+        "paging": {}
+    })))
+}
+
+async fn mal_details(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+    uri: Uri,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    record(&state, uri.path());
+    mal_client(&state, &headers)?;
+    record_details(&state, "myanimelist", id.clone());
+    if id == "1" {
+        return Ok(Json(serde_json::json!({ "id": 1, "title": "Cowboy Bebop" })));
+    }
+    if id != MAL_ID {
+        let missing = serde_json::json!({ "message": "", "error": "not_found" });
+        return Err((StatusCode::NOT_FOUND, Json(missing)));
+    }
+    Ok(Json(serde_json::json!({
+        "id": 523,
+        "title": "Tonari no Totoro",
+        "genres": [
+            { "id": 2, "name": "Adventure" }, { "id": 63, "name": "Iyashikei" },
+            { "id": 15, "name": "Kids" }
+        ],
+        "rating": "g",
+        "status": "finished_airing",
+        "synopsis": "Two sisters meet a forest spirit.",
+        "mean": 8.24,
+        "num_scoring_users": 400000
     })))
 }
 

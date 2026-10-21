@@ -19,6 +19,7 @@ use crate::services::backup::Credential;
 // a client opens a key a second time, maybe without the redirect policy keeping it from leaking.
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::anilist::AniListClient;
+use crate::integrations::myanimelist::MyAnimeListClient;
 use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tenrai::TenraiClient;
 use crate::integrations::tmdb::TmdbClient;
@@ -226,6 +227,7 @@ impl AppState {
             metadata::TMDB => self.config.tmdb_api_key.as_ref(),
             metadata::OMDB => self.config.omdb_api_key.as_ref(),
             metadata::TVDB => self.config.tvdb_api_key.as_ref(),
+            metadata::MYANIMELIST => self.config.mal_client_id.as_ref(),
             _ => None,
         }
     }
@@ -239,7 +241,7 @@ impl AppState {
         let mut keys = std::collections::HashMap::new();
         // A keyed source missing from this list is never usable, whatever key it holds, and the
         // compiler does not say so: `metadata::is_usable` looks the key up in this map.
-        for id in [metadata::TMDB, metadata::OMDB, metadata::TVDB] {
+        for id in [metadata::TMDB, metadata::OMDB, metadata::TVDB, metadata::MYANIMELIST] {
             if let Some(key) = self.provider_key_from(settings, id) {
                 keys.insert(id, key);
             }
@@ -303,6 +305,15 @@ impl AppState {
                     self.http.clone(),
                     &self.config.tenrai_base_url,
                 ))),
+                metadata::MYANIMELIST => {
+                    self.provider_key_from(&settings, metadata::MYANIMELIST).map(|key| {
+                        FetchingSource::MyAnimeList(MyAnimeListClient::new(
+                            self.http.clone(),
+                            &key,
+                            &self.config.myanimelist_base_url,
+                        ))
+                    })
+                }
                 metadata::OMDB => self.provider_key_from(&settings, metadata::OMDB).map(|key| {
                     FetchingSource::Omdb(OmdbClient::new(
                         self.http.clone(),

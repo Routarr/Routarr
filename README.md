@@ -33,7 +33,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
   dry-run, batch limit, reachability, capacity, a confirmation threshold you set, and a revalidation
   at the moment of writing). Every applied move can be reverted.
 - **Metadata without API keys**: Radarr and Sonarr themselves, AniList and MyAnimeList through
-  Tenrai, with TMDB, OMDb and TheTVDB optional, in the order you choose.
+  Tenrai, with TMDB, OMDb, TheTVDB and MyAnimeList's own API optional, in the order you choose.
+  MyAnimeList's takes a client ID you make for yourself, as its terms ask of each installation.
 - **Real time**: Radarr/Sonarr webhooks, and optional routing of new titles before they download.
 - **Several instances** of Radarr 4.2 or later and Sonarr 4 or later, on Linux or Windows: a
   path on a drive letter or a network share is compared as Windows compares it, whatever its case
@@ -267,5 +268,5 @@ in About, as their terms ask.
   or subscribing.
 - Data from [OMDb](https://www.omdbapi.com), licensed under
   [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
-- Data from [AniList](https://anilist.co), and from [MyAnimeList](https://myanimelist.net) through
-  [Tenrai](https://tenrai.org).
+- Data from [AniList](https://anilist.co), and from [MyAnimeList](https://myanimelist.net), through
+  [Tenrai](https://tenrai.org) or MyAnimeList's own API.

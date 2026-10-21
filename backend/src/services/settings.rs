@@ -84,6 +84,8 @@ const KNOWN: &[(&str, Kind, &str)] = &[
     ("tmdb_api_key", Kind::Secret, ""),
     ("omdb_api_key", Kind::Secret, ""),
     ("tvdb_api_key", Kind::Secret, ""),
+    // A MyAnimeList client ID, read by the official API's source under the name its id builds.
+    ("myanimelist_api_key", Kind::Secret, ""),
     // What TheTVDB asks beside a user-supported key, read by
     // `AppState::tvdb_pin_from` under this name.
     ("tvdb_subscriber_pin", Kind::Secret, ""),
