@@ -77,3 +77,18 @@ CREATE TABLE backup_copy_folders (
 -- What a person signed in may reach: everything, or what an application key's read scope reads.
 -- Set at sign-in from the OIDC read lists and kept for the session.
 ALTER TABLE sessions ADD COLUMN reach TEXT NOT NULL DEFAULT 'full' CHECK (reach IN ('full', 'read'));
+
+-- Each old API path still called, by caller: how often, when last, and the day its log line was
+-- last written. An application key's id names its caller, and the owner's key and every session
+-- share the empty one. Kept after a key is revoked, so the counts the metrics read never fall.
+CREATE TABLE deprecated_calls (
+    caller_kind TEXT NOT NULL CHECK (caller_kind IN ('application', 'person')),
+    caller_id TEXT NOT NULL,
+    caller_name TEXT NOT NULL,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    calls INTEGER NOT NULL,
+    last_called_at TEXT NOT NULL,
+    logged_on TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (caller_kind, caller_id, method, path)
+);

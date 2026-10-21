@@ -311,8 +311,8 @@ fn build_router(state: AppState) -> Router {
         .route("/media/{id}/keep", post(api::overrides::keep))
         .route("/metadata/providers", get(api::metadata::list))
         .route("/metadata/refresh", post(api::metadata::refresh))
-        .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate))
-        .route_layer(middleware::from_fn(api::deprecated::signal));
+        .route_layer(middleware::from_fn_with_state(state.clone(), api::deprecated::signal))
+        .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));
 
     // Authenticated by their own per-instance token, outside the API-key middleware.
     let webhooks = Router::new()

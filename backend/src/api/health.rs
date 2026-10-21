@@ -56,8 +56,8 @@ pub struct Warning {
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
     /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,
-    /// `webhook_never_delivered`, `webhook_misconfigured` or `backup_copy_failed`. The list may
-    /// grow.
+    /// `webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed` or
+    /// `deprecated_api_called`. The list may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -95,7 +95,8 @@ fn severity_of(code: &str) -> &'static str {
         | "source_key_unlisted"
         | "missing_metadata"
         | "certification_country_outside_regions"
-        | "certification_country_changed" => "info",
+        | "certification_country_changed"
+        | "deprecated_api_called" => "info",
         _ => "warning",
     }
 }
@@ -883,6 +884,18 @@ async fn offline_warnings(
                 None => {}
             }
         }
+    }
+
+    let separator = localizer.translate("ListSeparator", &[]);
+    for caller in crate::api::deprecated::recent_callers(&state.pool).await? {
+        let paths = caller.routes.join(&separator);
+        let said = [("paths", paths.as_str()), ("date", caller.last_day.as_str())];
+        let message = match &caller.application {
+            Some(name) => localizer
+                .translate("WarnDeprecatedApiCalled", &[said[0], said[1], ("name", name.as_str())]),
+            None => localizer.translate("WarnDeprecatedApiCalledPerson", &said),
+        };
+        warnings.push(Warning::new("deprecated_api_called", message));
     }
 
     let regions = AppState::certification_regions_from(settings);

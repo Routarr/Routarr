@@ -40,18 +40,12 @@ async fn every_family_declares_its_help_and_type() {
         .collect();
     assert!(!names.is_empty());
     for name in &names {
-        assert!(body.contains(&format!("# TYPE {name} gauge")), "{name} has no TYPE");
+        // `_total` names a counter: a gauge under it misleads a rate the first time it goes down.
+        let kind = if name.ends_with("_total") { "counter" } else { "gauge" };
+        assert!(body.contains(&format!("# TYPE {name} {kind}")), "{name} is not a {kind}");
         assert!(name.starts_with("routarr_"), "{name} is not namespaced");
-        // `_total` names a counter: a gauge under it misleads a rate the first time it goes
-        // down, so one is only a deprecated name pointing to its gauge.
-        if name.ends_with("_total") {
-            let help = format!("# HELP {name} Deprecated, use ");
-            let successor = body.split(&help).nth(1).and_then(|rest| rest.split('.').next());
-            let successor =
-                successor.unwrap_or_else(|| panic!("{name} is a gauge named a counter"));
-            assert!(names.contains(&successor), "{name} points to {successor}, never emitted");
-        }
     }
+    assert!(names.contains(&"routarr_deprecated_api_requests_total"), "no counter is emitted");
 }
 
 /// The category gauge counts each title where the last run sends it, a title

@@ -1,5 +1,5 @@
-//! Prometheus exposition. Every family is a gauge read from the database at scrape time, so a
-//! restart loses nothing.
+//! Prometheus exposition. Every family is read from the database at scrape time, so a restart
+//! loses nothing: a gauge, or a counter named `_total` whose rows are never deleted.
 
 use axum::extract::State;
 use axum::http::header;
@@ -20,7 +20,8 @@ struct Family<'a> {
 impl Family<'_> {
     fn render(&self, out: &mut String) {
         out.push_str(&format!("# HELP {} {}\n", self.name, self.help));
-        out.push_str(&format!("# TYPE {} gauge\n", self.name));
+        let kind = if self.name.ends_with("_total") { "counter" } else { "gauge" };
+        out.push_str(&format!("# TYPE {} {kind}\n", self.name));
         for (labels, value) in &self.samples {
             if labels.is_empty() {
                 out.push_str(&format!("{} {}\n", self.name, value));
@@ -312,6 +313,22 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .await
             .map(|copied| (String::new(), copied.timestamp() as f64))
             .into_iter()
+            .collect(),
+    });
+    let deprecated: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT method, path, SUM(calls) FROM deprecated_calls
+          GROUP BY method, path ORDER BY path, method",
+    )
+    .fetch_all(pool)
+    .await?;
+    families.push(Family {
+        name: "routarr_deprecated_api_requests_total",
+        help: "Calls to each deprecated API path, by every caller, since the path was deprecated.",
+        samples: deprecated
+            .into_iter()
+            .map(|(method, path, calls)| {
+                (format!("method=\"{}\",path=\"{}\"", label(&method), label(&path)), calls as f64)
+            })
             .collect(),
     });
     families.push(Family {

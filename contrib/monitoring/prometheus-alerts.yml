@@ -90,6 +90,13 @@ groups:
         annotations:
           summary: "The last copy of the backups to the second folder failed"
           description: "Settings, Backups shows why. Until a copy succeeds, the newest archives are on the data disk alone."
+      - alert: RoutarrDeprecatedApiCalled
+        expr: increase(routarr_deprecated_api_requests_total[1d]) > 0
+        labels:
+          severity: info
+        annotations:
+          summary: "A script called {{ $labels.method }} {{ $labels.path }}, a deprecated API path"
+          description: "It answers until a release before 1.0 removes it. Routarr's warnings name the key, and its API reference the path that replaced it."
       - alert: RoutarrDataDiskLow
         expr: routarr_warnings{code="data_disk_low"} > 0
         labels:

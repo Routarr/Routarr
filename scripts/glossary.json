@@ -970,5 +970,36 @@
       "zh_CN": "只读",
       "zh_TW": "唯讀"
     }
+  },
+  "deprecated": {
+    "en": "\\bdeprecated\\b",
+    "except": [],
+    "words": {
+      "ar": "مهمل",
+      "ca": "obsolet",
+      "cs": "zastaral",
+      "da": "forælde",
+      "de": "veralte",
+      "el": "παρωχημέν",
+      "es": "obsolet",
+      "fi": "vanhentun",
+      "fr": "dépréci",
+      "hu": "elavult",
+      "it": "deprecat",
+      "ja": "非推奨",
+      "ko": "사용 중단",
+      "nb_NO": "forelde",
+      "nl": "verouderd",
+      "pl": "przestarza",
+      "pt": "obsolet",
+      "ro": "învechit",
+      "ru": "устаре",
+      "sk": "zastaran",
+      "sv": "föråldrad",
+      "tr": "kullanımdan kaldır",
+      "uk": "застаріл",
+      "zh_CN": "弃用",
+      "zh_TW": "棄用"
+    }
   }
 }
