@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import CardTitle from '../components/CardTitle.svelte';
   import FolderSuggestions from '../components/FolderSuggestions.svelte';
   import { Pencil, Plus, Trash2 } from '../lib/icons';
@@ -30,8 +31,9 @@
       api.getCategories(signal),
       api.getMappingConflicts(signal),
       api.getInstances(signal),
-      // The owner's to accept: a reader is refused the route.
-      access.readOnly ? [] : api.getFolderSuggestions(signal),
+      // The owner's to accept: a reader is refused the route. Untracked, since the shell
+      // publishes the access once it knows, and a tracked read would restart this load then.
+      untrack(() => access.readOnly) ? [] : api.getFolderSuggestions(signal),
     ]);
     return { folders, categories, conflicts, instances, suggestions };
   });

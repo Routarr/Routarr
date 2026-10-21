@@ -690,6 +690,21 @@ describe('folder suggestions', () => {
     expect(restore).toHaveBeenCalledWith('rf-anime');
   });
 
+  /**
+   * The shell publishes the access once `/auth/me` answers, while the screen already loads: a
+   * load restarted then would cancel every request of the first.
+   */
+  it('loads once when the shell learns who reads', async () => {
+    publishAccess(null);
+    show([folder()], [category({ name: 'standard' })]);
+    await screen.findByText('/data/films');
+
+    publishAccess(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(api.getRootFolders).toHaveBeenCalledTimes(1);
+  });
+
   it('shows no card while no folder name suggests anything', async () => {
     show([folder()], [category({ name: 'standard' })]);
     await screen.findByText('/data/films');
