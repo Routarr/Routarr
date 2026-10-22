@@ -11,7 +11,7 @@
   import { href, router } from '../lib/router.svelte';
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
-  import { invalidateStatus, statusRevision } from '../lib/status.svelte';
+  import { invalidateStatus, statusRevision, warningsRevision } from '../lib/status.svelte';
   import { proofRequest } from '../lib/proof.svelte';
   import { access, publishAccess } from '../lib/access.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
@@ -39,7 +39,7 @@
   // next idle poll a minute later.
   const status = createAsync(
     (signal) => api.getStatus(signal),
-    () => statusRevision(),
+    () => [statusRevision(), warningsRevision()],
   );
 
   // Asked once the gate has let the person in, and at each status read until it

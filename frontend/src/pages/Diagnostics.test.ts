@@ -5,7 +5,7 @@ import { renderWithI18n } from '../test/render';
 import { health, healthInstance, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
-import { statusRevision } from '../lib/status.svelte';
+import { statusRevision, warningsRevision } from '../lib/status.svelte';
 import { publishAccess } from '../lib/access.svelte';
 import Diagnostics from './Diagnostics.svelte';
 
@@ -59,15 +59,17 @@ describe('Diagnostics', () => {
   /**
    * A probe records what it found, and the shell counts that among its
    * warnings. Unannounced, the badge leaves out an unreachable Arr this screen
-   * lists, until the next poll a minute later.
+   * lists, until the next poll a minute later. A probe moves no step of the guide, so the
+   * guide's own answer, often still on its way as the screen opens, is left alone.
    */
-  it('has the shell count again what a probe found', async () => {
+  it('has the shell count again what a probe found, and leaves the guide alone', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
-    const before = statusRevision();
+    const [warnings, guide] = [warningsRevision(), statusRevision()];
     show();
 
     await screen.findByText('Everything checks out.');
-    expect(statusRevision()).toBeGreaterThan(before);
+    expect(warningsRevision()).toBeGreaterThan(warnings);
+    expect(statusRevision()).toBe(guide);
   });
 
   /** One banner, as the dashboard draws it: the count leads, the list follows. */
