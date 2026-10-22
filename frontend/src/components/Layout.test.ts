@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { ENGLISH, renderWithI18n } from '../test/render';
-import { invalidateStatus } from '../lib/status.svelte';
+import { invalidateStatus, invalidateWarnings } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
 import type { OnboardingStatus, Status } from '../api/types';
 import LayoutHarness from '../test/LayoutHarness.svelte';
@@ -714,6 +714,23 @@ describe('Layout', () => {
 
     const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(within(navigation).getAllByRole('link')).toHaveLength(SCREENS.length);
+  });
+
+  /**
+   * A probe's findings move the warnings and no step of the guide: the status is read again and
+   * the guide is not, so an answer of the guide still on its way is not cancelled.
+   */
+  it('reads the status again when a probe recorded warnings, and not the guide', async () => {
+    const read = vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+    await screen.findByLabelText('Dry-run: writes blocked');
+    await waitFor(() => expect(api.getOnboarding).toHaveBeenCalledTimes(1));
+    const statuses = read.mock.calls.length;
+
+    invalidateWarnings();
+
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(statuses));
+    expect(api.getOnboarding).toHaveBeenCalledTimes(1);
   });
 
   /** The guide is refused to a reader, and asked before the answer it would be refused too. */
