@@ -3,7 +3,7 @@
   import { CheckCircle2, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
-  import { invalidateStatus } from '../lib/status.svelte';
+  import { invalidateWarnings } from '../lib/status.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatCount, formatRelative, formatTimestamp } from '../api/format';
   import NoValue from '../components/NoValue.svelte';
@@ -23,7 +23,7 @@
   const report = createAsync(async (signal) => {
     const found = await api.getHealth({ fresh }, signal);
     fresh = false;
-    invalidateStatus();
+    invalidateWarnings();
     return found;
   });
   function recheck() {

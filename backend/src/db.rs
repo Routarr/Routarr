@@ -10,6 +10,8 @@ use crate::crypto;
 /// Migrations embedded in the binary, applied in order, exactly once. A `.sql` file in
 /// `migrations/` runs only once listed here. Each release's files fold into one before its tag.
 const MIGRATIONS: &[(&str, &str)] = &[
+    // Dropped, it ends the upgrade from 0.1.5, and the interface's exchange of a key a 0.1.x
+    // browser stored (`STORED_KEY` in `frontend/src/api/client.ts`) goes with it.
     ("001_release_0_1_5", include_str!("../migrations/001_release_0_1_5.sql")),
     ("002_release_0_2_0", include_str!("../migrations/002_release_0_2_0.sql")),
     ("003_rule_template", include_str!("../migrations/003_rule_template.sql")),

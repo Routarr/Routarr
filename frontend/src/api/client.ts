@@ -72,8 +72,9 @@ import type {
 const API_BASE = `${basePath()}/api/v1`;
 
 /**
- * Where a key may sit in storage, readable by any script on the page. Found there, it is
- * exchanged once for a session cookie, which no script can read, and removed.
+ * Where a browser last used with 0.1.x keeps the key, readable by any script on the page. Found
+ * there, it is exchanged once for a session cookie, which no script can read, and removed. Kept
+ * while a 0.1.5 database still upgrades in place (`001_release_0_1_5` in `backend/src/db.rs`).
  */
 const STORED_KEY = 'routarr.apiKey';
 
