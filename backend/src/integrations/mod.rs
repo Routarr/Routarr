@@ -48,6 +48,17 @@ pub(crate) async fn send_json_within<T: serde::de::DeserializeOwned>(
     json_capped(service, response, cap, Some("ROUTARR_MAX_LIBRARY_MIB")).await
 }
 
+/// [`send_json`], refusing a body over `cap` bytes: a file somebody else publishes, whose size
+/// nothing here decides.
+pub(crate) async fn send_json_capped<T: serde::de::DeserializeOwned>(
+    service: &'static str,
+    request: reqwest::RequestBuilder,
+    cap: usize,
+) -> AppResult<T> {
+    let response = check_status(service, request).await?;
+    json_capped(service, response, cap, None).await
+}
+
 /// What a source states of its own limit beside an answer: AniList sends
 /// `X-RateLimit-Limit` and `X-RateLimit-Remaining` with each one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

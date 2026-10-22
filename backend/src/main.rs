@@ -294,6 +294,13 @@ fn build_router(state: AppState) -> Router {
         .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
         .route("/sources", get(api::metadata::list))
         .route("/sources/refresh", post(api::metadata::refresh))
+        .route("/sources/anime-ids", get(api::metadata::anime_ids))
+        .route("/sources/anime-ids/download", post(api::metadata::download_anime_ids))
+        .route(
+            "/sources/anime-ids/import",
+            post(api::metadata::import_anime_ids)
+                .layer(DefaultBodyLimit::max(services::anime_ids::MAX_BYTES)),
+        )
         .route("/config/export", get(api::config::export))
         .route("/config/import", post(api::config::import))
         // The old paths of the routes above (`api::deprecated::DEPRECATED_PATHS`), each with its

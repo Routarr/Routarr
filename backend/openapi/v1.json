@@ -2043,6 +2043,16 @@
               "null"
             ]
           },
+          "identified_by": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "How each source that finds a work by search found this title, by source id: `mapping`,\nread from the anime identifier table, `shared`, the MyAnimeList id another source found,\nor `search`, by its title and year, which can name another work of the same name.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "instance_enabled": {
             "description": "False when the title's instance is switched off: no run reads it, and\nthe move shown is only what the rules would do.",
             "type": "boolean"
@@ -2100,7 +2110,8 @@
           "action",
           "confidence",
           "rule_traces",
-          "instance_enabled"
+          "instance_enabled",
+          "identified_by"
         ],
         "type": "object"
       },

@@ -687,6 +687,8 @@ export interface Explanation {
   rule_traces: RuleTrace[];
   /** False when no run reads the title's instance, which is switched off. */
   instance_enabled: boolean;
+  /** How each source that finds a work by search found this title: `mapping`, `shared` or `search`. */
+  identified_by: Record<string, string>;
 }
 
 /** What keeping a title where it is takes. */
@@ -1144,4 +1146,22 @@ export interface FolderSuggestion {
 
 export interface Dismissal {
   dismissed: boolean;
+}
+
+/** The anime identifier table, as the Metadata sources screen shows it. */
+export interface AnimeIdsState {
+  /** Null before a first load. */
+  loaded_at: string | null;
+  entries: number | null;
+  /** The address it was downloaded from, or `file`. */
+  origin: string | null;
+  /** Where a download asks. */
+  address: string;
+}
+
+/** What a load of the anime identifier table did. */
+export interface AnimeIdsLoaded {
+  entries: number;
+  /** Titles whose identifiers the table gave or changed. */
+  titles: number;
 }

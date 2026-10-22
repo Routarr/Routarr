@@ -323,6 +323,7 @@ export function explanation(over: Partial<Explanation> = {}): Explanation {
     winning_rule: 'Japanese animation',
     rule_traces: [],
     instance_enabled: true,
+    identified_by: {},
     ...over,
   };
 }

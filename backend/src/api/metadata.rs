@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::auth::Identity;
 use crate::api::jobs::{answer, prefers_async};
 use crate::error::{AppError, AppResult};
-use crate::services::{enrichment, metadata};
+use crate::services::{anime_ids, enrichment, metadata};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -68,6 +68,39 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<ProvidersResp
         .collect();
 
     Ok(Json(ProvidersResponse { providers, order }))
+}
+
+/// `GET /sources/anime-ids`: whether an anime identifier table is loaded, and from where.
+pub async fn anime_ids(State(state): State<AppState>) -> AppResult<Json<anime_ids::AnimeIdsState>> {
+    Ok(Json(anime_ids::state(&state).await?))
+}
+
+/// `POST /sources/anime-ids/download`: the table downloaded from its address, as a task.
+pub async fn download_anime_ids(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let by = identity.attribution();
+    let task_state = state.clone();
+    let work = async move { anime_ids::load(&task_state, &by, anime_ids::Origin::Address).await };
+    answer(&state, prefers_async(&headers), work).await
+}
+
+/// `POST /sources/anime-ids/import`: a table handed in as the request's body, read before the
+/// task starts so an unreadable file is refused under its field.
+pub async fn import_anime_ids(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> AppResult<Response> {
+    let entries = anime_ids::read_file(&state, &body).await?;
+    let by = identity.attribution();
+    let task_state = state.clone();
+    let work =
+        async move { anime_ids::load(&task_state, &by, anime_ids::Origin::File(entries)).await };
+    answer(&state, prefers_async(&headers), work).await
 }
 
 /// What to ask the sources again about: one source's answers, one title's,

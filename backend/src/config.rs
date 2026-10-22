@@ -357,6 +357,8 @@ pub struct Config {
     /// The client ID MyAnimeList's official API reads public data with, one per installation.
     pub mal_client_id: Option<String>,
     pub myanimelist_base_url: String,
+    /// Where the anime identifier table is downloaded from, when a person asks for it.
+    pub anime_ids_url: String,
     /// Sub-path Routarr is mounted under, Servarr's "URL base": empty or `/something` with no
     /// trailing slash, so callers concatenate without guessing.
     pub base_path: String,
@@ -412,6 +414,7 @@ impl std::fmt::Debug for Config {
             tenrai_base_url,
             mal_client_id,
             myanimelist_base_url,
+            anime_ids_url,
             base_path,
         } = self;
         let hidden = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
@@ -461,6 +464,7 @@ impl std::fmt::Debug for Config {
             .field("tenrai_base_url", tenrai_base_url)
             .field("mal_client_id", &hidden(mal_client_id))
             .field("myanimelist_base_url", myanimelist_base_url)
+            .field("anime_ids_url", anime_ids_url)
             .field("base_path", base_path)
             .finish()
     }
@@ -664,13 +668,14 @@ impl Config {
             )
             .trim_end_matches('/')
             .to_string(),
+            anime_ids_url: env_or("ROUTARR_ANIME_IDS_URL", crate::services::anime_ids::DEFAULT_URL),
             base_path: normalise_base_path(&env_or("ROUTARR_BASE_PATH", "")),
         })
     }
 
     /// Each metadata source's root, by the variable that sets it, and whether
     /// a key travels with its requests.
-    fn source_roots(&self) -> [(&'static str, &str, bool); 6] {
+    fn source_roots(&self) -> [(&'static str, &str, bool); 7] {
         [
             ("ROUTARR_TMDB_BASE_URL", &self.tmdb_base_url, true),
             ("ROUTARR_OMDB_BASE_URL", &self.omdb_base_url, true),
@@ -678,6 +683,7 @@ impl Config {
             ("ROUTARR_ANILIST_BASE_URL", &self.anilist_base_url, false),
             ("ROUTARR_TENRAI_BASE_URL", &self.tenrai_base_url, false),
             ("ROUTARR_MYANIMELIST_BASE_URL", &self.myanimelist_base_url, true),
+            ("ROUTARR_ANIME_IDS_URL", &self.anime_ids_url, false),
         ]
     }
 
@@ -944,6 +950,7 @@ impl Config {
             tenrai_base_url: UNREACHABLE_SOURCE.to_string(),
             mal_client_id: None,
             myanimelist_base_url: UNREACHABLE_SOURCE.to_string(),
+            anime_ids_url: UNREACHABLE_SOURCE.to_string(),
         }
     }
 }

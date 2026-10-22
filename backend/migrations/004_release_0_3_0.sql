@@ -101,3 +101,38 @@ CREATE TABLE folder_suggestion_dismissals (
     dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (instance_id, path)
 );
+
+-- How each identifier was found: by a search, shared by the other MyAnimeList source, or read
+-- from the anime identifier table.
+ALTER TABLE source_identifiers ADD COLUMN found_by TEXT NOT NULL DEFAULT 'search'
+    CHECK (found_by IN ('search', 'shared', 'mapping'));
+
+-- The anime identifier table a person downloaded or imported, one row per id of an entry: a TMDB,
+-- TheTVDB or IMDb id of a film or a series, beside the AniList and MyAnimeList ids of that work.
+-- A series' row carries the season the work is. Replaced whole at each load.
+CREATE TABLE anime_ids (
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'series')),
+    id_kind TEXT NOT NULL CHECK (id_kind IN ('tmdb', 'tvdb', 'imdb')),
+    id_value TEXT NOT NULL,
+    season INTEGER,
+    entry_kind TEXT NOT NULL,
+    anilist_id INTEGER,
+    mal_id INTEGER
+);
+CREATE INDEX anime_ids_by_id ON anime_ids (media_type, id_kind, id_value);
+
+-- When the table was loaded, how many entries it held, and from where: its address, or `file`.
+CREATE TABLE anime_ids_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    loaded_at TEXT NOT NULL,
+    entries INTEGER NOT NULL,
+    origin TEXT NOT NULL
+);
+
+-- The ids a source refused although the table named them: never read from it again, so the title
+-- is searched instead. Kept through loads, which would otherwise bring them back.
+CREATE TABLE anime_ids_refused (
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    PRIMARY KEY (source, external_id)
+);

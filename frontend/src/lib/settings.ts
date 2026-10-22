@@ -182,6 +182,13 @@ export const FIELDS: Field[] = [
     fallback: 'arr',
   },
   {
+    key: 'anime_ids_weekly',
+    labelKey: 'SettingAnimeIdsWeekly',
+    helpKey: 'SettingAnimeIdsWeeklyHelp',
+    kind: 'bool',
+    fallback: 'false',
+  },
+  {
     // The values of `metadata::ANIME_SEARCH` in `backend/src/services/metadata.rs`.
     key: 'anime_search',
     labelKey: 'SettingAnimeSearch',
@@ -428,6 +435,7 @@ export const SECTIONS = [
     keys: [
       'metadata_providers',
       'anime_search',
+      'anime_ids_weekly',
       'tmdb_api_key',
       'omdb_api_key',
       'omdb_daily_requests',

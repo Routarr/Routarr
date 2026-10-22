@@ -640,6 +640,8 @@ pub async fn route_one(
 pub struct Fresh {
     pub metadata: HashMap<(String, String, String), ProviderMetadata>,
     pub identifiers: metadata::Identifiers,
+    /// How each of `identifiers` was found, by the same key: a search when absent.
+    pub found_by: HashMap<(String, String, String), &'static str>,
 }
 
 /// `route_one`, with answers a source gave just now where the cache has none.
