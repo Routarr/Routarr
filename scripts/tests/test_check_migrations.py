@@ -39,7 +39,7 @@ class Migrations(unittest.TestCase):
         git(self.folder, "commit", "-qm", "change", "--allow-empty")
         return subprocess.run(
             ["python3", str(SCRIPTS / "check-migrations.py"), *arguments],
-            cwd=self.folder, capture_output=True, text=True,
+            cwd=self.folder, capture_output=True, text=True, check=False,
         )
 
     def test_a_shipped_statement_edited_is_refused(self):
