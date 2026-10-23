@@ -74,7 +74,7 @@ const SERVED: Set<string> = (() => {
   return served;
 })();
 
-/** The old paths `backend/src/api/deprecated.rs` still answers, each parameter `{}`. */
+/** The deprecated paths `backend/src/api/deprecated.rs` answers, each parameter `{}`. */
 const DEPRECATED: Set<string> = new Set(
   [...readBackend('backend/src/api/deprecated.rs').matchAll(/^\s*\("([^"]+)", "[^"]+"\),$/gm)].map(
     (row) => row[1]!.replace(/\{\w+\}/g, '{}'),
@@ -82,6 +82,19 @@ const DEPRECATED: Set<string> = new Set(
 );
 
 describe('the key in the browser', () => {
+  it('reads an answer with no body as nothing, whatever its 2xx status', async () => {
+    const spy = mockFetch({ status: 202, headers: { 'content-length': '0' } });
+    spy.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      statusText: 'Accepted',
+      headers: new Headers({ 'content-length': '0' }),
+      json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+    } as unknown as Response);
+
+    await expect(api.adoptCopyFolder()).resolves.toBeUndefined();
+  });
+
   it('sends no key header: the browser holds a session instead', async () => {
     const spy = mockFetch({ body: { status: 'ok' } });
     await api.getStatus();
@@ -91,10 +104,7 @@ describe('the key in the browser', () => {
     expect(headers['Content-Type']).toBe('application/json');
   });
 
-  /**
-   * A key in storage is readable by any script on the page. It goes once to the server for a
-   * session cookie, which no script can read, and is removed before anything else is asked.
-   */
+  /** A key in storage is readable by any script on the page, a session cookie by none. */
   it('exchanges a key found in storage once for a session, and removes it', async () => {
     vi.resetModules();
     localStorage.setItem('routarr.apiKey', 's3cret');
@@ -540,7 +550,7 @@ describe('a failing response', () => {
   it('reads the refusal of a download out of its envelope', async () => {
     mockFetch({ ok: false, status: 404, body: { error: 'not_found', message: 'No such backup' } });
 
-    const failure = (await api.downloadBackup('gone.zip').catch((e: unknown) => e)) as ApiError;
+    const failure = (await api.downloadBackup('gone.zip', {}).catch((e: unknown) => e)) as ApiError;
     expect(failure.message).toBe('No such backup');
     expect(failure.kind).toBe('not_found');
   });

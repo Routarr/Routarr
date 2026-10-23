@@ -1,27 +1,14 @@
-# Every `FROM` is `image:tag@digest`. The digest is what Docker pulls, and the
-# tag beside it is ignored for resolution. That is the pinning `ci.yml` applies
-# to every `uses:`, for the reason stated there: a tag is a mutable pointer its
-# owner can move. It matters more here. An action contributes one build step,
-# while a base image contributes the whole filesystem of what `release.yml`
-# pushes to GHCR under a signed provenance attestation, and an attestation over
-# a silently republished base certifies exactly that.
-#
-# The tag stays for two readers. Dependabot tracks it and bumps tag and digest
-# in one change, where a bare `image@digest` has no tag to follow and would
-# receive no pull request at all. And `scripts/check-versions.py` reads it. It
-# cannot move into a comment beside the `FROM`: Dockerfile has no trailing
-# comments, and anything after the image is parsed as arguments.
-#
-# The digests are the multi-architecture index, not one platform's manifest,
-# since the image is built for amd64 and arm64.
+# Every `FROM` is `image:tag@digest`: Docker pulls the digest, so a republished tag cannot change
+# what `release.yml` pushes and attests. The tag is for Dependabot, which bumps both, and for
+# `scripts/check-versions.py`, and cannot sit in a comment: a Dockerfile has no trailing one.
+# Each digest is the multi-architecture index, the image being built for amd64 and arm64.
 
 # ---------------------------------------------------------------- frontend
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend-builder
 WORKDIR /app/frontend
 
-# Dependencies are their own layer so editing a component does not reinstall npm.
-# No install scripts: the build needs none, and one would run whatever a
-# compromised dependency ships inside the image build.
+# No install scripts: the build needs none, and one would run whatever a compromised dependency
+# ships inside the image build.
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts
 
@@ -35,12 +22,9 @@ RUN apk add --no-cache musl-dev
 # a failing check on the left.
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
-# Two cargo subcommands, pinned to a release and to the sum of its archive as
-# `ci.yml` pins its linters, so a replaced asset fails the build rather than
-# running in it. `cargo auditable` writes the crate list into the binary, where
-# an image scanner and the SBOM attestation read it. `cargo about` writes the
-# licence notices of the crates. The dev container installs the same versions,
-# which `scripts/check-versions.py` holds in step.
+# Pinned to a release and to its archive's sum. `cargo auditable` writes the crate list into the
+# binary, for scanners and the SBOM, and `cargo about` the crates' licence notices. The dev
+# container installs the same versions (`scripts/check-versions.py`).
 ARG CARGO_AUDITABLE_VERSION=0.7.7
 ARG CARGO_AUDITABLE_SHA256_X64=7676443367c5e33d9fb22acef63cccb5e9202de12dae1b0579995eb3e2bc7a18
 ARG CARGO_AUDITABLE_SHA256_ARM64=c324af56990601354bbf40080f582ba46f8ec8b807a1388e25bb7e429d285c18
@@ -102,26 +86,18 @@ RUN cat crates-notices.txt packages-notices.txt > third-party-notices.txt
 
 # ---------------------------------------------------------------- runtime
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runner
-# `ca-certificates` is load-bearing, not hygiene: reqwest verifies TLS against
-# the *platform's* trust store, so without this package every call to TMDB,
-# OMDb, TheTVDB, AniList and Tenrai fails certificate validation, and so does
-# every Arr reached over HTTPS. A homelab CA is mounted beside it and both are
-# named in SSL_CERT_DIR (README, install notes): the read-only root and uid
-# 1000 leave update-ca-certificates nothing it may write.
+# reqwest verifies TLS against the platform's trust store: without `ca-certificates` every
+# metadata source and every Arr over HTTPS fails. A homelab CA is mounted beside it, both named in
+# SSL_CERT_DIR: the read-only root leaves update-ca-certificates nothing it may write.
 RUN apk add --no-cache ca-certificates tzdata
 
-# What the image is, in the vocabulary a registry reads. `licenses` is the one
-# that matters here: a published image that declares nothing is a published
-# image whose terms nobody can see without finding the repository first.
 LABEL org.opencontainers.image.title="Routarr" \
       org.opencontainers.image.description="A routing and classification layer for the Servarr ecosystem" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.source="https://github.com/Routarr/Routarr" \
       org.opencontainers.image.url="https://github.com/Routarr/Routarr"
 
-# Run unprivileged, as the Servarr convention's uid 1000: with the read-only
-# root the compose file sets, the data volume and a small /tmp are all the
-# process can write.
+# Unprivileged, as uid 1000 like the Servarr images.
 RUN addgroup -g 1000 routarr && adduser -D -u 1000 -G routarr routarr
 
 WORKDIR /app
@@ -134,34 +110,27 @@ ENV ROUTARR_PORT=9876 \
 COPY --from=backend-builder /app/target/release/routarr /app/routarr
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-# GPLv3 §4 and §6: a copy of the licence travels with the program. The image is
-# how almost everyone will receive Routarr, so this is the copy that counts:
-# the one in the repository reaches whoever already found the repository.
+# GPLv3 §4 and §6: a copy of the licence travels with the program.
 COPY LICENSE /app/LICENSE
 # The notices the MIT, Apache, BSD, ISC and Unicode licences ask to travel with
 # every copy. In place of the interface's own list, served beside it, which
 # its About dialog links.
 COPY --from=notices /app/third-party-notices.txt /app/frontend/dist/third-party-notices.txt
 
-# Only the volume is the process's own. `/app` stays root's, read-only to
-# uid 1000: nothing under it is written at run time, and a process that can
-# rewrite its own binary or the `index.html` it serves turns any code
-# execution into a persistent one.
+# Only /config is the process's own: `/app` stays root's, so code execution cannot rewrite
+# the binary or the `index.html` it serves.
 RUN mkdir -p /config && chown routarr:routarr /config
 # Numeric, so a host without the image's /etc/passwd still resolves it.
 USER 1000:1000
 
 EXPOSE 9876
-# `/config`, as Radarr and Sonarr keep theirs. A volume still mounted at `/data`
-# keeps its database: Routarr opens it there while `/config` holds none.
+# `/config`, as Radarr and Sonarr keep theirs. A volume mounted at `/data` instead is opened
+# there while `/config` holds no database.
 VOLUME ["/config"]
 
-# The binary probes itself: it reads the host, the port and the mount point as
-# the server does, so `ROUTARR_BASE_PATH=routarr`, a changed ROUTARR_PORT and a
-# ROUTARR_HOST naming one address probe the address actually served. A wrong
-# address would report a healthy container as unhealthy, and an orchestrator
-# restarts it in a loop. `/api/v1/ping` is deliberately unauthenticated, so this
-# works with an API key set.
+# The binary probes itself with the server's own host, port and base path, so a changed one
+# never reads as unhealthy and restarts in a loop. `/api/v1/ping` needs no key. Liveness alone:
+# a database at fault shows in the warnings and on `/api/v1/health`, not here.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["/app/routarr", "healthcheck"]
 

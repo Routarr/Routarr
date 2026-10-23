@@ -90,10 +90,12 @@ Images are published for `linux/amd64` and `linux/arm64`. `latest` follows the n
 major tag (`1`) follows a major line too.
 
 Routarr archives itself into `backups/` beside its database, every day unless you change the
-interval, and **Settings → Maintenance** lists the archives and downloads any of them. An archive
-is a consistent copy taken while Routarr runs: the database, the `routarr.key` without which the
-Arr and metadata keys, the notification address and the signing secret stored in it cannot be read
-(unless `ROUTARR_SECRET_KEY` replaces it), and the API key. Keep copies of the archives off the
+interval, and **Settings → Maintenance** lists the archives and downloads any of them, once the
+password or the API key is typed again. An archive is a consistent copy taken while Routarr runs:
+the database, the `routarr.key` without which the Arr and metadata keys, the notification address
+and the signing secret stored in it cannot be read (unless `ROUTARR_SECRET_KEY` replaces it), and
+the API key. TMDB's answers are left out, as its terms allow six months of them: the next
+enrichment fetches them again. Keep copies of the archives off the
 machine: with `ROUTARR_BACKUP_COPY_DIR` naming a folder mounted from a NAS or another disk, each
 archive is copied there, and **Settings → Maintenance** marks each one copied. The copy runs apart
 from the backup, so a share that sleeps or hangs delays the copy alone. Copy the `config/` folder
@@ -107,18 +109,23 @@ every one, so that a copy of the folder opens nothing without it. A restore asks
 To restore an archive:
 
 - **On the same host:** **Restore** beside it in **Settings → Maintenance**, then
-  `docker compose restart routarr`.
+  `docker compose restart routarr`. Until a start applies it, the card shows the restore staged
+  and can cancel it. The database it replaces stays listed there until you delete it.
 - **On a new host:** start Routarr once, copy the archive into `config/backups/` with its name
-  unchanged and owned by uid 1000, then restore it from **Settings → Maintenance** and restart.
+  unchanged and owned by uid 1000, then restore it from **Settings → Maintenance** and restart. A
+  copy folder holding the lost installation's archives is left untouched until the Backups card
+  is told to start the copy there.
 - **With the server stopped**, when the interface cannot be reached:
   `docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
   Routarr. An encrypted archive asks for its passphrase when the database in place does not hold
   it. After losing the disk of `config/`, give `restore` the path of an archive in the copy
   folder instead, such as `/backups-copy/routarr-backup-<date>.zip`.
 
-A start that applies new migrations archives the database first. Going back to an earlier release
-works while it knows every migration the database holds. When a start refuses the database, it
-names an archive it can open: restore that one with the server stopped, as above.
+A start that applies new migrations archives the database first, once per release, as
+`routarr-backup-<date>-pre-<version>.zip`, kept until you delete it: no retention count prunes
+it. Going back to an earlier release works while it knows every migration the database holds.
+When a start refuses the database, it names an archive it can open: restore that one with the
+server stopped, as above.
 
 ## Install notes
 

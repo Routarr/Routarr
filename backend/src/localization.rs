@@ -452,8 +452,6 @@ fn shipped(code: &str) -> Option<&'static str> {
         .find(|candidate| candidate.replace('_', "-").eq_ignore_ascii_case(code))
 }
 
-// ------------------------------------------------------------ told sentences
-
 /// A sentence as a row stores it: a dictionary key and its values, said in
 /// the language of whoever reads the row. A sentence written in the language
 /// of the moment it was stored would stay in that language for ever.
@@ -492,8 +490,6 @@ pub fn said(stored: &str, localizer: &Localizer) -> String {
         Err(_) => stored.to_string(),
     }
 }
-
-// ------------------------------------------------------------ domain rendering
 
 impl Localizer {
     /// `translate`, with the values as the engine and the job registry store
@@ -677,7 +673,6 @@ mod tests {
 
     #[test]
     fn an_unknown_language_is_not_guessed_at() {
-        // Mirroring a whole interface on a guess is worse than not mirroring.
         assert_eq!(direction("zz"), "ltr");
         assert_eq!(direction(""), "ltr");
     }
@@ -695,7 +690,6 @@ mod tests {
 
     #[test]
     fn a_partial_translation_falls_back_to_english_key_by_key() {
-        // Built by hand: every shipped dictionary is complete, so none can test the fallback.
         let english = Dictionary::from([
             ("Translated".to_string(), "English one".to_string()),
             ("Untranslated".to_string(), "English two".to_string()),
@@ -711,13 +705,11 @@ mod tests {
             Some("English two"),
             "a key the translation lacks must come from English"
         );
-        // A key nobody has surfaces as itself, visibly wrong rather than blank.
         assert_eq!(lookup(Some(&partial), Some(&english), "Nowhere"), None);
     }
 
     #[test]
     fn a_partial_dictionary_is_served_complete() {
-        // The frontend gets one flat dictionary, so an incomplete one never yields a blank.
         let english = Dictionary::from([
             ("Translated".to_string(), "English one".to_string()),
             ("Untranslated".to_string(), "English two".to_string()),
@@ -764,9 +756,6 @@ mod tests {
         assert_eq!(substitute("{a} and {b} and {a}", &[("a", "1"), ("b", "2")]), "1 and 2 and 1");
     }
 
-    /// A value is text the operator typed or the library holds, a rule named
-    /// after a placeholder among them. Replaced in turn by the parameter after
-    /// it, the name would read as a count.
     #[test]
     fn a_placeholder_inside_a_value_is_left_as_written() {
         assert_eq!(

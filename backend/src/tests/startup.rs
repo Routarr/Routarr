@@ -1,5 +1,4 @@
-//! A start that cannot go on says why in one sentence naming the path and
-//! the variable, where SQLite would say "unable to open database file".
+//! What a start tells the operator: why it cannot go on, and that its mode opens the API.
 
 use crate::config::{AuthMode, Config};
 
@@ -12,8 +11,7 @@ fn first_start_at(path: std::path::PathBuf) -> Config {
     config
 }
 
-/// `ROUTARR_DB_PATH` set to the data folder rather than the file in it is
-/// refused by name, before a key is written beside the folder.
+/// Refused before an API key is written beside the folder.
 #[tokio::test]
 async fn a_database_path_naming_a_directory_is_refused_by_name() {
     let dir = super::TempDir::new("db-path-directory");
@@ -27,8 +25,9 @@ async fn a_database_path_naming_a_directory_is_refused_by_name() {
     assert!(!dir.join("routarr.api_key").exists(), "a key was written beside the folder");
 }
 
-/// A data folder that cannot be made or written is named, with the remedy.
-/// A path through a regular file fails whoever runs the test, root included.
+/// A data folder that cannot be made or written is named, and told no remedy that does not
+/// apply: a path through a regular file is no matter of ownership. It fails whoever runs the
+/// test, root included.
 #[tokio::test]
 async fn an_unusable_data_directory_is_named_at_start() {
     let dir = super::TempDir::new("data-unusable");
@@ -40,12 +39,9 @@ async fn an_unusable_data_directory_is_named_at_start() {
     let refused = refused.expect("a database opened under a file");
     let named = dir.join("file");
     assert!(refused.contains(&named.display().to_string()), "{refused}");
-    assert!(refused.contains("chown"), "{refused}");
+    assert!(!refused.contains("chown"), "a path through a file is told to change owner: {refused}");
 }
 
-/// A start in a mode that opens the API, or that trusts what stands in front
-/// of it, says so in the log, each in the words of its own setting, and the
-/// mode that asks for a key says nothing.
 #[tokio::test]
 async fn a_start_that_opens_the_api_says_so() {
     let cases = [

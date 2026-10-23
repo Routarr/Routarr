@@ -55,9 +55,7 @@ async fn finished_backup_tasks(app: &TestApp, finished: i64) {
     panic!("the archives were not brought to the passphrase in time: {jobs:?}");
 }
 
-/// An archive copied away opens nothing: not the database, not the master key
-/// it carries. Brought to another installation, which holds no passphrase, it
-/// is restored once its own is given, and the wrong one is said to be wrong.
+/// Copied away, the archive opens nothing: not the database, not the master key it carries.
 #[tokio::test]
 async fn an_encrypted_archive_restores_with_its_passphrase_and_not_without() {
     let (app, dir) = app_with_files("sealed-taken").await;
@@ -109,9 +107,7 @@ async fn an_archive_the_stored_passphrase_seals_restores_without_asking() {
     assert_eq!(archives(&dir), [file.name]);
 }
 
-/// The archives on disk follow the passphrase: sealed when one is set, sealed
-/// again when it changes, so the old one opens none of them, and opened when it
-/// is removed.
+/// Sealed again when it changes, so the old passphrase opens none of them.
 #[tokio::test]
 async fn the_archives_on_disk_follow_the_passphrase() {
     let (app, dir) = app_with_files("sealed-follow").await;
@@ -138,9 +134,8 @@ async fn the_archives_on_disk_follow_the_passphrase() {
     );
 }
 
-/// A passphrase set and unreadable, as after the master key changed under
-/// it, takes no archive at all: one in the clear in its place would carry
-/// the credentials the operator asked to seal.
+/// Unreadable, as after the master key changed. One in the clear would carry the credentials the
+/// operator asked to seal.
 #[tokio::test]
 async fn no_archive_is_taken_in_the_clear_when_the_passphrase_cannot_be_opened() {
     let (app, dir) = app_with_files("sealed-unreadable").await;
@@ -164,14 +159,14 @@ async fn the_backup_before_a_migration_is_sealed_too() {
     let (app, _dir) = app_with_files("sealed-migrating").await;
     set_passphrase(&app, PASSPHRASE).await;
 
-    let file = backup::before_migrating(&app.state.config, &app.state.pool).await.unwrap();
+    let taken = backup::before_migrating(&app.state.config, &app.state.pool).await.unwrap();
 
+    let backup::BeforeMigrating::Taken(file) = taken else { panic!("no archive was taken") };
     assert!(file.encrypted && file.name.ends_with(".zip.enc"), "{file:?}");
 }
 
-/// A passphrase guessed offline is guessed at the copier's pace: a short one
-/// is refused, it is set on its own route and never through the settings
-/// form, and it is never read back.
+/// A passphrase is guessed offline at the copier's pace, and is set on its own route, never
+/// through the settings form.
 #[tokio::test]
 async fn a_short_passphrase_is_refused_and_none_is_read_back() {
     let (app, _dir) = app_with_files("sealed-short").await;
@@ -225,9 +220,7 @@ async fn a_sealed_archive_altered_on_disk_is_refused_as_damaged() {
     assert_eq!(archives(&dir), [file.name], "something was left beside the archive");
 }
 
-/// An encrypted archive read by hand: written opened as a private zip where
-/// it is asked, with the passphrase the database in place holds or the one
-/// given, and never over a file that exists.
+/// With the passphrase the database holds or the one given, and never over a file that exists.
 #[tokio::test]
 async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
     let (app, dir) = app_with_files("sealed-by-hand").await;
@@ -266,9 +259,8 @@ async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
     assert!(backup::read_manifest(std::path::Path::new(&out), &Localizer::new("en")).is_ok());
 }
 
-/// Changing the passphrase asks the proof a key asks for: removing it opens
-/// every archive, and one set by a session left open would seal them for
-/// somebody else.
+/// Removed, the passphrase opens every archive, and one set by a session left open would seal
+/// them for somebody else.
 #[tokio::test]
 async fn a_session_proves_itself_before_it_sets_or_removes_the_passphrase() {
     let (app, _dir) = super::security::forms_app("sealed-proof").await;
@@ -290,10 +282,8 @@ async fn a_session_proves_itself_before_it_sets_or_removes_the_passphrase() {
     assert_eq!(set, StatusCode::NO_CONTENT, "{body}");
 }
 
-/// Nothing in the clear stays behind a sealed backup: the snapshot and the zip
-/// written before the sealing are in a work directory beside the database,
-/// private, and gone once the archive is written. The backup folder, the one
-/// a sync copies away, only ever holds the sealed archive.
+/// The snapshot and the zip before sealing stay in a private work directory beside the database,
+/// and the backup folder, which a sync copies away, holds only the sealed archive.
 #[tokio::test]
 async fn a_sealed_backup_leaves_nothing_in_the_clear_anywhere() {
     let (app, dir) = app_with_files("sealed-clear").await;
@@ -313,8 +303,6 @@ async fn a_sealed_backup_leaves_nothing_in_the_clear_anywhere() {
     }
 }
 
-/// One archive the pass cannot convert does not leave the others as they
-/// were, and what a stop interrupted is sealed at the next start.
 #[tokio::test]
 async fn the_conversion_goes_past_a_broken_archive_and_resumes_after_a_start() {
     let (app, dir) = app_with_files("sealed-resume").await;
@@ -350,8 +338,6 @@ async fn the_conversion_goes_past_a_broken_archive_and_resumes_after_a_start() {
     assert!(!opened.exists(), "the archive in the clear stayed");
 }
 
-/// An archive sealed with a passphrase neither the old nor the new one is
-/// stays as it is, counted, rather than being lost or taken for broken.
 #[tokio::test]
 async fn an_archive_sealed_with_an_older_passphrase_is_left_and_counted() {
     let (app, dir) = app_with_files("sealed-older").await;
@@ -379,9 +365,8 @@ async fn an_archive_sealed_with_an_older_passphrase_is_left_and_counted() {
     assert!(detail.contains("Left as they were: 1"), "{detail}");
 }
 
-/// A restore keeps today's passphrase, as it keeps today's password: an
-/// archive taken before the passphrase was set would otherwise put every
-/// later archive back in the clear.
+/// An archive taken before the passphrase was set would otherwise put every later one back in
+/// the clear.
 #[tokio::test]
 async fn a_restore_keeps_the_passphrase_of_today() {
     let (app, _dir) = app_with_files("sealed-restore-keeps").await;
@@ -403,9 +388,8 @@ async fn a_restore_keeps_the_passphrase_of_today() {
     assert_eq!(app.state.secrets.open(&kept).unwrap(), PASSPHRASE);
 }
 
-/// Whether an archive is encrypted is read from it, not from its name, and an
-/// archive named as encrypted that is not is refused: in a folder of sealed
-/// archives, a zip in the clear under a sealed name is one somebody put there.
+/// In a folder of sealed archives, a zip in the clear under a sealed name is one somebody put
+/// there.
 #[tokio::test]
 async fn an_archive_named_as_encrypted_and_not_is_listed_so_and_refused() {
     let (app, dir) = app_with_files("sealed-named").await;
@@ -422,8 +406,7 @@ async fn an_archive_named_as_encrypted_and_not_is_listed_so_and_refused() {
     assert!(refused.json["message"].as_str().unwrap().contains("named as encrypted"));
 }
 
-/// A passphrase the master key in place no longer opens takes no backup, and
-/// the warnings say so rather than the settings showing one is set.
+/// The settings alone would show a passphrase set.
 #[tokio::test]
 async fn a_passphrase_the_master_key_cannot_open_is_a_warning() {
     let (app, _dir) = app_with_files("sealed-warning").await;

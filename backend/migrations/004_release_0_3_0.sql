@@ -68,9 +68,17 @@ ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
 ALTER TABLE api_keys ADD COLUMN expiry_notified_at TEXT;
 
 -- Each backup copy folder whose marker this database wrote. Named here and holding no marker, a
--- folder is a share not mounted, and nothing is copied into it.
-CREATE TABLE backup_copy_folders (
+-- folder is a share not mounted, and nothing is copied into it. A restore writes into it before
+-- this migration runs on an older restored database, hence IF NOT EXISTS.
+CREATE TABLE IF NOT EXISTS backup_copy_folders (
     path TEXT PRIMARY KEY
+);
+
+-- Each archive this database copied into the copy folder, the only ones its retention count may
+-- remove there: another installation's archives in a shared or inherited folder stay.
+CREATE TABLE IF NOT EXISTS backup_copies (
+    name TEXT PRIMARY KEY,
+    copied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- What a person signed in may reach: everything, or what an application key's read scope reads.

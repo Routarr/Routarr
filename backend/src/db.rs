@@ -36,8 +36,14 @@ pub(crate) const NAMES_OF_0_1_5: [&str; 13] = [
     "013_opened_by",
 ];
 
-/// How large the write-ahead log stays once checkpointed, in bytes.
+/// How large the write-ahead log stays once checkpointed, in bytes, and the room a start asks
+/// of the data disk: the log and its shared memory grow to the largest transaction.
 const JOURNAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
+
+/// How long a stop waits for the connections still held to come back, a snapshot still being
+/// written among them. Past it SQLite recovers the log at the next start.
+const CLOSE: Duration =
+    if cfg!(test) { Duration::from_millis(300) } else { Duration::from_secs(3) };
 
 /// Refuse a database that cannot live where it is configured, naming the path and the
 /// remedy, since SQLite past this point names neither. A folder Docker made for a bind
@@ -57,19 +63,52 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
         )));
     }
     let dir = &config.data_dir;
-    let unwritable = |e: std::io::Error| {
-        AppError::Config(format!(
-            "The data directory {} cannot be written ({e}). Give it to the user Routarr runs as, \
-             uid 1000 in the image (chown -R 1000:1000 on the host), or run the container as the \
-             folder's owner with user:",
-            dir.display()
-        ))
-    };
-    std::fs::create_dir_all(dir).map_err(unwritable)?;
+    let refused = |e: std::io::Error| unwritable(dir, &e);
+    std::fs::create_dir_all(dir).map_err(refused)?;
     let probe = dir.join(".routarr-write-check");
-    std::fs::File::create(&probe).map_err(unwritable)?;
-    std::fs::remove_file(&probe).map_err(unwritable)?;
-    Ok(())
+    std::fs::File::create(&probe).map_err(refused)?;
+    std::fs::remove_file(&probe).map_err(refused)?;
+    // An empty probe file fits on a full disk, which SQLite then calls a disk I/O error.
+    match fs4::available_space(dir).ok().and_then(|free| too_full(dir, free)) {
+        Some(refusal) => Err(refusal),
+        None => Ok(()),
+    }
+}
+
+/// Why the data directory `dir` cannot be written, with the remedy `e` calls for.
+fn unwritable(dir: &std::path::Path, e: &std::io::Error) -> crate::error::AppError {
+    use std::io::ErrorKind;
+    let dir = dir.display();
+    crate::error::AppError::Config(match e.kind() {
+        ErrorKind::PermissionDenied => format!(
+            "The data directory {dir} cannot be written ({e}). Give it to the user Routarr runs \
+             as, uid 1000 in the image (chown -R 1000:1000 on the host), or run the container as \
+             the folder's owner with user:"
+        ),
+        ErrorKind::ReadOnlyFilesystem => format!(
+            "The data directory {dir} is mounted read-only ({e}). Mount it read-write: remove :ro \
+             from its volume"
+        ),
+        ErrorKind::StorageFull => format!(
+            "The data directory {dir} cannot be written ({e}): its disk has no space left. Free \
+             some space, then start again"
+        ),
+        _ => format!("The data directory {dir} cannot be written ({e})"),
+    })
+}
+
+/// The refusal of a data directory with `free` bytes left, too few for the database to open.
+fn too_full(dir: &std::path::Path, free: u64) -> Option<crate::error::AppError> {
+    if free >= JOURNAL_SIZE_LIMIT as u64 {
+        return None;
+    }
+    let english = crate::localization::Localizer::new(crate::localization::DEFAULT_LANGUAGE);
+    let left = crate::localization::human_bytes(i64::try_from(free).unwrap_or(i64::MAX), &english);
+    Some(crate::error::AppError::Config(format!(
+        "The data directory {} has {left} left. Free some space: Routarr cannot open its \
+         database on a full disk",
+        dir.display()
+    )))
 }
 
 /// Initialize the SQLite connection pool and run migrations.
@@ -112,27 +151,54 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     if let Some(newer) = opened_ahead(&mut *pool.acquire().await?).await? {
         let passphrase =
             crate::services::backup::stored_passphrase(config, &pool).await.ok().flatten();
-        let archive = crate::services::backup::newest_openable(config, passphrase.as_ref())
-            .unwrap_or_else(|| "<archive>".to_string());
-        return Err(crate::error::AppError::Config(format!(
-            "{}. Start that release again, or restore a backup this one can open, with the \
-             server stopped: routarr restore {archive}",
-            ahead_of_this_build(&newer)
-        )));
+        let ahead = ahead_of_this_build(&newer);
+        return Err(crate::error::AppError::Config(
+            match crate::services::backup::newest_openable(config, passphrase.as_ref()) {
+                Some(archive) => format!(
+                    "{ahead}. Start that release again, or restore a backup this one can open, \
+                     with the server stopped: {}",
+                    restore_command(&archive)
+                ),
+                None => format!(
+                    "{ahead}. Start that release again: no archive in {} is at a schema this \
+                     release opens",
+                    crate::services::backup::backups_in(&config.data_dir).display()
+                ),
+            },
+        ));
     }
-    if on_disk && migrates_a_schema(&pool).await? {
+    let way_back = if on_disk && migrates_a_schema(&pool).await? {
+        use crate::services::backup::BeforeMigrating;
         match crate::services::backup::before_migrating(config, &pool).await {
-            Ok(file) => info!(
-                "Backup taken before migrating to v{}: {}",
-                env!("CARGO_PKG_VERSION"),
-                file.name
-            ),
+            Ok(BeforeMigrating::Taken(file)) => {
+                let version = env!("CARGO_PKG_VERSION");
+                info!("Backup taken before migrating to v{version}: {}", file.name);
+                Some(file.name)
+            }
+            Ok(BeforeMigrating::Kept(name)) => {
+                info!("An archive of this schema taken before migrating already exists: {name}");
+                Some(name)
+            }
             // No reason to stay on the old schema: the archives taken before this start remain.
-            Err(e) => tracing::error!("No backup could be taken before migrating: {e}"),
+            Err(e) => {
+                tracing::error!("No backup could be taken before migrating: {e}");
+                None
+            }
         }
-    }
+    } else {
+        None
+    };
 
-    run_migrations(&pool).await?;
+    run_migrations(&pool).await.map_err(|e| match (e, way_back) {
+        (crate::error::AppError::Config(refused), Some(archive)) => {
+            crate::error::AppError::Config(format!(
+                "{refused}. To go back to the release before, restore {archive} with the server \
+                 stopped: {}",
+                restore_command(&archive)
+            ))
+        }
+        (other, _) => other,
+    })?;
 
     // After the migrations: in WAL mode the sidecars exist only once something is written.
     if on_disk {
@@ -181,7 +247,9 @@ pub async fn checkpoint_and_close(pool: &SqlitePool) {
     if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(pool).await {
         tracing::warn!("Could not checkpoint the write-ahead log: {e}");
     }
-    pool.close().await;
+    if tokio::time::timeout(CLOSE, pool.close()).await.is_err() {
+        tracing::warn!("A database connection was still in use, closing without it");
+    }
 }
 
 /// Apply any migration not yet recorded in `_migrations`, after refusing a database a newer
@@ -261,6 +329,14 @@ async fn refuse_a_newer_schema(pool: &SqlitePool) -> crate::error::AppResult<()>
     }
 }
 
+/// The command restoring `archive` with the server stopped, by hand and in a container.
+fn restore_command(archive: &str) -> String {
+    format!(
+        "routarr restore {archive} (in Docker: docker compose run --rm routarr /app/routarr \
+         restore {archive})"
+    )
+}
+
 /// Why a database `newer` migrated is refused.
 fn ahead_of_this_build(newer: &str) -> String {
     format!(
@@ -329,15 +405,16 @@ fn release(version: &str) -> Vec<u64> {
 /// Apply the migrations up to `last` included, leaving the schema of the release that shipped
 /// `last` for a test to upgrade from.
 #[cfg(test)]
-pub async fn run_migrations_through(pool: &SqlitePool, last: &str) -> Result<(), sqlx::Error> {
+pub async fn run_migrations_through(pool: &SqlitePool, last: &str) -> crate::error::AppResult<()> {
     let end = MIGRATIONS.iter().position(|(name, _)| *name == last).expect("a listed migration");
     apply_migrations(pool, &MIGRATIONS[..=end]).await
 }
 
+/// Apply each migration not recorded yet, a failure naming the one that failed.
 async fn apply_migrations(
     pool: &SqlitePool,
     migrations: &[(&str, &str)],
-) -> Result<(), sqlx::Error> {
+) -> crate::error::AppResult<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _migrations (
             id INTEGER PRIMARY KEY,
@@ -366,7 +443,9 @@ async fn apply_migrations(
         sqlx::query("PRAGMA foreign_keys = OFF").execute(&mut *connection).await?;
         let applied = apply_migration(&mut connection, name, sql).await;
         let restored = sqlx::query("PRAGMA foreign_keys = ON").execute(&mut *connection).await;
-        applied?;
+        applied.map_err(|e| {
+            crate::error::AppError::Config(format!("the migration {name} failed: {e}"))
+        })?;
         restored?;
 
         info!("Migration {} applied successfully", name);
@@ -1126,6 +1205,53 @@ mod tests {
         assert_eq!(listed, files);
     }
 
+    #[test]
+    fn a_data_folder_that_cannot_be_written_is_told_its_own_remedy() {
+        let dir = std::path::Path::new("/config");
+        let said =
+            |kind: std::io::ErrorKind| unwritable(dir, &std::io::Error::from(kind)).to_string();
+
+        let owner = said(std::io::ErrorKind::PermissionDenied);
+        assert!(owner.contains("chown -R 1000:1000"), "{owner}");
+        let read_only = said(std::io::ErrorKind::ReadOnlyFilesystem);
+        assert!(read_only.contains("read-only") && read_only.contains(":ro"), "{read_only}");
+        assert!(!read_only.contains("chown"), "a read-only mount is told to change its owner");
+        let full = said(std::io::ErrorKind::StorageFull);
+        assert!(full.contains("no space left") && !full.contains("chown"), "{full}");
+        let other = said(std::io::ErrorKind::Other);
+        assert!(other.contains("/config") && !other.contains("chown"), "{other}");
+    }
+
+    /// A full disk passes the write probe, which writes nothing, and stops the start one line
+    /// later with SQLite's bare "disk I/O error": refused first, naming the folder and the
+    /// space left.
+    #[test]
+    fn a_data_disk_without_room_for_the_log_is_refused_naming_it() {
+        let dir = std::path::Path::new("/config");
+
+        let refused = too_full(dir, 4096).expect("a full disk was accepted").to_string();
+
+        assert!(refused.contains("/config") && refused.contains("4.0 kB"), "{refused}");
+        assert!(too_full(dir, 10 * JOURNAL_SIZE_LIMIT as u64).is_none(), "room enough is refused");
+    }
+
+    /// A connection still held, as by a snapshot still being written, never holds the stop past
+    /// its bound: SQLite recovers the log at the next start.
+    #[tokio::test]
+    async fn a_connection_still_held_never_holds_the_stop_past_its_bound() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap())
+            .await
+            .unwrap();
+        let held = pool.acquire().await.unwrap();
+
+        let closed = tokio::time::timeout(Duration::from_secs(3), checkpoint_and_close(&pool));
+
+        closed.await.expect("the stop waited for a connection still held");
+        drop(held);
+    }
+
     /// The process folds the log back once the server has stopped serving, read out of its
     /// source since no test runs it: a shutdown that drops the pool loses the last writes.
     #[test]
@@ -1139,7 +1265,7 @@ mod tests {
             .split_once("db::checkpoint_and_close(&pool)")
             .unwrap_or_else(|| panic!("main stops without folding the log back:\n{shutdown}"));
         assert!(
-            drained.contains("jobs.drain(") && !closed.contains("jobs.drain("),
+            drained.contains("jobs.wait(") && !closed.contains("jobs.wait("),
             "main closes the database before the moves in flight are recorded:\n{shutdown}"
         );
     }

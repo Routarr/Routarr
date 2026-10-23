@@ -61,6 +61,16 @@ async fn take_backup(app: &TestApp) -> backup::BackupFile {
     backup::create(&app.state, &Attribution::manual(None)).await.unwrap()
 }
 
+/// `folder` as an earlier copy of this database left it: marked, and recorded as its own.
+async fn copied_into_before(app: &TestApp, folder: &std::path::Path) {
+    std::fs::write(folder.join(MARKER), b"").unwrap();
+    sqlx::query("INSERT INTO backup_copy_folders (path) VALUES (?)")
+        .bind(folder.to_string_lossy())
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+}
+
 /// An archive of `name` holding `bytes`, written where a backup would be.
 fn archive(dir: &std::path::Path, name: &str, bytes: &[u8]) {
     std::fs::create_dir_all(dir).unwrap();
@@ -93,7 +103,23 @@ async fn each_archive_is_copied_whole_and_private_under_its_own_name() {
     assert_eq!(listed["copy"]["folder"], copies.0.display().to_string(), "{listed}");
 }
 
-/// Without a copy folder nothing is copied, and the list says there is none.
+/// A copy folder on the data folder's own disk saves nothing from that disk's loss, which the
+/// Backups card says, the copy going on all the same.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_copy_folder_on_the_data_disk_is_said_to_share_it() {
+    let (app, _data, copies) = app_copying("same-disk", true).await;
+
+    let file = take_backup(&app).await;
+    copies_ended(&app, 1).await;
+
+    assert_eq!(archives_in(&copies), [file.name]);
+    let listed = app.get("/api/v1/backups").await;
+    let listed = listed.assert_ok();
+    assert_eq!(listed["copy"]["state"], "copied", "{listed}");
+    assert_eq!(listed["copy"]["same_disk"], true, "{listed}");
+}
+
 #[tokio::test]
 async fn without_a_copy_folder_nothing_is_copied_or_shown() {
     let (app, _data) = app_with_files("copy-none").await;
@@ -107,7 +133,6 @@ async fn without_a_copy_folder_nothing_is_copied_or_shown() {
     assert_eq!(app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'backup_copy'").await, 0);
 }
 
-/// A share not there fails the copy and says so, and the archive is taken all the same.
 #[tokio::test]
 async fn a_missing_folder_fails_the_copy_and_never_the_backup() {
     let (app, data, copies) = app_copying("missing", false).await;
@@ -130,8 +155,7 @@ async fn a_missing_folder_fails_the_copy_and_never_the_backup() {
     assert!(!codes.contains(&"backup_failed"), "{codes:?}");
 }
 
-/// Once a folder has had a copy, losing its marker is the empty mount point of a share not
-/// mounted: nothing goes there until the owner takes the folder as it is.
+/// A folder that had a copy and lost its marker is the empty mount point of a share not mounted.
 #[tokio::test]
 async fn a_folder_that_lost_its_marker_takes_nothing_until_taken_as_it_is() {
     let (app, _data, copies) = app_copying("unmounted", true).await;
@@ -157,7 +181,27 @@ async fn a_folder_that_lost_its_marker_takes_nothing_until_taken_as_it_is() {
     assert!(copies.join(MARKER).exists());
 }
 
-/// Taking a folder as it is needs one to take.
+/// The adoption holds whatever spelling names the folder: respelled with a trailing separator,
+/// the empty mount point of a share not mounted still takes nothing.
+#[tokio::test]
+async fn a_folder_adopted_once_stays_adopted_however_it_is_spelled() {
+    let (app, _data, copies) = app_copying("spelled", true).await;
+    take_backup(&app).await;
+    copies_ended(&app, 1).await;
+    let mut config = (*app.state.config).clone();
+    config.backup_copy_dir = Some(std::path::PathBuf::from(format!("{}/", copies.0.display())));
+    let app = TestApp::around(app.state.clone().with_config(config));
+    std::fs::remove_dir_all(&copies.0).unwrap();
+    std::fs::create_dir(&copies.0).unwrap();
+
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    let ended = copies_ended(&app, 2).await;
+
+    assert_eq!(ended[0], ("failed".to_string(), Some("JobDetailBackupCopyUnmounted".to_string())));
+    let left = std::fs::read_dir(&copies.0).unwrap().count();
+    assert_eq!(left, 0, "the copy wrote into the empty mount point");
+}
+
 #[tokio::test]
 async fn a_folder_is_taken_as_it_is_only_where_there_is_one() {
     let (app, _data) = app_with_files("copy-adopt-unset").await;
@@ -177,7 +221,7 @@ async fn the_next_copy_sweeps_a_partial_one_and_catches_up_on_what_was_missed() 
     let backups = data.join("backups");
     archive(&backups, "routarr-backup-20260901-020000.zip", b"first");
     archive(&backups, "routarr-backup-20260902-020000.zip", b"second");
-    std::fs::write(copies.join(MARKER), b"").unwrap();
+    copied_into_before(&app, &copies).await;
     std::fs::write(copies.join(".routarr-backup-20260901-020000.zip.partial"), b"fir").unwrap();
 
     backup::copy_in_background(&app.state, Attribution::manual(None));
@@ -191,33 +235,64 @@ async fn the_next_copy_sweeps_a_partial_one_and_catches_up_on_what_was_missed() 
     assert_eq!(std::fs::read(copies.join("routarr-backup-20260901-020000.zip")).unwrap(), b"first");
 }
 
-/// The retention count prunes the copies as it prunes the backups, those application keys took
-/// counted apart, and the newest copies stay whatever the backup folder holds.
+/// The retention count prunes the copies this database wrote as it prunes the backups, and never
+/// an archive another database left: a folder holding one is refused until taken as it is.
 #[tokio::test]
 async fn the_retention_count_prunes_the_copies_as_it_prunes_the_backups() {
-    let (app, _data, copies) = app_copying("retention", true).await;
+    let (app, data, copies) = app_copying("retention", true).await;
     app.store_setting("backup_retention_count", "1").await;
     std::fs::write(copies.join(MARKER), b"").unwrap();
-    for name in [
+    let foreign = [
         "routarr-backup-20260901-020000.zip",
-        "routarr-backup-20260902-020000.zip",
         "routarr-backup-20260901-030000-app.zip",
+        "routarr-backup-20260902-020000.zip",
         "routarr-backup-20260902-030000-app.zip",
-    ] {
-        archive(&copies, name, b"an archive");
+    ];
+    for name in foreign {
+        archive(&copies, name, b"another database's archive");
+    }
+
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    let ended = copies_ended(&app, 1).await;
+
+    assert_eq!(ended[0], ("failed".to_string(), Some("JobDetailBackupCopyForeign".to_string())));
+    assert_eq!(archives_in(&copies), foreign, "a foreign archive was removed");
+    let listed = app.get("/api/v1/backups").await;
+    assert_eq!(listed.assert_ok()["copy"]["state"], "foreign", "{}", listed.json);
+
+    archive(&data.join("backups"), "routarr-backup-20260903-020000.zip", b"this database's");
+    app.post("/api/v1/backups/copy/adopt", json!({})).await.assert_status(StatusCode::ACCEPTED);
+    copies_ended(&app, 2).await;
+    let newest = take_backup(&app).await;
+    copies_ended(&app, 3).await;
+
+    let mut kept: Vec<String> = foreign.iter().map(|name| name.to_string()).collect();
+    kept.push(newest.name);
+    kept.sort();
+    assert_eq!(archives_in(&copies), kept);
+}
+
+/// A start on a new disk finds the copy folder the lost installation filled: nothing in it is
+/// removed, whatever the retention count, before or after the first backup.
+#[tokio::test]
+async fn a_fresh_database_never_prunes_the_archives_it_finds_in_the_copy_folder() {
+    let (app, _data, copies) = app_copying("fresh", true).await;
+    std::fs::write(copies.join(MARKER), b"").unwrap();
+    let lost: Vec<String> =
+        (1..=9).map(|day| format!("routarr-backup-202610{day:02}-030000.zip")).collect();
+    for name in &lost {
+        archive(&copies, name, b"the lost installation's archive");
     }
 
     backup::copy_in_background(&app.state, Attribution::manual(None));
     copies_ended(&app, 1).await;
+    take_backup(&app).await;
+    copies_ended(&app, 2).await;
 
-    assert_eq!(
-        archives_in(&copies),
-        ["routarr-backup-20260902-020000.zip", "routarr-backup-20260902-030000-app.zip"]
-    );
+    assert_eq!(archives_in(&copies), lost, "an archive of the lost installation was removed");
 }
 
-/// Sealed since its copy, an archive goes by another name: the sealed copy replaces the one in
-/// the clear, which a copy folder must not keep once the owner asked for a passphrase.
+/// The sealed archive has another name, and the copy in the clear must not stay beside it.
 #[tokio::test]
 async fn a_passphrase_set_later_seals_the_copies_too() {
     let (app, _data, copies) = app_copying("sealed-later", true).await;
@@ -273,8 +348,6 @@ impl Drop for Hanging {
     }
 }
 
-/// A share that hangs holds its copy, which is reported once its time is out, and nothing
-/// else: a backup taken meanwhile answers at once.
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_copy_that_hangs_holds_back_nothing_but_itself() {

@@ -10,8 +10,8 @@ pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 /// `ROUTARR_MAX_LIBRARY_MIB` when unset.
 pub(crate) const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
 
-/// How long a move of files is polled at its quickest: a rename within one filesystem ends in a
-/// second, a copy across disks takes minutes a film. Five minutes unread, six hours running.
+/// How long a move of files is polled at its quickest: a rename ends in a second, a copy
+/// across disks takes minutes per film.
 const MOVE_WAIT: Duration = Duration::from_secs(60);
 
 /// How long a webhook delivery is answered within, under the timeout an Arr
@@ -63,9 +63,9 @@ pub enum AuthMode {
     /// working beside it: a machine client cannot hold a cookie, and a header is immune to
     /// the cross-site request forgery a cookie invites.
     Forms,
-    /// An OpenID Connect provider authenticates, and Routarr lets in the subjects and the
-    /// groups the operator names. One level of access and no user table: what it records is
-    /// the subject, as the actor on every decision and write.
+    /// An OpenID Connect provider authenticates, and Routarr lets in the subjects and groups
+    /// the operator names, with full access or to read alone. No user table: the subject is
+    /// what it records.
     Oidc,
     /// A reverse proxy authenticates, and Routarr asks for nothing. It reads no identity
     /// header, as Radarr's `External` does, so there is none to forge: nothing may reach the
@@ -569,7 +569,8 @@ impl Config {
             port: env_parse("ROUTARR_PORT", 9876)?,
             data_dir: data_dir_for(&db_path),
             db_path,
-            backup_copy_dir: non_empty("ROUTARR_BACKUP_COPY_DIR").map(PathBuf::from),
+            backup_copy_dir: non_empty("ROUTARR_BACKUP_COPY_DIR")
+                .map(|dir| lexical(Path::new(&dir))),
             log_level,
             log_format,
             log_filter,
@@ -992,8 +993,9 @@ fn path_or(raw: Option<String>, default: impl FnOnce() -> PathBuf) -> PathBuf {
         .unwrap_or_else(default)
 }
 
-/// `path` with its `.` and `..` worked out on the letters alone, links left as they are.
-fn lexical(path: &Path) -> PathBuf {
+/// `path` with its `.` and `..` worked out on the letters alone, links left as they are, and no
+/// separator at its end.
+pub(crate) fn lexical(path: &Path) -> PathBuf {
     let mut worked = PathBuf::new();
     for part in path.components() {
         match part {
@@ -1072,7 +1074,6 @@ fn test_data_dir() -> PathBuf {
 mod tests {
     use super::*;
 
-    /// A blank path is no path: unset, the default stands.
     #[test]
     fn a_blank_path_variable_reads_as_unset() {
         let default = || PathBuf::from("./data/routarr.db");
@@ -1099,9 +1100,6 @@ mod tests {
         }
     }
 
-    /// A value read and set aside is said once logging is up: a typo in the
-    /// mode keeps the API key and says so, `warning` is the level it names,
-    /// and an unknown level or format falls back with a word.
     #[test]
     fn a_value_not_understood_is_said_rather_than_swallowed() {
         assert_eq!(AuthMode::parse("nome"), (AuthMode::ApiKey, true));
@@ -1116,9 +1114,6 @@ mod tests {
         assert_eq!(concurrency_from(4), (4, false));
     }
 
-    /// A browser writes an origin in lower case and without its scheme's
-    /// default port, and the comparison is verbatim: listed otherwise, an
-    /// origin would never match.
     #[test]
     fn a_listed_origin_is_written_as_a_browser_sends_it() {
         let listed = origins_from(Some(
@@ -1132,8 +1127,6 @@ mod tests {
         assert!(origins_from(None).is_empty());
     }
 
-    /// `RUST_LOG` is read here with every other variable, and said at start
-    /// when it replaces the level, or when it holds no filter and does not.
     #[test]
     fn rust_log_is_read_here_and_said_when_it_overrides() {
         assert_eq!(log_filter_from(None), (None, None));
@@ -1163,7 +1156,6 @@ mod tests {
         config.base_path = normalise_base_path("");
         assert_eq!(config.ping_url(), "http://127.0.0.1:9876/api/v1/ping");
 
-        // The host it binds, or the loopback when it binds every address.
         for (host, asked) in [
             ("0.0.0.0", "127.0.0.1"),
             ("::", "[::1]"),
@@ -1202,9 +1194,7 @@ mod tests {
         assert!(missing.is_empty(), "undocumented in .env.example: {missing:?}");
     }
 
-    /// Nothing is advertised that the code does not read: an operator would set it and nothing
-    /// would happen. Scanning this file is enough, since it alone reads the environment outside
-    /// the tests.
+    /// Scanning this file is enough: it alone reads the environment outside the tests.
     #[test]
     fn every_variable_the_sample_env_advertises_is_one_the_code_reads() {
         let root = env!("CARGO_MANIFEST_DIR");
@@ -1239,7 +1229,6 @@ mod tests {
 
     #[test]
     fn an_in_memory_database_never_derives_a_relative_data_directory() {
-        // Derived from `parent()`, the key files and the backups would land in the sources.
         assert_eq!(data_dir_for(Path::new(":memory:")), PathBuf::from("."));
 
         let config = Config::for_tests();
@@ -1259,13 +1248,11 @@ mod tests {
             PathBuf::from("/var/lib/routarr")
         );
         assert_eq!(data_dir_for(Path::new("./data/routarr.db")), PathBuf::from("./data"));
-        // No directory at all: the working directory, spelled out.
         assert_eq!(data_dir_for(Path::new("routarr.db")), PathBuf::from("."));
     }
 
-    /// `set_db_path` moves everything on disk with the database. Assigning `db_path` alone
-    /// leaves the master key and the backups behind, and the next start generates a new key
-    /// that opens none of the stored credentials.
+    /// Left behind, the master key would be generated anew at the next start, opening none of the
+    /// stored credentials.
     #[test]
     fn moving_the_database_takes_the_keys_and_the_backups_with_it() {
         let mut config = Config::for_tests();
@@ -1276,9 +1263,6 @@ mod tests {
         assert_eq!(config.api_key_path(), PathBuf::from("/srv/routarr/data/routarr.api_key"));
     }
 
-    /// A wildcard handed to `AllowOrigin::list` panics, so an installation that
-    /// set the most obvious value would never start, with a message naming
-    /// tower-http rather than the variable.
     #[test]
     fn a_wildcard_origin_is_refused_by_name() {
         let err = validate_origin("*").expect_err("a wildcard has to be refused");
@@ -1287,14 +1271,11 @@ mod tests {
         assert!(message.contains("wildcard"), "and says what is wrong: {message}");
     }
 
-    /// tower-http compares the `Origin` header verbatim, so anything but `scheme://host[:port]`
-    /// would never match while CORS looks configured.
     #[test]
     fn an_origin_that_could_never_match_is_refused() {
         for bad in ["example.com", "//example.com", "ftp://example.com", "https://", "not a url"] {
             assert!(validate_origin(bad).is_err(), "'{bad}' was accepted");
         }
-        // A path is not part of an origin.
         assert!(validate_origin("https://example.com/app").is_err());
         assert!(validate_origin("https://example.com/?a=1").is_err());
     }
@@ -1312,8 +1293,6 @@ mod tests {
         assert!(Config::for_tests().validate().is_ok());
     }
 
-    /// `unwrap_or(default)` on a failed parse would run the server on the
-    /// default while the operator believes their value is in force.
     #[test]
     fn an_unreadable_variable_is_refused_by_name_rather_than_replaced_by_its_default() {
         assert_eq!(parse_setting("ROUTARR_PORT", None, 9876u16).unwrap(), 9876);
@@ -1326,8 +1305,6 @@ mod tests {
         assert!(err.to_string().contains("ROUTARR_HTTP_TIMEOUT_SECS"), "{err}");
     }
 
-    /// One `{config:?}` written while diagnosing would otherwise print the
-    /// master key, the OIDC secret and the API key into the log.
     #[test]
     fn the_configuration_prints_no_secret() {
         let mut config = Config::for_tests();
@@ -1373,8 +1350,6 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
-    /// A copy folder is a whole path, apart from the data folder whichever way round, however
-    /// its path is spelled, and never looked at, since a share may sleep at the start.
     #[test]
     fn a_backup_copy_folder_is_whole_and_apart_from_the_data() {
         let mut config = Config::for_tests();
@@ -1390,7 +1365,6 @@ mod tests {
         }
     }
 
-    /// An address, or a range a proxy recreated on its network stays inside.
     #[test]
     fn a_trusted_proxy_is_an_address_or_a_range() {
         let range = Network::parse("172.18.0.0/16").unwrap();
@@ -1423,9 +1397,6 @@ mod tests {
         assert!(err.contains("ROUTARR_MAX_LIBRARY_MIB"), "{err}");
     }
 
-    /// A container that mounts `/data` and not `/config` keeps its library,
-    /// and is told how to follow the image's layout. A path set to anything
-    /// else, or a `/config` that holds a database, is opened as it is.
     #[test]
     fn a_database_left_in_data_is_still_opened() {
         let image = PathBuf::from(IMAGE_DB_PATH);
@@ -1442,9 +1413,6 @@ mod tests {
         assert_eq!(settled_db_path(elsewhere.clone(), only_data), (elsewhere, None));
     }
 
-    /// A source's root that is no address a request can go to stops the start,
-    /// naming its variable, where it would only show as the source being
-    /// unreachable. A key sent over plain http is said at start.
     #[test]
     fn a_source_root_is_checked_at_start() {
         let mut config = Config::for_tests();
@@ -1474,8 +1442,6 @@ mod tests {
         config
     }
 
-    /// A provider left at its defaults lets every account of its directory use every client,
-    /// so with nobody named the mode refuses to start, unless the operator says anyone may.
     #[test]
     fn oidc_mode_without_an_allow_list_refuses_to_start_unless_told_to() {
         let mut config = oidc_config();
@@ -1496,9 +1462,8 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
-    /// The read lists make readers of those named there alone. Refused at start: readers with
-    /// nobody to run Routarr, readers anyone's full access would swallow, and a name in both
-    /// lists, which full access would silently win.
+    /// Refused at start: readers with nobody to run Routarr, readers anyone's full access would
+    /// swallow, and a name in both lists, which full access would win.
     #[test]
     fn oidc_read_lists_that_cannot_hold_refuse_to_start() {
         let mut config = oidc_config();
@@ -1525,8 +1490,6 @@ mod tests {
         assert!(err.contains("ROUTARR_OIDC_READ_GROUPS") && err.contains("'media'"), "{err}");
     }
 
-    /// Each of the four is needed before anyone can sign in, and a start that
-    /// names the missing one beats a 500 on the first attempt.
     #[test]
     fn oidc_mode_names_each_variable_it_is_missing_at_startup() {
         assert!(oidc_config().validate().is_ok());
@@ -1543,9 +1506,6 @@ mod tests {
         }
     }
 
-    /// The flow does not verify the token's signature because the exchange
-    /// happens over TLS, and a provider reached in the clear voids that. The
-    /// machine itself is the one exception, since nothing else is on the wire.
     #[test]
     fn oidc_mode_refuses_a_provider_or_a_redirect_reached_in_the_clear() {
         for (name, set) in [
@@ -1575,8 +1535,6 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
-    /// `bind_address` is what the listener is given. A mistake here is a server
-    /// that answers on an address nobody documented.
     #[test]
     fn the_bind_address_joins_the_configured_host_and_port() {
         let mut config = Config::for_tests();

@@ -61,6 +61,8 @@ const MANIFEST_ENTRY: &str = "manifest.json";
 
 /// Marker telling the next startup that a restore is pending.
 const PENDING_SUFFIX: &str = ".restore-pending";
+/// Beside the pending database: which archive it is and when it was staged.
+const NOTE_SUFFIX: &str = ".restore-pending.json";
 /// What a restore sets the replaced file aside as, one generation.
 const PRE_RESTORE: &str = ".pre-restore";
 
@@ -94,7 +96,7 @@ pub fn backup_dir(state: &AppState) -> PathBuf {
     backups_in(&state.config.data_dir)
 }
 
-fn backups_in(data_dir: &Path) -> PathBuf {
+pub(crate) fn backups_in(data_dir: &Path) -> PathBuf {
     data_dir.join("backups")
 }
 
@@ -116,6 +118,25 @@ fn stamp_of(name: &str) -> Option<&str> {
 /// Marks an archive an application key took. Those are retained under a count of their own,
 /// so a script taking backups in a loop never prunes the owner's or the schedule's.
 const APPLICATION_SUFFIX: &str = "-app";
+
+/// Marks the archive a start takes before migrating, then this release's version: the way back
+/// to the release before, which no retention count prunes. The release it leads back to must
+/// still list it, so the name keeps to `[A-Za-z0-9._-]`.
+const BEFORE_MIGRATING_SUFFIX: &str = "-pre-";
+
+fn before_migrating_suffix() -> String {
+    let version = env!("CARGO_PKG_VERSION")
+        .replace(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-'), "-");
+    format!("{BEFORE_MIGRATING_SUFFIX}{version}")
+}
+
+/// What a name holds after its UTC stamp: `-app`, `-pre-<version>`, or nothing.
+fn kind_of(name: &str) -> &str {
+    stamp_of(name).and_then(|stamp| stamp.get(STAMP.len()..)).unwrap_or_default()
+}
+
+/// The shape of the stamp every generated name starts with.
+const STAMP: &str = "20260101-000000";
 
 /// How long after the newest archive an application key may take another.
 const APPLICATION_GAP: std::time::Duration = std::time::Duration::from_secs(10 * 60);
@@ -149,7 +170,9 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     let suffix = if by_application { APPLICATION_SUFFIX } else { "" };
     let outcome = match sealed::passphrase(state).await {
         Ok(passphrase) => {
-            write_archive(&state.config, &state.pool, suffix, passphrase, Some(&job.id)).await
+            let job = Some(job.id.as_str());
+            let (config, pool) = (&state.config, &state.pool);
+            write_archive(config, pool, suffix, passphrase, job, &localizer, free_space).await
         }
         Err(e) => Err(e),
     };
@@ -180,41 +203,99 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     outcome
 }
 
-/// Mark the backup's own job a success inside its snapshot. Left running, it would come back
-/// with every restore of the archive, and the next start would mark it interrupted.
-async fn settle_in_snapshot(snapshot: &Path, job: &str, name: &str) -> AppResult<()> {
+/// Leave TMDB's answers out of the snapshot, the pages they held zeroed: its terms allow six
+/// months of them and an archive is kept longer. Mark the backup's own job a success inside it,
+/// or every restore would bring it back running, for the next start to mark interrupted.
+async fn trim_snapshot(snapshot: &Path, job: Option<&str>, name: &str) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
-    let detail = crate::jobs::Detail::new("JobDetailBackedUp").with("file", name);
     // A rollback journal: the snapshot is zipped alone, so a log beside it would be lost.
     let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(snapshot)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
+        .pragma("secure_delete", "ON")
         .connect()
         .await?;
-    let settled = sqlx::query(
-        "UPDATE jobs SET status = 'success', detail = ?, detail_key = ?, detail_params = ?,
-                finished_at = datetime('now')
-          WHERE id = ?",
-    )
-    .bind(detail.english())
-    .bind("JobDetailBackedUp")
-    .bind(detail.stored_params())
-    .bind(job)
-    .execute(&mut connection)
+    let trimmed = async {
+        sqlx::query("DELETE FROM metadata_cache WHERE source = ?")
+            .bind(crate::services::metadata::TMDB)
+            .execute(&mut connection)
+            .await?;
+        if let Some(job) = job {
+            let detail = crate::jobs::Detail::new("JobDetailBackedUp").with("file", name);
+            sqlx::query(
+                "UPDATE jobs SET status = 'success', detail = ?, detail_key = ?, detail_params = ?,
+                        finished_at = datetime('now')
+                  WHERE id = ?",
+            )
+            .bind(detail.english())
+            .bind("JobDetailBackedUp")
+            .bind(detail.stored_params())
+            .bind(job)
+            .execute(&mut connection)
+            .await?;
+        }
+        Ok::<_, sqlx::Error>(())
+    }
     .await;
     connection.close().await.ok();
-    settled?;
+    trimmed?;
     Ok(())
 }
 
+/// What a start that migrates did to keep the way back.
+pub enum BeforeMigrating {
+    /// The archive it took.
+    Taken(BackupFile),
+    /// The archive an earlier attempt of this release took of the same schema, a start whose
+    /// migration failed being retried.
+    Kept(String),
+}
+
 /// Back up a database before a start migrates it: every later archive is of the new schema,
-/// which the release before cannot open.
+/// which the release before cannot open. Once per release and schema, however often the start
+/// is retried.
 pub async fn before_migrating(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
-) -> AppResult<BackupFile> {
+) -> AppResult<BeforeMigrating> {
     let passphrase = sealed::stored_passphrase(config, pool).await?;
-    write_archive(config, pool, "", passphrase, None).await
+    let english = Localizer::new(DEFAULT_LANGUAGE);
+    let schema = last_migration(pool).await?;
+    let suffix = before_migrating_suffix();
+    let dir = backups_in(&config.data_dir);
+    let kept = list_in(&dir).into_iter().map(|file| file.name).find(|name| {
+        kind_of(name) == suffix
+            && manifest_of(&dir.join(name), passphrase.as_ref(), &english)
+                .is_some_and(|manifest| manifest.schema == schema)
+    });
+    if let Some(name) = kept {
+        return Ok(BeforeMigrating::Kept(name));
+    }
+    let file = write_archive(config, pool, &suffix, passphrase, None, &english, free_space).await?;
+    Ok(BeforeMigrating::Taken(file))
+}
+
+async fn last_migration(pool: &sqlx::SqlitePool) -> AppResult<String> {
+    Ok(sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or_else(|| "unknown".to_string()))
+}
+
+/// The bytes left on the disk of `dir`.
+fn free_space(dir: &Path) -> std::io::Result<u64> {
+    fs4::available_space(dir)
+}
+
+/// What a backup of a `database` this size needs on its disk, the database's growth included:
+/// twice the database and 100 MiB.
+pub(crate) fn backup_needs(database: u64) -> u64 {
+    database.saturating_mul(2).saturating_add(100 * 1024 * 1024)
+}
+
+/// Fewer bytes `free` than a backup of `database` needs.
+pub(crate) fn disk_is_low(free: u64, database: u64) -> bool {
+    free < backup_needs(database)
 }
 
 async fn write_archive(
@@ -223,7 +304,21 @@ async fn write_archive(
     suffix: &str,
     passphrase: Option<Passphrase>,
     job: Option<&str>,
+    localizer: &Localizer,
+    free_space: fn(&Path) -> std::io::Result<u64>,
 ) -> AppResult<BackupFile> {
+    let database = std::fs::metadata(&config.db_path).map_or(0, |meta| meta.len());
+    if let Ok(free) = free_space(&config.data_dir)
+        && disk_is_low(free, database)
+    {
+        let bytes = |n: u64| {
+            crate::localization::human_bytes(i64::try_from(n).unwrap_or(i64::MAX), localizer)
+        };
+        let (free, needed) = (bytes(free), bytes(backup_needs(database)));
+        let message =
+            localizer.translate("ErrorBackupNoSpace", &[("free", &free), ("needed", &needed)]);
+        return Err(AppError::Conflict { reason: "disk_full", message });
+    }
     let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", dir.display())))?;
@@ -244,15 +339,9 @@ async fn write_archive(
     // The whole database, removed on any exit, by the archive task if the caller cancels.
     let snapshot_scaffold = Scaffold(vec![snapshot.clone()]);
     vacuum_into(pool, &snapshot).await?;
-    if let Some(job) = job {
-        settle_in_snapshot(&snapshot, job, &name).await?;
-    }
+    trim_snapshot(&snapshot, job, &name).await?;
 
-    let schema: String =
-        sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
-            .fetch_optional(pool)
-            .await?
-            .unwrap_or_else(|| "unknown".to_string());
+    let schema = last_migration(pool).await?;
 
     // With `ROUTARR_SECRET_KEY` set, a `routarr.key` is stale: restored, it opens nothing.
     let master_key =
@@ -437,14 +526,21 @@ pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
     tokio::time::Instant::now().checked_sub(age)
 }
 
-/// When the newest archive no application key took was written: a script taking them in a
-/// loop would hide a schedule that stopped.
+/// When the newest archive the schedule or a person took was written: a script taking them in
+/// a loop would hide a schedule that stopped.
 pub fn last_taken_at(state: &AppState) -> Option<chrono::DateTime<chrono::Utc>> {
-    list(state).iter().find(|file| !taken_by_a_key(file)).and_then(taken_at)
+    list(state)
+        .iter()
+        .find(|file| !taken_by_a_key(file) && !taken_before_migrating(file))
+        .and_then(taken_at)
 }
 
 fn taken_by_a_key(file: &BackupFile) -> bool {
-    stamp_of(&file.name).is_some_and(|stamp| stamp.ends_with(APPLICATION_SUFFIX))
+    kind_of(&file.name) == APPLICATION_SUFFIX
+}
+
+fn taken_before_migrating(file: &BackupFile) -> bool {
+    kind_of(&file.name).starts_with(BEFORE_MIGRATING_SUFFIX)
 }
 
 fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -453,8 +549,7 @@ fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
 
 /// When `name` was taken, by its UTC stamp: a copy of the folder resets file dates.
 fn stamped_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    let stamp = stamp_of(name)?;
-    let stamp = stamp.strip_suffix(APPLICATION_SUFFIX).unwrap_or(stamp);
+    let stamp = stamp_of(name)?.get(..STAMP.len())?;
     Some(chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc())
 }
 
@@ -498,7 +593,7 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
 /// application keys took counted apart from the others.
 pub async fn prune(state: &AppState) -> AppResult<usize> {
     let keep = kept(state).await?;
-    let removed = prune_in(&backup_dir(state), keep);
+    let removed = prune_in(&backup_dir(state), keep, None);
     if removed > 0 {
         info!("Removed {removed} backup(s) past the retention count of {keep}");
     }
@@ -520,10 +615,18 @@ async fn kept(state: &AppState) -> AppResult<usize> {
 }
 
 /// Delete the archives of `dir` past `keep`, oldest first, those application keys took counted
-/// apart, and say how many went.
-fn prune_in(dir: &Path, keep: usize) -> usize {
-    let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) =
-        list_in(dir).into_iter().partition(taken_by_a_key);
+/// apart, and say how many went. An archive taken before migrating stays until deleted by hand.
+/// With `removable`, only the archives it names count and go.
+fn prune_in(
+    dir: &Path,
+    keep: usize,
+    removable: Option<&std::collections::HashSet<String>>,
+) -> usize {
+    let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) = list_in(dir)
+        .into_iter()
+        .filter(|file| !taken_before_migrating(file))
+        .filter(|file| removable.is_none_or(|names| names.contains(&file.name)))
+        .partition(taken_by_a_key);
     [taken_by_keys, others]
         .into_iter()
         .flat_map(|files| files.into_iter().skip(keep))
@@ -604,7 +707,8 @@ pub async fn stage_restore(
         let opened =
             opened_if_sealed(&state.config.data_dir, &archive, given, stored, &localizer).await?;
         let source = opened.as_ref().map_or(archive.as_path(), |opened| opened.path.as_path());
-        stage(&state.config, Some(&state.pool), source, &name, &localizer).await
+        let live = Some((&state.pool, Some(&state.secrets)));
+        stage(&state.config, live, source, &name, &localizer).await
     })
     .await
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))?
@@ -683,11 +787,11 @@ async fn is_withdrawn(live: &sqlx::SqlitePool, credential: Credential) -> AppRes
         .await?)
 }
 
-/// Stage `archive`, carrying into it what `live`, the database it replaces,
-/// has withdrawn since.
+/// Stage `archive`, carrying into it what `live`, the database it replaces, must keep of
+/// today, what `live_secrets` sealed resealed for the key the next start opens it with.
 async fn stage(
     config: &crate::config::Config,
-    live: Option<&sqlx::SqlitePool>,
+    live: Option<(&sqlx::SqlitePool, Option<&crate::crypto::SecretBox>)>,
     archive: &Path,
     name: &str,
     localizer: &Localizer,
@@ -733,16 +837,24 @@ async fn stage(
         ));
     }
     let key_withdrawn = match live {
-        Some(live) => is_withdrawn(live, Credential::MasterApiKey).await?,
+        Some((live, _)) => is_withdrawn(live, Credential::MasterApiKey).await?,
         None => false,
     };
-    if let Some(live) = live {
-        keep_withdrawn_credentials(live, &staged_database).await?;
+    let next_start = opened_by_the_next_start(config, &staged_database, localizer).await?;
+    if let Some((live, live_secrets)) = live {
+        let sealing = live_secrets.zip(next_start.as_ref());
+        keep_todays_credentials(live, &staged_database, sealing).await?;
     }
-    opened_by_the_next_start(config, &staged_database, localizer).await?;
 
     // The earlier restore goes whole, and only once this one has passed every check.
     discard_pending(&paths);
+    let note = Note {
+        name: name.to_string(),
+        staged_at: crate::services::routing::format_timestamp(chrono::Utc::now()),
+    };
+    if let Err(e) = write_note(&config.db_path, &note) {
+        return Err(AppError::Internal(format!("cannot record the restore staged: {e}")));
+    }
 
     // The database last: its pending file is what tells a start the set is complete.
     for target in paths.iter().rev() {
@@ -781,14 +893,18 @@ pub async fn stage_offline(
     // Withdrawn credentials carry over, as in an online restore.
     let live = database_in_place(config).await?;
     let staged = async {
-        let stored = match &live {
-            Some(live) => sealed::stored_passphrase(config, live).await.ok().flatten(),
-            None => None,
+        let (stored, live_secrets) = match &live {
+            Some(live) => (
+                sealed::stored_passphrase(config, live).await.ok().flatten(),
+                secrets_in_place(config, live).await.ok().flatten(),
+            ),
+            None => (None, None),
         };
         let localizer = Localizer::new(DEFAULT_LANGUAGE);
         let opened = opened_if_sealed(&config.data_dir, &path, given, stored, &localizer).await?;
         let source = opened.as_ref().map_or(path.as_path(), |opened| opened.path.as_path());
-        stage(config, live.as_ref(), source, &name, &localizer).await
+        let live = live.as_ref().map(|live| (live, live_secrets.as_ref()));
+        stage(config, live, source, &name, &localizer).await
     }
     .await;
     if let Some(live) = live {
@@ -889,18 +1005,23 @@ pub fn newest_openable(
     // Read at a start, where a refusal only counts the archive out.
     let localizer = Localizer::new(DEFAULT_LANGUAGE);
     list_in(&dir).into_iter().map(|file| file.name).find(|name| {
-        let archive = dir.join(name);
-        let manifest = match (sealed::is_sealed_file(&archive), passphrase) {
-            (false, _) => read_manifest(&archive, &localizer).ok(),
-            (true, None) => None,
-            (true, Some(passphrase)) => {
-                sealed::manifest(&archive, passphrase, &localizer).ok().flatten()
-            }
-        };
-        manifest.is_some_and(|m| {
+        manifest_of(&dir.join(name), passphrase, &localizer).is_some_and(|m| {
             !crate::db::is_newer_schema(&m.schema) && !crate::db::is_before_0_1_5(&m.schema)
         })
     })
+}
+
+/// The manifest of `archive`, a sealed one read when `passphrase` opens it.
+fn manifest_of(
+    archive: &Path,
+    passphrase: Option<&Passphrase>,
+    localizer: &Localizer,
+) -> Option<BackupManifest> {
+    match (sealed::is_sealed_file(archive), passphrase) {
+        (false, _) => read_manifest(archive, localizer).ok(),
+        (true, None) => None,
+        (true, Some(passphrase)) => sealed::manifest(archive, passphrase, localizer).ok().flatten(),
+    }
 }
 
 /// Copy the three known entries beside their targets under the staging suffix, on a blocking
@@ -986,7 +1107,74 @@ fn pending_path(target: &Path) -> PathBuf {
 fn discard_pending(targets: &[PathBuf]) {
     for target in targets {
         std::fs::remove_file(pending_path(target)).ok();
+        std::fs::remove_file(with_suffix(target, NOTE_SUFFIX)).ok();
     }
+}
+
+/// What the note beside a pending database holds.
+#[derive(Serialize, Deserialize)]
+struct Note {
+    name: String,
+    staged_at: String,
+}
+
+fn write_note(database: &Path, note: &Note) -> std::io::Result<()> {
+    let path = with_suffix(database, NOTE_SUFFIX);
+    let mut file = crate::crypto::create_private(&path, false)?;
+    file.write_all(&serde_json::to_vec(note)?)?;
+    file.sync_all()
+}
+
+/// A restore staged for the next start, which applies it whenever it comes.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PendingRestore {
+    /// The archive staged, or the pending file's own name when nothing records it.
+    pub name: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
+    pub staged_at: String,
+}
+
+/// The restore the next start applies, `None` when none is staged.
+pub fn pending_restore(config: &crate::config::Config) -> Option<PendingRestore> {
+    let database = pending_path(&config.db_path);
+    let written = std::fs::metadata(&database).ok()?.modified().ok();
+    let note: Option<Note> = std::fs::read(with_suffix(&config.db_path, NOTE_SUFFIX))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    Some(match note {
+        Some(Note { name, staged_at }) => PendingRestore { name, staged_at },
+        None => PendingRestore {
+            name: database.file_name()?.to_string_lossy().into_owned(),
+            staged_at: written
+                .map(chrono::DateTime::<chrono::Utc>::from)
+                .map(crate::services::routing::format_timestamp)
+                .unwrap_or_default(),
+        },
+    })
+}
+
+/// Withdraw the restore staged for the next start, behind any staging under way. `None` when
+/// none was staged.
+pub async fn withdraw_pending_restore(state: &AppState) -> AppResult<Option<PendingRestore>> {
+    let Some(_lock) = state.jobs.try_lock("restore") else {
+        return Err(AppError::InProgress {
+            reason: "restore_staging",
+            message: state.localizer().await.translate("ErrorRestoreStaging", &[]),
+        });
+    };
+    let config = &state.config;
+    let targets = [config.db_path.clone(), config.secret_key_path(), config.api_key_path()];
+    let pending = pending_restore(config);
+    if pending.is_none() && !targets.iter().any(|target| pending_path(target).exists()) {
+        return Ok(None);
+    }
+    discard_pending(&targets);
+    crate::crypto::sync_parent(&config.db_path);
+    let withdrawn =
+        pending.unwrap_or(PendingRestore { name: String::new(), staged_at: String::new() });
+    info!("The restore of {} was withdrawn", withdrawn.name);
+    Ok(Some(withdrawn))
 }
 
 /// Remove what an interrupted backup or staging leaves, the database and the master key in
@@ -995,6 +1183,9 @@ fn discard_pending(targets: &[PathBuf]) {
 pub fn sweep_leftovers(config: &crate::config::Config) {
     for target in [&config.db_path, &config.secret_key_path(), &config.api_key_path()] {
         std::fs::remove_file(staging_path(target)).ok();
+    }
+    if !pending_path(&config.db_path).exists() {
+        std::fs::remove_file(with_suffix(&config.db_path, NOTE_SUFFIX)).ok();
     }
     // Everything in the work directory is a run's, and none is running yet.
     if let Ok(entries) = std::fs::read_dir(config.data_dir.join(".backup-work")) {
@@ -1031,10 +1222,14 @@ fn is_leftover(name: &str) -> bool {
     partial || snapshot
 }
 
-/// Carry today's credentials into a staged database: revoked keys stay revoked, the password
-/// and signing secrets are today's, no session survives, and nothing withdrawn comes back. The
-/// archive's own count only where the live database holds none and withdrew none.
-async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> AppResult<()> {
+/// Carry today's revocations, password, signing secrets, webhook tokens and withdrawals into a
+/// staged database, the archive's own counting only where today holds and withdrew none. No
+/// session survives. `sealing`, the live box then the next start's, reseals what is carried.
+async fn keep_todays_credentials(
+    live: &sqlx::SqlitePool,
+    staged: &Path,
+    sealing: Option<(&crate::crypto::SecretBox, &crate::crypto::SecretBox)>,
+) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
     let revoked: Vec<(String, String)> =
@@ -1043,11 +1238,19 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
             .await?;
     let secrets: Vec<(String, String)> =
         sqlx::query_as("SELECT secret, created_at FROM webhook_secrets").fetch_all(live).await?;
+    let tokens: Vec<(String, Option<String>, Option<String>)> =
+        if has_column(live, "instances", "webhook_token_at").await? {
+            sqlx::query_as("SELECT id, webhook_token, webhook_token_at FROM instances")
+                .fetch_all(live)
+                .await?
+        } else {
+            sqlx::query_as("SELECT id, webhook_token, NULL FROM instances").fetch_all(live).await?
+        };
     let accounts: Vec<(String, String, String, String, String)> =
         sqlx::query_as("SELECT id, username, password_hash, created_at, updated_at FROM users")
             .fetch_all(live)
             .await?;
-    let sealing: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+    let passphrase: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
         .bind(sealed::SETTING)
         .fetch_optional(live)
         .await?;
@@ -1057,6 +1260,16 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
             .await?;
     let secrets_withdrawn =
         withdrawn.iter().any(|(name, _)| name == Credential::SigningSecret.name());
+    let adopted: Vec<String> = if has_table(live, "backup_copy_folders").await? {
+        sqlx::query_scalar("SELECT path FROM backup_copy_folders").fetch_all(live).await?
+    } else {
+        Vec::new()
+    };
+    let copied: Vec<(String, String)> = if has_table(live, "backup_copies").await? {
+        sqlx::query_as("SELECT name, copied_at FROM backup_copies").fetch_all(live).await?
+    } else {
+        Vec::new()
+    };
 
     // A rollback journal: the staged file is renamed alone, so a log beside it would be lost.
     let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
@@ -1092,13 +1305,13 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
         }
         sqlx::query("DELETE FROM sessions").execute(&mut *tx).await?;
         // Today's backup passphrase, or later archives would be sealed with an old one, or none.
-        if let Some(sealing) = &sealing {
+        if let Some(passphrase) = &passphrase {
             sqlx::query(
                 "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             )
             .bind(sealed::SETTING)
-            .bind(sealing)
+            .bind(resealed(passphrase, sealing))
             .execute(&mut *tx)
             .await?;
         }
@@ -1106,15 +1319,60 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
             sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
             for (secret, created_at) in &secrets {
                 sqlx::query("INSERT INTO webhook_secrets (secret, created_at) VALUES (?, ?)")
-                    .bind(secret)
+                    .bind(resealed(secret, sealing))
                     .bind(created_at)
                     .execute(&mut *tx)
                     .await?;
             }
         }
+        // A token rotated since may have leaked, and the Arr holds today's.
+        let dated: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('instances')
+                            WHERE name = 'webhook_token_at')",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        for (id, token, token_at) in &tokens {
+            let statement = if dated {
+                "UPDATE instances SET webhook_token = ?, webhook_token_at = ?
+                  WHERE id = ? AND webhook_token IS NOT ?"
+            } else {
+                "UPDATE instances SET webhook_token = ? WHERE id = ? AND webhook_token IS NOT ?"
+            };
+            let mut update = sqlx::query(statement).bind(token);
+            if dated {
+                update = update.bind(token_at);
+            }
+            update.bind(id).bind(token).execute(&mut *tx).await?;
+        }
         // Withdrawn secrets stay withdrawn, and the record travels for a later restore.
         if secrets_withdrawn {
             sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
+        }
+        // The copy folder stays adopted, and what this database copied there stays its own.
+        if !adopted.is_empty() {
+            sqlx::raw_sql(COPY_FOLDERS_TABLE).execute(&mut *tx).await?;
+            for path in &adopted {
+                sqlx::query(
+                    "INSERT INTO backup_copy_folders (path) VALUES (?) ON CONFLICT(path) DO NOTHING",
+                )
+                .bind(path)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        if !copied.is_empty() {
+            sqlx::raw_sql(COPIES_TABLE).execute(&mut *tx).await?;
+            for (name, copied_at) in &copied {
+                sqlx::query(
+                    "INSERT INTO backup_copies (name, copied_at) VALUES (?, ?)
+                     ON CONFLICT(name) DO NOTHING",
+                )
+                .bind(name)
+                .bind(copied_at)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
         if !withdrawn.is_empty() {
             sqlx::raw_sql(WITHDRAWN_CREDENTIALS_TABLE).execute(&mut *tx).await?;
@@ -1145,20 +1403,81 @@ pub(crate) const WITHDRAWN_CREDENTIALS_TABLE: &str =
     withdrawn_at TEXT NOT NULL DEFAULT (datetime('now'))
 );";
 
-/// Refuse a restore whose credentials the next start could not open. That start uses
-/// `ROUTARR_SECRET_KEY` when set, over any `routarr.key`, or else the key file the archive
-/// brings back, or the one in place.
+/// The copy tables as migration `004_release_0_3_0` creates them, for the same reason.
+pub(crate) const COPY_FOLDERS_TABLE: &str = "CREATE TABLE IF NOT EXISTS backup_copy_folders (
+    path TEXT PRIMARY KEY
+);";
+pub(crate) const COPIES_TABLE: &str = "CREATE TABLE IF NOT EXISTS backup_copies (
+    name TEXT PRIMARY KEY,
+    copied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);";
+
+/// Whether `live` holds `table`: `routarr restore` reads a database no start migrated.
+async fn has_table(live: &sqlx::SqlitePool, table: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+    )
+    .bind(table)
+    .fetch_one(live)
+    .await?)
+}
+
+/// Whether `live` holds `column` in `table`, for the same reason.
+async fn has_column(live: &sqlx::SqlitePool, table: &str, column: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pragma_table_info(?) WHERE name = ?)")
+        .bind(table)
+        .bind(column)
+        .fetch_one(live)
+        .await?)
+}
+
+/// `value` as the next start can open it: sealed again when only the live box opens it, and as
+/// it is otherwise, readable already or unreadable before the restore.
+fn resealed(
+    value: &str,
+    sealing: Option<(&crate::crypto::SecretBox, &crate::crypto::SecretBox)>,
+) -> String {
+    let Some((live, next)) = sealing else { return value.to_string() };
+    if next.open(value).is_ok() {
+        return value.to_string();
+    }
+    live.open(value).and_then(|opened| next.seal(&opened)).unwrap_or_else(|_| value.to_string())
+}
+
+/// The box the master key in place opens a database's secrets with, read as a start reads it
+/// and never generated. `None` without a key.
+pub(super) async fn secrets_in_place(
+    config: &crate::config::Config,
+    pool: &sqlx::SqlitePool,
+) -> AppResult<Option<crate::crypto::SecretBox>> {
+    let Some(key) = key_in_place(config, &config.secret_key_path()) else { return Ok(None) };
+    let salt: Option<String> = sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    Ok(Some(crate::crypto::SecretBox::load(
+        Some(&key),
+        config.previous_secret_key.as_deref(),
+        &config.secret_key_path(),
+        salt.as_deref().map(str::as_bytes),
+    )?))
+}
+
+/// Refuse a restore whose credentials the next start could not open, and answer the box that
+/// start opens them with, `None` when no key is found. That start uses `ROUTARR_SECRET_KEY` when
+/// set, over any `routarr.key`, or else the key file the archive brings back, or the one in place.
 async fn opened_by_the_next_start(
     config: &crate::config::Config,
     staged: &Path,
     localizer: &Localizer,
-) -> AppResult<()> {
+) -> AppResult<Option<crate::crypto::SecretBox>> {
     use sqlx::{ConnectOptions, Connection};
 
     let brought_back = staging_path(&config.secret_key_path());
     let key_file = if brought_back.exists() { brought_back } else { config.secret_key_path() };
     let Some(key) = key_in_place(config, &key_file) else {
-        return Ok(());
+        return Ok(None);
     };
     let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(staged)
@@ -1192,7 +1511,7 @@ async fn opened_by_the_next_start(
         Some(sealed) if next_start.open(&sealed).is_err() => {
             Err(AppError::BadRequest(localizer.translate(refusal, &[])))
         }
-        _ => Ok(()),
+        _ => Ok(Some(next_start)),
     }
 }
 
@@ -1265,6 +1584,76 @@ async fn check_database(path: &Path) -> Result<(), String> {
     verdict.map_err(|e| e.to_string())?
 }
 
+/// Set the database a restore replaces aside, with its write-ahead log, which SQLite would
+/// otherwise replay over the restored file. The log is handled by its path: a start stopped
+/// between the two renames leaves it beside a database already set aside.
+fn set_the_database_aside(database: &Path) -> AppResult<()> {
+    let kept = with_suffix(database, PRE_RESTORE);
+    let (wal, kept_wal) = (with_suffix(database, "-wal"), with_suffix(&kept, "-wal"));
+    if database.exists() {
+        // An earlier restore's log, which is not the database set aside now.
+        std::fs::remove_file(&kept_wal).ok();
+        std::fs::rename(database, &kept).map_err(|e| {
+            AppError::Config(format!("cannot set {} aside: {e}", database.display()))
+        })?;
+        info!("The database restored over is kept at {}", kept.display());
+    }
+    if wal.exists() && (kept_wal.exists() || std::fs::rename(&wal, &kept_wal).is_err()) {
+        std::fs::remove_file(&wal)
+            .map_err(|e| AppError::Config(format!("cannot take {} away: {e}", wal.display())))?;
+    }
+    crate::crypto::sync_parent(database);
+    Ok(())
+}
+
+/// The database the last restore replaced, kept beside the live one until the owner deletes it.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ReplacedDatabase {
+    /// With its write-ahead log.
+    pub size_bytes: u64,
+    /// When it was last written, by the server the restore stopped.
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
+    pub replaced_at: String,
+}
+
+/// The database the last restore set aside, `None` when there is none.
+pub fn replaced_database(config: &crate::config::Config) -> Option<ReplacedDatabase> {
+    let kept = with_suffix(&config.db_path, PRE_RESTORE);
+    let database = std::fs::metadata(&kept).ok()?;
+    let wal = std::fs::metadata(with_suffix(&kept, "-wal")).ok();
+    let written = [Some(&database), wal.as_ref()]
+        .into_iter()
+        .flatten()
+        .filter_map(|meta| meta.modified().ok())
+        .max()
+        .map(chrono::DateTime::<chrono::Utc>::from)
+        .map(crate::services::routing::format_timestamp)
+        .unwrap_or_default();
+    Some(ReplacedDatabase {
+        size_bytes: database.len() + wal.map_or(0, |wal| wal.len()),
+        replaced_at: written,
+    })
+}
+
+/// Delete the database the last restore set aside. `false` when there was none.
+pub fn delete_replaced_database(config: &crate::config::Config) -> AppResult<bool> {
+    let kept = with_suffix(&config.db_path, PRE_RESTORE);
+    if !kept.exists() {
+        return Ok(false);
+    }
+    for file in [with_suffix(&kept, "-wal"), with_suffix(&kept, "-shm"), kept] {
+        match std::fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(AppError::Internal(format!("cannot delete {}: {e}", file.display())));
+            }
+            _ => {}
+        }
+    }
+    info!("The database the last restore replaced was deleted");
+    Ok(true)
+}
+
 /// Apply a pending restore, from `main` before the pool opens. Each file is renamed into place,
 /// the database last, so keys pending alone are an interrupted staging. The database is checked
 /// again first, and a rejected set is removed so that no later start refuses it again.
@@ -1287,7 +1676,15 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
         return Ok(false);
     }
 
-    info!("A restore is pending, applying it before opening the database");
+    // At WARN: the start that applies it may come long after the staging.
+    match pending_restore(config) {
+        Some(PendingRestore { name, staged_at }) => {
+            warn!(
+                "Applying the restore of {name}, staged at {staged_at} UTC, before opening the database"
+            )
+        }
+        None => info!("A restore is pending, applying it before opening the database"),
+    }
 
     for target in targets.into_iter().rev() {
         let staged = pending_path(&target);
@@ -1295,19 +1692,11 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
             continue;
         }
 
-        // Set aside with its WAL, which SQLite would otherwise replay over the restored file.
-        if target.exists() {
-            let kept = with_suffix(&target, PRE_RESTORE);
-            std::fs::rename(&target, &kept).map_err(|e| {
-                AppError::Config(format!("cannot set {} aside: {e}", target.display()))
-            })?;
-            let wal = with_suffix(&target, "-wal");
-            if wal.exists() {
-                std::fs::rename(&wal, with_suffix(&kept, "-wal")).ok();
-            } else {
-                std::fs::remove_file(with_suffix(&kept, "-wal")).ok();
-            }
-            info!("The file restored over is kept at {}", kept.display());
+        if target == config.db_path {
+            set_the_database_aside(&target)?;
+        } else if target.exists() {
+            // Not set aside, and an earlier copy goes: a key withdrawn on purpose must not survive.
+            std::fs::remove_file(with_suffix(&target, PRE_RESTORE)).ok();
         }
         std::fs::remove_file(with_suffix(&target, "-shm")).ok();
 
@@ -1317,6 +1706,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
         crate::crypto::restrict_permissions(&target);
         info!("Restored {}", target.display());
     }
+    std::fs::remove_file(with_suffix(&config.db_path, NOTE_SUFFIX)).ok();
 
     Ok(true)
 }
@@ -1329,6 +1719,10 @@ mod tests {
     fn the_restore_creates_the_withdrawals_table_as_the_migration_does() {
         let migration = include_str!("../../../migrations/002_release_0_2_0.sql");
         assert!(migration.contains(WITHDRAWN_CREDENTIALS_TABLE), "the two definitions drifted");
+        let migration = include_str!("../../../migrations/004_release_0_3_0.sql");
+        for table in [COPY_FOLDERS_TABLE, COPIES_TABLE] {
+            assert!(migration.contains(table), "the two definitions drifted: {table}");
+        }
     }
 
     #[test]
@@ -1354,6 +1748,29 @@ mod tests {
             created_at: String::new(),
             includes_master_key: false,
         }
+    }
+
+    /// A backup the disk cannot hold is refused before the snapshot, which would fill the disk
+    /// the live database writes to.
+    #[tokio::test]
+    async fn a_backup_the_disk_cannot_hold_is_refused_before_any_copy() {
+        let dir = crate::tests::TempDir::new("no-room");
+        let mut config = crate::config::Config::for_tests();
+        config.set_db_path(dir.join("routarr.db"));
+        let pool = crate::db::init_pool(&config).await.unwrap();
+        let english = Localizer::new(DEFAULT_LANGUAGE);
+
+        let refused = write_archive(&config, &pool, "", None, None, &english, |_| Ok(4096)).await;
+
+        let Err(AppError::Conflict { reason, message }) = refused else {
+            panic!("a backup was taken onto a full disk: {refused:?}")
+        };
+        assert_eq!(reason, "disk_full");
+        assert!(message.contains("4.0 kB"), "{message}");
+        let snapshots = std::fs::read_dir(dir.join(".backup-work")).map_or(0, |e| e.count());
+        assert_eq!(snapshots, 0, "a snapshot was written for nothing");
+        assert!(list_in(&backups_in(&config.data_dir)).is_empty(), "an archive was written");
+        pool.close().await;
     }
 
     #[test]

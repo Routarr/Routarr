@@ -7,8 +7,8 @@ use std::time::Duration;
 use super::fake_arr::FakeArr;
 use super::{TestApp, finished, preferring_async};
 
-/// Three films, each held 100 ms at the Arr: long enough to act while the
-/// first is in flight, within the tests' 300 ms budget for an answer.
+/// Each film is held 100 ms at the Arr: long enough to act on the first, and within the
+/// outbound timeout of `Config::for_tests`.
 async fn three_films() -> (FakeArr, TestApp, Vec<String>) {
     let arr = FakeArr::holding_edits(Duration::from_millis(100)).await;
     let app = TestApp::films_to_move(&arr, 3).await;
@@ -48,8 +48,6 @@ async fn statuses(app: &TestApp) -> Vec<String> {
     .unwrap()
 }
 
-/// A cancel stops the apply before its next move: the move in flight is
-/// recorded, the rest stays pending, and the task reads cancelled.
 #[tokio::test]
 async fn a_cancelled_apply_stops_before_its_next_move() {
     let (arr, app, ids) = three_films().await;
@@ -87,7 +85,8 @@ async fn a_stop_of_the_server_waits_for_the_move_in_flight() {
     let (arr, app, ids) = three_films().await;
     let job = applying(&app, &arr, &ids).await;
 
-    let drained = app.state.jobs.drain(Duration::from_secs(5)).await;
+    app.state.jobs.close();
+    let drained = app.state.jobs.wait(Duration::from_secs(5)).await;
 
     assert!(drained, "the apply outlived the grace");
     assert_eq!(statuses(&app).await, ["applied", "pending", "pending"]);
@@ -95,8 +94,32 @@ async fn a_stop_of_the_server_waits_for_the_move_in_flight() {
     assert_eq!(task["result"]["stopped"], "shutdown", "{task}");
 }
 
-/// Only a running apply or revert reads a cancel: a finished task is
-/// refused, an unknown one is not found.
+/// The stop reaches an apply the moment it is asked, while the open requests drain, rather than
+/// once they have: under Docker's default grace the moves started meanwhile are cut unrecorded.
+#[tokio::test]
+async fn a_stop_ends_the_apply_before_its_next_move_while_the_requests_drain() {
+    let (arr, app, ids) = three_films().await;
+    let job = applying(&app, &arr, &ids).await;
+    let (first, first_heard) = tokio::sync::oneshot::channel::<()>();
+    let (_second, second_heard) = tokio::sync::oneshot::channel::<()>();
+    let (stopping, _) = crate::listener::stop_on(
+        async move {
+            let _ = first_heard.await;
+        },
+        async move {
+            let _ = second_heard.await;
+        },
+    );
+    app.state.jobs.close_when(crate::listener::fired(stopping));
+
+    first.send(()).unwrap();
+
+    let task = finished(&app, &job).await;
+    assert_eq!(task["result"]["stopped"], "shutdown", "{task}");
+    assert_eq!(statuses(&app).await, ["applied", "pending", "pending"]);
+    assert_eq!(arr.recorded().writes.len(), 1, "a move was sent after the stop");
+}
+
 #[tokio::test]
 async fn only_a_running_move_can_be_cancelled() {
     let (arr, app, ids) = three_films().await;

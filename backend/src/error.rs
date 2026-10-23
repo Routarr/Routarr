@@ -55,6 +55,11 @@ pub enum AppError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    /// A session asks what it may have once it proves itself again, through the route the
+    /// message names.
+    #[error("Proof required: {0}")]
+    ProofRequired(String),
+
     /// The caller asks faster than it may, and may ask again in
     /// `retry_after` seconds.
     #[error("Too many requests: {message}")]
@@ -139,6 +144,7 @@ impl AppError {
             | AppError::InProgress { message, .. }
             | AppError::UpstreamDown(message)
             | AppError::Forbidden(message)
+            | AppError::ProofRequired(message)
             | AppError::ConfirmationRequired { message, .. }
             | AppError::ConfirmationWithheld { message, .. }
             | AppError::TooManyRequests { message, .. }
@@ -342,9 +348,10 @@ pub struct ErrorResponse {
     /// stays until somebody changes it: `name_taken`, `in_use`,
     /// `already_listed`, `not_declared`, `category_mapped`,
     /// `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,
-    /// `only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an
+    /// `only_credential`, `secret_unreadable`, `disk_full`. Beside `unauthorized`: `key_expired`, an
     /// application key past its expiry. Beside `busy`: `database_busy`, another write held the
-    /// database past the wait.
+    /// database past the wait. Beside `forbidden`: `proof_required`, a session that proves itself
+    /// again through the route the message names.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
     /// The guardrail that asks, for `confirmation_required`. Sending it back
@@ -386,7 +393,9 @@ impl AppError {
             AppError::ConfirmationRequired { .. } | AppError::ConfirmationWithheld { .. } => {
                 (StatusCode::CONFLICT, "confirmation_required")
             }
-            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
+            AppError::Forbidden(_) | AppError::ProofRequired(_) => {
+                (StatusCode::FORBIDDEN, "forbidden")
+            }
             AppError::TooManyRequests { .. } => {
                 (StatusCode::TOO_MANY_REQUESTS, "too_many_requests")
             }
@@ -426,6 +435,7 @@ impl IntoResponse for AppError {
                 Some(*reason)
             }
             locked if locked.storage() == Some(Storage::Locked) => Some("database_busy"),
+            AppError::ProofRequired(_) => Some("proof_required"),
             _ => None,
         };
         let retry_after = match &self {

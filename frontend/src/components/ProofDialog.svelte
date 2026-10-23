@@ -4,9 +4,9 @@
   import { proofRequest, settleProof } from '../lib/proof.svelte';
 
   /**
-   * Asks for the password or the API key before a key is made or withdrawn,
-   * and for the passphrase of a sealed archive before it is restored.
-   * Mounted by `Layout` the first time a screen asks.
+   * Asks for the password or the API key before a key is made or withdrawn or
+   * an archive downloaded, and for the passphrase of a sealed archive before it
+   * is restored. Mounted by `Layout` the first time a screen asks.
    */
   const WORDS = {
     password: {
@@ -29,8 +29,19 @@
     },
   } as const;
 
+  /** The help of a proof asked before a download, an archive being no key that outlives anything. */
+  const ARCHIVE_HELP = {
+    password: 'ProofPasswordArchiveHelp',
+    key: 'ProofKeyArchiveHelp',
+    passphrase: 'ProofPassphraseHelp',
+  } as const;
+
   const open = $derived(proofRequest.request !== null);
-  const words = $derived(WORDS[proofRequest.request?.asked ?? 'password']);
+  const asked = $derived(proofRequest.request?.asked ?? 'password');
+  const words = $derived(WORDS[asked]);
+  const help = $derived(
+    proofRequest.request?.purpose === 'archive' ? ARCHIVE_HELP[asked] : words.help,
+  );
   const note = $derived(proofRequest.request?.note);
   let typed = $state('');
 
@@ -57,7 +68,7 @@
       {#if note}
         <p class="field-error mb-3" role="alert">{note}</p>
       {:else}
-        <p class="text-muted text-base mb-3">{t(words.help)}</p>
+        <p class="text-muted text-base mb-3">{t(help)}</p>
       {/if}
       <div class="form-group">
         <label class="form-label" for="proof-value">{t(words.label)}</label>
