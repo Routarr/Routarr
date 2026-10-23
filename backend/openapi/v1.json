@@ -870,7 +870,7 @@
             "type": "object"
           },
           {
-            "description": "One of the tags the user attached in the Arr.",
+            "description": "One of the tags the user attached in the Arr.\n\nThe only signal that carries the user's own intent, which no external\nmetadata provider can supply.",
             "properties": {
               "type": {
                 "enum": [
@@ -879,7 +879,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "One of the tags the user attached in the Arr.",
+                "description": "One of the tags the user attached in the Arr.\n\nThe only signal that carries the user's own intent, which no external\nmetadata provider can supply.",
                 "items": {
                   "type": "string"
                 },
@@ -1358,7 +1358,7 @@
             "type": "object"
           },
           {
-            "description": "Added to the Arr within the last N days, N times 24 hours, N at least 1. An Arr clock\nless than a day ahead reads as just added.",
+            "description": "Media added to the Arr instance within the last N days, N times 24\nhours, so a rule can target new additions without touching the\nexisting library. An Arr clock less than a day ahead reads as just\nadded. At least 1.",
             "properties": {
               "type": {
                 "enum": [
@@ -1367,7 +1367,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "Added to the Arr within the last N days, N times 24 hours, N at least 1. An Arr clock\nless than a day ahead reads as just added.",
+                "description": "Media added to the Arr instance within the last N days, N times 24\nhours, so a rule can target new additions without touching the\nexisting library. An Arr clock less than a day ahead reads as just\nadded. At least 1.",
                 "format": "int64",
                 "type": "integer"
               }
