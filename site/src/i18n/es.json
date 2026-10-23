@@ -58,6 +58,7 @@
   "api.ref.op.sync_instance": "Volver a leer un Arr",
   "api.ref.op.list_tasks": "Las tareas, las más recientes primero",
   "api.ref.op.get_task": "Una tarea",
+  "api.ref.op.cancel_task": "Detener una aplicación o una devolución en curso",
   "api.ref.op.list_media": "La biblioteca, página a página",
   "api.ref.op.get_media": "Un título",
   "api.ref.op.explain_media": "Adónde va un título, y por qué",
