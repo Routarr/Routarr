@@ -58,6 +58,7 @@
   "api.ref.op.sync_instance": "Relire un Arr",
   "api.ref.op.list_tasks": "Les tâches, les plus récentes d'abord",
   "api.ref.op.get_task": "Une tâche",
+  "api.ref.op.cancel_task": "Arrêter une application ou une remise en place",
   "api.ref.op.list_media": "La bibliothèque, page par page",
   "api.ref.op.get_media": "Un titre",
   "api.ref.op.explain_media": "Où va un titre, et pourquoi",

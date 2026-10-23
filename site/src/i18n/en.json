@@ -58,6 +58,7 @@
   "api.ref.op.sync_instance": "Read one Arr again",
   "api.ref.op.list_tasks": "The tasks, newest first",
   "api.ref.op.get_task": "One task",
+  "api.ref.op.cancel_task": "Stop an apply or a revert",
   "api.ref.op.list_media": "The library, a page at a time",
   "api.ref.op.get_media": "One title",
   "api.ref.op.explain_media": "Where a title goes, and why",
