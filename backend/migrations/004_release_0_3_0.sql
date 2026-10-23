@@ -33,7 +33,7 @@ UPDATE settings
 -- A pinned test names the sources of its snapshot, which the explanation of a failure reads.
 UPDATE rule_tests SET metadata_json = replace(metadata_json, '"jikan"', '"tenrai"')
  WHERE metadata_json LIKE '%"jikan"%';
--- A probe of the address no longer asked says nothing about the new one.
+-- A probe of Jikan's address says nothing about Tenrai's.
 DELETE FROM probe_results WHERE subject = 'source:jikan';
 
 -- The scores a title is given, by scale: Radarr's on the media row, each source's in the cache.
@@ -70,15 +70,14 @@ ALTER TABLE api_keys ADD COLUMN expiry_notified_at TEXT;
 -- Each backup copy folder whose marker this database wrote. Named here and holding no marker, a
 -- folder is a share not mounted, and nothing is copied into it.
 CREATE TABLE backup_copy_folders (
-    path TEXT PRIMARY KEY,
-    adopted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    path TEXT PRIMARY KEY
 );
 
 -- What a person signed in may reach: everything, or what an application key's read scope reads.
 -- Set at sign-in from the OIDC read lists and kept for the session.
 ALTER TABLE sessions ADD COLUMN reach TEXT NOT NULL DEFAULT 'full' CHECK (reach IN ('full', 'read'));
 
--- Each old API path still called, by caller: how often, when last, and the day its log line was
+-- Each deprecated API path called, by caller: how often, when last, and the day its log line was
 -- last written. An application key's id names its caller, and the owner's key and every session
 -- share the empty one. Kept after a key is revoked, so the counts the metrics read never fall.
 CREATE TABLE deprecated_calls (
@@ -98,7 +97,6 @@ CREATE TABLE deprecated_calls (
 CREATE TABLE folder_suggestion_dismissals (
     instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
     path TEXT NOT NULL,
-    dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (instance_id, path)
 );
 
@@ -136,3 +134,13 @@ CREATE TABLE anime_ids_refused (
     external_id TEXT NOT NULL,
     PRIMARY KEY (source, external_id)
 );
+
+-- The library in title order, which its screen pages through.
+CREATE INDEX idx_media_title ON media (title, id);
+
+-- One salt per installation, held as one row: a second would leave what the first sealed
+-- unreadable.
+CREATE TABLE secret_salt_one (id INTEGER PRIMARY KEY CHECK (id = 1), salt TEXT NOT NULL);
+INSERT INTO secret_salt_one (id, salt) SELECT 1, salt FROM secret_salt ORDER BY rowid LIMIT 1;
+DROP TABLE secret_salt;
+ALTER TABLE secret_salt_one RENAME TO secret_salt;

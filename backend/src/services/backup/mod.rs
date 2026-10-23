@@ -814,13 +814,13 @@ fn archive_named(config: &crate::config::Config, archive: &str) -> AppResult<Pat
 /// The database a command run with the server stopped reads. Never migrated: it may be the
 /// very database a start refuses.
 async fn database_in_place(config: &crate::config::Config) -> AppResult<Option<sqlx::SqlitePool>> {
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use sqlx::sqlite::SqliteConnectOptions;
 
     if !config.db_path.is_file() {
         return Ok(None);
     }
     let options = crate::db::with_paths(SqliteConnectOptions::new().filename(&config.db_path));
-    Ok(Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?))
+    Ok(Some(crate::db::pool_options(1).connect_with(options).await?))
 }
 
 /// Open the sealed `archive` into a zip at `out`, for `routarr decrypt-backup`. The zip holds
@@ -1325,7 +1325,6 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
 mod tests {
     use super::*;
 
-    /// The restore and migration `002_release_0_2_0` create the withdrawals table alike.
     #[test]
     fn the_restore_creates_the_withdrawals_table_as_the_migration_does() {
         let migration = include_str!("../../../migrations/002_release_0_2_0.sql");
@@ -1378,8 +1377,6 @@ mod tests {
         assert!(!partial_path(&archive).exists(), "the refused archive was left behind");
     }
 
-    /// A sealed archive is zipped in the clear first: when the sealing fails,
-    /// that zip goes too, master key and all.
     #[test]
     fn a_sealing_that_fails_leaves_no_zip_in_the_clear() {
         let dir = crate::tests::TempDir::new("zip-sealing-fails");

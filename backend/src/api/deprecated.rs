@@ -3,14 +3,21 @@
 //! application key grants and the contract, so an old path can never reach more than its new one.
 //! Each call is counted against its caller, so the operator learns which script to move.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
+
 use axum::extract::{MatchedPath, Request, State};
 use axum::http::{HeaderValue, header};
 use axum::middleware::Next;
 use axum::response::Response;
 use sqlx::SqlitePool;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api::auth::Identity;
 use crate::state::AppState;
+
+/// How many calls wait for the writer before one is dropped uncounted.
+const QUEUED: usize = 4096;
 
 /// Each old path template beside the one that replaced it, under `/api/v1`.
 pub const DEPRECATED_PATHS: &[(&str, &str)] = &[
@@ -61,7 +68,8 @@ pub async fn signal(State(state): State<AppState>, request: Request, next: Next)
     let called = route_of(&request).and_then(|route| Some((route.to_owned(), replacement(route)?)));
     if let Some((route, new)) = &called {
         let identity = request.extensions().get::<Identity>();
-        record(&state.pool, identity, request.method().as_str(), route, new).await;
+        let method = request.method().as_str();
+        state.deprecated_calls.count(&state.pool, identity, method, route, new).await;
     }
     let mut response = next.run(request).await;
     if called.is_some() {
@@ -80,60 +88,172 @@ pub async fn signal(State(state): State<AppState>, request: Request, next: Next)
     response
 }
 
-/// Counts a call to the old path `route` against its caller, and logs it once a day per caller
-/// and route. A count that fails is logged and never fails the call.
-async fn record(
-    pool: &SqlitePool,
-    identity: Option<&Identity>,
-    method: &str,
-    route: &str,
-    new: &str,
-) {
-    let (kind, id, name) = match identity.and_then(|identity| identity.application.as_ref()) {
-        Some(grant) => ("application", grant.id.as_str(), grant.name.as_str()),
-        None => ("person", "", identity.and_then(Identity::actor).unwrap_or_default()),
-    };
-    let counted = async {
+/// A caller and the old path it called: kind, caller id, method, path.
+type Key = (&'static str, String, String, String);
+
+struct Call {
+    key: Key,
+    name: String,
+    at: String,
+    logged: bool,
+}
+
+enum Order {
+    Count(Call),
+    /// Answered once every call sent before it is stored.
+    Flush(oneshot::Sender<()>),
+}
+
+/// The calls to old paths, stored by a task of its own: counting a call never waits behind a
+/// writer, which a sync holds for seconds.
+#[derive(Default)]
+pub struct Calls {
+    store: Option<mpsc::Sender<Order>>,
+    /// The day each caller and path was last logged.
+    logged: Mutex<HashMap<Key, String>>,
+}
+
+impl Calls {
+    pub fn counting(pool: SqlitePool) -> Self {
+        let (store, orders) = mpsc::channel(QUEUED);
+        tokio::spawn(write(pool, orders));
+        Self { store: Some(store), logged: Mutex::default() }
+    }
+
+    /// Counts a call to the old path `route` against its caller, and logs it once a day per
+    /// caller and route. A count that fails is logged and never fails the call.
+    async fn count(
+        &self,
+        pool: &SqlitePool,
+        identity: Option<&Identity>,
+        method: &str,
+        route: &str,
+        new: &str,
+    ) {
+        let (kind, id, name) = match identity.and_then(|identity| identity.application.as_ref()) {
+            Some(grant) => ("application", grant.id.as_str(), grant.name.as_str()),
+            None => ("person", "", identity.and_then(Identity::actor).unwrap_or_default()),
+        };
+        let key: Key = (kind, id.to_owned(), method.to_owned(), route.to_owned());
+        let now = chrono::Utc::now();
+        let today = now.format("%Y-%m-%d").to_string();
+        let known = self.day_logged(&key).as_deref() == Some(today.as_str());
+        let logged = !known && !logged_on(pool, &key, &today).await;
+        self.logged
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key.clone(), today.clone());
+        if logged {
+            tracing::warn!(
+                caller = name,
+                method,
+                path = route,
+                replacement = new,
+                "A deprecated API path was called. It answers until a release before 1.0 removes it"
+            );
+        }
+        let at = crate::services::routing::format_timestamp(now);
+        let call = Call { key, name: name.to_owned(), at, logged };
+        if let Some(store) = &self.store
+            && store.try_send(Order::Count(call)).is_err()
+        {
+            tracing::warn!("A call to a deprecated API path was not counted");
+        }
+    }
+
+    fn day_logged(&self, key: &Key) -> Option<String> {
+        self.logged.lock().unwrap_or_else(PoisonError::into_inner).get(key).cloned()
+    }
+
+    /// Wait until every call counted so far is in the table: what a test reads after a request,
+    /// and what a stop does before the database closes.
+    pub async fn flush(&self) {
+        let Some(store) = &self.store else { return };
+        let (done, stored) = oneshot::channel();
+        if store.send(Order::Flush(done)).await.is_ok() {
+            stored.await.ok();
+        }
+    }
+}
+
+/// Whether a previous run logged `key` on `today`. A read, which never waits for a writer.
+async fn logged_on(pool: &SqlitePool, key: &Key, today: &str) -> bool {
+    let (kind, id, method, path) = key;
+    sqlx::query_scalar::<_, bool>(
+        "SELECT logged_on = ? FROM deprecated_calls
+          WHERE caller_kind = ? AND caller_id = ? AND method = ? AND path = ?",
+    )
+    .bind(today)
+    .bind(kind)
+    .bind(id)
+    .bind(method)
+    .bind(path)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
+/// Store what arrives, a batch per transaction, until every sender is gone.
+async fn write(pool: SqlitePool, mut orders: mpsc::Receiver<Order>) {
+    while let Some(first) = orders.recv().await {
+        let mut calls: HashMap<Key, (Call, i64)> = HashMap::new();
+        let mut waiting = Vec::new();
+        let mut next = Some(first);
+        while let Some(order) = next {
+            match order {
+                Order::Count(call) => match calls.get_mut(&call.key) {
+                    Some((kept, count)) => {
+                        *count += 1;
+                        kept.logged |= call.logged;
+                        (kept.name, kept.at) = (call.name, call.at);
+                    }
+                    None => {
+                        calls.insert(call.key.clone(), (call, 1));
+                    }
+                },
+                Order::Flush(done) => waiting.push(done),
+            }
+            next = orders.try_recv().ok();
+        }
+        if let Err(e) = insert(&pool, calls.into_values()).await {
+            tracing::warn!("Calls to deprecated API paths went uncounted: {e}");
+        }
+        for done in waiting {
+            done.send(()).ok();
+        }
+    }
+}
+
+async fn insert(pool: &SqlitePool, calls: impl Iterator<Item = (Call, i64)>) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    for (call, count) in calls {
+        let (kind, id, method, path) = &call.key;
         sqlx::query(
             "INSERT INTO deprecated_calls
-                    (caller_kind, caller_id, caller_name, method, path, calls, last_called_at)
-             VALUES (?, ?, ?, ?, ?, 1, datetime('now'))
+                    (caller_kind, caller_id, caller_name, method, path, calls, last_called_at,
+                     logged_on)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN date(?) ELSE '' END)
              ON CONFLICT (caller_kind, caller_id, method, path) DO UPDATE
-                SET calls = calls + 1, last_called_at = excluded.last_called_at,
-                    caller_name = excluded.caller_name",
+                SET calls = calls + excluded.calls, last_called_at = excluded.last_called_at,
+                    caller_name = excluded.caller_name,
+                    logged_on = CASE WHEN ? THEN excluded.logged_on ELSE logged_on END",
         )
         .bind(kind)
         .bind(id)
-        .bind(name)
+        .bind(&call.name)
         .bind(method)
-        .bind(route)
-        .execute(pool)
+        .bind(path)
+        .bind(count)
+        .bind(&call.at)
+        .bind(call.logged)
+        .bind(&call.at)
+        .bind(call.logged)
+        .execute(&mut *tx)
         .await?;
-        // One statement decides, so two calls at once write one line.
-        sqlx::query_scalar::<_, i64>(
-            "UPDATE deprecated_calls SET logged_on = date('now')
-              WHERE caller_kind = ? AND caller_id = ? AND method = ? AND path = ?
-                AND logged_on <> date('now')
-             RETURNING 1",
-        )
-        .bind(kind)
-        .bind(id)
-        .bind(method)
-        .bind(route)
-        .fetch_optional(pool)
-        .await
-    };
-    match counted.await {
-        Ok(Some(_)) => tracing::warn!(
-            caller = name,
-            method,
-            path = route,
-            replacement = new,
-            "A deprecated API path was called. It answers until a release before 1.0 removes it"
-        ),
-        Ok(None) => {}
-        Err(e) => tracing::warn!(error = %e, "A call to a deprecated API path was not counted"),
     }
+    tx.commit().await
 }
 
 /// Who called an old path in the last 30 days: an application key's name, or `None` for the

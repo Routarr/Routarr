@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode, header};
 use serde_json::json;
 
 use super::{TestApp, TestResponse};
-use crate::api::deprecated::DEPRECATED_PATHS;
+use crate::api::deprecated::{Calls, DEPRECATED_PATHS};
 
 /// The handlers a `.route(...)` of `main.rs` mounts at `path`, as written, comments left out.
 fn handlers_at(block: &str, path: &str) -> Option<String> {
@@ -26,7 +26,6 @@ fn handlers_at(block: &str, path: &str) -> Option<String> {
     Some(handlers[..end].to_owned())
 }
 
-/// Each old path is mounted with exactly its new path's handlers, so the two cannot drift.
 #[test]
 fn every_old_path_is_mounted_with_its_new_path_handlers() {
     let block = super::security::route_block();
@@ -37,8 +36,6 @@ fn every_old_path_is_mounted_with_its_new_path_handlers() {
     }
 }
 
-/// Each old path is documented as a copy of its replacement: marked deprecated, under an
-/// operation id of its own, with the same scope, parameters, body and answers.
 #[test]
 fn every_old_path_is_documented_as_a_deprecated_copy_of_its_new_one() {
     let document = serde_json::to_value(crate::api::contract::document("")).unwrap();
@@ -63,7 +60,6 @@ fn every_old_path_is_documented_as_a_deprecated_copy_of_its_new_one() {
     }
 }
 
-/// Every old path read answers what its new path does, said deprecated, and the new one is not.
 #[tokio::test]
 async fn an_old_path_answers_as_its_new_one_and_says_it_is_deprecated() {
     let app = TestApp::new().await;
@@ -91,9 +87,7 @@ async fn an_old_path_answers_as_its_new_one_and_says_it_is_deprecated() {
     }
 }
 
-/// A script that created through an old path follows a `Location` under the old names, and one
-/// on the new path one under the new names. A task started is located under `/tasks`, its id
-/// under both names.
+/// A task started is located under `/tasks` whatever the path, its id under both names.
 #[tokio::test]
 async fn a_location_follows_the_names_the_request_used() {
     let app = TestApp::new().await;
@@ -150,9 +144,7 @@ async fn mint(app: &TestApp, name: &str, scopes: serde_json::Value) -> String {
     app.send(request).await.assert_ok()["token"].as_str().unwrap().to_string()
 }
 
-/// An application key is let through an old path exactly where it is let through the new one,
-/// whatever the method: a read key and a write key, each refused somewhere and admitted
-/// somewhere, so the comparison is not of two refusals.
+/// A read key and a write key, so the walk compares admissions as well as refusals.
 #[tokio::test]
 async fn an_application_key_reaches_an_old_path_as_it_reaches_its_new_one() {
     let app = TestApp::with_api_key(OWNER).await;
@@ -185,13 +177,12 @@ async fn an_application_key_reaches_an_old_path_as_it_reaches_its_new_one() {
 
 /// The `deprecated_api_called` warnings `/status` holds.
 async fn deprecation_warnings(app: &TestApp) -> Vec<serde_json::Value> {
+    app.state.deprecated_calls.flush().await;
     let status = as_key(app, "GET", "/api/v1/status", OWNER).await;
     let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
     warnings.into_iter().filter(|w| w["code"] == "deprecated_api_called").collect()
 }
 
-/// A key calling an old path is named in a warning beside the path, and the same call on the
-/// new path warns of nothing.
 #[tokio::test]
 async fn a_key_calling_an_old_path_is_named_in_a_warning() {
     let app = TestApp::with_api_key(OWNER).await;
@@ -211,9 +202,7 @@ async fn a_key_calling_an_old_path_is_named_in_a_warning() {
     }
 }
 
-/// The warning reads only what a run stored, so it stands after a restart: a key's call of two
-/// days ago warns, one older than 30 days no longer does, and a call without an application key
-/// is said apart.
+/// Read from the table alone, the warning stands after a restart.
 #[tokio::test]
 async fn the_warning_reads_the_calls_a_previous_run_stored() {
     let app = TestApp::with_api_key(OWNER).await;
@@ -237,7 +226,7 @@ async fn the_warning_reads_the_calls_a_previous_run_stored() {
     assert!(messages[1].contains("POST /api/v1/overrides"), "{messages:?}");
 }
 
-/// What `request` logged.
+/// What `method path` sent with `key` logged.
 async fn logged(app: &TestApp, method: &str, path: &str, key: &str) -> String {
     use tracing::instrument::WithSubscriber;
     use tracing_subscriber::layer::SubscriberExt;
@@ -249,7 +238,7 @@ async fn logged(app: &TestApp, method: &str, path: &str, key: &str) -> String {
 }
 
 /// A call to an old path is logged with its caller and the path to call instead, once a day per
-/// key and route, so a script polling every minute writes one line a day.
+/// key and route, and a run of the next day logs it again.
 #[tokio::test]
 async fn a_call_to_an_old_path_is_logged_once_a_day_per_key_and_route() {
     const LINE: &str = "A deprecated API path was called";
@@ -264,11 +253,39 @@ async fn a_call_to_an_old_path_is_logged_once_a_day_per_key_and_route() {
     assert!(!logged(&app, "GET", "/api/v1/media", &token).await.contains(LINE));
     assert!(logged(&app, "GET", "/api/v1/logs", &token).await.contains(LINE), "another route");
 
+    // A run of the next day reads yesterday's line from the table.
+    app.state.deprecated_calls.flush().await;
     app.execute(&["UPDATE deprecated_calls SET logged_on = date('now', '-1 day')"]).await;
-    assert!(logged(&app, "GET", "/api/v1/media", &token).await.contains(LINE), "the next day");
+    let mut state = app.state.clone();
+    state.deprecated_calls = std::sync::Arc::new(Calls::counting(state.pool.clone()));
+    let next_day = TestApp::around(state);
+    assert!(logged(&next_day, "GET", "/api/v1/media", &token).await.contains(LINE), "next day");
+    assert!(!logged(&next_day, "GET", "/api/v1/media", &token).await.contains(LINE));
 }
 
-/// The counter adds every caller's calls of each old path, and a new path adds none.
+/// Counting a call never waits behind a writer: a sync holds the write lock for seconds, and a
+/// script polling an old path would wait out the busy timeout on each call.
+#[tokio::test]
+async fn a_call_to_an_old_path_does_not_wait_for_a_writer() {
+    let dir = super::TempDir::new("deprecated-writer");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    let pool = crate::db::init_pool(&config).await.unwrap();
+    let app = TestApp::around(crate::state::AppState::for_tests_on(pool.clone()));
+    let mut writer = pool.acquire().await.unwrap();
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *writer).await.unwrap();
+
+    let started = std::time::Instant::now();
+    app.get("/api/v1/jobs").await.assert_ok();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+
+    sqlx::query("COMMIT").execute(&mut *writer).await.unwrap();
+    drop(writer);
+    app.state.deprecated_calls.flush().await;
+    let counted = app.count("SELECT COUNT(*) FROM deprecated_calls WHERE path = '/jobs'").await;
+    assert_eq!(counted, 1, "the call was never counted once the writer let go");
+}
+
 #[tokio::test]
 async fn the_counter_adds_the_calls_of_each_old_path() {
     let app = TestApp::with_api_key(OWNER).await;
@@ -281,6 +298,7 @@ async fn the_counter_adds_the_calls_of_each_old_path() {
     ] {
         as_key(&app, "GET", path, key).await.assert_ok();
     }
+    app.state.deprecated_calls.flush().await;
 
     let response = app
         .send_raw(

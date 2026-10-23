@@ -50,6 +50,7 @@ pub struct Media {
     pub collection_tmdb_id: Option<i64>,
     /// The scores Radarr reports, by scale, as a JSON object in a string.
     pub ratings: Option<String>,
+    /// When a sync last found the Arr's data for it changed.
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,

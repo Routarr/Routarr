@@ -1897,5 +1897,7 @@
   "ApplyStoppedArrStalled": "Stopped: an Arr has been moving the files of one title for six hours, its queue likely stuck. The rest was not attempted.",
   "ConfirmAddToFolderSet": "'{category}' already leads to {folders} on {instance}. Add {folder} to its folders? A title in any of them stays, and a new title goes to the one with the most room.",
   "AddFolderToCategory": "Add the folder",
-  "MappingSharedWith": "Shared with {folders}"
+  "MappingSharedWith": "Shared with {folders}",
+  "ErrorDiskFull": "The disk holding Routarr's data is full. Free some space, then try again.",
+  "ErrorDatabaseBusy": "The database is busy with another write. Try again in a moment."
 }

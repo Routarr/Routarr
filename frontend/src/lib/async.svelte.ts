@@ -18,7 +18,12 @@ export function describeError(err: unknown): string {
     }
     // The server says a failure of its own in English: a panic answers before
     // any setting is read.
-    const message = err.kind === 'internal_error' ? t('InternalError') : err.message;
+    const own: Record<string, string> = {
+      internal_error: 'InternalError',
+      insufficient_storage: 'ErrorDiskFull',
+    };
+    const key = err.reason === 'database_busy' ? 'ErrorDatabaseBusy' : own[err.kind];
+    const message = key ? t(key) : err.message;
     // A server-side failure is one the operator will look for in the log, and
     // the id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {
@@ -45,28 +50,11 @@ interface Async<T> {
 }
 
 /**
- * Load on mount and on demand, with loading and error state.
- *
- * One place for it, so a page cannot reimplement it as a bare try/catch that
- * only logs to the console and makes a failing request look like an empty
- * table.
- *
- * `loader` is read when it is called and nothing here is memoised, so there is
- * no identity to key an effect on and nothing to hold in a ref. What the
- * implementation does carry is a generation counter: a response that arrives
- * after the inputs moved on must not overwrite the result of a newer one.
- *
- * It is handed an `AbortSignal`, aborted when a newer run supersedes it and
- * when the component goes away. The generation counter keeps a late response
- * off the screen, and the signal is what stops the request itself, which would
- * otherwise stay open against the operator's own host after nobody wants it. A
- * loader that ignores the argument still works, and simply cannot be cancelled.
- *
- * A cancellation it caused itself is not a failure and is not reported as one.
- * An abort from anywhere else is.
- *
- * Call it during component initialisation: it opens an effect, which is what
- * both the first load and the reload-on-`deps` depend on.
+ * Load on mount, again when `deps` change and on `reload()`, with loading and error state. The
+ * loader gets an `AbortSignal`, aborted when a newer run supersedes it or the component goes,
+ * and a generation counter keeps a late answer off the screen. A cancellation it caused itself
+ * is no failure, an abort from elsewhere is. Call it during component initialisation: it opens
+ * an effect.
  */
 export function createAsync<T>(
   loader: (signal: AbortSignal) => Promise<T>,
@@ -110,11 +98,8 @@ export function createAsync<T>(
         state.failure = null;
       }
     } catch (err) {
-      // Silent only for a run this helper cancelled itself: a superseded run is
-      // already discarded by the generation, and on teardown there is no
-      // component left to show it in. An abort from anywhere else is a load
-      // that did not happen, and reporting it as nothing would leave an empty
-      // table with no banner.
+      // Silent only for a run this helper cancelled itself. An abort from elsewhere is a load
+      // that did not happen, which an empty table with no banner would hide.
       if (current === generation && !controller.signal.aborted) {
         state.error = describeError(err);
         state.failure = err;

@@ -1,13 +1,9 @@
 //! Folders as an Arr writes them, on Linux or on Windows.
 //!
-//! Routarr runs in a container, the Arrs wherever their owner put them, so a
-//! path is either the Unix one a container sees (`/data/movies/`) or a Windows
-//! one: a drive (`D:\Media\Movies\`) or a share (`\\nas\films`). The two Arrs
-//! end a root folder with its separator and a title's folder without one, a
-//! person types either separator on Windows, and Windows compares names
-//! without their case. Every comparison of two folders goes through [`key`],
-//! here and in SQL through the `path` collation, or one of those writings
-//! reads as another folder and the title as one to move.
+//! A path is the Unix one a container sees (`/data/movies/`) or a Windows drive or share
+//! (`D:\Media\Movies\`, `\\nas\films`). An Arr closes a root folder with its separator, a
+//! person types either separator on Windows, and Windows ignores case, so every comparison of
+//! two folders goes through [`key`], or the `path` collation in SQL.
 
 use std::cmp::Ordering;
 
@@ -109,8 +105,6 @@ pub fn collate(a: &str, b: &str) -> Ordering {
 mod tests {
     use super::*;
 
-    /// `/data/movies/../tv` is `/data/tv`, on another disk perhaps: it is not
-    /// under `/data/movies`, whatever its letters say.
     #[test]
     fn a_folder_does_not_hold_a_path_that_climbs_out_of_it() {
         assert!(!within("/data/movies/../tv", "/data/movies"));

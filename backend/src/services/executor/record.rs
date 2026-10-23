@@ -1,7 +1,7 @@
 //! What a move leaves in the database: the decision, the title's row and the
 //! execution log.
 
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use tracing::error;
 use uuid::Uuid;
 
@@ -66,8 +66,11 @@ pub(super) async fn record_requested(
             sqlx::query("UPDATE decisions SET status = 'requested', reverted_at = ? WHERE id = ?")
         }
     };
-    requested.bind(now).bind(&mv.decision_id).execute(pool).await?;
-    Ok(())
+    durably(pool, async |connection| {
+        requested.bind(now).bind(&mv.decision_id).execute(connection).await?;
+        Ok(())
+    })
+    .await
 }
 
 /// A move with files the Arr took. It holds the new path already and moves
@@ -81,14 +84,18 @@ pub(super) async fn record_sent(
     by: &Attribution,
 ) {
     let now = format_timestamp(chrono::Utc::now());
-    let moved = sqlx::query(
-        "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
-    )
-    .bind(&mv.to)
-    .bind(path)
-    .bind(&now)
-    .bind(&mv.media_id)
-    .execute(&state.pool)
+    let moved = durably(&state.pool, async |connection| {
+        sqlx::query(
+            "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
+        )
+        .bind(&mv.to)
+        .bind(path)
+        .bind(&now)
+        .bind(&mv.media_id)
+        .execute(connection)
+        .await?;
+        Ok(())
+    })
     .await;
     if let Err(e) = moved {
         error!(decision = %mv.decision_id, "The Arr took the move but recording it failed: {e}");
@@ -106,12 +113,15 @@ pub(super) async fn record_confirmed(
         MoveDirection::Forward => "applied",
         MoveDirection::Revert => "skipped",
     };
-    let confirmed =
+    let confirmed = durably(pool, async |connection| {
         sqlx::query("UPDATE decisions SET status = ? WHERE id = ? AND status = 'requested'")
             .bind(status)
             .bind(&mv.decision_id)
-            .execute(pool)
-            .await;
+            .execute(connection)
+            .await?;
+        Ok(())
+    })
+    .await;
     if let Err(e) = confirmed {
         error!(decision = %mv.decision_id, "Recording a finished move failed: {e}");
     }
@@ -120,14 +130,18 @@ pub(super) async fn record_confirmed(
 /// The title's row as the Arr holds it after undoing a move.
 pub(super) async fn record_held(pool: &SqlitePool, mv: &PendingMove, held: &ArrMedia) {
     let now = format_timestamp(chrono::Utc::now());
-    let written = sqlx::query(
-        "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
-    )
-    .bind(&held.root_folder_path)
-    .bind(&held.path)
-    .bind(now)
-    .bind(&mv.media_id)
-    .execute(pool)
+    let written = durably(pool, async |connection| {
+        sqlx::query(
+            "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
+        )
+        .bind(&held.root_folder_path)
+        .bind(&held.path)
+        .bind(now)
+        .bind(&mv.media_id)
+        .execute(connection)
+        .await?;
+        Ok(())
+    })
     .await;
     if let Err(e) = written {
         error!(decision = %mv.decision_id, "Recording where the Arr holds the title failed: {e}");
@@ -158,10 +172,23 @@ pub(super) async fn record_success(
     log_execution(pool, by, direction.action(), &moved_between(mv), true, None, mv).await;
 }
 
-/// The two rows a successful move changes, in one commit that waits for the disk: under the
-/// pool's `synchronous = NORMAL` a power cut can roll it back, losing a move the Arr made and its
-/// revert. `moved_at` stops a sync that read the Arr before the move from putting the old path
-/// back (`upsert_media` in `services/sync.rs`).
+/// `write` in commits that wait for the disk: under the pool's `synchronous = NORMAL` a power cut
+/// can roll back the record of a move the Arr made, and its revert with it.
+async fn durably<T>(
+    pool: &SqlitePool,
+    write: impl AsyncFnOnce(&mut SqliteConnection) -> AppResult<T>,
+) -> AppResult<T> {
+    let mut connection = pool.acquire().await?;
+    sqlx::query("PRAGMA synchronous = FULL").execute(&mut *connection).await?;
+    let written = write(&mut connection).await;
+    let restored = sqlx::query("PRAGMA synchronous = NORMAL").execute(&mut *connection).await;
+    let written = written?;
+    restored?;
+    Ok(written)
+}
+
+/// The two rows a successful move changes, in one commit. `moved_at` stops a sync that read the
+/// Arr before the move from putting the old path back (`upsert_media` in `services/sync.rs`).
 pub(super) async fn record_outcome(
     pool: &SqlitePool,
     mv: &PendingMove,
@@ -169,17 +196,12 @@ pub(super) async fn record_outcome(
     now: &str,
     direction: MoveDirection,
 ) -> AppResult<()> {
-    let mut connection = pool.acquire().await?;
-    sqlx::query("PRAGMA synchronous = FULL").execute(&mut *connection).await?;
-    let written = write_outcome(&mut connection, mv, new_path, now, direction).await;
-    let restored = sqlx::query("PRAGMA synchronous = NORMAL").execute(&mut *connection).await;
-    written?;
-    restored?;
-    Ok(())
+    durably(pool, async |connection| write_outcome(connection, mv, new_path, now, direction).await)
+        .await
 }
 
 async fn write_outcome(
-    connection: &mut sqlx::SqliteConnection,
+    connection: &mut SqliteConnection,
     mv: &PendingMove,
     new_path: &str,
     now: &str,
@@ -228,7 +250,12 @@ pub(super) async fn record_failure(
             sqlx::query("UPDATE decisions SET status = 'applied', reverted_at = NULL WHERE id = ?")
         }
     };
-    if let Err(e) = recorded.bind(&mv.decision_id).execute(&state.pool).await {
+    let recorded = durably(&state.pool, async |connection| {
+        recorded.bind(&mv.decision_id).execute(connection).await?;
+        Ok(())
+    })
+    .await;
+    if let Err(e) = recorded {
         error!(decision = %mv.decision_id, "Recording a failed move failed too: {e}");
     }
 
@@ -248,25 +275,29 @@ pub(super) async fn log_execution(
     error: Option<&str>,
     mv: &PendingMove,
 ) {
-    let written = sqlx::query(
-        "INSERT INTO execution_logs (id, decision_id, action, details, success, error_message,
+    let written = durably(pool, async |connection| {
+        sqlx::query(
+            "INSERT INTO execution_logs (id, decision_id, action, details, success, error_message,
          instance_id, media_id, media_title, actor, subject, subject_key, job_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&mv.decision_id)
-    .bind(action)
-    .bind(details)
-    .bind(success)
-    .bind(error)
-    .bind(&mv.instance_id)
-    .bind(&mv.media_id)
-    .bind(&mv.media_title)
-    .bind(&by.trigger)
-    .bind(&by.subject)
-    .bind(&by.key)
-    .bind(&by.job)
-    .execute(pool)
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&mv.decision_id)
+        .bind(action)
+        .bind(details)
+        .bind(success)
+        .bind(error)
+        .bind(&mv.instance_id)
+        .bind(&mv.media_id)
+        .bind(&mv.media_title)
+        .bind(&by.trigger)
+        .bind(&by.subject)
+        .bind(&by.key)
+        .bind(&by.job)
+        .execute(connection)
+        .await?;
+        Ok(())
+    })
     .await;
     if let Err(e) = written {
         error!(decision = %mv.decision_id, "The execution log entry could not be written: {e}");

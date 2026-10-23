@@ -15,8 +15,8 @@ use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::models::Instance;
 use crate::services::backup::Credential;
 
-// Every client is built here, from the shared `http` and a key `secrets` opens. Built elsewhere,
-// a client opens a key a second time, maybe without the redirect policy keeping it from leaking.
+// Every client is built here, from the shared `http` and a key `secrets` opens, so none opens
+// a key twice or misses the redirect policy that keeps it from leaking.
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::myanimelist::MyAnimeListClient;
@@ -48,13 +48,10 @@ pub struct AppState {
     pub tvdb_token: crate::integrations::tvdb::TokenCache,
     pub paces: crate::services::metadata::Paces,
     pub library_passes: crate::services::routing::LibraryPasses,
-    /// The live API key, held here and not on [`Config`]: a rotation takes effect on the next
-    /// request, not the next restart. Read on every protected request, so a lock, not a query,
-    /// resolved once at startup and written only by a rotation or a removal.
+    /// The live API key, held here so a rotation takes effect on the next request. A lock rather
+    /// than a query, since every protected request reads it.
     pub api_key: Arc<std::sync::RwLock<Option<String>>>,
-    /// What `/auth/login` may spend at once. See
-    /// [`crate::services::accounts::SignInThrottle`]: a permit rather than a
-    /// lockout, so the cost is bounded without the service being deniable.
+    /// What `/auth/login` may spend at once ([`crate::services::accounts::SignInThrottle`]).
     pub sign_in: Arc<crate::services::accounts::SignInThrottle>,
     /// The provider's discovery document, and until when it is kept. `/auth/oidc/start` is public:
     /// fetched on every call, the document turns each anonymous request into one against the
@@ -73,6 +70,8 @@ pub struct AppState {
     pub notifications: Arc<crate::services::notify::Queue>,
     /// The security log, which sums the refusals a caller can send at will.
     pub audit: Arc<crate::services::audit::Log>,
+    /// The calls to deprecated paths, counted off the request.
+    pub deprecated_calls: Arc<crate::api::deprecated::Calls>,
     /// What each application key has left of its rate.
     pub key_rates: Arc<crate::services::applications::Rates>,
     /// The titles an Arr did not know when a placement asked, for a while.
@@ -221,8 +220,6 @@ impl AppState {
 
     /// The key a source takes from the environment, as its `key_env` in the catalogue names it.
     pub fn environment_key(&self, provider: &str) -> Option<&String> {
-        // A source with a `key_env` needs its arm here. The compiler does not
-        // ask for one, and without it the `_` arm leaves that variable unread.
         match provider {
             metadata::TMDB => self.config.tmdb_api_key.as_ref(),
             metadata::OMDB => self.config.omdb_api_key.as_ref(),
@@ -239,8 +236,6 @@ impl AppState {
         settings: &Settings,
     ) -> std::collections::HashMap<&'static str, String> {
         let mut keys = std::collections::HashMap::new();
-        // A keyed source missing from this list is never usable, whatever key it holds, and the
-        // compiler does not say so: `metadata::is_usable` looks the key up in this map.
         for id in [metadata::TMDB, metadata::OMDB, metadata::TVDB, metadata::MYANIMELIST] {
             if let Some(key) = self.provider_key_from(settings, id) {
                 keys.insert(id, key);
@@ -265,15 +260,13 @@ impl AppState {
         metadata::configured_order(settings.raw("metadata_providers"))
     }
 
-    /// The same list minus the sources that cannot answer today, those that
-    /// need a key and have none. What a rule can actually rely on.
+    /// The same list minus the sources that need a key and have none, those able to answer today.
     pub async fn metadata_providers(&self) -> Vec<&'static ProviderInfo> {
         self.metadata_providers_from(&self.settings().await)
     }
 
-    /// `metadata_providers`, answered from a snapshot already read: the order
-    /// and the keys it is filtered by come from the same read, so a save that
-    /// lands between two reads cannot enable a source and hide its key.
+    /// `metadata_providers`, answered from a snapshot already read: the order and the keys come
+    /// from one read, so a save between two reads cannot enable a source and hide its key.
     pub fn metadata_providers_from(&self, settings: &Settings) -> Vec<&'static ProviderInfo> {
         let keys = self.provider_keys_from(settings);
         Self::metadata_order_from(settings)
@@ -284,7 +277,6 @@ impl AppState {
 
     /// The sources enrichment asks, in the same order.
     pub async fn metadata_sources(&self) -> Vec<FetchingSource> {
-        // One read for the order and the keys, so a save cannot land between them.
         let settings = self.settings().await;
         let mut sources = Vec::new();
 
@@ -293,8 +285,6 @@ impl AppState {
                 continue;
             }
 
-            // The compiler does not ask for a fetched source's arm here. Without one, the source
-            // falls to the last arm: listed, enabled, and never asked.
             let source = match provider.id {
                 metadata::TMDB => self.tmdb_from(&settings).map(FetchingSource::Tmdb),
                 metadata::ANILIST => Some(FetchingSource::AniList(AniListClient::new(
@@ -486,6 +476,7 @@ impl AppState {
             auto_apply_held: Arc::default(),
             notifications: Arc::default(),
             audit: Arc::new(crate::services::audit::Log::storing(pool.clone())),
+            deprecated_calls: Arc::new(crate::api::deprecated::Calls::counting(pool.clone())),
             key_rates: Arc::default(),
             route_misses: Arc::default(),
             last_probe: Arc::default(),
@@ -503,9 +494,7 @@ mod settings_tests {
         Settings(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
     }
 
-    /// The snapshot trims, answers the setting's own default on anything
-    /// unparseable or absent, and reads `true` or `1` as a switch, the rules
-    /// `AppState::setting` and `bool_setting` apply to one key.
+    /// The rules `AppState::setting` and `bool_setting` apply to one key.
     #[test]
     fn a_snapshot_trims_defaults_and_reads_switches() {
         let settings = stored(&[
@@ -525,9 +514,6 @@ mod settings_tests {
         assert_eq!(settings.raw("batch_limit"), Some(" 12 "), "raw is as stored");
     }
 
-    /// The usable sources are the snapshot's order filtered by the snapshot's
-    /// keys: one read, so a source cannot be enabled by one read and keyless
-    /// by another.
     #[tokio::test]
     async fn usable_providers_come_from_one_snapshot() {
         let state = crate::state::AppState::for_tests().await;

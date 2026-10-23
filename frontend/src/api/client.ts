@@ -72,9 +72,8 @@ import type {
 const API_BASE = `${basePath()}/api/v1`;
 
 /**
- * Where a browser last used with 0.1.x keeps the key, readable by any script on the page. Found
- * there, it is exchanged once for a session cookie, which no script can read, and removed. Kept
- * while a 0.1.5 database still upgrades in place (`001_release_0_1_5` in `backend/src/db.rs`).
+ * A key a browser may still hold in `localStorage`, readable by any script on the page. Found
+ * there, it is traded once for a session cookie, which no script can read, and removed.
  */
 const STORED_KEY = 'routarr.apiKey';
 
@@ -91,6 +90,8 @@ export class ApiError extends Error {
   readonly confirm: string | null;
   /** The other guardrails the question states, sent back with `confirm` or asked again. */
   readonly includes: string[];
+  /** Why the server refused, beside `kind`: a running task, or a state to change. */
+  readonly reason: string | null;
 
   constructor(
     message: string,
@@ -99,6 +100,7 @@ export class ApiError extends Error {
     requestId: string | null = null,
     confirm: string | null = null,
     includes: string[] = [],
+    reason: string | null = null,
   ) {
     super(message);
     this.status = status;
@@ -106,6 +108,7 @@ export class ApiError extends Error {
     this.requestId = requestId;
     this.confirm = confirm;
     this.includes = includes;
+    this.reason = reason;
     this.name = 'ApiError';
   }
 
@@ -225,17 +228,19 @@ async function exchange<T>(
     let kind = 'http_error';
     let confirm: string | null = null;
     let includes: string[] = [];
+    let reason: string | null = null;
     try {
       const json = JSON.parse(body) as Partial<ErrorBody>;
       message = json.message ?? json.error ?? '';
       kind = json.error ?? kind;
       confirm = typeof json.confirm === 'string' ? json.confirm : null;
       includes = Array.isArray(json.includes) ? json.includes : [];
+      reason = typeof json.reason === 'string' ? json.reason : null;
     } catch {
       // Not the envelope.
     }
     if (res.status === 401) refused?.();
-    throw new ApiError(message, res.status, kind, requestId, confirm, includes);
+    throw new ApiError(message, res.status, kind, requestId, confirm, includes, reason);
   }
 
   // A proxy whose session ran out answers its sign-in page, redirected or as a 200.

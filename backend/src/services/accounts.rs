@@ -1,14 +1,7 @@
 //! The single account of the `forms` mode, and the sessions it opens.
 //!
-//! One account, no role. The Servarr applications model it the same way: their
-//! `UserService` reads `SingleOrDefault()` and their `User` carries a name and
-//! a password hash and nothing else. Access here is all or nothing, and which
-//! mode granted it is [`crate::api::auth`]'s business, not this module's.
-//!
-//! Sessions are opaque random ids in a table, never signed tokens. A token that
-//! carries its own validity cannot be revoked before it expires. A row can be
-//! deleted, which is what "log out everywhere" means and what a changed
-//! password has to do.
+//! One account and no role, as in the Servarr applications. Sessions are opaque random ids in
+//! a table, never signed tokens, so a sign-out everywhere or a changed password ends them.
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
@@ -25,10 +18,8 @@ use crate::error::{AppError, AppResult};
 /// The name the generated account carries. One account, so it needs no other.
 pub const DEFAULT_USERNAME: &str = "admin";
 
-/// How long a session lasts without use, extended by the requests that use it.
-///
-/// Seven days, the value Radarr's cookie carries, and sliding for the same
-/// reason: a tab left open over a weekend should not ask again on Monday.
+/// How long a session lasts without use, extended by the requests that use it: seven days,
+/// as Radarr's cookie.
 pub const SESSION_DAYS: i64 = 7;
 
 /// How long a session lasts at most, used or not, in hours: then the mode that
@@ -52,24 +43,16 @@ pub fn opening_seconds(source: &str) -> i64 {
     (SESSION_DAYS * 24).min(lifetime_hours(source)) * 3600
 }
 
-/// How many password checks may run at once.
-///
-/// Two, not one, so a second person signing in is not queued behind the first.
-/// And not more, because each one costs a core and about 19 MiB for the length
-/// of a hash, which dwarfs any other request Routarr answers.
+/// How many password checks may run at once: each costs a core and about 19 MiB, and two
+/// keep a second person from queueing behind the first.
 const CONCURRENT_CHECKS: usize = 2;
 
-/// How many requests may be inside the check at once, hashing *and* waiting.
-///
-/// Past this they are refused immediately rather than held: a queue that grows
-/// with the flood is the flood, moved from the processor to the socket table.
+/// How many requests may be inside the check at once, hashing or waiting. Past it one is
+/// refused at once, since a queue growing with a flood only moves it to the socket table.
 pub(crate) const MAX_IN_FLIGHT: usize = 10;
 
-/// How many of those one client may hold.
-///
-/// Below `MAX_IN_FLIGHT`, so one address filling the queue leaves the owner of
-/// the account room to sign in from another. A request with no known address
-/// counts against the queue alone.
+/// How many of those one client may hold, below `MAX_IN_FLIGHT` so one address cannot fill
+/// the queue. A request with no known address counts against the queue alone.
 const PER_CLIENT: usize = 3;
 
 /// How many failed sign-ins one address may make within [`FAILURE_WINDOW`]
@@ -122,25 +105,12 @@ impl Failures {
     }
 }
 
-/// Bounds what `/auth/login` can be made to spend.
+/// Bounds what the public `/auth/login` can be made to spend: argon2id costs a core and
+/// 19 MiB per check, and unbounded, a burst stops a two-core NAS.
 ///
-/// `/auth/login` is public and argon2id is deliberately expensive, so the cost
-/// that makes a password hard to guess also makes the endpoint expensive to
-/// serve. What that threatens is not the password (the generated one is 256
-/// bits) but the machine: unbounded, N simultaneous requests take N cores and
-/// N × 19 MiB, and on a two-core NAS the whole application stops answering.
-///
-/// **Concurrency for the burst, a wait per address for the rate.** Failures
-/// are recorded after the hashes they were meant to prevent, so simultaneous
-/// attempts all hash before any of them closes a door: a permit bounds the
-/// resource itself, and whoever waits, waits for one hash. The sustained rate
-/// is bounded per address, never per account: a lockout of the one account
-/// there is would hand anyone a way to deny it, while an address that keeps
-/// failing waits and the owner signing in from another does not.
-///
-/// The hash runs on `spawn_blocking`. Left on the runtime it holds a worker for
-/// the length of a hash, so on a small machine two sign-ins stall every other
-/// request: the interface, the scheduler, the webhooks.
+/// A permit bounds the burst, since failures are recorded only after the hashes. A wait per
+/// address, never per account, bounds the rate: locking the one account would hand anyone a
+/// way to deny it. The hash runs on `spawn_blocking`, off the async workers.
 pub struct SignInThrottle {
     // Behind `Arc` so a permit and a queue slot can be *moved into* the
     // blocking task rather than held by the request future (see `verify`).
@@ -256,13 +226,9 @@ impl SignInThrottle {
         };
 
         let (password, hash) = (password.to_string(), hash.to_string());
-        // Both guards travel *into* the blocking task, and that is the whole
-        // point. A client that hangs up drops this future, but a blocking task
-        // cannot be cancelled: the hash runs to the end regardless. Held by the
-        // future, the permit and the queue slot would come back the moment the
-        // connection did, and a flood of abandoned requests would start one
-        // argon2 per connection up to the size of the blocking pool: the very
-        // thing this type exists to stop, reachable by hanging up.
+        // Both guards move into the blocking task, which a hang-up cannot cancel: held by this
+        // future, they would come back with the connection while the hash still runs, and abandoned
+        // requests would start one argon2 each.
         match tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let _leave = leave;
@@ -354,12 +320,9 @@ pub async fn account(pool: &SqlitePool) -> AppResult<Option<(String, String)>> {
     .await?)
 }
 
-/// Create the account on first start, printing its password exactly once.
-///
-/// The same shape as the API key: generated, written to a 0600 file beside the
-/// database, and logged once. Nothing is left open while it does not exist:
-/// a first-run route that anyone may call is a race for the account, and the
-/// installation that loses it has no way back in.
+/// Create the account on first start, its password written to a 0600 file beside the
+/// database, whose path the log names once. No first-run route is left open: whoever called
+/// it first would take the account.
 pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) -> AppResult<()> {
     if account(pool).await?.is_some() {
         return Ok(());
@@ -413,13 +376,8 @@ pub async fn reset_account(
     Ok(password)
 }
 
-/// Replace the account's password, end every session it had opened, and
-/// remove the file the first password was written to.
-///
-/// A password is changed because the old one is no longer trusted, so leaving
-/// the sessions it opened alive would change nothing an attacker holds. The
-/// file holds a password that no longer opens anything, and read later it
-/// would send its reader to the wrong one.
+/// Replace the account's password, end every session it had opened, and remove the file the
+/// first password was written to, which no longer opens anything.
 pub async fn set_password(
     pool: &SqlitePool,
     password_path: &std::path::Path,
@@ -515,39 +473,34 @@ pub struct Session {
     pub renewed: Option<i64>,
 }
 
-/// The session behind an id, if it is live and `source` opened it, renewing it
-/// as it answers.
-///
-/// `source` is the mode in force. The database outlives a change of
-/// `ROUTARR_AUTH`, and an operator who moves from `forms` to `oidc` does so to
-/// change who may enter: a session the old mode opened would otherwise stay
-/// valid, and slide for as long as it is used.
-///
-/// Expiry is compared in SQL rather than in Rust: the timestamps are written by
-/// SQLite's own `datetime`, and comparing them anywhere else means agreeing on
-/// a format twice.
+/// The session behind an id, if it is live and `source`, the mode in force, opened it,
+/// renewing it when due. A change of `ROUTARR_AUTH` changes who may enter, so a session
+/// another mode opened answers nothing. Expiry is compared in SQL, against what SQLite wrote.
 pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResult<Option<Session>> {
     let lifetime = format!("-{} hours", lifetime_hours(source));
-    let live: Option<(String, i64, String)> = sqlx::query_as(
-        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER), reach FROM sessions
-         WHERE id = ? AND source = ? AND expires_at > datetime('now')
-           AND created_at > datetime('now', ?)",
+    // Renewal is due once less than `SESSION_DAYS - 1` days are left, never past the lifetime.
+    let live: Option<(String, i64, String, bool)> = sqlx::query_as(
+        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER), reach,
+                expires_at < MIN(datetime('now', ?), datetime(created_at, ?, '-1 hour'))
+           FROM sessions
+          WHERE id = ? AND source = ? AND expires_at > datetime('now')
+            AND created_at > datetime('now', ?)",
     )
+    .bind(format!("+{} days", SESSION_DAYS - 1))
+    .bind(format!("+{} hours", lifetime_hours(source)))
     .bind(stored(id))
     .bind(source)
     .bind(&lifetime)
     .fetch_optional(pool)
     .await?;
-    let Some((subject, opened_at, reach)) = live else {
+    let Some((subject, opened_at, reach, due_now)) = live else {
         return Ok(None);
     };
-
-    // Sliding, like Radarr's: use is what keeps a session alive, never past
-    // its lifetime. Extended only once it has less than `SESSION_DAYS - 1`
-    // days to run, so at most once a day, rather than on every request: this
-    // runs on each authenticated call, SQLite takes one writer at a time, and
-    // the Tasks screen polls every three seconds while a job runs. A session
-    // already as long as its lifetime allows is not written to at all.
+    let session = |renewed| Session { subject, reach: Reach::stored(&reach), opened_at, renewed };
+    // Written at most daily: every authenticated call runs this, and SQLite has one writer.
+    if !due_now {
+        return Ok(Some(session(None)));
+    }
     let renewed: Option<i64> = sqlx::query_scalar(
         "UPDATE sessions SET last_used_at = datetime('now'),
                 expires_at = MIN(datetime('now', ?), datetime(created_at, ?))
@@ -565,7 +518,7 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
     .await
     .ok()
     .flatten();
-    Ok(Some(Session { subject, reach: Reach::stored(&reach), opened_at, renewed }))
+    Ok(Some(session(renewed)))
 }
 
 /// One session as the owner sees it on the sessions screen: never its id,
@@ -630,10 +583,8 @@ pub async fn close_session(pool: &SqlitePool, id: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Drop the sessions nobody can use any more.
-///
-/// Run by the maintenance sweep rather than on every request: an expired row
-/// already fails `live_session`, so this is housekeeping and not a guard.
+/// Drop the expired sessions, which `live_session` already refuses: housekeeping for the
+/// maintenance sweep.
 pub async fn purge_expired_sessions(pool: &SqlitePool) -> AppResult<u64> {
     Ok(sqlx::query("DELETE FROM sessions WHERE expires_at <= datetime('now')")
         .execute(pool)
@@ -645,9 +596,6 @@ pub async fn purge_expired_sessions(pool: &SqlitePool) -> AppResult<u64> {
 mod tests {
     use super::*;
 
-    /// The bound is on requests *inside* the check, hashing or waiting. Held
-    /// instead of refused, a flood would simply move from the processor to the
-    /// socket table.
     #[tokio::test]
     async fn one_past_the_bound_is_refused_rather_than_held() {
         let throttle = SignInThrottle::default();
@@ -669,10 +617,6 @@ mod tests {
         assert!(matches!(extra, Err(Busy)), "the bound did not hold");
     }
 
-    /// A blocking task cannot be cancelled, so hanging up must not hand the
-    /// permit back while the hash it paid for is still running. Held by the
-    /// request future instead of by the task, a flood of abandoned connections
-    /// would start one argon2 each up to the size of the blocking pool.
     #[tokio::test]
     async fn hanging_up_does_not_return_a_permit_the_hash_is_still_using() {
         use std::future::Future;
@@ -711,10 +655,8 @@ mod tests {
             "the abandoned check gave its permit back while still hashing"
         );
 
-        // The one permit the check after it can get is the abandoned hash's,
-        // so its completing *is* the proof that the hash finished and gave the
-        // permit back. There is no budget to tune and nothing to go flaky under
-        // a slower build, since no other permit exists to recycle.
+        // The one permit the next check can get is the abandoned hash's, so its completing proves
+        // the hash finished and gave it back.
         assert!(matches!(throttle.verify("correct horse battery", &hash, None).await, Ok(true)));
 
         assert_eq!(throttle.in_flight(), 0, "the slot never came back");
@@ -723,9 +665,6 @@ mod tests {
         assert_eq!(throttle.free_permits(), CONCURRENT_CHECKS);
     }
 
-    /// One client filling every slot would keep the owner of the one account
-    /// out from anywhere else. Past its own share a client is refused, and
-    /// another still gets in.
     #[tokio::test]
     async fn a_client_filling_the_queue_leaves_room_for_another() {
         let throttle = SignInThrottle::default();
@@ -746,9 +685,6 @@ mod tests {
         assert_eq!(held_back, 7, "an address took more than three places");
     }
 
-    /// A slot is given back however the check ends, the queue's and the
-    /// address's alike, or the endpoint refuses everything after enough of
-    /// them, and one address after its share.
     #[tokio::test]
     async fn slots_come_back_after_every_outcome() {
         let throttle = SignInThrottle::default();
@@ -765,9 +701,6 @@ mod tests {
         assert_eq!(throttle.clients_holding(), 0, "an address kept a slot it no longer uses");
     }
 
-    /// One subscriber is given a /64, and every address in it is the same
-    /// client: three checks from it fill its share, and a fourth from another
-    /// address of the block waits while one from another block goes in.
     #[tokio::test]
     async fn addresses_of_one_ipv6_slash_64_hold_one_share() {
         let throttle = SignInThrottle::default();
@@ -787,9 +720,6 @@ mod tests {
         assert!(matches!(other, Ok(true)), "another block was refused");
     }
 
-    /// Five failures within the window set a wait of thirty seconds, each
-    /// failure after it doubles the wait up to fifteen minutes, and a success
-    /// forgets them all. A failure is counted per /64 like the queue's share.
     #[tokio::test(start_paused = true)]
     async fn the_wait_doubles_after_five_failures_and_a_success_forgets_it() {
         let throttle = SignInThrottle::default();
@@ -853,8 +783,6 @@ mod tests {
         assert!(!verify_password("", ""));
     }
 
-    /// The window has to keep sliding (a session in daily use must not expire
-    /// on the seventh day) while costing a write only when it is close.
     #[tokio::test]
     async fn a_session_is_extended_only_once_it_is_close_to_expiring() {
         let pool = crate::db::test_pool().await;
@@ -909,9 +837,6 @@ mod tests {
         assert!(extended > cutoff, "the window did not slide: {extended}");
     }
 
-    /// A session in daily use slides, never past the lifetime of the mode
-    /// that opened it: a copied cookie stops working, and the provider decides
-    /// again within a day.
     #[tokio::test]
     async fn a_session_past_its_absolute_lifetime_answers_nothing_even_in_use() {
         let pool = crate::db::test_pool().await;
@@ -933,8 +858,6 @@ mod tests {
         assert!(live_session(&pool, "in-time", "forms").await.unwrap().is_some());
     }
 
-    /// The renewal stops at the lifetime, and a session opened for no longer
-    /// than its lifetime is not written to at each request.
     #[tokio::test]
     async fn renewal_never_extends_past_the_absolute_lifetime() {
         let pool = crate::db::test_pool().await;
@@ -981,9 +904,6 @@ mod tests {
         assert_eq!(hash, again);
     }
 
-    /// The file is the one copy of the generated password an operator finds
-    /// once the log has scrolled away. An account that outlives a failed write
-    /// is one nobody can open, and the next start, finding it, generates none.
     #[tokio::test]
     async fn a_password_that_cannot_be_written_leaves_no_account_behind() {
         let pool = crate::db::test_pool().await;
@@ -1017,8 +937,6 @@ mod tests {
         assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
     }
 
-    /// A password is changed because the old one is no longer trusted. The
-    /// sessions it opened are exactly what an attacker would still be holding.
     #[tokio::test]
     async fn changing_the_password_ends_the_sessions_it_opened() {
         let pool = crate::db::test_pool().await;

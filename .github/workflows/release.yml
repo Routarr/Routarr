@@ -1,9 +1,7 @@
 name: Release
 
-# Tags only. `docker.yml` builds the image with `push: false` on every push to
-# main and every pull request that reaches it, which proves the Dockerfile
-# works. This is the one place an image leaves the runner, and it should happen
-# because someone tagged a release rather than because someone merged.
+# Tags only: the one place an image leaves the runner, on a tag and never on a merge
+# (`docker.yml` builds with `push: false`).
 on:
   push:
     tags: ['v*']
@@ -18,18 +16,13 @@ concurrency:
 # nothing, whatever the repository's default token.
 permissions: {}
 
-# Every `uses:` is pinned to a commit, with the tag it was in a comment beside
-# it. A tag is a mutable pointer its owner can move: `@v7` means "whatever the
-# owner calls v7 the next time this runs", and one of these workflows holds
-# `packages: write` and pushes an image to GHCR. A commit id cannot be moved.
-# Dependabot updates both the id and the comment, so this costs nothing to keep
-# current. It only changes who decides when the code changes.
+# Every `uses:` is pinned to a commit, its tag in the comment beside it: a tag can be moved,
+# and this workflow pushes to GHCR. Dependabot updates both.
 
 jobs:
-  # A tag triggers the publish directly, whatever commit it was pushed onto.
-  # `scripts/release-guard.sh` asks first whether that commit is on main, sets
-  # the version the tag names, passed CI and the image build on a push, and is
-  # a version the registry does not hold yet.
+  # A tag publishes whatever commit it sits on: `scripts/release-guard.sh` first refuses one
+  # not on main, not green, not at the tag's version, with migrations not folded, or already in
+  # the registry.
   guard:
     name: The commit may be published
     runs-on: ubuntu-latest
@@ -40,6 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The migrations are compared with the last release's tag.
+          fetch-depth: 0
           persist-credentials: false
       - name: Check the commit and the version
         env:
@@ -49,16 +44,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: bash scripts/release-guard.sh "$REPOSITORY" "$SHA" "$TAG"
 
-  # One job per architecture, each on a runner of that architecture, which
-  # starts its image before pushing it. `docker.yml` starts an amd64 build of
-  # its own, on commits the guard does not hold it to, so this is the only
-  # place the images people pull are ever started.
+  # One job per architecture, on a runner of that architecture (under QEMU the arm64 leg takes
+  # hours), which starts its image before pushing it: the only place the images people pull run.
   #
-  # On an amd64 runner the arm64 leg of a Rust release build runs under QEMU,
-  # for hours, and a leg killed at its ceiling publishes nothing.
-  #
-  # Neither leg restores a cache. Any job running on main can write the cache
-  # `docker.yml` reads, an install script or a build script among them, and a
+  # Neither leg restores a cache: any job on main can write the one `docker.yml` keeps, and a
   # layer restored here would be published under this workflow's signature.
   image:
     name: Build ${{ matrix.arch }}
@@ -76,8 +65,7 @@ jobs:
       DOCKER_BUILD_RECORD_UPLOAD: "false"
       BUILDX_METADATA_PROVENANCE: disabled
     strategy:
-      # Both legs run to the end: one architecture failing while the other is
-      # still building tells you less than two verdicts do.
+      # Both legs run to the end, for two verdicts.
       fail-fast: false
       matrix:
         include:
@@ -92,10 +80,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # BuildKit by digest, as every base image is: the daemon that runs the
-      # build is as much a part of the image as its base. Dependabot does not
-      # read this line, and `scripts/check-versions.py` holds the copies in
-      # `docker.yml` to it.
+      # BuildKit by digest, like a base image. Dependabot does not read this line, and
+      # `scripts/check-versions.py` holds the copies in `docker.yml` to it.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
@@ -105,8 +91,6 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          # No secret to manage: the token GitHub already hands the job is
-          # enough, given `packages: write` above.
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # A registry path holding a capital letter is rejected, and the
@@ -117,11 +101,9 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      # What only a release knows, the version and the commit. The rest is the
-      # Dockerfile's, which metadata-action's own set would replace with the
-      # repository's: a licence of `GPL-3.0` rather than `GPL-3.0-only`, and a
-      # version that keeps the tag's `v`. No tag here: the tags name the
-      # manifest list, assembled by the next job.
+      # The version and the commit only: metadata-action's own labels would replace the
+      # Dockerfile's with the repository's (`GPL-3.0`, a version keeping its `v`). The tags go on
+      # the manifest list.
       - id: labels
         env:
           TAG: ${{ github.ref_name }}
@@ -232,12 +214,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      # The tag set derived from the git tag, so `v1.2.3` publishes 1.2.3, 1.2,
-      # 1 and latest, and a pre-release takes none of those with it.
-      #
-      # No `0` tag: semver makes no compatibility promise across 0.x, so a tag
-      # following every 0.x release would promise exactly what those releases
-      # do not. The major tag starts with 1.0.0.
+      # `v1.2.3` publishes 1.2.3, 1.2, 1 and latest, a pre-release its own version alone. No major
+      # tag before 1.0.0: semver promises no compatibility across 0.x.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
@@ -282,14 +260,9 @@ jobs:
             --format '{{json .Manifest}}' | jq -r .digest)
           echo "value=$value" >> "$GITHUB_OUTPUT"
 
-      # Signed evidence of which workflow, on which commit, built this exact
-      # digest, which `gh attestation verify` answers without trusting this
-      # repository's own word for it (SECURITY.md). An image people pull onto
-      # machines holding their media library is worth the three lines.
-      #
-      # Kept in GitHub's attestation store and not pushed beside the image: the
-      # registry lists a pushed attestation as the package's newest tag, and
-      # its page then offers to pull a signature.
+      # Signed evidence of which workflow built this digest on which commit, for
+      # `gh attestation verify` (SECURITY.md). Not pushed beside the image: the registry would list
+      # the attestation as the package's newest tag.
       - name: Attest the build's provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -300,10 +273,7 @@ jobs:
           # not use, and it asks for a permission the job does not hold.
           create-storage-record: false
 
-  # The release itself. Publishing it by hand, with `gh release create` from a
-  # laptop, is the kind of step that gets forgotten or done differently each
-  # time, so it happens here. Notes are generated from the commits since the
-  # last tag, which is what the log is written for.
+  # A draft release, its notes generated from the commits since the last tag.
   release:
     name: Publish the release
     needs: manifest
@@ -312,12 +282,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # `gh release create` shells out to git to work out which repository it
-      # is in, so it needs one to stand in even though nothing here reads a
-      # file: without it the step fails with "not a git repository" before it
-      # reaches the API. The default shallow fetch is enough, since the notes
-      # are generated server-side. `gh` takes its token from `GH_TOKEN`, so the
-      # clone keeps none.
+      # `gh release create` asks git which repository it is in, and fails with "not a git
+      # repository" without a clone. A shallow one does: the notes are generated server-side.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -328,20 +294,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # `--generate-notes` finds the previous tag on its own, and naming one
-          # explicitly only creates a way to name the wrong one. `--verify-tag`
-          # refuses to invent a tag that does not exist. None can be missing
-          # here, but one can when someone runs this by hand.
-          #
-          # A draft, because generated notes are a list of every commit since the
-          # last tag and most of them are internal. The release is announced once
-          # somebody has written what changed for a user. The image is on GHCR
-          # either way, so nothing waits on that. See CONTRIBUTING.md.
-          #
-          # A hyphen after the version is what semver calls a pre-release, and
-          # it is the same rule metadata-action applies when it declines to move
-          # `latest`. Without this the image would treat v1.0.0-rc1 as a
-          # pre-release while the release page called it the real thing.
+          # A draft: the notes a person writes for users go above the generated list
+          # (CONTRIBUTING.md, "Releasing"). A hyphen marks a pre-release, the rule metadata-action
+          # applies to `latest`, so the page and the image agree on v1.0.0-rc1.
           case "$TAG" in
             *-*) prerelease=--prerelease ;;
             *) prerelease= ;;

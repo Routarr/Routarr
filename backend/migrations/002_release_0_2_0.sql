@@ -2,10 +2,8 @@
 -- the conversions of the data a 0.1.5 database holds run in the order the
 -- tables and columns they read are created.
 
--- One number that moves whenever something the routing context reads changes,
--- so an apply in slices reloads that context only when it moved
--- (`routing::Revalidation`). A table the context starts reading needs its
--- three triggers here, or a change to it goes unseen until the next apply.
+-- A counter of changes to the routing context, dropped again further down with its
+-- triggers: this file runs the steps 0.2.0 shipped in their order.
 CREATE TABLE routing_generation (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     value INTEGER NOT NULL
@@ -103,8 +101,6 @@ BEGIN
     UPDATE routing_generation SET value = value + 1;
 END;
 
--- The two settings the context reads, and no other: a setting written on
--- every pass would reload it for nothing.
 CREATE TRIGGER settings_insert_moves_routing AFTER INSERT ON settings
 WHEN NEW.key IN ('metadata_providers', 'default_category')
 BEGIN
@@ -128,10 +124,9 @@ END;
 -- the same code means another age in another system (`R`).
 ALTER TABLE metadata_cache ADD COLUMN certification_scale TEXT;
 
--- What every cached rating was issued under, where the source settles it:
--- OMDb rates for the United States, MyAnimeList in its own system. TMDb and
--- TheTVDB picked among the regions without saying which, so their rated
--- answers expire and the next enrichment pass asks again.
+-- What a cached rating was issued under, where the source settles it: OMDb rates for the
+-- United States, MyAnimeList in its own system. A TMDb or TheTVDB answer names no region, so
+-- a rated one expires and is asked again.
 UPDATE metadata_cache SET certification_scale = 'US'
  WHERE source = 'omdb' AND certification IS NOT NULL;
 UPDATE metadata_cache SET certification_scale = 'MAL'
@@ -143,7 +138,6 @@ UPDATE metadata_cache SET expires_at = datetime('now')
 -- each sync. A Sonarr rates for the United States.
 ALTER TABLE instances ADD COLUMN certification_country TEXT;
 
--- The routing context reads the certification regions.
 DROP TRIGGER settings_insert_moves_routing;
 DROP TRIGGER settings_update_moves_routing;
 DROP TRIGGER settings_delete_moves_routing;
@@ -258,9 +252,8 @@ ALTER TABLE instances ADD COLUMN arr_version TEXT;
 -- and reads the free space of the mounts in between.
 ALTER TABLE instances ADD COLUMN root_folders_read_at TEXT;
 
--- What the last stored run decided for each title, a title it left where it
--- is included. The decisions keep only what a run proposed, so a title
--- already in its folder had no row there and read as never evaluated.
+-- What the last stored run decided for each title, a title it left where it is included:
+-- the decisions keep only what a run proposed.
 CREATE TABLE media_routing (
     media_id TEXT PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
     category TEXT NOT NULL,
@@ -287,9 +280,8 @@ SELECT d.media_id, d.target_category, d.matched_rule_id, 0, d.simulation_id, d.d
                       AND (later.decided_at > d.decided_at
                            OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)));
 
--- "Added within the last N days" now counts N times 24 hours and refuses 0,
--- which used to mean the last 24 hours. Every rule is written through serde,
--- so the condition has this one spelling.
+-- "Added within the last N days" counts N times 24 hours and refuses 0: a stored 0, read as
+-- the last 24 hours, becomes 1. Every rule is written through serde, so it has this one spelling.
 UPDATE rules
    SET conditions = replace(conditions, '{"type":"added_within_days","value":0}',
                                         '{"type":"added_within_days","value":1}'),
@@ -298,9 +290,7 @@ UPDATE rules
  WHERE instr(conditions, '{"type":"added_within_days","value":0}') > 0
     OR instr(exclusions, '{"type":"added_within_days","value":0}') > 0;
 
--- A title's resolutions are read and pruned by its key, which no index led
--- with: each lookup read the whole table, a row per title and per source
--- found by search.
+-- A title's resolutions are read and pruned by its key.
 CREATE INDEX idx_source_identifiers_local ON source_identifiers(local_key, media_type);
 
 -- A title's history and an instance's, read from the move log newest first.
@@ -574,9 +564,8 @@ CREATE TABLE security_events (
 CREATE INDEX idx_security_events_at ON security_events (at);
 CREATE INDEX idx_security_events_kind ON security_events (kind, at);
 
--- An id an Arr wrote as 0 is one it does not know: Sonarr sends a series with
--- no TMDB id as 0. Stored as an id, every such title shared one search key and
--- the one answer found for the first of them.
+-- An id an Arr writes as 0 is one it does not know: Sonarr sends a series with no TMDB id as
+-- 0. Stored as an id, it would give every such title one search key.
 UPDATE media SET tmdb_id = NULL WHERE tmdb_id <= 0;
 UPDATE media SET tvdb_id = NULL WHERE tvdb_id <= 0;
 DELETE FROM source_identifiers WHERE local_key IN ('tmdb:0', 'tvdb:0');
@@ -635,13 +624,11 @@ BEGIN
                                          '_daily_requests', '');
 END;
 
--- OMDb's names and TheTVDB's codes now read into every ISO language and
--- country, where a narrower table dropped some or kept them as words. Their
--- cached answers are asked again so they read the same way.
+-- OMDb's and TheTVDB's cached answers are asked again, so every language and country in them
+-- reads as an ISO code (`integrations::language`).
 UPDATE metadata_cache SET expires_at = datetime('now') WHERE source IN ('omdb', 'tvdb');
 
--- Posters are not fetched: TMDb's answers held a path to one, which nothing
--- reads.
+-- Posters are not fetched, so nothing reads a path to one.
 ALTER TABLE metadata_cache DROP COLUMN poster_path;
 
 -- Each source's status read into the words Radarr and Sonarr use, as
@@ -674,20 +661,19 @@ UPDATE metadata_cache
 -- they ask for after refreshing them.
 ALTER TABLE instances ADD COLUMN certification_country_changed_at TEXT;
 
--- A cached answer is due once it is older than the lifetime set now, read at
--- each pass, or once someone asks for it again (`stale`). `cached_at` is the
--- date TMDB's six months are counted from.
+-- A cached answer is due once it is older than the lifetime the settings hold, read at each
+-- pass, or once someone asks for it again (`stale`). `cached_at` is the date TMDB's six months
+-- are counted from.
 ALTER TABLE metadata_cache ADD COLUMN stale INTEGER NOT NULL DEFAULT 0 CHECK(stale IN (0, 1));
 UPDATE metadata_cache SET stale = 1 WHERE expires_at <= datetime('now');
 DROP INDEX idx_metadata_cache_expires;
 ALTER TABLE metadata_cache DROP COLUMN expires_at;
 CREATE INDEX idx_metadata_cache_age ON metadata_cache(source, cached_at);
 
--- A credential the owner withdrew and has not replaced: the master API key or
--- the signing secrets. A restore finds none of either today both after a
--- withdrawal and on a host that never held one, and only this row tells the
--- two apart. Created only if missing: a restore copies it into an archive's
--- database ahead of this migration.
+-- A credential the owner withdrew and has not replaced: the master API key or the signing
+-- secrets. Without this row a restore cannot tell a withdrawal from a host that never held
+-- one. Created only if missing: a restore copies it into an archive's database ahead of
+-- this migration.
 CREATE TABLE IF NOT EXISTS withdrawn_credentials (
     name TEXT PRIMARY KEY CHECK(name IN ('master_api_key', 'signing_secret')),
     withdrawn_at TEXT NOT NULL DEFAULT (datetime('now'))

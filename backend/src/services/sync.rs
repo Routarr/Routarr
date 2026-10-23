@@ -22,8 +22,7 @@ pub struct SyncReport {
     pub media: usize,
     /// Media rows that disappeared upstream and were removed locally.
     pub removed: u64,
-    /// Set when the sync failed, so the caller of sync-all still gets one entry
-    /// per instance instead of the failure silently vanishing from the report.
+    /// Set when the sync failed: a sync of every instance answers one entry per instance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -43,7 +42,6 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
         match sync_instance_inner(state, &instance, by).await {
             Ok(report) => report,
             Err(e) => {
-                // One Arr out of reach must not stop the others, nor go unreported.
                 error!("Failed to sync instance '{}': {e}", instance.name);
                 let said = Said::of(&e, Some(&instance), localizer).said;
                 SyncReport {
@@ -110,7 +108,7 @@ async fn sync_instance_inner(
     // On their own task: awaited here, a slow receiver would hold the sync's answer and lock.
     match &outcome {
         Ok(report) => {
-            update_sync_status(&state.pool, &instance.id, "success").await;
+            update_sync_status(&state.pool, instance, "success").await;
             job.report(report);
             job.succeed(
                 Detail::new("JobDetailSynced")
@@ -127,7 +125,7 @@ async fn sync_instance_inner(
         }
         Err(e) => {
             let said = Said::of(e, Some(instance), &localizer);
-            update_sync_status(&state.pool, &instance.id, &format!("{SYNC_FAILED}{}", said.stored))
+            update_sync_status(&state.pool, instance, &format!("{SYNC_FAILED}{}", said.stored))
                 .await;
             notify::send_later(
                 state,
@@ -274,7 +272,7 @@ async fn do_sync(
         "Fetched from Arr"
     );
 
-    // One token stamps this run's rows: a time window would let a long sync delete its own.
+    // Stamps what this run writes: a time window would let a long sync delete its own folders.
     let sync_token = crate::services::routing::format_timestamp(chrono::Utc::now());
 
     // One transaction per instance, or the orphan cleanup deletes rows not written yet.
@@ -444,13 +442,15 @@ async fn do_sync(
             );
             (0, 0)
         } else {
-            // Only rows seen before this read: a title the webhook added since is not gone.
+            // Only rows written before this read: a title the webhook added since is not gone.
+            let listed: Vec<i64> = media.iter().map(|item| item.arr_id).collect();
             let gone: Vec<String> = sqlx::query_scalar(
-                "SELECT id FROM media WHERE instance_id = ? AND last_synced_at IS NOT ?
-               AND (last_synced_at IS NULL OR last_synced_at < ?)",
+                "SELECT id FROM media WHERE instance_id = ?
+                   AND arr_id NOT IN (SELECT value FROM json_each(?))
+                   AND (last_synced_at IS NULL OR last_synced_at < ?)",
             )
             .bind(&instance.id)
-            .bind(&sync_token)
+            .bind(serde_json::to_string(&listed)?)
             .bind(&read_at)
             .fetch_all(&mut *tx)
             .await?;
@@ -641,8 +641,6 @@ pub async fn retire_media(
     Ok(removed)
 }
 
-/// Write one media row, creating or updating it. The one writer of its column list, for the
-/// full sync and the webhook alike, so a new column cannot reach only one of them.
 /// Every folder of `instance` Routarr knows, reported or declared.
 async fn known_folders(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
@@ -654,6 +652,8 @@ async fn known_folders(
         .await?)
 }
 
+/// Write one media row, creating it or updating what changed. The one writer of its column list,
+/// for the full sync and the webhook alike, so a new column cannot reach only one of them.
 async fn upsert_media<'e, E>(
     executor: E,
     instance_id: &str,
@@ -681,10 +681,8 @@ where
             tmdb_id = excluded.tmdb_id,
             tvdb_id = excluded.tvdb_id,
             imdb_id = excluded.imdb_id,
-            -- The two columns an apply also writes. Everything else above and
-            -- below is upstream's to state, but a path we read before a move
-            -- landed is older than the move, and writing it would repropose a
-            -- move that already happened.
+            -- The two columns an apply also writes: a path read before a move landed is older than
+            -- the move, and writing it would propose that move again.
             current_path = CASE
                 WHEN media.moved_at IS NULL OR media.moved_at < ?
                 THEN excluded.current_path ELSE media.current_path END,
@@ -708,7 +706,34 @@ where
             collection = excluded.collection,
             collection_tmdb_id = excluded.collection_tmdb_id,
             ratings = excluded.ratings,
-            last_synced_at = excluded.last_synced_at",
+            last_synced_at = excluded.last_synced_at
+         -- An unchanged row is not rewritten: a sync of a quiet library writes nothing.
+         WHERE ((media.moved_at IS NULL OR media.moved_at < ?)
+                AND (media.current_path IS NOT excluded.current_path
+                     OR media.current_root_folder IS NOT excluded.current_root_folder))
+            OR media.title IS NOT excluded.title
+            OR media.sort_title IS NOT excluded.sort_title
+            OR media.year IS NOT excluded.year
+            OR media.tmdb_id IS NOT excluded.tmdb_id
+            OR media.tvdb_id IS NOT excluded.tvdb_id
+            OR media.imdb_id IS NOT excluded.imdb_id
+            OR media.monitored IS NOT excluded.monitored
+            OR media.has_files IS NOT excluded.has_files
+            OR media.status IS NOT excluded.status
+            OR media.series_type IS NOT excluded.series_type
+            OR media.size_on_disk IS NOT excluded.size_on_disk
+            OR media.season_count IS NOT excluded.season_count
+            OR media.tags IS NOT excluded.tags
+            OR media.genres IS NOT excluded.genres
+            OR media.original_language IS NOT excluded.original_language
+            OR media.certification IS NOT excluded.certification
+            OR media.quality_profile IS NOT excluded.quality_profile
+            OR media.runtime IS NOT excluded.runtime
+            OR media.studio IS NOT excluded.studio
+            OR media.network IS NOT excluded.network
+            OR media.collection IS NOT excluded.collection
+            OR media.collection_tmdb_id IS NOT excluded.collection_tmdb_id
+            OR media.ratings IS NOT excluded.ratings",
     )
     .bind(media_row_id(instance_id, item.arr_id))
     .bind(instance_id)
@@ -729,7 +754,6 @@ where
     .bind(&item.series_type)
     .bind(item.size_on_disk)
     .bind(item.season_count)
-    // Labels rather than ids: a rule is written against "anime", and ids differ by instance.
     .bind(serde_json::to_string(
         &item.tag_ids.iter().filter_map(|id| names.tags.get(id).cloned()).collect::<Vec<_>>(),
     )?)
@@ -744,7 +768,8 @@ where
     .bind(item.collection.as_ref().and_then(|c| c.tmdb_id))
     .bind(serde_json::to_string(&item.ratings)?)
     .bind(sync_token)
-    // Twice, for the guard of each path column, bound after every VALUES placeholder.
+    // For the guard of each path column, then the `WHERE`'s, after every VALUES placeholder.
+    .bind(read_at)
     .bind(read_at)
     .bind(read_at)
     .execute(executor)
@@ -760,23 +785,44 @@ fn stored_shape(raw: &str) -> String {
         .map_or_else(|| raw.to_string(), crate::services::routing::format_timestamp)
 }
 
+/// How long a refused outcome waits before it is written again.
+const STATUS_RETRY: std::time::Duration = if cfg!(test) {
+    std::time::Duration::from_millis(20)
+} else {
+    std::time::Duration::from_secs(1)
+};
+
 /// Record what this pass did: the attempt always, the success only on success, so a failure
-/// never reads as a library just synchronised.
-async fn update_sync_status(pool: &SqlitePool, instance_id: &str, status: &str) {
+/// never reads as a library just synchronised. Tried three times, since a busy database would
+/// otherwise leave the Instances screen on the pass before.
+async fn update_sync_status(pool: &SqlitePool, instance: &Instance, status: &str) {
     let succeeded = status == "success";
-    let _ = sqlx::query(
-        "UPDATE instances
-         SET last_sync_attempt_at = datetime('now'),
-             last_sync_at = CASE WHEN ? THEN datetime('now') ELSE last_sync_at END,
-             last_sync_status = ?,
-             updated_at = datetime('now')
-         WHERE id = ?",
-    )
-    .bind(succeeded)
-    .bind(status)
-    .bind(instance_id)
-    .execute(pool)
-    .await;
+    let mut refused = None;
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(STATUS_RETRY).await;
+        }
+        let written = sqlx::query(
+            "UPDATE instances
+             SET last_sync_attempt_at = datetime('now'),
+                 last_sync_at = CASE WHEN ? THEN datetime('now') ELSE last_sync_at END,
+                 last_sync_status = ?,
+                 updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(succeeded)
+        .bind(status)
+        .bind(&instance.id)
+        .execute(pool)
+        .await;
+        match written {
+            Ok(_) => return,
+            Err(e) => refused = Some(e),
+        }
+    }
+    if let Some(e) = refused {
+        warn!(instance = %instance.name, "The outcome of a sync could not be recorded: {e}");
+    }
 }
 
 /// What an instance's ids name, which a media row stores by name: ids are not stable across
@@ -943,7 +989,6 @@ pub(crate) async fn inherit_declared(
 
 #[cfg(test)]
 mod tests {
-    /// One title's check reads its own row, not the instance's whole library.
     #[tokio::test]
     async fn one_title_is_checked_through_the_index() {
         let pool = crate::db::test_pool().await;

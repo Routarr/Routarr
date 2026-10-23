@@ -86,7 +86,7 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     let options = with_paths(file)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        // A power cut may lose the last commits, so `record_outcome` writes moves under FULL.
+        // A power cut may lose the last commits, so the executor records moves under FULL.
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
         .foreign_keys(true)
         // Concurrent writers wait their turn instead of failing with "database is locked".
@@ -96,8 +96,7 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
         // The planner's statistics, refreshed on what each connection ran.
         .optimize_on_close(true, Some(400));
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(8)
+    let pool = pool_options(8)
         .min_connections(1)
         .acquire_timeout(Duration::from_secs(15))
         .connect_with(options)
@@ -300,8 +299,10 @@ pub async fn opened_ahead(
     let this = release(env!("CARGO_PKG_VERSION"));
     Ok(openers
         .into_iter()
-        .filter(|(version, schema)| {
-            release(version) > this && schema.as_deref().is_none_or(is_newer_schema)
+        // The schema decides where one is recorded: a build between releases keeps the version.
+        .filter(|(version, schema)| match schema.as_deref() {
+            Some(schema) => is_newer_schema(schema),
+            None => release(version) > this,
         })
         .max_by_key(|(version, _)| release(version))
         .map(|(version, _)| version))
@@ -510,6 +511,20 @@ pub async fn write_transaction(
     pool.begin_with("BEGIN IMMEDIATE").await
 }
 
+/// A pool of the live database. sqlx keeps counting a transaction whose COMMIT SQLite refused, a
+/// full disk for one: handed out again, that connection loses every write it acknowledges.
+pub fn pool_options(max_connections: u32) -> SqlitePoolOptions {
+    SqlitePoolOptions::new().max_connections(max_connections).before_acquire(|conn, _| {
+        Box::pin(async move {
+            let stuck = sqlx::Connection::is_in_transaction(conn);
+            if stuck {
+                tracing::warn!("A database connection left inside a failed transaction was closed");
+            }
+            Ok(!stuck)
+        })
+    })
+}
+
 /// `options` with the `path` collation, which compares two folders as [`crate::paths::key`]
 /// does. A connection opened without it fails every statement that names it.
 pub fn with_paths(options: SqliteConnectOptions) -> SqliteConnectOptions {
@@ -533,8 +548,7 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
-    /// A newer release that migrated no further than this build leaves a database this build
-    /// reads as its own: going back a patch release is no reason to stop.
+    /// Going back a patch release is no reason to stop.
     #[tokio::test]
     async fn a_newer_release_with_the_same_schema_is_not_refused() {
         let pool = test_pool().await;
@@ -548,8 +562,8 @@ mod tests {
         run_migrations(&pool).await.expect("a database of this schema was refused");
     }
 
-    /// A database a newer release migrated further, or opened without saying how far, is
-    /// refused naming that release. A name no release lists, with no newer opener, is not.
+    /// A database migrated further than this build knows is refused naming who opened it, by the
+    /// recorded schema, or by a newer version where none is. An unknown name alone is not.
     #[tokio::test]
     async fn a_newer_release_that_migrated_further_is_refused() {
         let pool = test_pool().await;
@@ -559,14 +573,22 @@ mod tests {
             .unwrap();
         run_migrations(&pool).await.expect("an unknown migration alone was refused");
 
-        for (version, schema) in [("99.0.0", Some("099_from_a_later_release")), ("98.0.0", None)] {
+        for (version, schema) in [
+            ("99.0.0", Some("099_from_a_later_release")),
+            ("98.0.0", None),
+            (env!("CARGO_PKG_VERSION"), Some("099_from_a_build_of_main")),
+            ("0.0.1", Some("099_from_a_build_of_main")),
+        ] {
             let pool = test_pool().await;
-            sqlx::query("INSERT INTO _opened_by (version, schema) VALUES (?, ?)")
-                .bind(version)
-                .bind(schema)
-                .execute(&pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "INSERT INTO _opened_by (version, schema) VALUES (?, ?)
+                 ON CONFLICT(version) DO UPDATE SET schema = excluded.schema",
+            )
+            .bind(version)
+            .bind(schema)
+            .execute(&pool)
+            .await
+            .unwrap();
 
             let refused = run_migrations(&pool).await;
 
@@ -578,8 +600,7 @@ mod tests {
         assert!(release("0.1.10") > release("0.1.9"));
     }
 
-    /// A database 0.1.5 left is recorded at `001_release_0_1_5` and upgrades on top,
-    /// keeping the day Routarr was installed, which the overdue-backup warning reads.
+    /// The overdue-backup warning reads the day Routarr was installed.
     #[tokio::test]
     async fn a_database_0_1_5_left_upgrades_and_keeps_the_day_it_was_installed() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -604,8 +625,6 @@ mod tests {
         assert_eq!(recorded[0].1, "2026-09-21 10:00:00", "the day of the install was lost");
     }
 
-    /// A database an older release than 0.1.5 left holds a schema no migration here starts
-    /// from: refused, naming 0.1.5, and left as it was.
     #[tokio::test]
     async fn a_database_older_than_0_1_5_is_refused_naming_the_release_to_go_through() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -627,8 +646,6 @@ mod tests {
         assert_eq!(names, 11, "the refused database was changed");
     }
 
-    /// A database a build between two releases migrated holds 0.1.5's names and others no
-    /// release shipped: refused, naming one, and left as it was rather than built over half way.
     #[tokio::test]
     async fn a_database_a_build_between_releases_migrated_is_refused_untouched() {
         let pool = crate::tests::database_of_0_1_5().await;
@@ -648,8 +665,6 @@ mod tests {
         assert_eq!(names, 14, "the refused database was changed");
     }
 
-    /// An archive names its schema by the last migration it holds: one 0.1.5 took is of a
-    /// schema this build upgrades, one an older release took is before it, and neither is ahead.
     #[test]
     fn an_archives_schema_reads_as_of_0_1_5_before_it_or_ahead() {
         for of_0_1_5 in ["013_opened_by", "001_release_0_1_5", "002_release_0_2_0"] {
@@ -830,6 +845,16 @@ mod tests {
         }
     }
 
+    /// The library screen pages through every title in title order: a sort of the whole library
+    /// on each page otherwise.
+    #[tokio::test]
+    async fn the_library_is_read_in_title_order_without_a_sort() {
+        let pool = test_pool().await;
+        let statement = "SELECT id FROM media m ORDER BY m.title ASC, m.id ASC LIMIT 50";
+        let plan = plan(&pool, statement).await;
+        assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+    }
+
     /// An index whose columns start another's is kept up on every write for nothing: the longer
     /// one answers its lookups.
     #[tokio::test]
@@ -867,8 +892,6 @@ mod tests {
         assert_eq!(repeated, Vec::<String>::new());
     }
 
-    /// A database opened where the path says, whatever it holds: a URL would read `%41` as `A`
-    /// and stop at a `?`.
     #[tokio::test]
     async fn the_database_opens_at_the_path_as_written() {
         let dir = crate::tests::TempDir::new("db-path");
@@ -880,6 +903,38 @@ mod tests {
 
         assert!(dir.join("a%41b").join("routarr.db").exists(), "not created where named");
         assert!(!dir.join("aAb").exists(), "the path was read as a URL");
+    }
+
+    /// A failed COMMIT, on a full disk, leaves sqlx counting a transaction SQLite closed. Here
+    /// a forgotten transaction stands in for it.
+    #[tokio::test]
+    async fn a_connection_left_inside_a_transaction_is_never_handed_out_again() {
+        let dir = crate::tests::TempDir::new("stuck");
+        let mut config = Config::for_tests();
+        config.set_db_path(dir.join("routarr.db"));
+        let pool = init_pool(&config).await.unwrap();
+
+        let mut conn = pool.acquire().await.unwrap();
+        std::mem::forget(sqlx::Connection::begin(&mut *conn).await.unwrap());
+        drop(conn);
+        for n in 0..8 {
+            sqlx::query("INSERT INTO categories (id, name) VALUES (?, ?)")
+                .bind(format!("c-{n}"))
+                .bind(format!("written {n}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool.close().await;
+
+        let pool = init_pool(&config).await.unwrap();
+        let kept: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM categories WHERE name LIKE 'written %'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        pool.close().await;
+        assert_eq!(kept, 8, "writes answered as committed were lost");
     }
 
     /// The write-ahead log takes the size of the largest transaction, a sync of the whole
@@ -916,14 +971,52 @@ mod tests {
             "UPDATE instances SET enabled = 2",
             "UPDATE media SET monitored = 2",
             "UPDATE media SET has_files = -1",
+            "INSERT INTO secret_salt (salt) VALUES ('a second salt')",
         ] {
             let refused = sqlx::query(statement).execute(&pool).await;
             assert!(refused.is_err(), "accepted: {statement}");
         }
     }
 
-    /// The tables the schema rebuilds keep every row, and the rows that point at them, through
-    /// an upgrade.
+    /// What 0.2.0 wrote reads the same after the upgrade: its MyAnimeList answers under the
+    /// source they moved to, a move it left requested, its salt and its sessions.
+    #[tokio::test]
+    async fn a_database_0_2_0_left_upgrades_with_what_it_wrote() {
+        let pool = crate::tests::database_of_0_2_0().await;
+        let salt: String =
+            sqlx::query_scalar("SELECT salt FROM secret_salt").fetch_one(&pool).await.unwrap();
+        for statement in [
+            "INSERT INTO metadata_cache (source, external_id, media_type, stale, certification,
+                                         certification_scale)
+             VALUES ('jikan', '523', 'movie', 0, 'G', 'MAL')",
+            "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+             VALUES ('i-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                 current_root_folder, target_category, target_root_folder, action, status,
+                 reasons, alternatives, confidence)
+             VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'i-1', '/a', 'anime', '/b', 'move',
+                     'requested', '[]', '[]', 1.0)",
+            "INSERT INTO sessions (id, subject, source, expires_at)
+             VALUES ('s-1', 'owner', 'forms', datetime('now', '+1 day'))",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        run_migrations(&pool).await.unwrap();
+
+        let pool = &pool;
+        let read = |sql| async move {
+            sqlx::query_scalar::<_, String>(sql).fetch_one(pool).await.unwrap()
+        };
+        assert_eq!(
+            read("SELECT source FROM metadata_cache WHERE external_id = '523'").await,
+            "tenrai"
+        );
+        assert_eq!(read("SELECT status FROM decisions WHERE id = 'd-1'").await, "requested");
+        assert_eq!(read("SELECT salt FROM secret_salt").await, salt);
+        assert_eq!(read("SELECT reach FROM sessions WHERE id = 's-1'").await, "full");
+    }
+
     #[tokio::test]
     async fn an_upgrade_that_tightens_the_schema_keeps_every_row() {
         let pool = crate::tests::database_of_0_1_5().await;

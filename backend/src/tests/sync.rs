@@ -184,6 +184,45 @@ async fn sync_records_its_outcome_on_the_instance_and_as_a_job() {
     assert_eq!((kind.as_str(), job_status.as_str()), ("sync", "success"));
 }
 
+/// A busy database refusing the sync's outcome once does not leave the instance without it, and
+/// one refusing it every time is said in the log.
+#[tokio::test]
+async fn a_sync_outcome_the_database_refuses_is_written_again_or_logged() {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.execute(&[
+        "CREATE TEMP TABLE refusals (n INTEGER)",
+        "INSERT INTO refusals VALUES (1)",
+        "CREATE TEMP TRIGGER refuse BEFORE UPDATE OF last_sync_status ON instances
+           WHEN (SELECT COUNT(*) FROM refusals) > 0
+         BEGIN
+             DELETE FROM refusals WHERE rowid = (SELECT MIN(rowid) FROM refusals);
+             SELECT RAISE(FAIL, 'database is locked');
+         END",
+    ])
+    .await;
+    let by = crate::jobs::Attribution::manual(None);
+
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+    let status = app.count("SELECT COUNT(*) FROM instances WHERE last_sync_status = 'success'");
+    assert_eq!(status.await, 1, "the outcome refused once was never written");
+
+    app.execute(&["INSERT INTO refusals VALUES (1), (2), (3)"]).await;
+    let capture = super::LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    sync::sync_instance(&app.state, "inst-1", &by)
+        .with_subscriber(tracing::Dispatch::new(subscriber))
+        .await
+        .unwrap();
+    let logged = capture.contents();
+    assert!(logged.contains("The outcome of a sync could not be recorded"), "{logged}");
+}
+
 /// A failure is written on the instance and as a job. It moves the time of the
 /// last attempt and leaves the time of the last success where it was: the
 /// Instances screen reads that one as how fresh the library is.
@@ -226,10 +265,8 @@ async fn a_failing_sync_is_recorded_rather_than_swallowed() {
     assert_eq!(job_status, "failed");
 }
 
-/// What a sync stores of a failure any key reads, through `/instances` and
-/// `/health`: a key that cannot be opened is said in the generic sentence of
-/// an internal failure, and its detail, which names the variables of the
-/// master key, stays in the log.
+/// Any key reads the failure through `/instances` and `/health`, so a key that cannot be opened is
+/// said in the generic sentence, its detail naming the master key's variables left to the log.
 #[tokio::test]
 async fn a_failing_sync_records_no_internal_detail() {
     let app = TestApp::new().await;
@@ -242,6 +279,27 @@ async fn a_failing_sync_records_no_internal_detail() {
     let listed = app.get("/api/v1/instances/inst-1").await;
     let status = listed.assert_ok()["last_sync_status"].as_str().unwrap().to_string();
     assert_eq!(status, "error: An internal error occurred. See the server log for details.");
+}
+
+#[tokio::test]
+async fn a_sync_of_an_unchanged_library_writes_no_title() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let by = crate::jobs::Attribution::manual(None);
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+    app.execute(&[
+        "CREATE TEMP TABLE touched (n INTEGER)",
+        "CREATE TEMP TRIGGER count_updates AFTER UPDATE ON media BEGIN
+             INSERT INTO touched VALUES (1);
+         END",
+    ])
+    .await;
+
+    let report = sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+
+    assert_eq!(report.removed, 0);
+    assert_eq!(app.count("SELECT COUNT(*) FROM touched").await, 0, "unchanged titles rewritten");
 }
 
 #[tokio::test]
@@ -289,9 +347,6 @@ async fn media_removed_upstream_is_removed_locally() {
     assert!(superseded, "the proposal for a row the Arr no longer has still stands");
 }
 
-/// An Arr answering no title while it still reports its folders is restoring,
-/// or a base URL points elsewhere: the titles stay, and their exceptions with
-/// them, since deleting a title cascades to its exception.
 /// A library leaving an Arr outnumbers what one statement binds, so the
 /// retirement runs in chunks and the report counts every one of them.
 #[tokio::test]
@@ -318,6 +373,8 @@ async fn a_sync_retiring_more_rows_than_one_statement_binds_retires_and_counts_t
     assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1, "a chunk was left behind");
 }
 
+/// An Arr answering no title while it still reports its folders is restoring, or a base URL
+/// points elsewhere: the titles stay, and their exceptions with them.
 #[tokio::test]
 async fn an_arr_answering_no_title_keeps_the_library() {
     let arr = FakeArr::start().await;
@@ -702,13 +759,6 @@ async fn sync_all_isolates_per_instance_failures() {
     assert!(bad.error.is_some(), "the unreachable instance must carry its error");
 }
 
-// ------------------------------------------------- the routes, not the service
-//
-// Everything above drives `sync::` directly. These go through the router, so
-// the middleware, the extractors and the error mapping are exercised too: a
-// handler can be perfect and still be unreachable, or return the right thing
-// with the wrong status.
-
 #[tokio::test]
 async fn the_sync_route_reports_what_it_fetched() {
     let arr = FakeArr::start().await;
@@ -869,15 +919,9 @@ async fn the_connectivity_route_answers_with_the_version_it_found() {
     assert_eq!(report["inaccessible_root_folders"], 1, "got {report}");
 }
 
-/// A `for` loop with an `.await` in it syncs instances one after another. The
-/// cost is not the database (`do_sync` fetches everything before it opens its
-/// transaction) but the waiting: an unreachable Arr costs the full HTTP
-/// timeout, and two of them make the button look dead for twice that.
-///
-/// The fake counts how many listings it ever had open at once. A sequential
-/// caller can only ever reach one, whatever the machine is doing, because it
-/// does not issue the second request until the first has answered. Past the
-/// bound, a pass would hold every connection of the pool at once.
+/// An unreachable Arr costs the full HTTP timeout, so instances are synced at once. The fake
+/// counts the listings it had open together, which a sequential caller keeps at one, and past the
+/// bound a pass would hold every connection of the pool.
 #[tokio::test]
 async fn syncing_every_instance_does_them_at_the_same_time_within_the_bound() {
     let arr = FakeArr::observing_concurrency().await;
@@ -902,11 +946,8 @@ async fn syncing_every_instance_does_them_at_the_same_time_within_the_bound() {
     assert!(arr.max_concurrent() <= sync::SYNC_CONCURRENCY, "{} at once", arr.max_concurrent());
 }
 
-/// Concurrency must not reach the caller as reordering: the reports are what
-/// the API returns and what the interface lists, and a set of rows that shuffle
-/// between two runs is a table nobody can read. `buffered` overlaps the work
-/// and still yields in the order the instances were listed, which
-/// `buffer_unordered` would not.
+/// The reports are what the interface lists, and rows that shuffle between two runs make a
+/// table nobody can read.
 #[tokio::test]
 async fn the_reports_keep_the_order_the_instances_were_listed_in() {
     // The first listed answers last, so a loop yielding in completion order
@@ -930,8 +971,6 @@ async fn the_reports_keep_the_order_the_instances_were_listed_in() {
         "the reports came back in a different order from the instance list"
     );
 }
-
-// ------------------------------------------------- declared destinations
 
 /// A declared destination takes the free space and the reachability of the
 /// deepest folder the Arr reports above it, at every sync: kept from the day
@@ -993,10 +1032,8 @@ async fn a_declared_destination_survives_the_sync_that_does_not_report_it() {
     assert_eq!(kept, 1, "the sync deleted a destination the operator declared");
 }
 
-/// The whole point of allowing one: a path beneath a synced root is on that
-/// root's volume, so its free space and its reachability are known, which is
-/// what keeps the capacity and reachability guards meaningful for a folder no
-/// Arr reports.
+/// A path beneath a synced root is on that root's volume, so its free space and reachability are
+/// known and the capacity and reachability guards still hold for it.
 #[tokio::test]
 async fn a_declared_destination_inherits_from_the_folder_it_sits_under() {
     let arr = FakeArr::start().await;
@@ -1048,11 +1085,8 @@ async fn a_destination_with_a_parent_segment_is_refused() {
     assert_eq!(app.count("SELECT COUNT(*) FROM root_folders").await, 0);
 }
 
-/// A path the instance cannot see is refused at the point it is typed.
-///
-/// Routarr and the Arr run in different containers as often as not, so
-/// `/media/films` existing here says nothing about the process that will do the
-/// writing. Unchecked, the mistake surfaces as a refused move long afterwards.
+/// Routarr and the Arr often run in different containers, so a path existing here says nothing of
+/// the Arr, and the mistake would surface as a refused move long afterwards.
 #[tokio::test]
 async fn a_path_the_instance_cannot_see_is_refused_when_it_is_typed() {
     let arr = FakeArr::start().await;
@@ -1069,13 +1103,9 @@ async fn a_path_the_instance_cannot_see_is_refused_when_it_is_typed() {
     assert!(refused.message().contains("/mnt/typo"), "{}", refused.message());
 }
 
-/// A folder removed and re-added in Radarr keeps its path and changes its id.
-///
-/// The upsert conflicts on `(instance, arr_id)`, so the new id inserts a second
-/// row carrying the same path, and the orphan cleanup that removes the old one
-/// runs after the loop, in the same transaction. Under a unique index on the
-/// path the insert would fail, the transaction roll back, and that instance
-/// never synchronise again.
+/// The upsert conflicts on `(instance, arr_id)`, so a new id inserts a second row with the same
+/// path before the orphan cleanup removes the old one: a unique index on the path would fail the
+/// sync for good.
 #[tokio::test]
 async fn a_root_folder_renumbered_by_the_arr_does_not_break_the_sync() {
     let arr = FakeArr::start().await;
@@ -1200,11 +1230,8 @@ async fn a_declared_path_adopted_under_a_taken_id_does_not_fail_the_sync() {
     assert_eq!(category_of(&app, "/movies/kids").await.as_deref(), Some("kids"));
 }
 
-/// A failing tag endpoint fails no sync, since tags are one signal among
-/// many, and strips the library of no tag: every `tag_in` rule would stop
-/// matching until a later pass read them again. The catalogue the last good
-/// pass stored resolves the ids meanwhile, for a full sync and for the
-/// webhook's one item alike.
+/// Tags are one signal among many, and stripped, every `tag_in` rule would stop matching: the
+/// catalogue the last good pass stored resolves the ids, for a full sync and the webhook alike.
 #[tokio::test]
 async fn a_failing_tag_endpoint_keeps_the_tags_the_last_pass_read() {
     let arr = FakeArr::start().await;
@@ -1233,11 +1260,8 @@ async fn a_failing_tag_endpoint_keeps_the_tags_the_last_pass_read() {
     assert_eq!(tags().await, read, "the webhook's sync stripped the tags");
 }
 
-/// A declared folder has no id in the Arr, and must not publish one.
-///
-/// `arr_id` is nullable since the row can be Routarr's own. Typed as `i64`,
-/// sqlx decodes the NULL to `0`, and every declared destination would go out
-/// over the wire carrying a fabricated Arr id.
+/// `arr_id` is nullable for Routarr's own rows, and decoded as `i64` a NULL would go out as a
+/// fabricated `0`.
 #[tokio::test]
 async fn a_declared_folder_publishes_no_arr_id() {
     let arr = FakeArr::start().await;
@@ -1260,11 +1284,8 @@ async fn a_declared_folder_publishes_no_arr_id() {
     assert!(row["arr_id"].is_null(), "a declared folder published an Arr id: {row}");
 }
 
-/// A misspelt last segment is a misspelling, not a folder.
-///
-/// The endpoint answers about the directory above the one asked, so a typo in
-/// the last segment still comes back with a listing, of the folder that does
-/// exist. Only an entry naming the whole path verifies it.
+/// The endpoint answers about the directory above the one asked, so only an entry naming the
+/// whole path verifies it.
 #[tokio::test]
 async fn a_typo_in_the_last_segment_is_not_verified() {
     let arr = FakeArr::start().await;
@@ -1337,9 +1358,8 @@ async fn a_folder_whose_name_needs_encoding_is_verified() {
     assert_eq!(created.json["verified"], true, "{}", created.json);
 }
 
-/// Every declared-destination test above goes through a *Radarr* instance, and
-/// `SonarrClient` asks through a `directory_exists` of its own. An operator
-/// naming `/tv/anime` under Sonarr is exactly what this feature is for.
+/// The other declared-destination tests go through a Radarr, and `SonarrClient` asks through a
+/// `directory_exists` of its own.
 #[tokio::test]
 async fn a_declared_series_destination_is_checked_against_sonarr() {
     let arr = FakeArr::start().await;
@@ -1352,7 +1372,6 @@ async fn a_declared_series_destination_is_checked_against_sonarr() {
             serde_json::json!({ "instance_id": "i-tv", "path": "/tv/anime" }),
         )
         .await;
-    // 200 and not 201: the declaration is idempotent, so it may be a no-op.
     assert_eq!(created.status, 201, "a folder Sonarr can see was refused: {}", created.json);
     assert_eq!(created.json["verified"], true, "{}", created.json);
 

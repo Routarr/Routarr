@@ -262,7 +262,8 @@ impl TestApp {
         TestResponse { status, json, headers }
     }
 
-    /// Seed a Radarr instance, a mapped root folder and one media item.
+    /// Seed a Radarr instance, `/movies/standard` and `/movies/anime` mapped, Totoro (`m-1`) in the
+    /// first, and TMDB's cached answer for it, TMDB listed.
     pub async fn seed_library(&self) {
         sqlx::query(AN_INSTANCE).execute(&self.state.pool).await.unwrap();
 
@@ -701,8 +702,21 @@ pub async fn database_of_0_1_5() -> sqlx::SqlitePool {
     pool
 }
 
+/// A database as 0.2.0 left it.
+pub async fn database_of_0_2_0() -> sqlx::SqlitePool {
+    let pool = database_through("002_release_0_2_0").await;
+    sqlx::query(
+        "INSERT INTO _opened_by (version, schema) VALUES ('0.2.0', '002_release_0_2_0')
+         ON CONFLICT(version) DO UPDATE SET schema = excluded.schema",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool
+}
+
 /// Record a database built through `001_release_0_1_5` as 0.1.5 left it: under
-/// the thirteen names it built that schema with, and opened by 0.1.5.
+/// `crate::db::NAMES_OF_0_1_5`, and opened by 0.1.5.
 pub async fn left_by_0_1_5(pool: &sqlx::SqlitePool) {
     sqlx::query("DELETE FROM _migrations").execute(pool).await.unwrap();
     for name in crate::db::NAMES_OF_0_1_5 {
@@ -768,8 +782,8 @@ impl reqwest::dns::Resolve for NoNames {
 }
 
 impl TestApp {
-    /// The same harness, its outbound calls allowed `budget`, for a test
-    /// holding one open longer than the 300 ms of `Config::for_tests`.
+    /// The same harness, its outbound calls allowed `budget`, for a test holding one open longer
+    /// than `Config::for_tests` allows.
     pub fn with_http_budget(self, budget: std::time::Duration) -> Self {
         let mut config = (*self.state.config).clone();
         config.http_timeout = budget;

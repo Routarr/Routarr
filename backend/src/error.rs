@@ -11,13 +11,9 @@ pub enum AppError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
-    // There is deliberately **no** variant carrying a `reqwest::Error`, and in
-    // particular no `#[from]` for one. Its `Display` is
-    // `"… for url (<the full URL>)"` with the query string, and the TMDB URL
-    // carries `?api_key=`: a `From` impl would put that key in a 502 body from
-    // a single `?`, silently. Every outbound failure goes through
-    // `integrations::send_json`, which builds `ExternalApi` from the error's
-    // source chain. Without the impl, the shortcut does not compile.
+    // No variant carries a `reqwest::Error`, and none converts from one: its `Display` holds the
+    // full URL, TMDB's `?api_key=` included, so a `?` would put the key in a 502 body. Outbound
+    // failures go through `integrations::send_json`.
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
@@ -39,22 +35,12 @@ pub enum AppError {
     #[error("In progress: {message}")]
     InProgress { reason: &'static str, message: String },
 
-    /// A destructive batch needs an explicit second pass from the caller.
+    /// A destructive batch needs an explicit second pass from the caller, told by its code and
+    /// never by its English message.
     ///
-    /// Distinct from `Conflict` so clients can recognise it by code: detecting
-    /// it by substring-matching the English message breaks on any rewording,
-    /// and on every translation.
-    ///
-    /// `kind` names *which* guardrail asked, and the caller sends that name
-    /// back. Several ask through this variant, and with a single boolean
-    /// answering one would answer them all: confirming "the destination is
-    /// asleep" would also wave through "there is not enough room", silently,
-    /// because only the first to fire is ever read.
-    ///
-    /// `includes` names the other guardrails the question states and answers
-    /// with it, as the batch question states a sleeping or full destination.
-    /// Each has to come back beside `kind`, or a caller that may answer the
-    /// first would answer the others without being allowed to.
+    /// `kind` names the guardrail that asked, which the caller sends back: one boolean would let
+    /// "the destination is asleep" answer "there is not enough room" too. `includes` names the
+    /// others the question states, each sent back beside `kind`.
     #[error("Confirmation required: {message}")]
     ConfirmationRequired { kind: &'static str, includes: Vec<&'static str>, message: String },
 
@@ -102,20 +88,13 @@ pub enum AppError {
         status: u16,
         kind: Upstream,
         message: String,
-        /// Seconds the upstream asked us to wait, from its `Retry-After`.
-        ///
-        /// Carried structurally rather than left in `message`: a rate limiter
-        /// that had to parse prose to learn how long to wait would break on the
-        /// first rewording, which is the mistake `ConfirmationRequired` above
-        /// exists to avoid.
+        /// Seconds the upstream asked to wait, from its `Retry-After`, carried apart from `message`
+        /// so no limiter parses prose.
         retry_after: Option<u64>,
     },
 
-    /// An Arr that is down or failing, told in the reader's language.
-    ///
-    /// A 502 like `ExternalApi`, since the caller's request was right and a
-    /// retry may get through, carrying a sentence the interface shows as it
-    /// is rather than the upstream's own text.
+    /// An Arr that is down or failing, told in the reader's language: a 502 whose sentence
+    /// the interface shows as it is.
     #[error("{0}")]
     UpstreamDown(String),
 
@@ -127,12 +106,8 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// Whether the text is the operator's alone. `sqlx::Error` names
-    /// constraints, columns and sometimes the statement, `serde_json::Error`
-    /// quotes the input it choked on, and a configuration error names the key
-    /// setup. None of that helps whoever made the call, and the webhook is
-    /// reachable without a key, so a database failure there would describe
-    /// the schema to an anonymous caller.
+    /// Whether the text is the operator's alone: a database, serialization or configuration error
+    /// names the schema, the input or the setup, which even the keyless webhook would answer.
     pub fn is_internal(&self) -> bool {
         matches!(
             self,
@@ -153,13 +128,9 @@ impl AppError {
         }
     }
 
-    /// The text a caller may read, in a response, a job row or a placement.
-    ///
-    /// The human sentence alone: the `error` field already carries the
-    /// machine-readable kind, and a prefix such as "Bad request:" would pin an
-    /// English word in front of an otherwise translated message. An internal
-    /// failure reads as one generic sentence, and its detail goes to the log
-    /// where it happens.
+    /// The text a caller may read, in a response, a job row or a placement: the sentence alone,
+    /// with no English prefix before a translated message. A full disk or a held lock says what
+    /// to do, any other internal failure one generic sentence, its detail logged where it happens.
     pub fn public_message(&self) -> String {
         match self {
             AppError::NotFound(message)
@@ -174,12 +145,37 @@ impl AppError {
             | AppError::Busy(message)
             | AppError::Reauthenticate(message)
             | AppError::PassphraseRequired(message) => message.clone(),
+            database if database.storage().is_some() => {
+                let key = match database.storage() {
+                    Some(Storage::Full) => "ErrorDiskFull",
+                    _ => "ErrorDatabaseBusy",
+                };
+                crate::localization::Localizer::new("en").translate(key, &[])
+            }
             internal if internal.is_internal() => {
                 "An internal error occurred. See the server log for details.".to_string()
             }
             other => other.to_string(),
         }
     }
+
+    /// What a database failure says of the disk or of another writer, which a caller acts on
+    /// where an internal error tells them nothing: free some space, or try again.
+    fn storage(&self) -> Option<Storage> {
+        let AppError::Database(sqlx::Error::Database(error)) = self else { return None };
+        // An extended result code keeps the primary one in its low byte.
+        match error.code()?.parse::<i32>().ok()? & 0xff {
+            13 => Some(Storage::Full),
+            5 | 6 => Some(Storage::Locked),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Storage {
+    Full,
+    Locked,
 }
 
 /// What became of an outbound call that failed. The code decides on it and
@@ -324,7 +320,8 @@ pub struct ErrorResponse {
     /// `method_not_allowed`, `conflict`, `confirmation_required`,
     /// `payload_too_large`, `unsupported_media_type`, `too_many_requests`,
     /// `busy`, `reauthentication_required`, `passphrase_required`,
-    /// `external_api_error` or `internal_error`. An open list.
+    /// `external_api_error`, `insufficient_storage` (the data disk is full) or `internal_error`.
+    /// An open list.
     pub error: String,
     /// A sentence for a person, in the interface language. Never part of the
     /// contract.
@@ -337,7 +334,8 @@ pub struct ErrorResponse {
     /// `already_listed`, `not_declared`, `category_mapped`,
     /// `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,
     /// `only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an
-    /// application key past its expiry.
+    /// application key past its expiry. Beside `busy`: `database_busy`, another write held the
+    /// database past the wait.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
     /// The guardrail that asks, for `confirmation_required`. Sending it back
@@ -362,6 +360,12 @@ impl AppError {
 
     fn status_and_code(&self) -> (StatusCode, &'static str) {
         match self {
+            database if database.storage() == Some(Storage::Full) => {
+                (StatusCode::INSUFFICIENT_STORAGE, "insufficient_storage")
+            }
+            database if database.storage() == Some(Storage::Locked) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "busy")
+            }
             internal if internal.is_internal() => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
             }
@@ -392,7 +396,9 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_type) = self.status_and_code();
 
-        if self.is_internal() {
+        if self.storage() == Some(Storage::Locked) {
+            tracing::warn!("{self}");
+        } else if self.is_internal() {
             log_error!("{self}");
         }
         let message = self.public_message();
@@ -410,11 +416,13 @@ impl IntoResponse for AppError {
             AppError::Conflict { reason, .. } | AppError::InProgress { reason, .. } => {
                 Some(*reason)
             }
+            locked if locked.storage() == Some(Storage::Locked) => Some("database_busy"),
             _ => None,
         };
         let retry_after = match &self {
             AppError::TooManyRequests { retry_after, .. } => Some(*retry_after),
             AppError::Busy(_) => Some(1),
+            locked if locked.storage() == Some(Storage::Locked) => Some(1),
             AppError::InProgress { .. } => Some(RETRY_IN_PROGRESS),
             AppError::ExternalApi { retry_after, .. } => *retry_after,
             _ => None,
@@ -514,8 +522,6 @@ mod tests {
         }
     }
 
-    /// The database names its constraints, and the webhook is reachable without
-    /// a key: a failure there must not describe the schema to whoever called.
     #[tokio::test]
     async fn an_internal_failure_does_not_describe_itself_to_the_caller() {
         use axum::body::to_bytes;
@@ -538,8 +544,43 @@ mod tests {
         }
     }
 
-    /// A user-facing refusal keeps its sentence: the rule above must not
-    /// swallow the messages the interface actually renders.
+    /// A full disk and a write held behind another answer what the caller can do: free some
+    /// space, or try again, where an internal error tells them nothing.
+    #[tokio::test]
+    async fn a_full_disk_and_a_held_lock_say_what_to_do() {
+        use axum::body::to_bytes;
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+        let dir = crate::tests::TempDir::new("storage-errors");
+        let options = SqliteConnectOptions::new()
+            .filename(dir.join("r.db"))
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::ZERO);
+        let pool = SqlitePoolOptions::new().max_connections(2).connect_with(options).await.unwrap();
+        sqlx::query("CREATE TABLE t (v TEXT)").execute(&pool).await.unwrap();
+        let mut holder = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *holder).await.unwrap();
+        let locked = sqlx::query("INSERT INTO t VALUES ('x')").execute(&pool).await.unwrap_err();
+        sqlx::query("ROLLBACK").execute(&mut *holder).await.unwrap();
+        sqlx::query("PRAGMA max_page_count = 2").execute(&mut *holder).await.unwrap();
+        let fill = "INSERT INTO t VALUES (hex(randomblob(4096)))";
+        let full = sqlx::query(fill).execute(&mut *holder).await.unwrap_err();
+
+        for (error, status, code, said) in [
+            (full, StatusCode::INSUFFICIENT_STORAGE, "insufficient_storage", "is full"),
+            (locked, StatusCode::SERVICE_UNAVAILABLE, "busy", "busy with another write"),
+        ] {
+            let response = AppError::Database(error).into_response();
+            assert_eq!(response.status(), status);
+            let retry = response.headers().get(axum::http::header::RETRY_AFTER).is_some();
+            assert_eq!(retry, code == "busy", "{code}");
+            let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(body["error"], code);
+            assert!(body["message"].as_str().unwrap().contains(said), "{body}");
+        }
+    }
+
     #[tokio::test]
     async fn a_refusal_still_carries_its_reason() {
         use axum::body::to_bytes;

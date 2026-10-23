@@ -20,8 +20,8 @@ use crate::state::AppState;
 pub struct Job {
     pub id: String,
     /// `sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that
-    /// stores nothing), `apply`, `revert`, `backup`, `maintenance` or
-    /// `scheduler`.
+    /// stores nothing), `apply`, `revert`, `backup`, `backup_copy`, `maintenance`,
+    /// `anime_ids` or `scheduler`.
     pub kind: String,
     /// `running`, `success`, `failed`, or `cancelled` for an apply or a
     /// revert somebody stopped.
@@ -110,7 +110,7 @@ impl Job {
 pub struct Accepted {
     /// Follow it with `GET /tasks/{task_id}`, whose `result` holds the report.
     pub task_id: String,
-    /// The same id, under its old name. Read `task_id`.
+    /// The same id, deprecated. Read `task_id`.
     #[schema(deprecated)]
     pub job_id: String,
 }
@@ -127,11 +127,9 @@ pub fn prefers_async(headers: &HeaderMap) -> bool {
 
 /// Run `work` on a task of its own, and answer the way the caller prefers.
 ///
-/// Waited for, it answers the report. With `respond_async`, it answers 202 as
-/// soon as the work has started its job, with that job's address, and a
-/// refusal the work makes before starting one (a guardrail's question, a lock
-/// held) still answers at once. The work runs to its end either way, whatever
-/// the caller does after asking.
+/// Waited for, it answers the report. With `respond_async`, it answers 202 once the work has
+/// started its job, and a refusal made before that answers at once. The work runs to its end
+/// whatever the caller does.
 pub async fn answer<T>(
     state: &AppState,
     respond_async: bool,
