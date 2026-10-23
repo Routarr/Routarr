@@ -56,6 +56,21 @@ describe('ProofDialog', () => {
     expect(send).toHaveBeenCalledWith({ current_key: 'the key' });
   });
 
+  /** The help says why it asks: an archive to take away is no key to make. */
+  it('says an archive carries the keys when it asks before a download', async () => {
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode: 'forms',
+      api_key_configured: true,
+      api_key_pinned: false,
+    });
+    renderWithI18n(ProofDialog);
+    void withProof(vi.fn(), 'archive');
+
+    await screen.findByRole('dialog', { name: 'Confirm it is you' });
+    expect(screen.getByText(/An archive carries the master key/)).toBeVisible();
+    expect(screen.queryByText(/A key outlives the session/)).toBeNull();
+  });
+
   it('answers nothing on Cancel, and forgets what was typed', async () => {
     const { send, result } = asking('forms');
 
@@ -73,7 +88,6 @@ describe('ProofDialog', () => {
     expect(await again).toBeNull();
   });
 
-  /** Asked again, it says why rather than repeating the first question. */
   it('asks for an archive passphrase, and says why it asks again', async () => {
     renderWithI18n(ProofDialog);
 

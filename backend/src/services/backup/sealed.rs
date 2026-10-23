@@ -130,22 +130,11 @@ pub async fn stored_passphrase(
     let Some(sealed) = sealed.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
-    let Some(key) = super::key_in_place(config, &config.secret_key_path()) else {
+    let Some(secrets) = super::secrets_in_place(config, pool).await? else {
         return Err(AppError::Internal(
             "the backup passphrase is sealed with a master key that is not here".into(),
         ));
     };
-    let salt: Option<String> = sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1")
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
-    let secrets = crate::crypto::SecretBox::load(
-        Some(&key),
-        config.previous_secret_key.as_deref(),
-        &config.secret_key_path(),
-        salt.as_deref().map(str::as_bytes),
-    )?;
     Ok(Some(passphrase_of(secrets.open(&sealed)?)))
 }
 
@@ -645,7 +634,6 @@ mod tests {
         }
     }
 
-    /// A wrong passphrase is told apart from damage, before a byte is opened.
     #[test]
     fn a_wrong_passphrase_opens_nothing_and_says_so() {
         let dir = crate::tests::TempDir::new("seal-wrong");
@@ -658,7 +646,6 @@ mod tests {
         assert!(opens(&sealed, &passphrase("the passphrase"), &english()).unwrap());
     }
 
-    /// A sealed file altered by a byte or by a whole chunk never opens.
     #[test]
     fn an_archive_altered_in_any_way_does_not_open() {
         let dir = crate::tests::TempDir::new("seal-altered");
@@ -689,8 +676,6 @@ mod tests {
         }
     }
 
-    /// A header asking for more memory, passes or lanes than a restore spends is refused before
-    /// any work, as is a file that is no sealed archive.
     #[test]
     fn a_header_asking_too_much_or_none_at_all_is_refused() {
         let dir = crate::tests::TempDir::new("seal-header");
@@ -729,8 +714,6 @@ mod tests {
         assert!(refused_with("ErrorBackupSealedDamaged")(&refused), "{refused:?}");
     }
 
-    /// An archive damaged past its first chunk is refused once part of it was
-    /// written in the clear, and that part goes with the refusal.
     #[test]
     fn an_opening_cut_short_by_damage_leaves_nothing_in_the_clear() {
         let dir = crate::tests::TempDir::new("seal-cut-short");
@@ -753,8 +736,6 @@ mod tests {
         assert!(work.is_empty(), "{} file(s) left in the clear", work.len());
     }
 
-    /// Two openings of one archive at once write two files: sharing one, the
-    /// second would truncate what the first is reading.
     #[test]
     fn two_openings_of_one_archive_write_apart() {
         let dir = crate::tests::TempDir::new("seal-apart");
@@ -773,8 +754,6 @@ mod tests {
         assert_eq!(std::fs::read(&first.path).unwrap(), b"a database");
     }
 
-    /// The same words typed composed or decomposed, with spaces around, are
-    /// one passphrase: otherwise a keyboard would lock an archive away.
     #[test]
     fn a_passphrase_is_the_same_words_however_typed() {
         let decomposed = passphrase_of(" e\u{301}te\u{301} indien ".to_string());

@@ -7,14 +7,12 @@ import { captureDownloads } from '../test/downloads';
 import { answerConfirmation } from '../test/confirm';
 import { answerProof } from '../test/proof';
 import { ApiError, api } from '../api/client';
-import type { BackupList, RestoreResult } from '../api/types';
+import type { AuthMode, BackupList, RestoreResult } from '../api/types';
 import { createOutcome } from '../lib/outcome.svelte';
 import BackupCard from './BackupCard.svelte';
 
-/**
- * The archives on disk, and the one thing about them the operator cannot see
- * for themselves: whether the file carries the master key it needs.
- */
+/** A list with no restore staged and no database set aside. */
+const NOTHING_STAGED = { pending_restore: null, replaced_database: null };
 
 const FILE = {
   name: 'routarr-backup-20260904-101500.zip',
@@ -41,6 +39,7 @@ function mount() {
     backups: [FILE],
     retention_count: 7,
     copy: null,
+    ...NOTHING_STAGED,
   });
   const outcome = createOutcome();
   renderWithI18n(BackupCard, { props: { outcome } });
@@ -52,23 +51,131 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Fetched with the key, since the archive holds the master key, and saved under its own name. */
-it('downloads the archive of its row under its name', async () => {
-  vi.spyOn(api, 'listBackups').mockResolvedValue({
-    backups: [FILE],
-    retention_count: 7,
-    copy: null,
+const inMode = (mode: AuthMode['mode']) =>
+  vi.spyOn(api, 'authMode').mockResolvedValue({
+    mode,
+    api_key_configured: true,
+    api_key_pinned: false,
   });
-  const archive = new Blob(['zip']);
-  const fetched = vi.spyOn(api, 'downloadBackup').mockResolvedValue(archive);
-  const saved = captureDownloads();
-  renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
-  await userEvent.click(await screen.findByRole('button', { name: `Download – ${FILE.name}` }));
+/**
+ * The archive holds the master key and the API key, so a session proves itself again before it
+ * takes one away, as before it makes a key, and saves it under its own name.
+ */
+describe('downloading an archive', () => {
+  it('sends the proof and saves the archive of its row under its name', async () => {
+    inMode('forms');
+    const archive = new Blob(['zip']);
+    const fetched = vi.spyOn(api, 'downloadBackup').mockResolvedValue(archive);
+    const saved = captureDownloads();
+    mount();
 
-  await waitFor(() => expect(saved).toHaveLength(1));
-  expect(fetched).toHaveBeenCalledWith(FILE.name);
-  expect(saved[0]).toEqual({ name: FILE.name, blob: archive });
+    await userEvent.click(await screen.findByRole('button', { name: `Download – ${FILE.name}` }));
+    expect((await answerProof('the password')).asked).toBe('password');
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(fetched).toHaveBeenCalledWith(FILE.name, { current_password: 'the password' });
+    expect(saved[0]).toEqual({ name: FILE.name, blob: archive });
+  });
+
+  it('takes nothing away once the proof is declined', async () => {
+    inMode('apikey');
+    const fetched = vi.spyOn(api, 'downloadBackup');
+    const saved = captureDownloads();
+    const outcome = mount();
+
+    await userEvent.click(await screen.findByRole('button', { name: `Download – ${FILE.name}` }));
+    await answerProof(null);
+
+    expect(fetched).not.toHaveBeenCalled();
+    expect(saved).toHaveLength(0);
+    expect(outcome.error).toBeNull();
+  });
+});
+
+/**
+ * A staged restore waits for the next start, whenever it comes: a reboot weeks later applies it.
+ * Shown until then, it can be withdrawn.
+ */
+describe('a restore staged for the next start', () => {
+  const PENDING = { name: FILE.name, staged_at: '2026-10-22 22:04:56' };
+
+  it('names the archive staged and withdraws it once asked', async () => {
+    const list = vi
+      .spyOn(api, 'listBackups')
+      .mockResolvedValueOnce({
+        backups: [FILE],
+        retention_count: 7,
+        copy: null,
+        pending_restore: PENDING,
+        replaced_database: null,
+      })
+      .mockResolvedValue({ backups: [FILE], retention_count: 7, copy: null, ...NOTHING_STAGED });
+    const withdrawn = vi.spyOn(api, 'withdrawRestore').mockResolvedValue(undefined);
+    const outcome = createOutcome();
+    renderWithI18n(BackupCard, { props: { outcome } });
+
+    expect(
+      await screen.findByText(/will restore routarr-backup-20260904-101500\.zip/),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel the restore' }));
+
+    await waitFor(() => expect(withdrawn).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(outcome.notice).toBe('The restore was cancelled. The current database stays.');
+    expect(screen.queryByRole('button', { name: 'Cancel the restore' })).toBeNull();
+  });
+
+  it('offers nothing to cancel when nothing is staged', async () => {
+    mount();
+    await screen.findByText(FILE.name);
+    expect(screen.queryByRole('button', { name: 'Cancel the restore' })).toBeNull();
+  });
+});
+
+/** The database a restore replaced is the way back from a mistaken one, until deleted. */
+describe('the database a restore replaced', () => {
+  const REPLACED = { size_bytes: 2048, replaced_at: '2026-10-22 22:05:30' };
+
+  function mountReplaced() {
+    vi.spyOn(api, 'listBackups').mockResolvedValue({
+      backups: [FILE],
+      retention_count: 7,
+      copy: null,
+      pending_restore: null,
+      replaced_database: REPLACED,
+    });
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
+  }
+
+  it('is listed with its size', async () => {
+    mountReplaced();
+    const row = (await screen.findByText('The database the last restore replaced')).parentElement!;
+    expect(within(row).getByText(/2\.0 kB/)).toBeTruthy();
+  });
+
+  it('is deleted once the question is answered', async () => {
+    const deleted = vi.spyOn(api, 'deleteReplacedDatabase').mockResolvedValue(undefined);
+    mountReplaced();
+
+    const name = 'Delete – The database the last restore replaced';
+    await userEvent.click(await screen.findByRole('button', { name }));
+    const asked = await answerConfirmation();
+
+    expect(asked).toContain('only way back');
+    await waitFor(() => expect(deleted).toHaveBeenCalledTimes(1));
+  });
+
+  it('stays when the question is declined', async () => {
+    const deleted = vi.spyOn(api, 'deleteReplacedDatabase');
+    mountReplaced();
+
+    const name = 'Delete – The database the last restore replaced';
+    await userEvent.click(await screen.findByRole('button', { name }));
+    await answerConfirmation(null);
+
+    expect(deleted).not.toHaveBeenCalled();
+  });
 });
 
 /**
@@ -79,7 +186,12 @@ describe('listing the backups', () => {
   it('reports a list that failed to load, rather than showing it empty', async () => {
     vi.spyOn(api, 'listBackups')
       .mockRejectedValueOnce(new ApiError('The backup folder cannot be read', 500, 'internal'))
-      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7, copy: null });
+      .mockResolvedValueOnce({
+        backups: [FILE],
+        retention_count: 7,
+        copy: null,
+        ...NOTHING_STAGED,
+      });
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The backup folder cannot be read');
@@ -104,11 +216,6 @@ describe('restoring a backup', () => {
     );
   });
 
-  /**
-   * An installation whose master key lives in ROUTARR_SECRET_KEY has no key
-   * file, so its archives carry none, and restoring one leaves every sealed
-   * Arr credential unreadable. The manifest is the only thing that knows.
-   */
   it('warns when it does not, since every stored Arr credential is lost', async () => {
     vi.spyOn(api, 'restoreBackup').mockResolvedValue(result(false));
     const outcome = mount();
@@ -136,10 +243,6 @@ describe('restoring a backup', () => {
     expect(outcome.notice).toBe('Settings saved.');
   });
 
-  /**
-   * A sealed archive this installation holds no passphrase for: asked, sent,
-   * and asked again with the server's reason when it opened nothing.
-   */
   it('asks for the passphrase of a sealed archive until one opens it', async () => {
     const sealed = (message: string) => new ApiError(message, 400, 'passphrase_required');
     const restore = vi
@@ -188,6 +291,7 @@ it('marks an archive sealed with the backup passphrase', async () => {
     backups: [FILE, { ...FILE, name: 'routarr-backup-20260905-101500.zip.enc', encrypted: true }],
     retention_count: 7,
     copy: null,
+    ...NOTHING_STAGED,
   });
   renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
@@ -220,18 +324,19 @@ describe('taking a backup', () => {
   });
 });
 
-/**
- * A deleted archive takes its row away. Swapped for a spinner while the list
- * reloads, the other rows would take the focus with them, so the list stays,
- * and what takes the deleted row's place takes the focus.
- */
+/** The list stays while it reloads, and what takes the deleted row's place takes the focus. */
 describe('deleting a backup', () => {
   const OLDER = { ...FILE, name: 'routarr-backup-20260903-101500.zip' };
 
   function mountTwo(after: Promise<BackupList>) {
     const list = vi
       .spyOn(api, 'listBackups')
-      .mockResolvedValueOnce({ backups: [FILE, OLDER], retention_count: 7, copy: null })
+      .mockResolvedValueOnce({
+        backups: [FILE, OLDER],
+        retention_count: 7,
+        copy: null,
+        ...NOTHING_STAGED,
+      })
       .mockReturnValueOnce(after);
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
@@ -267,7 +372,9 @@ describe('deleting a backup', () => {
   });
 
   it('hands the focus to the archive that took the place of the deleted one', async () => {
-    mountTwo(Promise.resolve({ backups: [OLDER], retention_count: 7, copy: null }));
+    mountTwo(
+      Promise.resolve({ backups: [OLDER], retention_count: 7, copy: null, ...NOTHING_STAGED }),
+    );
 
     await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
     await answerConfirmation();
@@ -281,8 +388,8 @@ describe('deleting a backup', () => {
 
   it('hands the focus to Back up now once no archive is left', async () => {
     vi.spyOn(api, 'listBackups')
-      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7, copy: null })
-      .mockResolvedValueOnce({ backups: [], retention_count: 7, copy: null });
+      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7, copy: null, ...NOTHING_STAGED })
+      .mockResolvedValueOnce({ backups: [], retention_count: 7, copy: null, ...NOTHING_STAGED });
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
@@ -302,10 +409,16 @@ describe('the copy folder', () => {
     state: 'copied' as const,
     detail: 'Backups copied to /mnt/nas/routarr. Archives copied: 1',
     copied_at: '2026-09-04 10:16:00',
+    same_disk: false,
   };
 
   function mountWith(copy: BackupList['copy'], backups = [{ ...FILE, copied: true }]) {
-    vi.spyOn(api, 'listBackups').mockResolvedValue({ backups, retention_count: 7, copy });
+    vi.spyOn(api, 'listBackups').mockResolvedValue({
+      backups,
+      retention_count: 7,
+      copy,
+      ...NOTHING_STAGED,
+    });
     const outcome = createOutcome();
     renderWithI18n(BackupCard, { props: { outcome } });
     return outcome;
@@ -352,6 +465,32 @@ describe('the copy folder', () => {
     expect(adopted).not.toHaveBeenCalled();
   });
 
+  /** Another database's archives stay, so the question says so rather than warn of a share. */
+  it('takes a folder another database copied into once asked', async () => {
+    const adopted = vi.spyOn(api, 'adoptCopyFolder').mockResolvedValue(undefined);
+    const foreign = '/mnt/nas/routarr holds the archives another Routarr database copied there.';
+    mountWith({ ...COPY, state: 'foreign', detail: foreign });
+
+    expect(await screen.findByText(foreign)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Start the copy here' }));
+    const asked = await answerConfirmation();
+
+    expect(asked).toContain('another Routarr database');
+    await waitFor(() => expect(adopted).toHaveBeenCalledTimes(1));
+  });
+
+  /** A copy on the data folder's own disk does not survive that disk's loss. */
+  it('says when the folder sits on the disk of the data', async () => {
+    mountWith({ ...COPY, same_disk: true });
+    expect(await screen.findByText(/on the disk that holds the database/)).toBeTruthy();
+  });
+
+  it('says nothing of the disk of a folder elsewhere', async () => {
+    mountWith(COPY);
+    await screen.findByText('/mnt/nas/routarr');
+    expect(screen.queryByText(/on the disk that holds the database/)).toBeNull();
+  });
+
   it('says a copy is running', async () => {
     mountWith({ ...COPY, state: 'running', copied_at: null, detail: null });
     expect(await screen.findByText('Copying now.')).toBeTruthy();
@@ -362,7 +501,6 @@ describe('the copy folder', () => {
     expect(await screen.findByText('No copy yet.')).toBeTruthy();
   });
 
-  /** Deleting an archive deletes its copy: a question saying it is the only copy would lie. */
   it('names the copy a deletion takes with the archive', async () => {
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     mountWith(COPY);

@@ -90,7 +90,13 @@ function mount(
     ],
   });
   // The backups card loads on mount, and unmocked it would reach the network.
-  vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7, copy: null });
+  vi.spyOn(api, 'listBackups').mockResolvedValue({
+    backups: [],
+    retention_count: 7,
+    copy: null,
+    pending_restore: null,
+    replaced_database: null,
+  });
   // So does the sessions card, in every mode a browser signs in.
   vi.spyOn(api, 'getSessions').mockResolvedValue([]);
   // The signing card loads with the Notifications section, and its failure would
@@ -139,10 +145,6 @@ afterEach(() => {
   publishOnboarding(null);
 });
 
-/**
- * Settings is where unattended writing gets armed: neither switch is dangerous alone, so the
- * banner appears for the combination and only for it.
- */
 describe('the unattended-writing warning', () => {
   it('stays quiet while dry run is on', async () => {
     mount({ global_dry_run: 'true', auto_apply_enabled: 'true' });
@@ -167,7 +169,6 @@ describe('the unattended-writing warning', () => {
     expect(screen.getByText(LIVE_MODE)).toBeTruthy();
   });
 
-  /** Said where the two switches are, not on a screen that cannot turn them off. */
   it('stays off the sources screen', async () => {
     mountSources({ global_dry_run: 'false', auto_apply_enabled: 'true' });
 
@@ -185,11 +186,6 @@ describe('the save bar', () => {
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
-  /**
-   * Saving covers every field of every section of the screen, so the button
-   * has to say so. Sitting inside whichever section is open, it says neither
-   * that nor that there are unsaved changes at all.
-   */
   it('appears with a count once a field changes, and says what it covers', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
@@ -216,10 +212,6 @@ describe('the save bar', () => {
     );
   });
 
-  /**
-   * One section, so no strip to choose from and nothing else saved with it:
-   * a draft left on Settings stays a draft.
-   */
   it('saves the sources alone, from a screen with no section strip', async () => {
     mountSources({ metadata_providers: 'arr' });
 
@@ -236,10 +228,6 @@ describe('the save bar', () => {
     );
   });
 
-  /**
-   * A metadata key saved or cleared is what the source warnings are computed
-   * from, so saving has to tell the shell to read them again.
-   */
   it('tells the shell its counters are out of date', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
@@ -251,7 +239,6 @@ describe('the save bar', () => {
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 
-  /** Leaving drops the draft the bar counts, so the reader is asked first. */
   it('asks before leaving with unsaved changes, and stays on Cancel', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
@@ -311,10 +298,6 @@ describe('the save bar', () => {
     await waitFor(() => expect(screen.queryByText('Unsaved changes: 1')).toBeNull());
   });
 
-  /**
-   * Save and Discard live in the bar, which goes once nothing is pending, and
-   * the focus with it. The open section takes it back.
-   */
   it('hands the focus to the open section once a save takes the bar away', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
@@ -338,7 +321,6 @@ describe('the save bar', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('tabpanel')));
   });
 
-  /** A save sent by Enter from a field takes nothing away: the focus stays there. */
   it('leaves the focus in the field a save was sent from', async () => {
     const update = vi.spyOn(api, 'updateSettings').mockResolvedValue(undefined as never);
     vi.spyOn(api, 'getLocalization').mockResolvedValue({
@@ -364,17 +346,11 @@ describe('the save bar', () => {
 });
 
 describe('the metadata sources', () => {
-  /**
-   * The credential lives in the row of the source it unlocks. A key is not a
-   * setting of the application but a property of a source, and stated anywhere
-   * else, turning a source on takes two saves for one intention.
-   */
   it('offers the credential in the row of the source that needs it', async () => {
     mountSources({ metadata_providers: 'arr' });
 
     const field = await screen.findByLabelText('TMDB');
     expect(field.getAttribute('id')).toBe('setting-tmdb_api_key');
-    // The variable is named once, by the field that accepts it.
     expect(field.getAttribute('placeholder')).toBe('API key, or the TMDB_API_KEY variable');
   });
 
@@ -391,17 +367,10 @@ describe('the metadata sources', () => {
     })) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
 
-    // A key typed but not yet saved counts: refusing the click then would send
-    // the reader back for a save they cannot see the need for.
     await userEvent.type(screen.getByLabelText('TMDB'), 'a-key');
     expect(enable.disabled).toBe(false);
   });
 
-  /**
-   * The field is empty on every load, the backend never returning a sealed value. Sent, that
-   * emptiness would delete every credential on an unrelated save, with nothing on screen saying
-   * so: the sources would simply stop answering on the next pass.
-   */
   it('does not delete a stored key when an unrelated setting is saved', async () => {
     mountSources(
       { metadata_cache_ttl_days: '30', metadata_providers: 'arr,tmdb' },
@@ -440,11 +409,6 @@ describe('the metadata sources', () => {
     expect(payload.metadata_providers).toBe('');
   });
 
-  /**
-   * The shipped order is the backend's to state. A copy kept here drifts from
-   * it, and since a save sends every field of the screen, the first save of
-   * anything on it would store the copy. A list nobody chose is the server's.
-   */
   it('shows and saves the order the server resolved when none is stored', async () => {
     mountSources({ metadata_cache_ttl_days: '30' }, { configured: true, order: ['tmdb', 'arr'] });
 
@@ -454,10 +418,6 @@ describe('the metadata sources', () => {
     expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
-  /**
-   * The server refuses a source listed twice, but a stored list can still hold one. Rows are
-   * keyed by source and a save sends every field, so the list is read and saved without it.
-   */
   it('reads a stored list without its repeated source, and saves it that way', async () => {
     mountSources(
       { metadata_cache_ttl_days: '30', metadata_providers: 'tmdb,arr,tmdb' },
@@ -475,8 +435,6 @@ describe('the metadata sources', () => {
     mountSources({ metadata_providers: 'arr' });
 
     expect(await screen.findByText('Active, in priority order')).toBeTruthy();
-    // Not "Available", which would name exactly the sources that are not: a
-    // keyless one can answer nothing at all.
     expect(screen.getByText('Inactive')).toBeTruthy();
   });
 
@@ -504,11 +462,6 @@ describe('the notification webhook', () => {
     expect((await save()).notification_format).toBe('ntfy');
   });
 
-  /**
-   * The address is the channel's credential, sealed by the server and never
-   * returned: the field reads empty whether or not one is stored, so the
-   * placeholder says which, and a save that leaves it blank leaves it alone.
-   */
   it('says an address is stored, and leaves it alone when saved blank', async () => {
     mount({ notification_webhook_url_configured: true });
     await openSection('Notifications');
@@ -523,7 +476,6 @@ describe('the notification webhook', () => {
     expect(payload.notification_format).toBe('ntfy');
   });
 
-  /** Blank means "leave it", so removing one takes a button of its own. */
   it('removes a stored address at the next save', async () => {
     mount({ notification_webhook_url_configured: true });
     await openSection('Notifications');
@@ -532,7 +484,6 @@ describe('the notification webhook', () => {
       await screen.findByRole('button', { name: 'Remove – Notification webhook' }),
     );
 
-    // The button goes, so the field takes the focus and says what Save will do.
     const field = screen.getByLabelText('Notification webhook');
     await waitFor(() => expect(document.activeElement).toBe(field));
     expect(field.getAttribute('placeholder')).toBe('Removed when you save');
@@ -548,7 +499,6 @@ describe('the notification webhook', () => {
   });
 });
 
-/** A setting's state agrees as a setting does, not as the rule or instance badges do. */
 it('offers a switch in words of its own', async () => {
   mount({ auto_apply_enabled: 'false' });
   await openSection('Automation');
@@ -559,11 +509,6 @@ it('offers a switch in words of its own', async () => {
   expect(options.map((option) => option.textContent?.trim())).toEqual(['Enabled', 'Disabled']);
 });
 
-/**
- * A source's key lives in the source's row, where a blank field keeps the
- * stored one: without a Remove there, a key stays sealed behind a disabled
- * source for good.
- */
 describe("a source's stored key", () => {
   it('is removed at the next save', async () => {
     mountSources({ metadata_providers: 'arr', tmdb_api_key_configured: true });
@@ -584,7 +529,6 @@ describe("a source's stored key", () => {
     expect(screen.queryByRole('button', { name: 'Remove – TMDB' })).toBeNull();
   });
 
-  /** The mark follows what the server says after the save, not what it said at the opening. */
   it('stops marking the source inactive once a saved key lets it answer', async () => {
     mountSources({ metadata_providers: 'arr,tmdb' }, { order: ['arr', 'tmdb'] });
     expect(await screen.findByText('Inactive', { selector: '.badge' })).toBeTruthy();
@@ -621,7 +565,6 @@ describe("a source's stored key", () => {
   });
 });
 
-/** The configuration a reader versions or carries over, readable, under a name of its own. */
 it('exports the configuration as a readable file', async () => {
   vi.spyOn(api, 'exportConfig').mockResolvedValue({ version: 1, settings: { batch_limit: '25' } });
   const saved = captureDownloads();
@@ -639,10 +582,6 @@ it('exports the configuration as a readable file', async () => {
 });
 
 describe('housekeeping', () => {
-  /**
-   * The purge is not undoable and its button sits beside two that are (export
-   * and import). It asks first, and the question is the guard.
-   */
   it('asks before purging, and purges nothing when refused', async () => {
     const purge = vi.spyOn(api, 'purge');
     mount({});
@@ -672,13 +611,11 @@ describe('housekeeping', () => {
     await answerConfirmation();
 
     await waitFor(() => expect(purge).toHaveBeenCalledTimes(1));
-    // The navigation counts pending decisions, some of which the purge removed.
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 });
 
 describe('the section strip', () => {
-  /** A bare fragment resolves against the `<base href>`, which is the mount point. */
   it('keeps the page address when switching sections under a mount point', async () => {
     withBase('/routarr/');
     window.history.replaceState({}, '', '/routarr/settings');
@@ -721,7 +658,6 @@ describe('the section strip', () => {
     );
   });
 
-  /** Each language's own name is read in that language, not as letters of another. */
   it('marks each language of the picker with its own language', async () => {
     mount({});
 
@@ -729,7 +665,6 @@ describe('the section strip', () => {
     expect(option).toHaveAttribute('lang', 'nb-NO');
   });
 
-  /** Right to left, the next tab is drawn on the left, and ArrowLeft reaches it. */
   it('follows the writing direction with the arrow keys', async () => {
     mount({}, APIKEY_MODE, {}, Settings, 'rtl');
 
@@ -788,10 +723,6 @@ describe('importing a configuration', () => {
     await fireEvent.change(input, { target: { files: [file] } });
   }
 
-  /**
-   * A bundle carrying rules asks what the Rules screen asks of a rule file,
-   * and sends the answer: Cancel imports nothing.
-   */
   it('asks whether the rules of a bundle replace the ones in place', async () => {
     const importConfig = vi.spyOn(api, 'importConfig').mockResolvedValue({ ...BUNDLE, rules: 1 });
     mount({});
@@ -812,11 +743,6 @@ describe('importing a configuration', () => {
     expect(importConfig).toHaveBeenLastCalledWith({ version: 1 }, false);
   });
 
-  /**
-   * The summary goes into the region already on the page, which a screen
-   * reader announces as it changes, and the reader stays on Import. Redrawn
-   * for the reload, the region would arrive with its text and say nothing.
-   */
   it('says the summary where it is announced, and leaves the focus on Import', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({});
@@ -839,7 +765,6 @@ describe('importing a configuration', () => {
     expect(document.activeElement).toBe(button);
   });
 
-  /** A backup archive picked by mistake is said in the reader's words, not the parser's. */
   it('says a file that is not JSON in the dictionary, and sends nothing', async () => {
     const importConfig = vi.spyOn(api, 'importConfig');
     mount({});
@@ -862,8 +787,6 @@ describe('importing a configuration', () => {
     const before = getSettings.mock.calls.length;
     await importFile({ version: 1 });
 
-    // Unread, the draft keeps the values from before, and the next save, which sends every
-    // field, undoes the import.
     await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(before));
   });
 

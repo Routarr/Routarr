@@ -5,6 +5,8 @@ use crate::localization::Localizer;
 use crate::services::backup;
 use crate::state::AppState;
 
+use serde_json::json;
+
 use super::{TempDir, TestApp, warning_messages};
 
 /// A harness on a real database file in a throwaway directory, since `VACUUM INTO` writes
@@ -115,6 +117,37 @@ async fn a_maintenance_pass_folds_the_log_into_the_database() {
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&pool).await.unwrap();
     assert!(names.contains(&"anime".to_string()), "the copy holds {names:?}");
     pool.close().await;
+}
+
+/// TMDB's terms forbid keeping its answers past six months, and an archive may be kept close
+/// to a year: no archive carries them, not even in the pages a deletion frees. Another source's
+/// answers stay.
+#[tokio::test]
+async fn an_archive_leaves_the_answers_of_tmdb_out() {
+    let (app, dir) = app_with_files("no-tmdb").await;
+    app.execute(&[
+        "INSERT INTO metadata_cache (source, external_id, media_type, overview)
+         VALUES ('tmdb', '8392', 'movie', 'an-overview-tmdb-wrote')",
+        "INSERT INTO metadata_cache (source, external_id, media_type, overview)
+         VALUES ('anilist', '523', 'movie', 'an-overview-anilist-wrote')",
+    ])
+    .await;
+
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+
+    let extracted = dir.join("extracted.db");
+    {
+        let archive = std::fs::File::open(dir.join("backups").join(&file.name)).unwrap();
+        let mut zip = zip::ZipArchive::new(archive).unwrap();
+        let mut source = zip.by_name("routarr.db").unwrap();
+        std::io::copy(&mut source, &mut std::fs::File::create(&extracted).unwrap()).unwrap();
+    }
+    let bytes = std::fs::read(&extracted).unwrap();
+    let holds = |text: &str| bytes.windows(text.len()).any(|window| window == text.as_bytes());
+    assert!(!holds("an-overview-tmdb-wrote"), "the archive carries a TMDB answer");
+    assert!(holds("an-overview-anilist-wrote"), "another source's answer was left out too");
+    let live: i64 = app.count("SELECT COUNT(*) FROM metadata_cache WHERE source = 'tmdb'").await;
+    assert_eq!(live, 1, "the live cache lost its TMDB answer");
 }
 
 /// A retention count above the ceiling stays until the operator's own save lowers it, since
@@ -265,10 +298,22 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&app.state.pool).await.unwrap();
     assert_eq!(live, 0, "the database was swapped underneath a live pool");
 
-    // What `main` does before opening anything.
+    // What `main` does before opening anything, saying which archive it applies.
     let config = app.state.config.clone();
     app.state.pool.close().await;
-    assert!(backup::apply_pending_restore(&config).await.unwrap());
+    let capture = super::LogCapture::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(capture.clone())
+        .finish();
+    let applied = {
+        use tracing::instrument::WithSubscriber;
+        backup::apply_pending_restore(&config).with_subscriber(subscriber).await.unwrap()
+    };
+    assert!(applied);
+    let log = capture.contents();
+    assert!(log.contains(&file.name), "the start applied a restore without naming it: {log}");
     assert!(!dir.join("routarr.db.restore-pending").exists());
 
     let pool =
@@ -287,12 +332,49 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     pool.close().await;
 }
 
+/// A staged restore is shown where the operator looks and can be withdrawn: not restarting only
+/// defers it, and any later start would apply it.
+#[tokio::test]
+async fn a_staged_restore_is_shown_and_can_be_withdrawn_before_the_next_start() {
+    let (app, dir) = app_with_files("withdrawn-restore").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    let staged = app.post(&format!("/api/v1/backups/{}/restore", file.name), json!({})).await;
+    staged.assert_ok();
+
+    let listed = app.get("/api/v1/backups").await;
+    let listed = listed.assert_ok();
+    assert_eq!(listed["pending_restore"]["name"], file.name.as_str(), "{listed}");
+    assert!(listed["pending_restore"]["staged_at"].is_string(), "{listed}");
+    let status = app.get("/api/v1/status").await;
+    let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
+    let pending = warnings.iter().find(|warning| warning["code"] == "restore_pending");
+    let pending = pending.unwrap_or_else(|| panic!("no warning of the restore: {warnings:?}"));
+    assert!(pending["message"].as_str().unwrap().contains(&file.name), "{pending}");
+
+    let withdrawn = app.delete("/api/v1/backups/restore").await;
+    assert_eq!(withdrawn.assert_ok(), &json!({ "deleted": true }));
+
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a pending file survived");
+    assert!(app.get("/api/v1/backups").await.assert_ok()["pending_restore"].is_null());
+    let again = app.delete("/api/v1/backups/restore").await;
+    assert_eq!(again.assert_ok(), &json!({ "deleted": false }));
+    app.state.audit.flush().await;
+    let recorded = app
+        .count("SELECT COUNT(*) FROM security_events WHERE message = 'AuditRestoreWithdrawn'")
+        .await;
+    assert_eq!(recorded, 1, "the withdrawal left no line in the security log");
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+    assert!(!backup::apply_pending_restore(&config).await.unwrap(), "a withdrawn restore applied");
+}
+
 /// A key revoked since the backup stays revoked, and the signing secrets stay today's.
 #[tokio::test]
 async fn a_restore_brings_back_no_credential_withdrawn_since() {
     use crate::services::{applications, notify};
 
     let (app, _dir) = app_with_files("credentials").await;
+    app.seed_instance_at("inst-1", "sonarr", "http://127.0.0.1:1").await;
     let new = applications::NewApplication {
         name: "request-bot".into(),
         scopes: Vec::new(),
@@ -307,6 +389,20 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
     applications::revoke(&app.state.pool, &leaked.application.id).await.unwrap();
     notify::rotate_signing_secret(&app.state).await.unwrap();
     notify::rotate_signing_secret(&app.state).await.unwrap();
+    // A webhook URL that leaked, rotated since and pasted into the Arr.
+    let rotated = app.post("/api/v1/instances/inst-1/webhook-token", serde_json::json!({})).await;
+    rotated.assert_ok();
+    let token: String =
+        sqlx::query_scalar("SELECT webhook_token FROM instances WHERE id = 'inst-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    // Adopted since: forgotten, an unmounted share reads as new and its copy is never pruned.
+    app.execute(&[
+        "INSERT INTO backup_copy_folders (path) VALUES ('/backups-copy')",
+        "INSERT INTO backup_copies (name) VALUES ('routarr-backup-20261001-030000.zip')",
+    ])
+    .await;
     let today: Vec<String> =
         sqlx::query_scalar("SELECT secret FROM webhook_secrets ORDER BY secret")
             .fetch_all(&app.state.pool)
@@ -333,6 +429,18 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
             .await
             .unwrap();
     assert_eq!(restored, today, "the restore brought back a replaced signing secret");
+    let restored_token: String =
+        sqlx::query_scalar("SELECT webhook_token FROM instances WHERE id = 'inst-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(restored_token, token, "the restore brought back a webhook token rotated since");
+    let adopted: Vec<String> =
+        sqlx::query_scalar("SELECT path FROM backup_copy_folders").fetch_all(&pool).await.unwrap();
+    assert_eq!(adopted, ["/backups-copy"], "the restore forgot the adopted copy folder");
+    let copied: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM backup_copies").fetch_all(&pool).await.unwrap();
+    assert_eq!(copied, ["routarr-backup-20261001-030000.zip"], "the restore forgot a copy");
     pool.close().await;
 }
 
@@ -399,31 +507,35 @@ async fn a_restore_brings_back_no_key_or_secret_withdrawn_since() {
     }
 }
 
-/// A restore writes the withdrawals table into an archive older than it, and the next start's
-/// migration still applies.
+/// A restore writes the withdrawals and the copy tables into an archive older than them, and the
+/// next start's migrations still apply.
 #[tokio::test]
 async fn an_archive_given_the_withdrawals_ahead_of_its_migration_still_upgrades() {
+    use crate::services::backup::{COPIES_TABLE, COPY_FOLDERS_TABLE, WITHDRAWN_CREDENTIALS_TABLE};
     let pool = super::database_of_0_1_5().await;
-    sqlx::raw_sql(crate::services::backup::WITHDRAWN_CREDENTIALS_TABLE)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO withdrawn_credentials (name) VALUES ('signing_secret')")
-        .execute(&pool)
-        .await
-        .unwrap();
+    for table in [WITHDRAWN_CREDENTIALS_TABLE, COPY_FOLDERS_TABLE, COPIES_TABLE] {
+        sqlx::raw_sql(table).execute(&pool).await.unwrap();
+    }
+    for written in [
+        "INSERT INTO withdrawn_credentials (name) VALUES ('signing_secret')",
+        "INSERT INTO backup_copy_folders (path) VALUES ('/backups-copy')",
+        "INSERT INTO backup_copies (name) VALUES ('routarr-backup-20261001-030000.zip')",
+    ] {
+        sqlx::query(written).execute(&pool).await.unwrap();
+    }
 
     crate::db::run_migrations(&pool).await.unwrap();
 
-    let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM withdrawn_credentials")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(kept, 1, "the migration replaced the record the restore wrote");
+    for table in ["withdrawn_credentials", "backup_copy_folders", "backup_copies"] {
+        let kept: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(kept, 1, "the migration replaced the rows the restore wrote in {table}");
+    }
 }
 
-/// A restore keeps today's master API key and password, and closes every session the archive
-/// held.
 #[tokio::test]
 async fn a_restore_keeps_todays_api_key_and_password_and_signs_everyone_out() {
     let (app, _dir) = app_with_files("signins").await;
@@ -470,6 +582,13 @@ async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
     let config = app.state.config.clone();
     std::fs::write(config.secret_key_path(), "a-new-hosts-key").unwrap();
     std::fs::remove_file(config.api_key_path()).unwrap();
+    // The new host's own signing secret and passphrase, sealed with its own key.
+    let new_host = crate::crypto::SecretBox::load(None, None, &config.secret_key_path(), None);
+    let app = TestApp::around(AppState { secrets: new_host.unwrap(), ..app.state.clone() });
+    let signing = crate::services::notify::rotate_signing_secret(&app.state).await.unwrap();
+    let passphrase = "a long passphrase for the archives";
+    app.store_setting(backup::PASSPHRASE_SETTING, &app.state.secrets.seal(passphrase).unwrap())
+        .await;
 
     backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     app.state.pool.close().await;
@@ -483,6 +602,30 @@ async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
         "the archive's key did not come back"
     );
     assert_eq!(std::fs::read_to_string(config.api_key_path()).unwrap(), "an-api-key");
+
+    // What the restore kept of today opens under the key the next start uses.
+    let pool =
+        sqlx::SqlitePool::connect(&format!("sqlite://{}", config.db_path.display())).await.unwrap();
+    let salt: String =
+        sqlx::query_scalar("SELECT salt FROM secret_salt").fetch_one(&pool).await.unwrap();
+    let next_start = crate::crypto::SecretBox::load(
+        None,
+        None,
+        &config.secret_key_path(),
+        Some(salt.as_bytes()),
+    )
+    .unwrap();
+    let kept: Vec<String> =
+        sqlx::query_scalar("SELECT secret FROM webhook_secrets").fetch_all(&pool).await.unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(next_start.open(&kept[0]).expect("the signing secret opens"), signing);
+    let sealing: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+        .bind(backup::PASSPHRASE_SETTING)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(next_start.open(&sealing).expect("the passphrase opens"), passphrase);
+    pool.close().await;
 }
 
 /// With `ROUTARR_SECRET_KEY` set, which wins over a restored `routarr.key`, an archive sealed
@@ -629,12 +772,14 @@ async fn a_second_backup_in_the_same_second_is_refused_before_any_copy() {
 }
 
 /// A restore sets the database it replaces aside as `routarr.db.pre-restore`, so picking the
-/// wrong archive loses nothing written since.
+/// wrong archive loses nothing written since, and lists it until the owner deletes it. The master
+/// key it replaces goes at once: a key withdrawn on purpose must not survive on disk.
 #[tokio::test]
 async fn a_restore_keeps_the_database_it_replaces() {
     let (app, dir) = app_with_files("pre-restore").await;
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-since', 'written-since')"]).await;
+    std::fs::write(dir.join("routarr.key"), "the-key-withdrawn-since").unwrap();
     backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     let config = (*app.state.config).clone();
     app.state.pool.close().await;
@@ -650,6 +795,54 @@ async fn a_restore_keeps_the_database_it_replaces() {
             .await
             .unwrap();
     assert_eq!(since, 1, "the copy lost what was written since the archive");
+    pool.close().await;
+    assert!(!dir.join("routarr.key.pre-restore").exists(), "the replaced master key was kept");
+    assert_eq!(std::fs::read_to_string(dir.join("routarr.key")).unwrap(), "a-master-key");
+
+    let (_, pool, secrets) = crate::open_storage(&config).await.unwrap();
+    let app =
+        TestApp::around(AppState { secrets, ..AppState::for_tests_on(pool).with_config(config) });
+    let listed = app.get("/api/v1/backups").await;
+    let listed = listed.assert_ok();
+    let size = std::fs::metadata(&kept).unwrap().len();
+    assert_eq!(listed["replaced_database"]["size_bytes"], size, "{listed}");
+    assert!(listed["replaced_database"]["replaced_at"].is_string(), "{listed}");
+
+    let deleted = app.delete("/api/v1/backups/replaced-database").await;
+    assert_eq!(deleted.assert_ok(), &json!({ "deleted": true }));
+    assert!(!kept.exists(), "the replaced database is still on disk");
+    assert!(app.get("/api/v1/backups").await.assert_ok()["replaced_database"].is_null());
+}
+
+/// A start stopped between setting the database aside and its log leaves the log alone beside
+/// the path. The start that resumes the restore takes it away, or SQLite would replay another
+/// database's frames over the restored one.
+#[tokio::test]
+async fn a_resumed_restore_leaves_no_old_log_beside_the_restored_database() {
+    let (app, dir) = app_with_files("resumed").await;
+    app.seed_library().await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
+    let config = (*app.state.config).clone();
+    app.state.pool.close().await;
+
+    // Another database's log, its frames not yet folded into it.
+    let other = dir.join("other.db");
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&other)
+        .create_if_missing(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+    let writer = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE media (id TEXT); DROP TABLE media").execute(&writer).await.unwrap();
+    std::fs::copy(dir.join("other.db-wal"), dir.join("routarr.db-wal")).unwrap();
+    writer.close().await;
+    // The interrupted start: the database set aside, its log not yet.
+    std::fs::rename(dir.join("routarr.db"), dir.join("routarr.db.pre-restore")).unwrap();
+
+    assert!(backup::apply_pending_restore(&config).await.unwrap(), "nothing was applied");
+
+    assert!(!dir.join("routarr.db-wal").exists(), "the old log lies beside the restored database");
+    assert_eq!(media_count(&config).await, 1, "the restored rows are not the archive's");
 }
 
 #[tokio::test]
@@ -953,9 +1146,15 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
     left.sort();
     assert_eq!(
         left,
-        ["routarr.db.restore-pending", "routarr.key.restore-pending"],
+        [
+            "routarr.db.restore-pending",
+            "routarr.db.restore-pending.json",
+            "routarr.key.restore-pending"
+        ],
         "the restore staged first did not survive a refused one"
     );
+    let pending = backup::pending_restore(&app.state.config).expect("nothing is pending");
+    assert_eq!(pending.name, file.name, "the refused archive is said to be the one staged");
 }
 
 /// Stagings write the same files, so a second waits for the first, which runs on after a
@@ -1022,6 +1221,7 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
         work.join("fedcba9876543210-opened.zip"),
         dir.join("routarr.db.restore-staging"),
         dir.join("routarr.key.restore-staging"),
+        dir.join("routarr.db.restore-pending.json"),
     ] {
         std::fs::write(leftover, b"left behind").unwrap();
     }
@@ -1041,8 +1241,6 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
     let in_the_clear = std::fs::read_dir(&work).unwrap().count();
     assert_eq!(in_the_clear, 0, "a file of the work directory survived");
 }
-
-// ------------------------------------------------------------------- API
 
 /// A backup whose caller leaves still writes its archive, records it on its task and holds
 /// the lock until then.
@@ -1124,7 +1322,60 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     assert!(backup::list(&app.state).is_empty());
 }
 
-// ------------------------------------------------- what bounds the list
+/// An archive hands out the master key and the API key, so a session proves itself again before
+/// it takes one away, as before it makes a key. A key sent in a header is its own proof.
+#[tokio::test]
+async fn a_session_downloads_an_archive_only_with_its_proof() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use http_body_util::BodyExt;
+
+    let (app, dir) = super::security::forms_app("download-proof").await;
+    let password = super::security::generated_password(&app);
+    let cookie = super::security::sign_in(&app, &password).await;
+    let name = "routarr-backup-20261001-030000.zip";
+    std::fs::create_dir_all(dir.join("backups")).unwrap();
+    std::fs::write(dir.join("backups").join(name), b"PK an archive").unwrap();
+    let address = std::net::SocketAddr::from(([192, 168, 1, 41], 41000));
+    let request = |method: &str, uri: String, proof: Option<serde_json::Value>| {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(proof.map_or_else(Body::empty, |proof| Body::from(proof.to_string())))
+            .unwrap();
+        request.extensions_mut().insert(axum::extract::ConnectInfo(address));
+        request
+    };
+    let download = format!("/api/v1/backups/{name}/download");
+
+    let asked = app.send(request("GET", format!("/api/v1/backups/{name}"), None)).await;
+    assert_eq!(asked.status, StatusCode::FORBIDDEN, "{}", asked.json);
+    assert_eq!(asked.json["reason"], "proof_required", "{}", asked.json);
+    assert!(asked.message().contains("POST"), "{}", asked.json);
+
+    let proof = json!({ "current_password": password });
+    let proven = app.send_raw(request("POST", download.clone(), Some(proof))).await;
+    assert_eq!(proven.status(), StatusCode::OK);
+    let bytes = proven.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&bytes[..], b"PK an archive");
+
+    let wrong = json!({ "current_password": "not the password at all" });
+    for _ in 0..5 {
+        let refused = app.send(request("POST", download.clone(), Some(wrong.clone()))).await;
+        assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.json);
+    }
+    assert!(app.state.sign_in.held_back(Some(address.ip())).is_some(), "the guesses cost nothing");
+
+    let key = "a-key-minted-from-the-settings-screen";
+    *app.state.api_key.write().unwrap() = Some(key.to_string());
+    let by_key = Request::get(format!("/api/v1/backups/{name}"))
+        .header("x-api-key", key)
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(app.send_raw(by_key).await.status(), StatusCode::OK);
+}
 
 /// A lowered retention prunes at the save, without waiting for the next scheduled backup.
 #[tokio::test]
@@ -1151,7 +1402,6 @@ async fn lowering_the_retention_takes_effect_immediately() {
         2,
         "the old archives outlived the setting that should have removed them"
     );
-    // Newest kept, oldest gone.
     assert!(left.contains(&"routarr-backup-20260104-000000.zip".to_string()));
     assert!(!left.contains(&"routarr-backup-20260101-000000.zip".to_string()));
 }
@@ -1365,6 +1615,57 @@ async fn a_refused_start_names_the_archive_to_restore() {
 
     let message = refused.expect_err("the database was opened").to_string();
     assert!(message.contains(&format!("routarr restore {}", file.name)), "{message}");
+    let in_docker = format!("docker compose run --rm routarr /app/routarr restore {}", file.name);
+    assert!(message.contains(&in_docker), "no command a container runs: {message}");
+
+    // With no archive it opens, the refusal says so rather than print a placeholder.
+    let (app, _dir) = app_with_files("refused-start-bare").await;
+    app.execute(&[AHEAD]).await;
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+    let message = crate::db::init_pool(&config).await.expect_err("opened").to_string();
+    assert!(!message.contains("<archive>"), "{message}");
+    assert!(message.contains("no archive in"), "{message}");
+}
+
+/// A start whose migration fails leaves the database as it was, and a restart that tries again
+/// takes no second archive of it: Docker restarts a refused start until the disk is full.
+#[tokio::test]
+async fn a_start_refused_by_its_migration_archives_the_database_once() {
+    let dir = TempDir::new("migration-fails");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    let pool = crate::db::init_pool(&config).await.unwrap();
+    // Its last migration forgotten, so the next start runs it again over its own work.
+    sqlx::query("DELETE FROM _migrations WHERE id = (SELECT MAX(id) FROM _migrations)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let archives = || -> Vec<String> {
+        std::fs::read_dir(dir.join("backups"))
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    let first = crate::db::init_pool(&config).await.expect_err("a failed migration started");
+    // Older, so the attempt after it may take a name of its own.
+    let taken = archives();
+    assert_eq!(taken.len(), 1, "{taken:?}");
+    let older = taken[0].replacen(&taken[0][15..30], "20200101-000000", 1);
+    std::fs::rename(dir.join("backups").join(&taken[0]), dir.join("backups").join(&older)).unwrap();
+    let second = crate::db::init_pool(&config).await.expect_err("a failed migration started");
+
+    for refused in [first.to_string(), second.to_string()] {
+        assert!(refused.contains("004_release_0_3_0"), "the migration is not named: {refused}");
+        assert!(refused.contains(&older) || refused.contains(&taken[0]), "{refused}");
+    }
+    assert_eq!(archives(), [older], "a second archive was taken of the same database");
 }
 
 /// A start that migrates a database backs it up first, at the schema it had. A first start
@@ -1397,7 +1698,7 @@ async fn a_start_that_migrates_takes_a_backup_first() {
     super::left_by_0_1_5(&pool).await;
     pool.close().await;
 
-    crate::db::init_pool(&config).await.unwrap().close().await;
+    let pool = crate::db::init_pool(&config).await.unwrap();
 
     let taken = backups(&upgraded);
     assert_eq!(taken.len(), 1, "{taken:?}");
@@ -1405,6 +1706,25 @@ async fn a_start_that_migrates_takes_a_backup_first() {
         backup::read_manifest(&upgraded.join("backups").join(&taken[0]), &Localizer::new("en"))
             .unwrap();
     assert_eq!(manifest.schema, "013_opened_by", "the archive is not of the schema 0.1.5 left");
+    // Listed by the release it leads back to, which accepts only the shape checked below.
+    let before = &taken[0];
+    assert!(before.len() <= 64 && !before.contains(".."), "{before}");
+    assert!(before.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)), "{before}");
+
+    // The way back across the schema change outlives the retention count.
+    let state = AppState::for_tests_on(pool).with_config(config.clone());
+    let retained = state.setting::<usize>("backup_retention_count").await;
+    for day in 1..=retained + 1 {
+        let name = format!("routarr-backup-2099010{day}-030000.zip");
+        std::fs::write(upgraded.join("backups").join(name), b"a scheduled archive").unwrap();
+    }
+    backup::prune(&state).await.unwrap();
+    assert!(backups(&upgraded).contains(before), "the pruning took the way back away");
+    assert_eq!(backup::newest_openable(&config, None).as_ref(), Some(before));
+    assert!(
+        backup::last_taken_at(&state).is_some_and(|taken| taken.format("%Y").to_string() == "2099")
+    );
+    state.pool.close().await;
 }
 
 /// An archive older than this build's first migration is refused, naming the release to go
@@ -1464,7 +1784,22 @@ async fn a_backup_missed_for_two_intervals_is_warned_of() {
 #[test]
 fn the_data_disk_is_low_under_twice_the_database_and_a_margin() {
     let margin = 100 * 1024 * 1024;
-    assert!(!crate::api::health::disk_is_low(2 * 500 + margin, 500));
-    assert!(crate::api::health::disk_is_low(2 * 500 + margin - 1, 500));
-    assert!(crate::api::health::disk_is_low(margin - 1, 0));
+    assert!(!crate::services::backup::disk_is_low(2 * 500 + margin, 500));
+    assert!(crate::services::backup::disk_is_low(2 * 500 + margin - 1, 500));
+    assert!(crate::services::backup::disk_is_low(margin - 1, 0));
+}
+
+/// A database a restore set aside holds part of what a low disk lacks, and the warning says how
+/// much deleting it frees.
+#[test]
+fn a_low_disk_warning_counts_the_database_a_restore_replaced() {
+    let english = Localizer::new("en");
+    let replaced = 98 * 1024 * 1024;
+
+    let plain = crate::api::health::disk_low_message(50 * 1024 * 1024, None, &english);
+    let counted = crate::api::health::disk_low_message(50 * 1024 * 1024, Some(replaced), &english);
+
+    assert!(plain.contains("50"), "{plain}");
+    assert!(counted.contains("98"), "the replaced database is not counted: {counted}");
+    assert!(counted.contains("Backups card"), "nothing says where to delete it: {counted}");
 }

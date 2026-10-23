@@ -285,14 +285,19 @@
             "description": "The folder `ROUTARR_BACKUP_COPY_DIR` names.",
             "type": "string"
           },
+          "same_disk": {
+            "description": "The last good copy found the folder on the disk of the data folder, whose loss it would\nnot survive. False where the system cannot tell.",
+            "type": "boolean"
+          },
           "state": {
-            "description": "`never` before the first copy, then the last one's: `running`, `copied`, `failed`, or\n`unmounted`, a folder without the marker its first copy left, which the owner may take as\nit is.",
+            "description": "`never` before the first copy, then the last one's: `running`, `copied`, `failed`,\n`unmounted`, a folder without its first copy's marker, or `foreign`, one another Routarr\ndatabase copied into. Neither gains or loses a file until the owner takes it as it is.",
             "type": "string"
           }
         },
         "required": [
           "folder",
-          "state"
+          "state",
+          "same_disk"
         ],
         "type": "object"
       },
@@ -342,6 +347,28 @@
               {
                 "$ref": "#/components/schemas/BackupCopy",
                 "description": "The copy into `ROUTARR_BACKUP_COPY_DIR`, null when the variable is unset."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending_restore": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PendingRestore",
+                "description": "The restore the next start applies, whenever it comes. Null when none is staged."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replaced_database": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReplacedDatabase",
+                "description": "The database the last restore replaced, kept until deleted. Null when there is none."
               },
               {
                 "type": "null"
@@ -2009,7 +2036,7 @@
             "type": "string"
           },
           "reason": {
-            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an\napplication key past its expiry. Beside `busy`: `database_busy`, another write held the\ndatabase past the wait.",
+            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`, `disk_full`. Beside `unauthorized`: `key_expired`, an\napplication key past its expiry. Beside `busy`: `database_busy`, another write held the\ndatabase past the wait. Beside `forbidden`: `proof_required`, a session that proves itself\nagain through the route the message names.",
             "type": [
               "string",
               "null"
@@ -3685,6 +3712,24 @@
         ],
         "type": "object"
       },
+      "PendingRestore": {
+        "description": "A restore staged for the next start, which applies it whenever it comes.",
+        "properties": {
+          "name": {
+            "description": "The archive staged, or the pending file's own name when nothing records it.",
+            "type": "string"
+          },
+          "staged_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "staged_at"
+        ],
+        "type": "object"
+      },
       "PinRequest": {
         "additionalProperties": false,
         "description": "The category to force on a title, and why.",
@@ -4212,6 +4257,27 @@
         },
         "required": [
           "reordered"
+        ],
+        "type": "object"
+      },
+      "ReplacedDatabase": {
+        "description": "The database the last restore replaced, kept beside the live one until the owner deletes it.",
+        "properties": {
+          "replaced_at": {
+            "description": "When it was last written, by the server the restore stopped.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "With its write-ahead log.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "size_bytes",
+          "replaced_at"
         ],
         "type": "object"
       },
@@ -5520,7 +5586,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,\n`webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,\n`deprecated_api_called` or `removal_held`. The list may grow.",
+            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,\n`webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,\n`deprecated_api_called`, `removal_held` or `restore_pending`. The list may grow.",
             "type": "string"
           },
           "guide_step": {

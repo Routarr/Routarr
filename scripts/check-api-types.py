@@ -34,6 +34,8 @@ PAIRS: dict[str, str] = {
     "RuleTest": "RuleTest",
     "BackupCopy": "BackupCopy",
     "BackupFile": "BackupFile",
+    "PendingRestore": "PendingRestore",
+    "ReplacedDatabase": "ReplacedDatabase",
     "BackupListResponse": "BackupList",
     "HealthResponse": "Health",
     "LocalizationResponse": "Localization",
