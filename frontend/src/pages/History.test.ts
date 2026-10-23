@@ -10,11 +10,6 @@ import { answerConfirmation } from '../test/confirm';
 import History from './History.svelte';
 import { publishAccess } from '../lib/access.svelte';
 
-/**
- * The audit trail, and the only screen that can undo a move. A revert asks once, in one dialog,
- * since a second dialog's Cancel would revert without the files rather than stop.
- */
-
 const show = () => renderWithI18n(History);
 
 // Nothing a revert of many could take, and nothing to filter, unless a test says otherwise.
@@ -61,10 +56,6 @@ describe('History', () => {
     expect(screen.queryByRole('button', { name: /Revert/ })).toBeNull();
   });
 
-  /**
-   * The server says whether a move can be undone: never applied, undone, or followed since. A
-   * button offered anyway sends the executor a request it can only refuse.
-   */
   it('offers no revert where the server says the move cannot be undone', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', applied_at: '2026-08-27 11:00:00' })]),
@@ -101,7 +92,6 @@ describe('History', () => {
     expect(revertDecisions).not.toHaveBeenCalled();
   });
 
-  /** Leaving the screen stops the looking at a revert, not the revert. */
   it('stops following a revert once the screen closes', async () => {
     const revertDecisions = vi.spyOn(api, 'revertDecisions').mockReturnValue(new Promise(() => {}));
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
@@ -158,10 +148,6 @@ describe('History', () => {
       'unreachable',
     );
 
-  /**
-   * The backend asks before a revert what it asks before an apply. An answer lifts only its own
-   * name, so the second send carries that name and nothing else.
-   */
   it('asks the question the backend raises, and reverts once it is answered', async () => {
     const revertDecisions = vi
       .spyOn(api, 'revertDecisions')
@@ -207,7 +193,6 @@ describe('History', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  /** A revert that restored nothing failed: in a success banner its reason reads as good news. */
   it('reports a revert that restored nothing as a failure, not a success', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', revertible: true, media_title: 'Akira' })]),
@@ -235,10 +220,6 @@ describe('History', () => {
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
-  /**
-   * Left standing, the first revert's count reads as the outcome of the second, printed above the
-   * reason that one was refused.
-   */
   it('takes the previous success off screen when the next revert is refused', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
@@ -275,7 +256,6 @@ describe('History', () => {
     expect(screen.queryByText('Moves reverted: 1')).toBeNull();
   });
 
-  /** The history is paged by the server, and the pager asks it for the next page. */
   it('counts every decision under the table, and asks the server for the next page', async () => {
     const getDecisions = vi
       .spyOn(api, 'getDecisions')
@@ -317,10 +297,6 @@ describe('History', () => {
     ]);
   });
 
-  /**
-   * The row says whether the nightly sweep proposed a move or a person did, and says nothing,
-   * rather than guessing, when the row recorded no cause.
-   */
   it('names what caused a decision, and stays silent when nothing recorded it', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
@@ -337,10 +313,6 @@ describe('History', () => {
     expect(within(older).queryByTitle('Triggered by')).toBeNull();
   });
 
-  /**
-   * "Manually" is no answer once several people can sign in, or a key is a script. The name sits
-   * beside the trigger, since the scheduler has a trigger and no name.
-   */
   it('names who asked, beside what caused it, and only when a mode named one', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
@@ -390,7 +362,6 @@ describe('History', () => {
     expect(screen.getByText('The history could not be read')).toBeTruthy();
   });
 
-  /** A refusal stays until it is dismissed or replaced, whatever reloads the table. */
   it('keeps a refused revert on screen when the table reloads', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', revertible: true, media_title: 'Akira' })]),
@@ -418,7 +389,6 @@ describe('History', () => {
   });
 });
 
-/** A reverted row stays and loses its Revert: the next row's Revert takes the focus. */
 it('hands the focus to the next Revert once a row cannot be reverted again', async () => {
   const first = decision({ status: 'applied', revertible: true });
   const next = decision({
@@ -553,6 +523,7 @@ describe('narrowing and reverting many', () => {
       failed: 2,
       batches_planned: 2,
       stopped_early: true,
+      stopped: 'refused',
       errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'refused' }],
     });
     show();
@@ -562,6 +533,11 @@ describe('narrowing and reverting many', () => {
     expect(
       await screen.findByText(
         'Stopped after a failure. Reverted: 1 of 3. Batches run: 1 of 2. The rest stays applied.',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Stopped: the Arr refused every move of a batch. The rest was not attempted.',
       ),
     ).toBeTruthy();
     expect(screen.getByText('Akira: refused')).toBeTruthy();

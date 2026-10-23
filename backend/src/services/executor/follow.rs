@@ -46,7 +46,7 @@ const CEILING_ROUNDS: u32 = 360;
 
 /// Follow one move of files until its command ends, then read the title back: in its target the
 /// move is applied, anywhere else the Arr undid it. Polled quickly for `move_wait`, then every
-/// quarter of it at most 15 s, since a copy across disks takes minutes a film.
+/// quarter of it, 15 s at most, since a copy across disks takes minutes per film.
 pub(super) async fn follow_one(
     sending: Sending<'_>,
     adapter: &ArrAdapter,

@@ -1,4 +1,4 @@
-import type { ApplyReport, StopReason } from '../api/types';
+import type { ApplyReport, BatchApplyReport, StopReason } from '../api/types';
 import { t } from './i18n.svelte';
 import type { Outcome } from './outcome.svelte';
 
@@ -8,7 +8,14 @@ const STOPPED: Record<StopReason, string> = {
   shutdown: 'ApplyStoppedForShutdown',
   unreachable: 'ApplyStoppedArrUnreachable',
   stalled: 'ApplyStoppedArrStalled',
+  refused: 'ApplyStoppedSliceRefused',
+  failed: 'ApplyStoppedSliceFailed',
 };
+
+/** Whether a run in slices was cut short by a failure rather than stopped. */
+export function endedOnFailure(report: Pick<BatchApplyReport, 'stopped'>): boolean {
+  return report.stopped === 'refused' || report.stopped === 'failed';
+}
 
 /**
  * The outcome of an apply or a revert: what it says beside its counts, then the moves it could

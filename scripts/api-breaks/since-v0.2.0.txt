@@ -20,4 +20,10 @@ POST /decisions/apply-all added the new `stalled` enum value to the `stopped/one
 POST /decisions/apply-all added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 POST /decisions/revert added the new `stalled` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 POST /decisions/revert added the new `unreachable` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply added the new `refused` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply added the new `failed` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply-all added the new `refused` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/apply-all added the new `failed` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/revert added the new `refused` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
+POST /decisions/revert added the new `failed` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 x-routarr-scope changed on GET /health: operate in the release, read now

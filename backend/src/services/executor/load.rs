@@ -165,15 +165,16 @@ pub(super) async fn revertible_matching(
     Ok(query.fetch_all(pool).await?)
 }
 
-/// The decisions still safe to apply, revalidated now since the rules, mappings or library may
-/// have changed. A proposal the rules no longer send to the same folder is skipped and retired,
-/// or it stays pending on screen, skipped again on every apply.
+/// The moves still to make for `ids`, revalidated just before they go, and how many proposals a
+/// later run replaced (`current_proposals`). One the rules no longer send to the same folder is
+/// skipped and retired, or it stays pending on screen, skipped again on every apply.
 pub(super) async fn load_pending_moves(
     pool: &SqlitePool,
     ids: &[String],
-) -> AppResult<Vec<PendingMove>> {
+) -> AppResult<(Vec<PendingMove>, usize)> {
+    let (ids, replaced) = current_proposals(pool, ids).await?;
     if ids.is_empty() {
-        return Ok(vec![]);
+        return Ok((vec![], replaced));
     }
     let placeholders = crate::db::placeholders(ids.len());
 
@@ -191,7 +192,7 @@ pub(super) async fn load_pending_moves(
     );
     // The last clause drops a title moved since it was proposed. `IS` matches a null to a null.
     let mut query = sqlx::query_as::<_, MoveRow>(AssertSqlSafe(sql.as_str()));
-    for id in ids {
+    for id in &ids {
         query = query.bind(id);
     }
     let rows = query.fetch_all(pool).await?;
@@ -216,7 +217,7 @@ pub(super) async fn load_pending_moves(
         }
     }
 
-    Ok(in_given_order(current, ids))
+    Ok((in_given_order(current, &ids), replaced))
 }
 
 pub(super) async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResult<()> {

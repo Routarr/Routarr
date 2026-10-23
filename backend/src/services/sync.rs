@@ -39,7 +39,7 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
 
     let localizer = &state.localizer().await;
     let reports = futures::stream::iter(instances.into_iter().map(|instance| async move {
-        match sync_instance_inner(state, &instance, by).await {
+        match sync_instance_inner(state, &instance, by, Removal::Bounded).await {
             Ok(report) => report,
             Err(e) => {
                 error!("Failed to sync instance '{}': {e}", instance.name);
@@ -68,13 +68,34 @@ pub async fn sync_instance(
     by: &Attribution,
 ) -> AppResult<SyncReport> {
     let instance = state.instance(instance_id).await?;
-    sync_instance_inner(state, &instance, by).await
+    sync_instance_inner(state, &instance, by, Removal::Bounded).await
 }
+
+/// Synchronize one instance and remove every title its Arr no longer reports, however many.
+pub async fn sync_removing_missing(
+    state: &AppState,
+    instance_id: &str,
+    by: &Attribution,
+) -> AppResult<SyncReport> {
+    let instance = state.instance(instance_id).await?;
+    sync_instance_inner(state, &instance, by, Removal::Asked).await
+}
+
+/// Whether a sync may remove most of an instance's library on one read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Removal {
+    Bounded,
+    Asked,
+}
+
+/// A sync dropping more titles than this, and more than half of the instance, holds them.
+const HELD_PAST: usize = 10;
 
 async fn sync_instance_inner(
     state: &AppState,
     instance: &Instance,
     by: &Attribution,
+    removal: Removal,
 ) -> AppResult<SyncReport> {
     // The scheduler and a click on Sync must not fight over the same rows.
     let localizer = state.localizer().await;
@@ -98,7 +119,7 @@ async fn sync_instance_inner(
         instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with(SYNC_FAILED));
 
     let list_folders = lists_folders(state, instance, by).await.unwrap_or(true);
-    let outcome = do_sync(state, instance, list_folders, asked(by)).await;
+    let outcome = do_sync(state, instance, list_folders, asked(by), removal).await;
     if outcome.is_ok()
         && let Err(e) = crate::services::executor::settle_requested(state, instance, by).await
     {
@@ -192,6 +213,7 @@ async fn do_sync(
     instance: &Instance,
     list_folders: bool,
     asked: bool,
+    removal: Removal,
 ) -> AppResult<SyncReport> {
     let adapter = state.adapter(instance)?;
 
@@ -430,8 +452,9 @@ async fn do_sync(
     let known = known_folders(&mut tx, &instance.id).await?;
     for item in &media {
         let item = &item.in_folder_of(&known);
-        upsert_media(&mut *tx, &instance.id, item, &names, &sync_token, &read_at).await?;
+        upsert_media(&mut *tx, &instance.id, item, &names, &read_at).await?;
     }
+    restore_overrides(&mut tx, &instance.id).await?;
 
     // An empty answer is never read as everything deleted: a deletion cascades to overrides.
     let (removed, stale_folders) =
@@ -454,7 +477,25 @@ async fn do_sync(
             .bind(&read_at)
             .fetch_all(&mut *tx)
             .await?;
-            let removed = retire_media(&mut tx, &gone).await?;
+            let held = removal == Removal::Bounded
+                && gone.len() > HELD_PAST
+                && gone.len() * 2 > gone.len() + media.len();
+            let removed = if held {
+                warn!(
+                    instance = %instance.name,
+                    count = gone.len(),
+                    "The Arr no longer reports most of the library: its titles are kept until \
+                     they are removed from the Instances screen"
+                );
+                0
+            } else {
+                retire_media(&mut tx, &gone).await?
+            };
+            sqlx::query("UPDATE instances SET removal_held = ? WHERE id = ?")
+                .bind(if held { gone.len() as i64 } else { 0 })
+                .bind(&instance.id)
+                .execute(&mut *tx)
+                .await?;
 
             // Only what the Arr owns: a declared destination is the operator's.
             let stale_folders = match &folders {
@@ -550,7 +591,8 @@ pub async fn sync_single_media(
         store_profiles(&mut tx, &instance.id, read).await?;
     }
     let item = item.in_folder_of(&known_folders(&mut tx, &instance.id).await?);
-    upsert_media(&mut *tx, &instance.id, &item, &names, &read_at, &read_at).await?;
+    upsert_media(&mut *tx, &instance.id, &item, &names, &read_at).await?;
+    restore_overrides(&mut tx, &instance.id).await?;
     tx.commit().await?;
 
     Ok(Some(media_row_id(&instance.id, item.arr_id)))
@@ -617,9 +659,9 @@ fn known_by_arr_id(count: usize) -> String {
     )
 }
 
-/// Remove media rows and retire what pointed at them: overrides cascade, and a pending
-/// proposal, which does not reference the row, is superseded or it stays listed and never
-/// applies. The one writer for the full sync and a delete event.
+/// Remove media rows and retire what pointed at them, the one writer for the full sync and a
+/// delete event. A pending proposal is superseded, an exception waits for the title's own id,
+/// and the history moves to an id no row takes: a reused Arr id revives no revert of the old title.
 pub async fn retire_media(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ids: &[String],
@@ -627,11 +669,45 @@ pub async fn retire_media(
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
     crate::services::routing::supersede_pending(tx, &refs).await?;
 
+    let history = format!("retired-{}:", uuid::Uuid::new_v4());
     let mut removed = 0;
     // Chunked: a full sync can retire a whole instance's rows in one pass.
     for chunk in ids.chunks(crate::services::routing::BIND_CHUNK) {
         let placeholders = crate::db::placeholders(chunk.len());
+        let keep = format!(
+            "INSERT OR REPLACE INTO retired_overrides
+                    (instance_id, media_type, work_id, target_category, reason, created_at,
+                     subject, subject_key)
+             SELECT m.instance_id, m.media_type,
+                    CASE m.media_type WHEN 'movie' THEN m.tmdb_id ELSE m.tvdb_id END,
+                    o.target_category, o.reason, o.created_at, o.subject, o.subject_key
+               FROM overrides o JOIN media m ON m.id = o.media_id
+              WHERE o.media_id IN ({placeholders})
+                AND CASE m.media_type WHEN 'movie' THEN m.tmdb_id ELSE m.tvdb_id END > 0"
+        );
+        let detach = [
+            format!(
+                "UPDATE decisions SET media_id = ? || media_id
+                  WHERE media_id IN ({placeholders}) AND status <> 'pending'"
+            ),
+            format!(
+                "UPDATE execution_logs SET media_id = ? || media_id
+                  WHERE media_id IN ({placeholders})"
+            ),
+        ];
         let delete = format!("DELETE FROM media WHERE id IN ({placeholders})");
+        let mut query = sqlx::query(AssertSqlSafe(keep.as_str()));
+        for id in chunk {
+            query = query.bind(id);
+        }
+        query.execute(&mut **tx).await?;
+        for statement in &detach {
+            let mut query = sqlx::query(AssertSqlSafe(statement.as_str())).bind(&history);
+            for id in chunk {
+                query = query.bind(id);
+            }
+            query.execute(&mut **tx).await?;
+        }
         let mut query = sqlx::query(AssertSqlSafe(delete.as_str()));
         for id in chunk {
             query = query.bind(id);
@@ -639,6 +715,42 @@ pub async fn retire_media(
         removed += query.execute(&mut **tx).await?.rows_affected();
     }
     Ok(removed)
+}
+
+/// Give the exceptions back to the titles of `instance_id` reported again by their own id.
+async fn restore_overrides(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+) -> AppResult<()> {
+    let returned = "FROM retired_overrides r JOIN media m
+                      ON m.instance_id = r.instance_id AND m.media_type = r.media_type
+                     AND r.work_id = CASE m.media_type WHEN 'movie' THEN m.tmdb_id ELSE m.tvdb_id END
+                   WHERE r.instance_id = ?
+                     AND NOT EXISTS (SELECT 1 FROM overrides o WHERE o.media_id = m.id)
+                     AND EXISTS (SELECT 1 FROM categories c WHERE c.name = r.target_category)";
+    sqlx::query(AssertSqlSafe(format!(
+        "INSERT INTO overrides (id, media_id, target_category, reason, created_at, subject,
+                                subject_key)
+         SELECT lower(hex(randomblob(16))), m.id, r.target_category, r.reason, r.created_at,
+                r.subject, r.subject_key
+         {returned}"
+    )))
+    .bind(instance_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM retired_overrides
+          WHERE instance_id = ? AND EXISTS (
+                SELECT 1 FROM media m
+                 WHERE m.instance_id = retired_overrides.instance_id
+                   AND m.media_type = retired_overrides.media_type
+                   AND retired_overrides.work_id =
+                       CASE m.media_type WHEN 'movie' THEN m.tmdb_id ELSE m.tvdb_id END)",
+    )
+    .bind(instance_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// Every folder of `instance` Routarr knows, reported or declared.
@@ -659,8 +771,7 @@ async fn upsert_media<'e, E>(
     instance_id: &str,
     item: &crate::integrations::adapter::ArrMedia,
     names: &Names,
-    sync_token: &str,
-    // When the caller started reading the Arr: a path moved after it is kept.
+    // When the caller began reading the Arr, stamped on the row: a move or a read after it wins.
     read_at: &str,
 ) -> AppResult<()>
 where
@@ -707,8 +818,10 @@ where
             collection_tmdb_id = excluded.collection_tmdb_id,
             ratings = excluded.ratings,
             last_synced_at = excluded.last_synced_at
-         -- An unchanged row is not rewritten: a sync of a quiet library writes nothing.
-         WHERE ((media.moved_at IS NULL OR media.moved_at < ?)
+         -- A row read after this read began is newer in every column.
+         WHERE (media.last_synced_at IS NULL OR media.last_synced_at <= ?)
+           -- An unchanged row is not rewritten: a sync of a quiet library writes nothing.
+           AND (((media.moved_at IS NULL OR media.moved_at < ?)
                 AND (media.current_path IS NOT excluded.current_path
                      OR media.current_root_folder IS NOT excluded.current_root_folder))
             OR media.title IS NOT excluded.title
@@ -733,7 +846,7 @@ where
             OR media.network IS NOT excluded.network
             OR media.collection IS NOT excluded.collection
             OR media.collection_tmdb_id IS NOT excluded.collection_tmdb_id
-            OR media.ratings IS NOT excluded.ratings",
+            OR media.ratings IS NOT excluded.ratings)",
     )
     .bind(media_row_id(instance_id, item.arr_id))
     .bind(instance_id)
@@ -767,8 +880,9 @@ where
     .bind(item.collection.as_ref().and_then(|c| c.title.as_deref()))
     .bind(item.collection.as_ref().and_then(|c| c.tmdb_id))
     .bind(serde_json::to_string(&item.ratings)?)
-    .bind(sync_token)
-    // For the guard of each path column, then the `WHERE`'s, after every VALUES placeholder.
+    .bind(read_at)
+    // For the guard of each path column, then the two of the `WHERE`, after every VALUES one.
+    .bind(read_at)
     .bind(read_at)
     .bind(read_at)
     .bind(read_at)
@@ -1002,5 +1116,53 @@ mod tests {
         let steps: Vec<&str> = plan.iter().map(|step| step.3.as_str()).collect();
         let by_arr_id = |step: &&str| step.starts_with("SEARCH media") && step.contains("arr_id=?");
         assert!(steps.iter().any(by_arr_id), "{steps:?}");
+    }
+
+    /// A file Radarr imported while a long sync read the library reaches the row through the
+    /// webhook, and the sync's older reading of every column is not laid over it.
+    #[tokio::test]
+    async fn a_full_sync_keeps_a_row_the_webhook_read_after_it() {
+        let pool = crate::db::test_pool().await;
+        sqlx::query(crate::tests::AN_INSTANCE).execute(&pool).await.unwrap();
+        let film = |has_files: bool| crate::integrations::adapter::ArrMedia {
+            arr_id: 10,
+            media_type: "movie",
+            title: "My Neighbor Totoro".into(),
+            sort_title: None,
+            year: Some(1988),
+            tmdb_id: Some(8392),
+            tvdb_id: None,
+            imdb_id: None,
+            path: Some("/movies/standard/My Neighbor Totoro (1988)".into()),
+            root_folder_path: Some("/movies/standard".into()),
+            monitored: true,
+            has_files,
+            status: Some("released".into()),
+            added: None,
+            series_type: None,
+            size_on_disk: Some(if has_files { 8_589_934_592 } else { 0 }),
+            season_count: None,
+            tag_ids: Vec::new(),
+            genres: Vec::new(),
+            original_language: None,
+            certification: None,
+            quality_profile_id: None,
+            runtime: None,
+            studio: None,
+            network: None,
+            collection: None,
+            ratings: Default::default(),
+        };
+        let names = super::Names { tags: Default::default(), profiles: Default::default() };
+        let (webhook, sync) = ("2026-10-22 12:00:10", "2026-10-22 12:00:00");
+
+        super::upsert_media(&pool, "inst-1", &film(true), &names, webhook).await.unwrap();
+        super::upsert_media(&pool, "inst-1", &film(false), &names, sync).await.unwrap();
+
+        let row: (bool, String) = sqlx::query_as("SELECT has_files, last_synced_at FROM media")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row, (true, webhook.to_string()));
     }
 }

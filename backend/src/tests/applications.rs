@@ -392,6 +392,54 @@ async fn an_application_leaves_its_name_on_the_tasks_and_decisions_it_starts() {
     }
 }
 
+/// A key that may move files stops a run it started, as a script finding it moves the wrong
+/// titles must. Another key's cancel of it is refused, and both go to the security log.
+#[tokio::test]
+async fn an_application_key_stops_the_run_it_started_and_no_other() {
+    let arr = FakeArr::start().await;
+    arr.moving_for(std::time::Duration::from_secs(60));
+    let app = TestApp::films_to_move(&arr, 1).await;
+    app.simulate().await;
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM decisions WHERE status = 'pending'")
+        .fetch_all(&app.state.pool)
+        .await
+        .unwrap();
+    let mover = json!({ "name": "cron", "scopes": ["operate"], "may_move_files": true });
+    let started = mint(&app, None, mover).await;
+    let other = mint(&app, None, json!({ "name": "other", "scopes": ["operate"] })).await;
+    let body = json!({ "decision_ids": ids, "move_files": true });
+    let mut request = super::preferring_async("/api/v1/decisions/apply", body);
+    request.headers_mut().insert("x-api-key", started.parse().unwrap());
+
+    let accepted = app.send(request).await;
+    assert_eq!(accepted.status, StatusCode::ACCEPTED, "{:?}", accepted.json);
+    let task = accepted.json["task_id"].as_str().expect("a task").to_string();
+    arr.written(1).await;
+    let cancel = format!("/api/v1/tasks/{task}/cancel");
+
+    let refused = send(&app, "POST", &cancel, Some(&other), None).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
+    let stopped = send(&app, "POST", &cancel, Some(&started), None).await;
+    assert_eq!(stopped.status, StatusCode::ACCEPTED, "{:?}", stopped.json);
+    assert_eq!(super::finished(&app, &task).await["status"], "cancelled");
+    app.state.audit.flush().await;
+    let logged: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT outcome, message, subject FROM security_events ORDER BY id")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    let on_tasks: Vec<_> =
+        logged.iter().filter(|(_, message, _)| message.contains("Task")).collect();
+    assert_eq!(
+        on_tasks,
+        [
+            &("refused".into(), "AuditTaskNotItsOwn".into(), Some("other".into())),
+            &("allowed".into(), "AuditTaskStopped".into(), Some("cron".into())),
+        ],
+        "{logged:?}"
+    );
+}
+
 /// The three routes that move files, with the guardrail each asks first.
 const MOVING: [(&str, &str); 3] =
     [("apply", "threshold"), ("apply-all", "batch"), ("revert", "threshold")];
@@ -421,8 +469,7 @@ async fn ready_to_move(arr: &FakeArr, route: &str) -> (TestApp, Value) {
     (app, body)
 }
 
-/// A key not given a guardrail sees its question with `answerable: false` on every route that
-/// moves files, even sending the name back. The owner sees it answerable, and a key given the
+/// Sending the name back does not answer it. The owner sees it answerable, and a key given the
 /// name moves.
 #[tokio::test]
 async fn every_route_that_moves_refers_a_guardrail_the_key_was_not_given() {
@@ -456,9 +503,8 @@ async fn every_route_that_moves_refers_a_guardrail_the_key_was_not_given() {
     }
 }
 
-/// A key that may not move files is refused before anything runs, on every
-/// route that moves them, however many questions it may answer. The same key
-/// leaving the files where they are moves the titles.
+/// Refused before anything runs, however many questions it may answer. The same key leaving the
+/// files where they are moves the titles.
 #[tokio::test]
 async fn every_route_that_moves_refuses_files_to_a_key_not_allowed_them() {
     for (route, _) in MOVING {
@@ -893,8 +939,8 @@ async fn a_preview_result_names_no_other_subject() {
     assert!(decisions.iter().all(|d| d["subject"].is_null()), "{decisions:?}");
 }
 
-/// An application asks at most ten times a second past a burst of fifty, so a loop does not
-/// run the owner's Arrs and sources hot. Past it the key waits, and another key does not.
+/// A loop must not run the owner's Arrs and sources hot. Past its rate the key waits, and
+/// another key does not.
 #[tokio::test]
 async fn a_key_past_its_rate_answers_429_with_retry_after() {
     let app = TestApp::new().await;

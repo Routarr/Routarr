@@ -85,6 +85,9 @@ struct Moving {
     rolled_back: Vec<i64>,
     /// Titles whose move command fails, leaving the new path recorded.
     failed: Vec<i64>,
+    /// Titles whose folder the Arr cannot see: a move of them ends completed with the new path
+    /// kept and nothing moved, as both Arrs skip a move whose source folder is missing.
+    unseen: Vec<i64>,
     queued: Vec<QueuedMove>,
     /// The most moves the Arr held unfinished at once.
     most_held: usize,
@@ -138,6 +141,8 @@ struct FakeState {
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     /// Root folders reported as not answering, as a NAS asleep.
     asleep: Arc<Mutex<Vec<String>>>,
+    /// Root folders reported as answering, which the usual listing says sleep.
+    awake: Arc<Mutex<Vec<String>>>,
     /// The country Radarr's metadata settings rate films for, as its
     /// `/config/metadata` answers it.
     certification_country: Arc<Mutex<String>>,
@@ -167,6 +172,7 @@ pub struct FakeArr {
     status: Arc<Mutex<(String, String)>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     asleep: Arc<Mutex<Vec<String>>>,
+    awake: Arc<Mutex<Vec<String>>>,
     certification_country: Arc<Mutex<String>>,
     connections: Arc<Mutex<Result<serde_json::Value, u16>>>,
     /// Serving until the fake is dropped.
@@ -198,15 +204,20 @@ impl FakeArr {
         fake
     }
 
-    /// Start a fake whose movie has been added but not yet downloaded.
+    /// Start a fake whose movie has been added but not yet downloaded, with `/movies/anime`
+    /// answering: the case automatic application exists for, whose pass asks the Arr.
     pub async fn with_unimported_movie() -> Self {
-        Self::with(None, "/tv/standard/Cowboy Bebop (1998)", false).await
+        let fake = Self::with(None, "/tv/standard/Cowboy Bebop (1998)", false).await;
+        fake.wake("/movies/anime");
+        fake
     }
 
     /// The same movie, not yet downloaded, on a fake that rejects mutating
     /// calls with `status`: an unattended apply the Arr refuses.
     pub async fn refusing_unimported_movie(status: u16) -> Self {
-        Self::with(Some(status), "/tv/standard/Cowboy Bebop (1998)", false).await
+        let fake = Self::with(Some(status), "/tv/standard/Cowboy Bebop (1998)", false).await;
+        fake.wake("/movies/anime");
+        fake
     }
 
     /// Start a fake that holds each request open long enough for overlapping
@@ -294,6 +305,12 @@ impl FakeArr {
         self.moving.lock().expect("lock").failed.push(id);
     }
 
+    /// From now on the folder of title `id` is missing from the Arr's view, as a share unmounted
+    /// in its container leaves it.
+    pub fn missing_source(&self, id: i64) {
+        self.moving.lock().expect("lock").unseen.push(id);
+    }
+
     /// From now on the root folder listing reports `folder` as well.
     pub fn report_root_folder(&self, folder: serde_json::Value) {
         self.more_root_folders.lock().expect("lock").push(folder);
@@ -306,7 +323,14 @@ impl FakeArr {
 
     /// From now on the root folder at `path` is reported as not answering.
     pub fn put_to_sleep(&self, path: &str) {
+        self.awake.lock().expect("lock").retain(|awake| awake != path);
         self.asleep.lock().expect("lock").push(path.to_string());
+    }
+
+    /// From now on the root folder at `path` is reported as answering.
+    pub fn wake(&self, path: &str) {
+        self.asleep.lock().expect("lock").retain(|asleep| asleep != path);
+        self.awake.lock().expect("lock").push(path.to_string());
     }
 
     /// From now on series `id` is held, and an update of it refused.
@@ -395,6 +419,7 @@ impl FakeArr {
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
             Arc::new(Mutex::new(Vec::new()));
         let asleep: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let awake: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let certification_country = Arc::new(Mutex::new("us".to_string()));
         let connections = Arc::new(Mutex::new(Ok(serde_json::json!([]))));
         let state = FakeState {
@@ -419,6 +444,7 @@ impl FakeArr {
             status: Arc::clone(&status),
             more_root_folders: Arc::clone(&more_root_folders),
             asleep: Arc::clone(&asleep),
+            awake: Arc::clone(&awake),
             certification_country: Arc::clone(&certification_country),
             connections: Arc::clone(&connections),
             windows,
@@ -464,6 +490,7 @@ impl FakeArr {
             status,
             more_root_folders,
             asleep,
+            awake,
             certification_country,
             connections,
             _server: server,
@@ -547,11 +574,18 @@ async fn root_folders(
     let listed = folders.as_array_mut().expect("a list");
     listed.extend(state.more_root_folders.lock().expect("lock").iter().cloned());
     let asleep = state.asleep.lock().expect("lock").clone();
-    for folder in listed.iter_mut() {
-        if asleep
+    let awake = state.awake.lock().expect("lock").clone();
+    let names = |paths: &[String], folder: &serde_json::Value| {
+        paths
             .iter()
             .any(|path| folder["path"].as_str() == Some(shown_folder(&state, path).as_str()))
-        {
+    };
+    for folder in listed.iter_mut() {
+        if names(&awake, folder) {
+            folder["accessible"] = serde_json::json!(true);
+            folder["freeSpace"] = serde_json::json!(2048);
+        }
+        if names(&asleep, folder) {
             folder["accessible"] = serde_json::json!(false);
         }
     }
@@ -577,6 +611,7 @@ async fn filesystem(
     axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
+    settle_moves(&state);
     let asked =
         query.get("path").filter(|path| !path.trim().is_empty()).map_or("/", String::as_str);
     // On Windows both Arrs cut at either separator and compare names without case.
@@ -603,6 +638,7 @@ async fn filesystem(
     if state.windows {
         known.extend(["\\\\nas\\films".to_string(), "\\\\nas\\films\\4k".to_string()]);
     }
+    known.extend(title_folders(&state));
     let same = |a: &str, b: &str| {
         if state.windows { a.replace('/', "\\").to_lowercase() == b.to_lowercase() } else { a == b }
     };
@@ -617,6 +653,22 @@ async fn filesystem(
         })
         .collect();
     Json(serde_json::json!({ "parent": null, "directories": children, "files": [] }))
+}
+
+/// The folder of every title this Arr holds, where it now is, but those
+/// [`FakeArr::missing_source`] names.
+fn title_folders(state: &FakeState) -> Vec<String> {
+    let unseen = state.moving.lock().expect("lock").unseen.clone();
+    let held = state.films.lock().expect("lock").held.clone();
+    let mut titles: Vec<serde_json::Value> =
+        std::iter::once(10).chain(held).filter_map(|id| movie_by_id(state, id)).collect();
+    titles.push(bebop(state, 20));
+    titles
+        .iter()
+        .filter(|title| !title["id"].as_i64().is_some_and(|id| unseen.contains(&id)))
+        .filter_map(|title| title["path"].as_str())
+        .map(|path| path.trim_end_matches(['/', '\\']).to_string())
+        .collect()
 }
 
 /// Radarr's metadata settings, of which only the certification country

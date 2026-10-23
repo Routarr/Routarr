@@ -1,10 +1,6 @@
-//! Renaming a category, and the six places its name lives.
-//!
-//! Categories are joined by value with no foreign key, so nothing in the
-//! database carries a rename along. The transaction in `api::categories` is
-//! the only thing that does. These tests are the counterweight: they check the
-//! result rather than the statements, so a seventh place to update fails here
-//! instead of leaving one screen quietly pointing at a name nobody holds.
+//! Categories, joined by value with no foreign key: a rename, the default, and the forms a name
+//! takes. The rename tests check the result, not the statements, so a new place a name lives
+//! fails here rather than leaving a screen pointing at a name nobody holds.
 
 use axum::http::StatusCode;
 use sqlx::AssertSqlSafe;
@@ -36,6 +32,15 @@ async fn seed_every_reference(app: &TestApp) {
     .await
     .unwrap();
 
+    sqlx::query(
+        "INSERT INTO retired_overrides (instance_id, media_type, work_id, target_category,
+                                        created_at)
+         SELECT instance_id, 'movie', 999, 'anime', datetime('now') FROM media LIMIT 1",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
     // A pinned expectation names a category too, and its snapshot columns are
     // deliberately opaque JSON, so only `expected_category` has to follow a
     // rename.
@@ -49,10 +54,8 @@ async fn seed_every_reference(app: &TestApp) {
     .unwrap();
 }
 
-/// Every column in the schema whose name says it holds a category.
-///
-/// Read from the database rather than listed here on purpose: a migration that
-/// adds one is exactly the change these tests exist to catch.
+/// Every column whose name says it holds a category, read from the schema so a migration adding
+/// one is caught.
 async fn category_columns(pool: &sqlx::SqlitePool) -> Vec<(String, String)> {
     sqlx::query_as(
         "SELECT m.name, p.name
@@ -214,7 +217,6 @@ async fn renaming_onto_a_name_already_taken_is_refused() {
         .await
         .assert_status(StatusCode::CONFLICT);
 
-    // Nothing moved.
     let still: String = sqlx::query_scalar("SELECT name FROM categories WHERE id = 'cat-standard'")
         .fetch_one(&app.state.pool)
         .await
@@ -238,15 +240,7 @@ async fn renaming_an_unknown_category_is_a_not_found() {
         .assert_status(StatusCode::NOT_FOUND);
 }
 
-// --------------------------------------------------- the default category
-//
-// It is stated once, in the `default_category` setting the engine falls back
-// to. A second statement, a flag on the row read by the badge and the delete
-// guard, would be kept in step by nothing: the interface would name one
-// category while the engine used another, and the guard would leave the real
-// fallback deletable. Every unmatched item would then route to a category that
-// does not exist, has no root folder, and is silently skipped.
-
+/// The badge and the delete guard read the `default_category` setting the engine falls back to.
 #[tokio::test]
 async fn the_badge_and_the_engine_name_the_same_default() {
     let app = TestApp::new().await;
@@ -280,8 +274,7 @@ async fn the_category_the_engine_falls_back_to_cannot_be_deleted() {
         .unwrap();
     app.delete(&format!("/api/v1/categories/{id}")).await.assert_status(StatusCode::BAD_REQUEST);
 
-    // And the one that is merely a category, not the fallback, is deletable:
-    // the other half of the same claim.
+    // The control: a category that is not the fallback is deletable.
     app.delete("/api/v1/categories/cat-standard").await.assert_ok();
 }
 
@@ -305,21 +298,15 @@ async fn creating_a_category_whose_name_is_taken_is_a_conflict() {
     let app = TestApp::new().await;
     app.post("/api/v1/categories", serde_json::json!({ "name": "kids" })).await.assert_ok();
 
-    // The uniqueness is the database's to enforce, with no check before the
-    // write to race against, so what matters is that its refusal arrives as a
-    // 409 rather than as a raw sqlx error and a 500.
+    // The database enforces uniqueness, with no check before the write to race against, so its
+    // refusal must arrive as a 409.
     let response = app.post("/api/v1/categories", serde_json::json!({ "name": "kids" })).await;
     response.assert_status(StatusCode::CONFLICT);
     assert!(response.message().contains("already exists"), "got {}", response.message());
 }
 
-/// The fallback category is one fact: the engine, the categories screen and
-/// the delete guard read the same answer. With no setting row, a guard holding
-/// a fallback of its own compares a name against `""`, never matches, and
-/// leaves deletable the category routing actually lands in.
-///
-/// Migration 001 seeds the setting and nothing removes it, so only a database
-/// without the row shows the difference.
+/// Migration 001 seeds the setting and nothing removes it, so only a database without the row
+/// shows a reader that keeps a fallback of its own.
 #[tokio::test]
 async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting() {
     let app = TestApp::new().await;
@@ -347,9 +334,7 @@ async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting()
     let explained = app.get("/api/v1/library/m-1/explain").await.assert_ok().clone();
     assert_eq!(explained["target_category"], fallback.as_str(), "{explained}");
 
-    // And the guard still protects it: deleting the category the engine falls
-    // back to has to be refused, setting row or not. `standard` is seeded by
-    // the schema, so it is already there to be deleted.
+    // The guard: `standard`, seeded by the schema, is the fallback and cannot be deleted.
     let id: String = sqlx::query_scalar("SELECT id FROM categories WHERE name = ?")
         .bind(&fallback)
         .fetch_one(&app.state.pool)
@@ -384,9 +369,7 @@ async fn a_fallback_category_that_cannot_be_read_fails_the_run() {
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions").await, 0);
 }
 
-/// One name has one stored form: an accent written apart from its letter is
-/// the same name as the letter with the accent, as two looking alike would be
-/// to whoever reads them.
+/// Two names that look alike are one name to whoever reads them.
 #[tokio::test]
 async fn a_name_written_with_its_accent_apart_is_the_same_name() {
     let app = TestApp::new().await;

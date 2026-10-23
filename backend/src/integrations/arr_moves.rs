@@ -42,6 +42,14 @@ impl Api<'_> {
             return Err(super::upstream(self.service, 0, crate::error::Upstream::Unreadable, said));
         }
         let from = record.get("path").and_then(Value::as_str).map(str::to_string);
+        // An Arr skips a move from a folder it cannot see, keeps the new path and reports it done.
+        if let Some(from) = from.as_deref().filter(|_| move_files && holds_files(&record)) {
+            let filesystem = self.get("/api/v3/filesystem");
+            if !super::directory_exists(self.service, filesystem, from).await? {
+                let unseen = crate::error::Upstream::SourceUnseen;
+                return Err(super::upstream(self.service, 0, unseen, from.to_string()));
+            }
+        }
         let path = join_path(root, &folder_name(&record));
         record["rootFolderPath"] = Value::String(root.to_string());
         record["path"] = Value::String(path.clone());
@@ -134,6 +142,15 @@ impl CommandDto {
             })
             .collect()
     }
+}
+
+/// Whether the title's record counts files: Radarr's `hasFile`, or a file count among the
+/// `statistics` Radarr and Sonarr send.
+fn holds_files(record: &Value) -> bool {
+    let counted = |field: &str| record["statistics"][field].as_i64().is_some_and(|n| n > 0);
+    record["hasFile"].as_bool() == Some(true)
+        || counted("movieFileCount")
+        || counted("episodeFileCount")
 }
 
 /// A payload's shape, for a message that says what came back instead.

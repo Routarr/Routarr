@@ -1,12 +1,6 @@
-//! What the scheduler decides to run, and what it declines to.
-//!
-//! This is the code that acts with nobody watching: every fifteen minutes it
-//! syncs, enriches, simulates, **applies** (which writes to Radarr), backs up
-//! and purges. A defect here is the one a user cannot see happening.
-//!
-//! Each test asserts on the `jobs` table, because every stage records itself
-//! there with its trigger. That is the same evidence the Tasks screen
-//! shows, so a test passing here means the screen would have shown it too.
+//! What the scheduler runs with nobody watching, and what it declines to: sync, enrichment,
+//! simulation, the apply that writes to the Arrs, backups and purges. Each test reads the `jobs`
+//! table, which the Tasks screen shows.
 
 use std::collections::HashMap;
 
@@ -41,17 +35,13 @@ async fn scheduled_jobs(app: &TestApp) -> Vec<String> {
     .unwrap()
 }
 
-/// A library that will actually sync, with backups off: taking one needs a
-/// database on disk, and what belongs here is the *decision* to take it, which
-/// its own test covers.
+/// A library that syncs, with backups off: taking one needs a database on disk.
 async fn ready(arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     app.store_setting("backup_enabled", "false").await;
     app
 }
-
-// ------------------------------------------------------------ the sweep
 
 #[tokio::test]
 async fn a_tick_syncs_the_library_and_runs_the_housekeeping() {
@@ -88,11 +78,8 @@ async fn disabling_auto_sync_still_leaves_housekeeping_running() {
     );
 }
 
-/// Enrichment and simulation are work proportional to the library, and
-/// running them on an unchanged one every quarter of an hour is pure waste:
-/// with the syncs switched off, or with every one failing, nothing follows.
-/// `a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it` is the
-/// control, a tick that synced and handed the work on.
+/// Enrichment and simulation cost in proportion to the library, so with no sync nothing follows.
+/// The control is `a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it`.
 #[tokio::test]
 async fn nothing_downstream_runs_when_nothing_synced() {
     let arr = FakeArr::start().await;
@@ -123,8 +110,6 @@ async fn disabling_auto_simulate_stops_at_the_sync() {
         .unwrap();
     assert_eq!(decisions, 0, "auto-simulate was off and it simulated anyway");
 }
-
-// ------------------------------------------------- failure does not cascade
 
 /// An instance that is down is tried again at its own interval, not on every
 /// tick: each attempt costs a full connect timeout, in a loop that syncs the
@@ -190,14 +175,8 @@ async fn a_disabled_instance_is_left_alone() {
     assert_eq!(media, 0);
 }
 
-// ------------------------------------------------------------- guardrails
-
-/// A library where a move is genuinely possible: an unimported film, a rule that
-/// matches it, and a mapped destination that is not where it already sits.
-///
-/// Without this, "nothing was written" is true of any tick, since there would
-/// be nothing to write, and the guardrail tests below would pass whatever the
-/// guardrails did.
+/// A library where a move is possible: an unimported film, a rule matching it, and a mapped
+/// destination it is not in. Without it the guardrail tests below could not fail.
 async fn ready_to_apply(arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
@@ -234,10 +213,8 @@ async fn ready_to_apply(arr: &FakeArr) -> TestApp {
     app
 }
 
-/// With both switches thrown, the scheduler really does write to the Arr on
-/// its own: the apply it reaches is the one whose switches `tests/auto_apply.rs`
-/// holds. The write is recorded as the schedule's and nobody's: "who moved
-/// this" never names a person who was not there.
+/// The write is recorded as the schedule's: "who moved this" never names a person who was not
+/// there.
 #[tokio::test]
 async fn the_scheduler_applies_when_both_switches_allow_it() {
     let arr = FakeArr::with_unimported_movie().await;
@@ -265,7 +242,65 @@ async fn the_scheduler_applies_when_both_switches_allow_it() {
     assert_eq!(logged, [(Some("auto".into()), None)]);
 }
 
-// ---------------------------------------------------------------- backups
+/// Start the work after a sync, as a tick hands it off.
+async fn follow(app: &TestApp) {
+    scheduler::follow_sync(&app.state, &crate::jobs::Attribution::unattended("schedule")).await;
+}
+
+/// Once the work after a sync has ended.
+async fn chain_ended(app: &TestApp) {
+    let chain = app.state.post_sync.lock().await.take().expect("no chain started");
+    chain.await.expect("the post-sync chain must not panic");
+}
+
+/// The stored-simulation lock guards the writing of one run, not the automatic moves after it,
+/// which wait minutes for a running apply: meanwhile a person's Simulate is not refused.
+#[tokio::test]
+async fn the_work_after_a_sync_frees_the_simulation_before_its_automatic_moves() {
+    let arr = FakeArr::with_unimported_movie().await;
+    let app = ready_to_apply(&arr).await;
+    app.store_setting("global_dry_run", "false").await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    let running = app.state.jobs.try_lock("apply").expect("the apply lock is free");
+
+    follow(&app).await;
+    super::until(|| async { app.state.jobs.queued_for("apply") == 1 }).await;
+
+    assert_eq!(app.state.jobs.queued_for("apply"), 1, "the chain never reached its moves");
+    assert!(app.state.jobs.try_lock(crate::jobs::FULL_SIMULATION).is_some());
+    drop(running);
+    chain_ended(&app).await;
+    assert!(!arr.recorded().writes.is_empty(), "the positive control: the move was made");
+}
+
+/// Another stored simulation may have read the library before this sync wrote it, so the one
+/// after the sync waits for it, and past the wait says it skipped.
+#[tokio::test]
+async fn the_simulation_after_a_sync_waits_for_one_running_then_says_it_skipped() {
+    use tracing_subscriber::layer::SubscriberExt;
+    const SKIPPED: &str = "The simulation after the sync was skipped";
+    let capture = super::LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    let _heard = tracing::subscriber::set_default(subscriber);
+    let arr = FakeArr::start().await;
+    let app = ready_to_apply(&arr).await;
+    let simulations = "SELECT COUNT(*) FROM jobs WHERE kind = 'simulate'";
+
+    let running = app.state.jobs.try_lock(crate::jobs::FULL_SIMULATION).expect("the key is free");
+    follow(&app).await;
+    super::until(|| async { app.state.jobs.queued_for(crate::jobs::FULL_SIMULATION) == 1 }).await;
+    drop(running);
+    chain_ended(&app).await;
+    assert_eq!(app.count(simulations).await, 1, "the chain skipped a simulation that ended");
+    assert!(!capture.contents().contains(SKIPPED), "{}", capture.contents());
+
+    let _running = app.state.jobs.try_lock(crate::jobs::FULL_SIMULATION).expect("the key is free");
+    follow(&app).await;
+    chain_ended(&app).await;
+    assert_eq!(app.count(simulations).await, 1);
+    assert!(capture.contents().contains(SKIPPED), "{}", capture.contents());
+}
 
 #[tokio::test]
 async fn a_backup_is_decided_on_its_own_cadence() {
@@ -320,20 +355,8 @@ async fn backups_disabled_means_none_is_attempted() {
     assert!(backup::list(&app.state).is_empty());
 }
 
-// ------------------------------------------------------------- the loop itself
-//
-// The tests above exercise one `tick`. These two are about the loop around it,
-// which is what actually runs unattended, and whose two failure modes are both
-// silent: a panic that ends every future sweep, and a task still writing when
-// the pool closes.
-
-/// A panic inside a sweep must not end the scheduler.
-///
-/// Without the guard the task unwinds, nothing holds its `JoinHandle`, and
-/// syncs, backups and retention purges stop for good while the HTTP server
-/// keeps answering. Nothing in the interface would say so. Driven through
-/// `start` itself, with the waits shortened: a test of `catch_unwind` alone
-/// would prove a standard library function and nothing about this loop.
+/// Unguarded, the task unwinds and syncs, backups and purges stop for good while the server
+/// answers. Driven through `start`, since `catch_unwind` alone proves only the standard library.
 #[tokio::test]
 async fn a_panicking_sweep_does_not_end_the_scheduler() {
     let arr = FakeArr::start().await;
@@ -380,12 +403,8 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
         .expect("the scheduler task panicked");
 }
 
-/// The enrichment drains a whole backlog at a paced source, which on a large
-/// anime library takes hours. Awaited by the tick, it would keep every other
-/// instance from syncing, hold back the backup and the purge, and make
-/// `sync_interval_minutes` mean nothing. The chain runs on a task of its own,
-/// which the tick hands back and the loop keeps, so shutdown still waits for
-/// it.
+/// Draining a paced source's backlog takes hours on a large anime library. Awaited by the tick,
+/// it would hold back every other sync, the backup and the purge.
 #[tokio::test]
 async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     let arr = FakeArr::start().await;
@@ -468,11 +487,8 @@ async fn a_chain_that_panicked_is_recorded_when_the_next_one_starts() {
     next.await.expect("the new chain must not panic");
 }
 
-/// Asking the scheduler to stop must actually stop it, and quickly.
-///
-/// `main` closes the pool right after this returns, and
-/// `wal_checkpoint(TRUNCATE)` cannot truncate a write-ahead log another
-/// connection is still writing to.
+/// `main` closes the pool right after this returns, and `wal_checkpoint(TRUNCATE)` cannot
+/// truncate a log another connection still writes to.
 #[tokio::test]
 async fn the_scheduler_stops_when_asked() {
     let arr = FakeArr::start().await;
@@ -481,9 +497,7 @@ async fn the_scheduler_stops_when_asked() {
     let (stop, stopped) = tokio::sync::watch::channel(false);
     let handle = crate::jobs::scheduler::start(app.state.clone(), stopped);
 
-    // Inside the five-second settling wait, which is where a shutdown most
-    // often lands: a container is stopped far more often than it is left to
-    // reach its first sweep.
+    // Inside the five-second settling wait, where a stopped container's shutdown most often lands.
     stop.send(true).unwrap();
 
     let ended = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
@@ -538,12 +552,8 @@ async fn a_pass_that_failed_more_than_a_day_ago_is_not_counted() {
     assert!(warnings.contains(&one), "{warnings:?}");
 }
 
-/// A panicked pass has to leave evidence where somebody will find it.
-///
-/// The loop carries on, which is right, since stopping would end every sync,
-/// backup and purge. But carrying on quietly is its own failure. The incident
-/// lands in the `jobs` table, where the Tasks screen reads, and the diagnostics
-/// badge counts it.
+/// The loop carries on after a panic, so the incident lands in the `jobs` table, where the Tasks
+/// screen reads and the diagnostics badge counts.
 #[tokio::test]
 async fn a_panicked_pass_is_visible_without_reading_the_log() {
     let arr = FakeArr::start().await;

@@ -25,9 +25,7 @@ async fn status_of(app: &TestApp, media_id: &str) -> String {
         .unwrap()
 }
 
-/// Each move with files is followed to its end before the next is sent, so the Arr never holds
-/// two, and each title ends applied with the task counting it. Sent straight through, two moves
-/// sit in one Arr at once, which the probe sees.
+/// The control sends two moves straight through, to prove the probe sees two held at once.
 #[tokio::test]
 async fn moves_with_files_reach_the_arr_one_at_a_time_and_end_applied() {
     let arr = FakeArr::start().await;
@@ -60,8 +58,7 @@ async fn moves_with_files_reach_the_arr_one_at_a_time_and_end_applied() {
     assert_eq!(straight.most_moves_held(), 2, "the probe cannot see a queue");
 }
 
-/// A stop while a move runs ends the run at once: the move goes on in the Arr and is left
-/// `requested` for a sync to settle, and the titles not sent stay pending.
+/// The move goes on in the Arr, so a sync settles it.
 #[tokio::test]
 async fn a_run_stopped_while_a_move_runs_leaves_it_requested_and_the_rest_pending() {
     let arr = FakeArr::start().await;
@@ -83,8 +80,7 @@ async fn a_run_stopped_while_a_move_runs_leaves_it_requested_and_the_rest_pendin
     assert_eq!(status_of(&app, "m-2").await, "pending");
 }
 
-/// An Arr whose commands cannot be read for five times the wait stops the run, which reports
-/// why: the move sent stays `requested`, the rest pending.
+/// The move wait is cut short so the `UNREAD_ROUNDS` reads that stop the run pass quickly.
 #[tokio::test]
 async fn an_arr_whose_commands_cannot_be_read_stops_the_run_as_unreachable() {
     let arr = FakeArr::start().await;
@@ -101,8 +97,7 @@ async fn an_arr_whose_commands_cannot_be_read_stops_the_run_as_unreachable() {
     assert_eq!(app.last_job_status("apply").await, "success");
 }
 
-/// A title whose move is no longer one to make by the time its turn comes is skipped, not sent:
-/// a run moving files can last hours.
+/// A run moving files can last hours, so each title is weighed again when its turn comes.
 #[tokio::test]
 async fn a_title_no_longer_to_move_when_its_turn_comes_is_skipped() {
     let arr = FakeArr::start().await;
@@ -120,8 +115,29 @@ async fn a_title_no_longer_to_move_when_its_turn_comes_is_skipped() {
     assert_eq!(arr.recorded().writes.len(), 1, "the withdrawn title was sent");
 }
 
-/// While the second title's files move, the task counts the first as done and names the one
-/// moving: a run of hours is followed title by title.
+/// A run stored while an apply moves its first title writes every proposal again: the apply
+/// takes the identical ones in their place and moves every title, in slices and one by one.
+#[tokio::test]
+async fn a_stored_run_during_an_apply_leaves_it_its_identical_proposals() {
+    let arr = FakeArr::start().await;
+    arr.moving_for(Duration::from_millis(400));
+    let app = TestApp::films_to_move(&arr, 4).await;
+    app.store_setting("batch_limit", "2").await;
+
+    let run = apply_with_files(&app);
+    let stored = async {
+        arr.written(1).await;
+        app.simulate().await;
+    };
+    let (report, _) = tokio::join!(run, stored);
+
+    assert_eq!((report.applied, report.skipped, report.superseded), (4, 0, 0), "{report:?}");
+    assert_eq!(arr.recorded().writes.len(), 4);
+    let pending = "SELECT COUNT(*) FROM decisions WHERE status = 'pending' AND superseded = 0";
+    assert_eq!(app.count(pending).await, 0, "a proposal was left to apply");
+}
+
+/// Read while the second title, Film 001, moves.
 #[tokio::test]
 async fn the_task_counts_each_title_and_names_the_one_moving() {
     let arr = FakeArr::start().await;

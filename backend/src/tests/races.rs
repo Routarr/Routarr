@@ -59,9 +59,7 @@ pub(crate) async fn hold(point: &'static str, subject: &str) {
     }
 }
 
-/// A gate holds the requests of the test that armed it, and none another test
-/// sends meanwhile about the same subject: held, that one would wait on a
-/// release nobody sends.
+/// Held, another test's request would wait on a release nobody sends.
 #[tokio::test]
 async fn a_gate_holds_only_the_test_that_armed_it() {
     let gate = arm("races::isolation", "");
@@ -305,6 +303,29 @@ async fn a_rule_written_while_its_category_is_renamed_follows_the_rename() {
     assert_eq!(dangling(&app).await, 0);
 }
 
+/// The keep reads the category its folder leads to, then pins the title to it: a rename landing
+/// between the two would leave the exception on a name that no longer exists.
+#[tokio::test]
+async fn a_keep_made_while_its_category_is_renamed_follows_the_rename() {
+    let app = with_category("doomed-keep").await;
+    let mapped = json!({ "category": "doomed-keep" });
+    app.put("/api/v1/root-folders/rf-1/category", mapped).await.assert_ok();
+    let (kept, renamed) = race(
+        "overrides::keep",
+        "m-1",
+        posting(&app, "/api/v1/library/m-1/keep", json!({})),
+        putting(&app, "/api/v1/categories/cat-doomed-keep".into(), json!({ "name": "reborn" })),
+    )
+    .await;
+    assert!(kept.status.is_success(), "{}", kept.json);
+    assert!(renamed.status.is_success(), "{}", renamed.json);
+    assert_eq!(
+        app.count("SELECT COUNT(*) FROM overrides WHERE target_category = 'reborn'").await,
+        1
+    );
+    assert_eq!(dangling(&app).await, 0);
+}
+
 /// A library-wide run of the anime rule over Totoro, which it moves, held
 /// before it stores, and the app it runs on. `trigger` names the run, and
 /// its gate, apart from those of the tests running beside it.
@@ -341,8 +362,7 @@ async fn proposals_for_totoro(app: &TestApp) -> i64 {
     .await
 }
 
-/// A title the Arr deleted after the run read the library gains no proposal:
-/// nothing would retire it, and the dashboard would count it.
+/// Nothing would retire such a proposal, and the dashboard would count it.
 #[tokio::test]
 async fn a_run_proposes_nothing_for_a_title_deleted_after_it_read_the_library() {
     let (app, gate, sweep) = held_sweep("sweep-before-a-delete").await;
@@ -382,8 +402,7 @@ async fn a_run_leaves_alone_a_title_a_later_run_decided() {
     assert_eq!(category, "standard");
 }
 
-/// A rule created during a reorder waits for the new order, since the reorder
-/// checks its list under the lock it writes with.
+/// The reorder checks its list under the lock it writes with.
 #[tokio::test]
 async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() {
     let app = with_category("reordered").await;
@@ -402,8 +421,7 @@ async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() 
     creating.await.unwrap().assert_ok();
 }
 
-/// A pass reads the rules, the mappings and the titles at one moment, so a
-/// category renamed meanwhile never reaches it half renamed.
+/// A pass reads the rules, the mappings and the titles at one moment.
 #[tokio::test]
 async fn a_category_renamed_while_a_pass_reads_reaches_it_whole() {
     let (app, _dir) = crate::tests::backup::app_with_files("race-snapshot").await;

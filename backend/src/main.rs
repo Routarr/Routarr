@@ -49,7 +49,6 @@ fn main() -> std::process::ExitCode {
 pub(crate) async fn open_storage(
     config: &config::Config,
 ) -> error::AppResult<(Option<String>, sqlx::SqlitePool, crypto::SecretBox)> {
-    // Before the pool opens and the key is read: a restore swaps the database and key files.
     db::prepare_data_dir(config)?;
     services::backup::sweep_leftovers(config);
     if services::backup::apply_pending_restore(config).await? {
@@ -167,7 +166,7 @@ fn loggable_path(request: &axum::extract::Request) -> String {
 fn build_router(state: AppState) -> Router {
     let config = Arc::clone(&state.config);
 
-    // The unauthenticated liveness probe, which reveals nothing about the library.
+    // The routes outside the middleware. The liveness probe reveals nothing about the library.
     let public = Router::new()
         .route("/ping", get(api::health::ping))
         // The shell needs its strings before anything renders, an authentication error included.
@@ -199,7 +198,6 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/auth/sessions", get(api::account::sessions).delete(api::account::end_sessions))
         .route("/auth/sessions/{handle}", delete(api::account::end_session))
-        // Keys for other applications. Owner-only, like every route `GRANTS` does not name.
         .route("/applications", get(api::applications::list).post(api::applications::create))
         .route("/applications/{id}", delete(api::applications::revoke))
         .route("/status", get(api::health::status))
@@ -215,6 +213,7 @@ fn build_router(state: AppState) -> Router {
         .route("/instances/test", post(api::instances::probe))
         .route("/instances/{id}/test", post(api::instances::test))
         .route("/instances/{id}/sync", post(api::instances::sync_now))
+        .route("/instances/{id}/remove-missing", post(api::instances::remove_missing))
         .route("/instances/{id}/webhook-token", post(api::instances::rotate_webhook_token))
         .route("/root-folders", get(api::root_folders::list).post(api::root_folders::create))
         .route("/root-folders/{id}", axum::routing::delete(api::root_folders::delete))
@@ -236,12 +235,9 @@ fn build_router(state: AppState) -> Router {
         .route("/rules/templates", get(api::templates::list))
         .route("/rules/templates/{id}/preview", post(api::templates::preview))
         .route("/rules/templates/{id}/import", post(api::templates::import))
-        // Pinned expectations: inserting one rule can change what every rule below it decides.
         .route("/rule-tests", get(api::rule_tests::list).post(api::rule_tests::create))
         .route("/rule-tests/run", post(api::rule_tests::run))
-        // Which rules never win: the one check between rules, where first match sets its trap.
         .route("/rules/health", get(api::rules::health))
-        // What the library holds per axis a condition reads, so a rule need not guess.
         .route("/library/facets", get(api::media::facets))
         .route("/rule-tests/{id}", delete(api::rule_tests::delete))
         .route("/rules/reorder", post(api::rules::reorder))
@@ -254,7 +250,6 @@ fn build_router(state: AppState) -> Router {
         .route("/library/{id}", get(api::media::get_one))
         .route("/library/{id}/explain", get(api::media::explain))
         .route("/library/{id}/keep", post(api::overrides::keep))
-        // Where a title another service names would go, held or not. Stores nothing.
         .route("/route", get(api::media::place))
         .route("/simulate", post(api::simulation::run))
         .route("/decisions", get(api::decisions::list))
@@ -263,7 +258,6 @@ fn build_router(state: AppState) -> Router {
         .route("/decisions/revert", post(api::decisions::revert))
         .route("/decisions/revert-all", post(api::decisions::revert_all))
         .route("/exceptions", get(api::overrides::list).post(api::overrides::create))
-        // Pins by the TMDB, TheTVDB or IMDb id another service gives a title.
         .route(
             "/exceptions/external",
             put(api::overrides::pin_external).delete(api::overrides::unpin_external),
@@ -278,7 +272,6 @@ fn build_router(state: AppState) -> Router {
         .route("/security-log/export", get(api::security_log::export))
         .route("/maintenance/purge", post(api::maintenance::purge))
         .route("/backups", get(api::backup::list).post(api::backup::create))
-        // The name is checked against the generated shape: the folder also holds the master key.
         .route("/backups/{name}", get(api::backup::download).delete(api::backup::remove))
         .route("/backups/{name}/restore", post(api::backup::restore))
         .route("/backups/passphrase", put(api::backup::set_passphrase))

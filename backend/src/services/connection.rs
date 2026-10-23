@@ -1,9 +1,6 @@
-//! What stops Routarr reaching an Arr, told as what to do about it.
-//!
-//! A raw failure names the transport, "connection refused" or "HTTP 401", and
-//! leaves the operator to work out which of the address, the port, the key or
-//! the type they typed is wrong. Each cause names the field to change, in the
-//! operator's language, since it is read under the form they typed it in.
+//! What stops Routarr reaching an Arr, told as what to do about it: each cause names the
+//! field to change, in the operator's language, since it is read under the form they typed
+//! it in.
 
 use std::net::IpAddr;
 
@@ -103,7 +100,8 @@ pub fn cause_of(error: &AppError) -> Option<Cause> {
         Upstream::WriteRedirected
         | Upstream::RefusedWith200
         | Upstream::QuotaSpent
-        | Upstream::NotListed => None,
+        | Upstream::NotListed
+        | Upstream::SourceUnseen => None,
     }
 }
 
@@ -192,6 +190,15 @@ impl Said {
         let told = instance
             .and_then(|instance| told_of(error, &instance.instance_type, &instance.base_url))
             .or_else(|| error.told());
+        // Named as every other failed move names its Arr, by the instance.
+        let told = match (told, instance, error) {
+            (
+                Some(told),
+                Some(instance),
+                AppError::ExternalApi { kind: Upstream::SourceUnseen, .. },
+            ) => Some(told.with("arr", &instance.name)),
+            (told, ..) => told,
+        };
         match told {
             Some(told) => Self::told(&told, localizer),
             None => {

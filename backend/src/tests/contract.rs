@@ -60,9 +60,7 @@ fn the_pinned_contract_is_the_one_the_code_describes() {
     );
 }
 
-/// The document names every route an application key may call, each with the
-/// scope the middleware asks, and no route the owner keeps. `/ping` is the
-/// one operation that needs no key.
+/// `/ping` is the one operation that needs no key.
 #[test]
 fn every_granted_route_is_documented_with_its_scope_and_nothing_else_is() {
     let granted: BTreeSet<(String, String, String)> = GRANTS
@@ -116,9 +114,7 @@ async fn the_contract_is_served_without_a_key_under_its_mount_point() {
     assert_eq!(served.assert_ok()["servers"], json!([{ "url": "/routarr/api/v1" }]));
 }
 
-/// Every published schema is reached from an operation, or is the notification
-/// the webhook receives: a schema no call reaches is a model a generated client
-/// builds for nothing.
+/// A schema no call reaches is a model a generated client builds for nothing.
 #[test]
 fn every_schema_is_reached_from_an_operation_or_is_the_webhook_payload() {
     fn references(value: &Value, found: &mut BTreeSet<String>) {
@@ -220,9 +216,8 @@ fn the_log_export_documents_no_paging() {
     assert_eq!(exported, filters);
 }
 
-/// Every operation taking a body refuses, by name, a field it does not define,
-/// since an ignored misspelling changes what is written. The refusal comes
-/// before the handler, so each body here only has to parse.
+/// An ignored misspelling changes what is written. The refusal comes before the handler, so
+/// each body here only has to parse.
 #[tokio::test]
 async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
     let app = TestApp::new().await;
@@ -364,9 +359,6 @@ impl Checker {
     }
 }
 
-/// Every operation the contract documents is called once, and what it
-/// answers matches the schema stated for it, names and types both. A handler
-/// returning another type than its documentation names fails here.
 #[tokio::test]
 async fn every_documented_operation_answers_as_its_schema_says() {
     let arr = FakeArr::start().await;
@@ -467,6 +459,15 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     checker.check("GET", "/tasks", 200, &tasks);
     let task = started.json["task_id"].as_str().unwrap();
     checker.check("GET", "/tasks/{id}", 200, &app.get(&format!("/api/v1/tasks/{task}")).await);
+    // A run a cancel can reach, whose answer carries no body.
+    let by = crate::jobs::Attribution::manual(None);
+    let detail = crate::jobs::Detail::new("JobDetailApplying").with("count", 1);
+    let run = app.state.jobs.start(crate::jobs::JobKind::Apply, &by, None, detail).await.unwrap();
+    let _stop = run.stop();
+    let cancelled = app.post(&format!("/api/v1/tasks/{}/cancel", run.id), json!({})).await;
+    assert_eq!(cancelled.status, StatusCode::ACCEPTED, "{}", cancelled.json);
+    checker.seen.insert(("POST".into(), "/tasks/{id}/cancel".into(), "202".into()));
+    run.cancelled(crate::jobs::Detail::new("JobDetailCancelled")).await;
 
     // Waited for, since the simulation after the sync holds the lock `/simulate` takes.
     finished(&app, task).await;
@@ -481,7 +482,6 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     });
     followed.await.expect("the sync was never followed");
 
-    // Each answer that does not wait has a schema of its own.
     let proposals = app.post("/api/v1/simulate", json!({ "persist": true })).await;
     assert_eq!(proposals.status, StatusCode::OK, "{}", proposals.json);
     let proposed = proposals.json["decisions"][0]["id"].clone();

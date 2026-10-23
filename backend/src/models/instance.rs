@@ -31,7 +31,7 @@ impl std::str::FromStr for InstanceType {
 pub const INSTANCE_COLUMNS: &str = "id, name, instance_type, base_url, api_key, enabled,
      sync_interval_minutes, last_sync_at, last_sync_attempt_at, last_sync_status, created_at,
      updated_at, webhook_token, auto_apply, last_webhook_at, last_webhook_event, webhook_token_at,
-     webhook_check, webhook_checked_at";
+     webhook_check, webhook_checked_at, removal_held";
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Instance {
@@ -65,6 +65,7 @@ pub struct Instance {
     #[serde(skip)]
     pub webhook_check: Option<String>,
     pub webhook_checked_at: Option<String>,
+    pub removal_held: i64,
 }
 
 /// How the Arr's webhook connection to an instance is set up, as the check stores it.
@@ -287,6 +288,9 @@ pub struct InstanceResponse {
     pub webhook_check: Option<WebhookCheckResponse>,
     /// The switches the Arr's webhook connection needs ticked, as its interface names them.
     pub webhook_triggers: Vec<String>,
+    /// How many titles the last sync kept although the Arr no longer reports them, more than
+    /// half of the library. They stay until the owner removes them.
+    pub removal_held: i64,
 }
 
 impl InstanceResponse {
@@ -334,6 +338,7 @@ impl InstanceResponse {
             last_webhook_event: i.last_webhook_event,
             webhook_check,
             webhook_triggers,
+            removal_held: i.removal_held,
         }
     }
 }

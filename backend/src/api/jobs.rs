@@ -14,6 +14,7 @@ use crate::api::{Page, paginate};
 use crate::error::{AppError, AppResult};
 use crate::jobs::registry::render_detail;
 use crate::localization::Localizer;
+use crate::services::applications::Grant;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
@@ -242,11 +243,39 @@ pub async fn get_one(
 
 /// Ask a running apply or revert to stop before its next move. What already
 /// reached the Arr stays done, and the task's report says where it stopped.
+/// An application key stops only the tasks it started.
 pub async fn cancel(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
+    use crate::api::auth::{allowed, audited, refusal};
+    use crate::services::audit::Kind;
+    let stopping = |event: crate::services::audit::Event<'static>, grant: &Grant| {
+        let event = event.with("name", &grant.name).with("id", &grant.id).with("task", &id);
+        audited(&state, &identity, client, event);
+    };
+    if let Some(grant) = &identity.application {
+        let started_by: Option<Option<String>> =
+            sqlx::query_scalar("SELECT subject_key FROM jobs WHERE id = ?")
+                .bind(&id)
+                .fetch_optional(&state.pool)
+                .await?;
+        let Some(started_by) = started_by else {
+            return Err(AppError::NotFound(format!("Job {id} not found")));
+        };
+        if started_by.as_deref() != Some(grant.id.as_str()) {
+            stopping(refusal(Kind::Scope, "AuditTaskNotItsOwn"), grant);
+            return Err(AppError::Forbidden(
+                "This application key may stop only the tasks it started.".into(),
+            ));
+        }
+    }
     if state.jobs.cancel(&id) {
+        if let Some(grant) = &identity.application {
+            stopping(allowed(Kind::ApplicationKey, "AuditTaskStopped"), grant);
+        }
         return Ok(StatusCode::ACCEPTED);
     }
     let known: Option<String> = sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")

@@ -662,7 +662,7 @@ async fn applying_rewrites_the_local_path_so_the_move_is_not_reproposed() {
         "the folder name must be preserved"
     );
 
-    // The whole point: a fresh simulation now agrees the media is in place.
+    // A fresh simulation now agrees the title is in place.
     let again = routing::run_simulation(
         &app.state.pool,
         &app.state.library_passes,
@@ -1519,8 +1519,6 @@ async fn errors_are_reported_in_the_order_the_moves_were_given() {
     assert_eq!(reported, given);
 }
 
-// ------------------------------------------------------- asking before a move
-
 /// Seed one pending move of `size` bytes from `/movies/standard` to
 /// `/movies/anime`, with the two folders reporting the free space given.
 async fn pending_move(app: &TestApp, size: i64, source_free: i64, target_free: i64) -> String {
@@ -1656,6 +1654,39 @@ async fn moves_into_two_folders_of_one_volume_ask_about_their_sum() {
     assert!(message.contains("/movies/anime, /movies/kids"), "{message}");
 }
 
+/// A Radarr folder and a Sonarr folder on one disk report the same free space, and an apply
+/// with files fills both at once: what they receive together is weighed against it.
+#[tokio::test]
+async fn moves_of_two_instances_into_one_volume_ask_about_their_sum() {
+    let app = TestApp::new().await;
+    pending_move(&app, SIX_GIB, 1 << 40, 10 << 30).await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+         VALUES ('i2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'k', 1, 't2')",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space, accessible, category)
+         VALUES ('rf-tv-src', 'i2', 1, '/tv/standard', 1099511627776, 1, 'standard'),
+                ('rf-tv-dst', 'i2', 2, '/tv/anime', 10737418240, 1, 'anime')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+         current_root_folder, monitored, has_files, size_on_disk)
+         VALUES ('m2', 'i2', 20, 'series', 'Bebop', '/tv/standard/Bebop', '/tv/standard', 1, 1,
+                 6442450944)",
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o2', 'm2', 'anime')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+         current_root_folder, target_category, target_root_folder, action, status, reasons,
+         alternatives, confidence)
+         VALUES ('d2', 'm2', 'Bebop', 'series', 'i2', '/tv/standard', 'anime', '/tv/anime',
+                 'move', 'pending', '[]', '[]', 1.0)",
+    ])
+    .await;
+
+    let asked = apply_both(&app).await;
+
+    assert_eq!(asked.status, axum::http::StatusCode::CONFLICT, "{:?}", asked.json);
+    assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
+    let message = asked.message();
+    assert!(message.contains("/movies/anime") && message.contains("/tv/anime"), "{message}");
+}
+
 /// Filling a volume to the byte is fitting it, for two folders as for one: only a shortfall
 /// is asked about.
 #[tokio::test]
@@ -1708,17 +1739,17 @@ async fn the_capacity_question_names_a_short_destination_after_a_roomy_one() {
     assert!(!asked.message().contains("/movies/anime"), "{}", asked.message());
 }
 
-/// Two Radarrs, each with one film bound for a folder of the same path, in one
-/// apply. Folders, moves and Arr ids belong to an instance, so each Arr hears
-/// only of its own film, and each folder weighs only its own instance's moves.
+/// Two Radarrs, each with one film bound for a folder of the same path on a disk of its own,
+/// in one apply. Folders, moves and Arr ids belong to an instance, so each Arr hears only of its
+/// own film, and each folder weighs only its own instance's moves.
 async fn two_instances(app: &TestApp, first: &FakeArr, second: &FakeArr) {
     app.seed_instance_at("inst-a", "radarr", &first.base_url).await;
     app.seed_instance_at("inst-b", "radarr", &second.base_url).await;
     second.hold_film(11);
-    for (instance, arr_id) in [("inst-a", 10), ("inst-b", 11)] {
+    for (instance, arr_id, disk) in [("inst-a", 10, 10_i64 << 30), ("inst-b", 11, 11 << 30)] {
         for (folder, path, category, free) in [
             ("src", "/movies/standard", "standard", 1_i64 << 40),
-            ("dst", "/movies/anime", "anime", 10 << 30),
+            ("dst", "/movies/anime", "anime", disk),
         ] {
             sqlx::query(
                 "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space,
@@ -1877,6 +1908,33 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     let allowed = apply(&app, &["unreachable"]).await;
     assert_eq!(allowed.status, 200, "confirming did not get past the guard: {}", allowed.json);
     assert_eq!(allowed.json["failed"], 1, "the move never reached the Arr: {}", allowed.json);
+}
+
+/// The folder a move with files leaves is asked about as its destination is: an Arr that cannot
+/// see it skips the move without a word. A move leaving the files reads nothing from it.
+#[tokio::test]
+async fn a_sleeping_source_is_asked_about_before_its_files_are_moved() {
+    let app = TestApp::new().await;
+    pending_move(&app, 1_000, 500_000_000_000, 400_000_000_000).await;
+    app.execute(&["UPDATE root_folders SET accessible = 0,
+                last_accessible_at = datetime('now', '-3 hours', '-5 minutes')
+          WHERE id = 'rf-src'"])
+        .await;
+
+    let refused = apply(&app, &[]).await;
+    assert_eq!(refused.status, 409, "it moved files out of a folder that is not answering");
+    assert_eq!(refused.json["confirm"], "unreachable");
+    let message = refused.message();
+    assert!(message.contains("/movies/standard") && message.contains("3 h"), "{message}");
+
+    let in_place = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({ "decision_ids": ["d1"], "move_files": false, "confirm": [] }),
+        )
+        .await;
+    assert_eq!(in_place.status, 200, "a move leaving its files was asked about: {}", in_place.json);
+    assert_eq!(in_place.json["failed"], 1, "the move never reached the Arr: {}", in_place.json);
 }
 
 /// A folder stored as asleep may have woken since its instance last listed

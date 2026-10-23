@@ -12,6 +12,7 @@
   import { ApiError, api } from '../api/client';
   import {
     failureDetail,
+    formatCount,
     formatRelative,
     formatTimestamp,
     inClearPastHome,
@@ -305,6 +306,22 @@
       (r) => t('SyncResult', { name: instance.name, media: r.media, folders: r.root_folders }),
     );
 
+  async function removeMissing(instance: Instance) {
+    const count = formatCount(instance.removal_held, i18n.language);
+    const asked = t('ConfirmRemoveMissing', { name: instance.name, count });
+    if (!(await askConfirmation(asked, 'RemoveMissingConfirm'))) return;
+    await act(
+      instance.id,
+      () => api.removeMissing(instance.id, { signal: leaving.signal }),
+      (r) =>
+        t('RemoveMissingResult', {
+          name: instance.name,
+          count: formatCount(r.removed, i18n.language),
+        }),
+    );
+    invalidateStatus();
+  }
+
   const testConnection = (instance: Instance) =>
     act(
       instance.id,
@@ -531,6 +548,13 @@
                       <span class="status-reason">{failureDetail(instance.last_sync_status)}</span>
                     {/if}
                   {/if}
+                  {#if instance.removal_held > 0}
+                    <span class="badge badge-warning">
+                      {t('RemovalHeld', {
+                        count: formatCount(instance.removal_held, i18n.language),
+                      })}
+                    </span>
+                  {/if}
                 </td>
                 <td class="cell-timestamp">
                   <span
@@ -609,6 +633,17 @@
                               }
                             },
                           },
+                          ...(instance.removal_held > 0
+                            ? [
+                                {
+                                  label: t('RemoveMissing'),
+                                  icon: trashIcon,
+                                  danger: true,
+                                  disabled: busyId !== null || !instance.enabled,
+                                  onSelect: () => void removeMissing(instance),
+                                },
+                              ]
+                            : []),
                           {
                             label: t('Delete'),
                             icon: trashIcon,

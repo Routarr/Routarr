@@ -8,11 +8,7 @@ use crate::integrations::sonarr::SonarrClient;
 use super::fake_arr::FakeArr;
 use super::http_client as client;
 
-// ------------------------------------------------------------------ Radarr
-
-/// An answer has a size beyond which it is not read: a hostile or intercepted
-/// address streaming without end stops at the cap, at once, rather than
-/// filling memory until the timeout, and an error body the same.
+/// Read until the timeout, an endless answer would fill memory, an error body's too.
 #[tokio::test]
 async fn an_answer_without_end_stops_at_the_cap() {
     use axum::routing::get;
@@ -46,9 +42,8 @@ async fn an_answer_without_end_stops_at_the_cap() {
     assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
 }
 
-/// A write redirected with a 301 or a 302 reaches its new address as a GET,
-/// without its body, and the GET's 200 would read as the write done. Refused,
-/// the move is reported as failed rather than recorded as made.
+/// A write redirected with a 301 or a 302 reaches its new address as a GET, without its body,
+/// and the GET's 200 would read as the write done.
 #[tokio::test]
 async fn a_write_redirected_to_a_read_is_a_failure() {
     use axum::routing::get;
@@ -106,9 +101,8 @@ async fn root_folder_accessibility_is_preserved() {
     assert!(folders[2].accessible);
 }
 
-/// The refusal names its service and status, and keeps the start of what the
-/// Arr said, cut: the fake's refusal is over a thousand characters long, and
-/// the message goes into the log and back to the screen.
+/// The fake's refusal is over a thousand characters, and the message reaches the log and the
+/// screen.
 #[tokio::test]
 async fn upstream_errors_carry_the_status_and_are_truncated() {
     let arr = FakeArr::failing(422).await;
@@ -130,9 +124,7 @@ async fn upstream_errors_carry_the_status_and_are_truncated() {
 
 #[tokio::test]
 async fn a_refused_connection_is_named_unreachable_with_no_status() {
-    // Port 1 on the loopback: nothing listens, so the connection is refused at
-    // once. A black-hole address (TEST-NET-1) waits the full timeout instead,
-    // on every test.
+    // Port 1 on the loopback refuses at once, where a black-hole address waits out the timeout.
     let radarr = RadarrClient::new(client(), "http://127.0.0.1:1", "k");
 
     match radarr.test_connection().await.unwrap_err() {
@@ -173,8 +165,6 @@ async fn a_radarr_lookup_is_held_to_the_film_asked() {
     assert_eq!(found.map(|movie| movie.id), Some(10), "another film of the library was taken");
 }
 
-// ------------------------------------------------------------------ Sonarr
-
 #[tokio::test]
 async fn sonarr_maps_a_series_onto_the_shared_shape() {
     let arr = FakeArr::start().await;
@@ -186,9 +176,8 @@ async fn sonarr_maps_a_series_onto_the_shared_shape() {
     assert_eq!(media[0].tvdb_id, Some(76885));
 }
 
-/// Both Arrs are sent the title's whole record with its path in full: the
-/// folder name kept, deriving it from the slug would rename it on disk, and
-/// every other field kept, since a PUT drops what it leaves out.
+/// Derived from the slug, the folder name would be renamed on disk, and a PUT drops every field
+/// it leaves out.
 #[tokio::test]
 async fn a_move_keeps_the_folder_name_and_every_other_field() {
     let arr = FakeArr::with_series_path("/tv/standard/Cowboy Bebop (1998)").await;
@@ -242,20 +231,14 @@ async fn the_adapter_refuses_an_unknown_instance_type() {
         webhook_token_at: None,
         webhook_check: None,
         webhook_checked_at: None,
+        removal_held: 0,
     };
 
     assert!(ArrAdapter::for_instance(client(), &instance, "k").is_err());
 }
 
-/// A 2xx body that is not a series object is reported, not patched.
-///
-/// A move reads the series back, patches two fields and re-sends it.
-/// Indexing a `serde_json::Value` that
-/// is not an object *panics* (`[]`, a string and a number all do), so a reverse
-/// proxy answering 200 with a cached empty array, or a base URL pointing at
-/// some other service on the same host, would abort the apply with a 500 that
-/// names nothing. The `CatchPanicLayer` makes a panic that 500 rather than a
-/// dropped connection, which is no reason to panic.
+/// Writing a field into a `serde_json::Value` that is not an object panics, as a proxy's cached
+/// `[]` or another service on the same host would make it.
 #[tokio::test]
 async fn a_series_payload_that_is_not_an_object_is_reported_rather_than_patched() {
     for body in [serde_json::json!([]), serde_json::json!("error"), serde_json::json!(12)] {
@@ -274,9 +257,7 @@ async fn a_series_payload_that_is_not_an_object_is_reported_rather_than_patched(
     }
 }
 
-/// A series Sonarr knows and does not hold is found by any of its ids, each
-/// held to the id asked, and comes back as the lookup describes it: no Arr
-/// id, no folder, the type and monitoring it would be added with by default.
+/// It comes back as the lookup describes it, as it would be added by default.
 #[tokio::test]
 async fn sonarr_finds_a_series_it_does_not_hold_by_any_id() {
     use crate::models::ExternalId;
@@ -299,8 +280,7 @@ async fn sonarr_finds_a_series_it_does_not_hold_by_any_id() {
     assert!(unknown.is_none(), "an id nobody knows was found");
 }
 
-/// Sonarr's lookup names a series the library holds by its id, with counts of
-/// zero and no root folder: the series is read whole, as the library has it.
+/// Sonarr's lookup gives a held series counts of zero and no root folder.
 #[tokio::test]
 async fn a_series_sonarr_holds_is_read_whole_after_its_lookup() {
     let arr = FakeArr::start().await;

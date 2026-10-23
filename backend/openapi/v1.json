@@ -2391,6 +2391,11 @@
           "name": {
             "type": "string"
           },
+          "removal_held": {
+            "description": "How many titles the last sync kept although the Arr no longer reports them, more than\nhalf of the library. They stay until the owner removes them.",
+            "format": "int64",
+            "type": "integer"
+          },
           "sync_interval_minutes": {
             "format": "int64",
             "type": "integer"
@@ -2452,7 +2457,8 @@
           "api_key_encrypted",
           "api_key_set",
           "auto_apply",
-          "webhook_triggers"
+          "webhook_triggers",
+          "removal_held"
         ],
         "type": "object"
       },
@@ -3870,7 +3876,7 @@
         "description": "What the liveness probe answers. No version: `/status` gives it to a caller with a key.",
         "properties": {
           "status": {
-            "description": "Always `ok`: an answer at all is the news.",
+            "description": "Always `ok`.",
             "type": "string"
           }
         },
@@ -5066,7 +5072,9 @@
           "cancelled",
           "shutdown",
           "unreachable",
-          "stalled"
+          "stalled",
+          "refused",
+          "failed"
         ],
         "type": "string"
       },
@@ -5512,7 +5520,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,\n`webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed` or\n`deprecated_api_called`. The list may grow.",
+            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,\n`webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,\n`deprecated_api_called` or `removal_held`. The list may grow.",
             "type": "string"
           },
           "guide_step": {
@@ -7300,6 +7308,64 @@
         "x-routarr-scope": "read"
       }
     },
+    "/jobs/{id}/cancel": {
+      "post": {
+        "deprecated": true,
+        "description": "The old path of `POST /tasks/{id}/cancel`, answered as it is until its removal before 1.0. Call `POST /tasks/{id}/cancel` instead.",
+        "operationId": "cancel_task_deprecated",
+        "parameters": [
+          {
+            "description": "The task's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The run stops before its next move."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An application key asked to stop a task it did not start."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`reason` is `not_cancellable`: the task has ended, or is not an apply or a revert."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Stop an apply or a revert",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
     "/library": {
       "get": {
         "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception forces on it.",
@@ -8740,7 +8806,7 @@
     },
     "/ping": {
       "get": {
-        "description": "Needs no key, touches no database and calls nothing: an answer at all is\nthe news. For a container runtime or an uptime monitor.",
+        "description": "Needs no key, touches no database and calls nothing. For a container runtime or an uptime\nmonitor.",
         "operationId": "ping",
         "responses": {
           "200": {
@@ -10244,6 +10310,63 @@
           "tasks"
         ],
         "x-routarr-scope": "read"
+      }
+    },
+    "/tasks/{id}/cancel": {
+      "post": {
+        "description": "The run stops before its next move: what already reached the Arr stays done, and the task's\nreport says where it stopped. An application key stops only the tasks it started.",
+        "operationId": "cancel_task",
+        "parameters": [
+          {
+            "description": "The task's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The run stops before its next move."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An application key asked to stop a task it did not start."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "`reason` is `not_cancellable`: the task has ended, or is not an apply or a revert."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Stop an apply or a revert",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "operate"
       }
     }
   },

@@ -11,10 +11,8 @@ use crate::localization::Localizer;
 use crate::models::*;
 use crate::state::AppState;
 
-/// `is_default` is computed from `AppState::default_category`, the one answer
-/// `services::routing` reads: a flag stored on the row, or the setting read
-/// here without its fallback, would be a second answer that disagrees with the
-/// engine once the setting row is gone.
+/// `is_default` comes from `AppState::default_category`, the answer `services::routing`
+/// reads, never from a stored flag.
 type CategoryRow = (String, String, Option<String>, bool, i64, String, i64, i64);
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryWithUsage>>> {
@@ -48,13 +46,8 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryW
     ))
 }
 
-/// A unique-constraint failure on the name is a conflict, not a server error.
-///
-/// A `SELECT EXISTS` before the write would leave a window between the two:
-/// nothing stops a second request passing the same check and then losing to the
-/// constraint, and losing to the constraint means a raw sqlx error and a 500.
-/// The database is the arbiter either way, so it is the only one, and its
-/// refusal is translated rather than leaked.
+/// A unique-constraint failure on the name is a conflict, not a server error. The constraint
+/// is the only check, since a `SELECT EXISTS` first would race a second request.
 fn name_conflict(error: sqlx::Error, name: &str, localizer: &Localizer) -> AppError {
     match &error {
         sqlx::Error::Database(db) if db.is_unique_violation() => AppError::Conflict {
@@ -69,14 +62,9 @@ fn name_conflict(error: sqlx::Error, name: &str, localizer: &Localizer) -> AppEr
 /// paragraph in any of them breaks the screen that shows it.
 const MAX_CATEGORY_NAME_LENGTH: usize = 64;
 
-/// The one place a category name is cleaned and judged.
-///
-/// Every writer of the `categories` table runs it: `create`, `rename`,
-/// `POST /config/import` and `POST /rules/import`. A name that skipped it
-/// lands in the table and can never be renamed back, since `rename` runs the
-/// gate the writer did not, and it reaches rule payloads and query strings on
-/// the way. The refusal is read under the field the name was typed in, so it
-/// speaks the interface's language.
+/// The one place a category name is cleaned and judged, run by every writer of `categories`:
+/// `create`, `rename`, `POST /config/import` and `POST /rules/import`. Its refusal is read under
+/// the field the name was typed in, so it is translated.
 pub fn normalise(raw: &str, localizer: &Localizer) -> AppResult<String> {
     let name = stored_form(raw);
     if name.is_empty() {
@@ -191,19 +179,9 @@ pub(crate) async fn ensure_exists(
     }
 }
 
-/// Rename a category, and carry every reference to it along.
-///
-/// The name is the join key, with no foreign key to cascade, so it lives in
-/// this row, in every column that names a category, and in the
-/// `default_category` setting. Missing that last one leaves an installation
-/// holding a setting its own validator rejects the next time anything is saved.
-///
-/// The decision history follows too. A rename is not a deletion: the category
-/// is the same thing under a new name, and leaving old rows pointing at a name
-/// that no longer exists would put ghosts in the history screen and break its
-/// category filter. Justifications already rendered keep the old word, as they
-/// keep the language they were written in, and the next simulation replaces
-/// them.
+/// Rename a category, and carry every reference to it along: every column naming it, the
+/// decisions and the `default_category` setting, since nothing cascades. A rendered
+/// justification keeps the old word until the next simulation.
 pub async fn rename(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -266,12 +244,10 @@ pub(crate) async fn move_references(
         "UPDATE rules SET target_category = ? WHERE target_category = ?",
         "UPDATE root_folders SET category = ? WHERE category = ?",
         "UPDATE overrides SET target_category = ? WHERE target_category = ?",
+        "UPDATE retired_overrides SET target_category = ? WHERE target_category = ?",
         "UPDATE decisions SET target_category = ? WHERE target_category = ?",
         "UPDATE media_routing SET category = ? WHERE category = ?",
-        // Pinned expectations too. A case left pointing at the old name fails
-        // for a reason that has nothing to do with the rules, and it is the
-        // one place a stale name is *silent*, since the case simply starts
-        // reporting a mismatch nobody caused.
+        // A case left on the old name would report a mismatch nobody caused.
         "UPDATE rule_tests SET expected_category = ? WHERE expected_category = ?",
         "UPDATE settings SET value = ?, updated_at = datetime('now')
          WHERE key = 'default_category' AND value = ?",
@@ -349,6 +325,11 @@ pub async fn remove(
     }
 
     crate::race::checked("categories::remove", &name).await;
+    // An exception waiting for its title is no use once its category is gone.
+    sqlx::query("DELETE FROM retired_overrides WHERE target_category = ?")
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM categories WHERE id = ?").bind(&id).execute(&mut *tx).await?;
     tx.commit().await?;
 

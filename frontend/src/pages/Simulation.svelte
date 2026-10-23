@@ -7,7 +7,7 @@
   import { FIELDS } from '../lib/settings';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
-  import { reportMoves } from '../lib/moves';
+  import { endedOnFailure, reportMoves } from '../lib/moves';
   import { i18n, t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
   import DecisionRow from '../components/DecisionRow.svelte';
@@ -228,10 +228,10 @@
         'ApplyLabel',
       );
       if (!batch) return;
-      // A run cut short by a refused slice is unfinished. One stopped says why on its own.
+      // A run a failure cut short says so beside its counts. One stopped says why on its own.
       reportMoves(
         outcome,
-        batch.stopped_early && !batch.stopped
+        endedOnFailure(batch)
           ? t('BatchApplyStopped', {
               applied: batch.applied,
               candidates: batch.candidates,

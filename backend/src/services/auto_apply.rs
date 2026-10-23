@@ -175,25 +175,15 @@ async fn decide(
     simulation_id: &str,
     by: &Attribution,
 ) -> AppResult<AutoApplyOutcome> {
-    // Opt-in. A fresh install never writes on its own.
-    if !state.bool_setting("auto_apply_enabled").await {
-        return Ok(AutoApplyOutcome::Held(Hold::Disabled));
+    if let Some(held) = switched_off(state).await {
+        return Ok(AutoApplyOutcome::Held(held));
     }
-
-    // Checked before the executor too: the writer must be unreachable with dry run on.
-    if state.bool_setting("global_dry_run").await {
-        return Ok(AutoApplyOutcome::Held(Hold::DryRun));
-    }
-
     let candidates = eligible_decisions(state, simulation_id).await?;
     if candidates.is_empty() {
         return Ok(AutoApplyOutcome::NothingToApply);
     }
-
-    let tests = crate::services::rule_tests::check(state).await?;
-    if tests.failed > 0 {
-        let (failed, total) = (tests.failed, tests.total);
-        return Ok(AutoApplyOutcome::Held(Hold::RuleTestsFailing { failed, total }));
+    if let Some(held) = failing_tests(state).await? {
+        return Ok(AutoApplyOutcome::Held(held));
     }
 
     // An instance over the cap gets nothing, or its library is left half reorganised with no
@@ -208,6 +198,28 @@ async fn decide(
     let Some(turn) = executor::unattended_turn(state).await else {
         return Ok(AutoApplyOutcome::Held(Hold::TurnNotReached));
     };
+    // Asked again: the wait lasts minutes, in which a person may switch it all off.
+    if let Some(held) = switched_off(state).await {
+        return Ok(AutoApplyOutcome::Held(held));
+    }
+    if let Some(held) = failing_tests(state).await? {
+        return Ok(AutoApplyOutcome::Held(held));
+    }
+    // Each Arr is asked again: the stored reachability can be a day old, with nobody to answer.
+    let instances: std::collections::BTreeSet<&str> =
+        candidates.iter().map(|candidate| candidate.instance_id.as_str()).collect();
+    for instance_id in instances {
+        if let Err(e) = crate::services::sync::refresh_root_folders(state, instance_id).await {
+            debug!(instance = %instance_id, "The root folders could not be read again: {e}");
+        }
+    }
+    let still: std::collections::HashSet<String> = eligible_decisions(state, simulation_id)
+        .await?
+        .into_iter()
+        .map(|candidate| candidate.decision_id)
+        .collect();
+    let candidates: Vec<Candidate> =
+        candidates.into_iter().filter(|candidate| still.contains(&candidate.decision_id)).collect();
     let without_files = still_without_files(state, candidates).await;
     if without_files.is_empty() {
         return Ok(if over_cap.is_empty() {
@@ -221,6 +233,22 @@ async fn decide(
         executor::apply_unattended(state, &without_files, &Attribution::automatic(by), turn)
             .await?;
     Ok(AutoApplyOutcome::Applied { report, over_cap })
+}
+
+/// The switches that keep every move waiting for a person. Opt-in, so a fresh install never
+/// writes on its own, and the dry run is checked before the executor too.
+async fn switched_off(state: &AppState) -> Option<Hold> {
+    if !state.bool_setting("auto_apply_enabled").await {
+        return Some(Hold::Disabled);
+    }
+    state.bool_setting("global_dry_run").await.then_some(Hold::DryRun)
+}
+
+/// A rule test that fails: a rule change broke a routing someone pinned.
+async fn failing_tests(state: &AppState) -> AppResult<Option<Hold>> {
+    let tests = crate::services::rule_tests::check(state).await?;
+    Ok((tests.failed > 0)
+        .then_some(Hold::RuleTestsFailing { failed: tests.failed, total: tests.total }))
 }
 
 /// The candidates of the instances with no more than `cap` of them, and the instances with more.
@@ -271,27 +299,21 @@ async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<
             AND d.action = 'move'
             AND d.target_root_folder IS NOT NULL
             AND m.has_files = 0
-            -- And the destination answered the last time anyone looked.
-            --
-            -- The routing map keeps a folder the Arr reports unreachable, since
-            -- a NAS that spins down is unknown rather than gone; the manual
-            -- path asks about it at apply time. There is nobody to ask here, so
-            -- an unattended pass leaves those items for the person who can
-            -- answer instead of writing into a destination that is not there.
+            -- And the destination answered at the last look: a sleeping NAS stays mapped,
+            -- and with nobody here to ask, its titles are left for a person.
             AND EXISTS (
                 SELECT 1 FROM root_folders rf
                  WHERE rf.instance_id = d.instance_id
                    AND rf.path = d.target_root_folder COLLATE path
                    AND rf.accessible = 1
             )
-            -- And its move did not fail within the day. An Arr that refused it
-            -- refuses it again at the next pass, and a retry every pass is a
-            -- failed row, a log and a notification every quarter of an hour.
-            -- A person can still apply it.
+            -- And its move did not fail within the day: an Arr that refused it refuses it again,
+            -- and a retry every pass is a failed row and a notification each time. A person can
+            -- still apply it. Read from the move's log: a decision keeps no time of its failure.
             AND NOT EXISTS (
-                SELECT 1 FROM decisions f
-                 WHERE f.media_id = d.media_id AND f.status = 'failed'
-                   AND f.decided_at > datetime('now', '-1 day')
+                SELECT 1 FROM execution_logs f
+                 WHERE f.media_id = d.media_id AND f.action = 'move' AND f.success = 0
+                   AND f.executed_at > datetime('now', '-1 day')
             )
           ORDER BY d.media_title",
     )

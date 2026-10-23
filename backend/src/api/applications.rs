@@ -57,6 +57,8 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("POST", "/decisions/apply-all", Scope::Operate),
     ("POST", "/decisions/revert", Scope::Operate),
     ("POST", "/decisions/revert-all", Scope::Operate),
+    // A key stops only the runs it started, which the handler checks.
+    ("POST", "/tasks/{id}/cancel", Scope::Operate),
     ("POST", "/exceptions", Scope::Write),
     ("POST", "/library/{id}/keep", Scope::Write),
     ("DELETE", "/exceptions/{id}", Scope::Write),
@@ -114,8 +116,7 @@ pub fn admit(grant: &Grant, request: &axum::extract::Request) -> AppResult<()> {
 /// The route a request asks for, as `METHOD /template`, and the scope it
 /// needs: `None` for a route the owner keeps.
 pub fn asked(request: &axum::extract::Request) -> (String, Option<Scope>) {
-    // The matched template, since a grant names `/library/{id}` and never `/library/42`. A
-    // deprecated path asks what its replacement does.
+    // The matched template, since a grant names `/library/{id}` and never `/library/42`.
     let route = super::deprecated::route_of(request).unwrap_or_default();
     let method = request.method();
     (format!("{method} {route}"), scope_for(method, route))

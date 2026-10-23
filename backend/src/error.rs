@@ -206,6 +206,9 @@ pub enum Upstream {
     QuotaSpent,
     /// The Arr's answer to a write does not show it made.
     NotListed,
+    /// The Arr cannot see the folder holding the files of a title to move, `message` naming it.
+    /// Both Arrs skip such a move and report it done, so nothing is sent.
+    SourceUnseen,
 }
 
 /// What stopped a request before any usable answer.
@@ -274,6 +277,9 @@ fn describe_external(service: &str, status: u16, kind: &Upstream, message: &str)
         Upstream::RefusedWith200 => with(format!("{service} answered with an error")),
         Upstream::QuotaSpent => format!("{service} allows no more requests today"),
         Upstream::NotListed => with(format!("{service} did not make the change")),
+        Upstream::SourceUnseen => {
+            format!("{service} cannot see {said}, the folder the files are in. Nothing was moved")
+        }
     }
 }
 
@@ -307,6 +313,9 @@ fn told_external(service: &str, status: u16, kind: &Upstream, message: &str) -> 
         Upstream::RefusedWith200 => with_detail("UpstreamRefused", "UpstreamRefusedSaid"),
         Upstream::QuotaSpent => told("UpstreamQuotaSpent"),
         Upstream::NotListed => with_detail("UpstreamNotListed", "UpstreamNotListedSaid"),
+        Upstream::SourceUnseen => {
+            Told::new("ErrorMoveSourceUnseen").with("arr", service).with("path", said)
+        }
     }
 }
 
@@ -514,6 +523,7 @@ mod tests {
             (401, Upstream::RefusedWith200, "Invalid API key!"),
             (429, Upstream::QuotaSpent, ""),
             (0, Upstream::NotListed, "the path did not change"),
+            (0, Upstream::SourceUnseen, "/movies/standard/Totoro"),
         ] {
             let told = told_external("OMDb", status, &kind, message);
             let english = crate::localization::Localizer::new("en");

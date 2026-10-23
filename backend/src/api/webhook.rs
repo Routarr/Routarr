@@ -42,9 +42,9 @@ pub struct ArrWebhookMedia {
 /// sent, so it never reaches it.
 pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 
-/// The deliveries that may wait behind the one in progress, per instance: an Arr sends one at a
-/// time, and four leave room for a retrying proxy. Unbounded, the waiters would hand an
-/// unauthenticated caller a task each. Past the bound a delivery is acknowledged without work.
+/// The deliveries, and the automatic moves, that may wait per instance: an Arr sends one at a
+/// time, and four leave room for a retrying proxy. Past it a delivery is acknowledged without
+/// work and a move is left to the next sync, so an unauthenticated caller cannot pile up tasks.
 pub const MAX_WAITING_DELIVERIES: usize = 4;
 
 /// The events that report an item is gone rather than changed.
@@ -223,6 +223,21 @@ async fn deliver(
     }
 }
 
+/// The point of the webhook: a title just added moves while its folder is still empty. Answers
+/// how many moved.
+async fn automatic_move(state: &AppState, instance: &Instance, simulation_id: &str) -> usize {
+    let by = crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK);
+    match auto_apply::apply_instance_simulation(state, simulation_id, &instance.id, &by).await {
+        Ok(AutoApplyOutcome::Applied { report, .. }) => report.applied,
+        Ok(_) => 0,
+        // Not the delivery's failure: the Arr never resends it, and the decision waits, pending.
+        Err(e) => {
+            warn!("Auto-apply after webhook failed: {e}");
+            0
+        }
+    }
+}
+
 fn answered(body: serde_json::Value) -> AppResult<Response> {
     Ok(axum::Json(body).into_response())
 }
@@ -260,7 +275,7 @@ async fn run(
     let deadline = tokio::time::Instant::now() + DELIVERY_WAIT;
 
     // Dropped past the budget, acknowledged all the same: a refusal would only fill the Arr's log.
-    let Some(_delivery) = state.jobs.lock_within(&key, DELIVERY_WAIT).await else {
+    let Some(delivery) = state.jobs.lock_within(&key, DELIVERY_WAIT).await else {
         warn!(
             instance = %instance.name,
             "A delivery waited {}s for the one before it and was dropped",
@@ -271,6 +286,16 @@ async fn run(
         );
     };
     drop(places);
+    // Read again: the instance may have been removed or switched off while this waited.
+    let current = match state.instance(&instance.id).await {
+        Ok(current) if current.enabled => current,
+        Ok(_) => return Ok(serde_json::json!({ "ok": true, "ignored": "instance is disabled" })),
+        Err(AppError::NotFound(_)) => {
+            return Ok(serde_json::json!({ "ok": true, "ignored": "instance was removed" }));
+        }
+        Err(e) => return Err(e),
+    };
+    let instance = &current;
 
     let media_id = sync::sync_single_media(state, instance, arr_id).await?;
 
@@ -338,20 +363,18 @@ async fn run(
     )
     .await?;
 
-    // The point of the webhook: a title just added moves while its folder is still empty.
-    let auto_applied = match auto_apply::apply_instance_simulation(
-        state,
-        &result.simulation_id,
-        &instance.id,
-        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK),
-    )
-    .await
-    {
-        Ok(AutoApplyOutcome::Applied { report, .. }) => report.applied,
-        Ok(_) => 0,
-        // Not the delivery's failure: the Arr never resends it, and the decision waits, pending.
-        Err(e) => {
-            warn!("Auto-apply after webhook failed: {e}");
+    let moving =
+        state.jobs.try_wait(&format!("auto-apply:{}", instance.id), MAX_WAITING_DELIVERIES);
+    // The automatic move can wait minutes for a running apply, which the next delivery must not.
+    drop(delivery);
+    let auto_applied = match moving {
+        Some(_place) => automatic_move(state, instance, &result.simulation_id).await,
+        None => {
+            info!(
+                instance = %instance.name,
+                "An automatic move found {MAX_WAITING_DELIVERIES} others waiting and was left \
+                 to the next sync"
+            );
             0
         }
     };

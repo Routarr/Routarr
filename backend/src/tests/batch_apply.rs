@@ -32,7 +32,6 @@ async fn a_library_larger_than_the_batch_limit_is_applied_in_slices() {
     assert_eq!(report.candidates, 12);
     assert_eq!(report.applied, 12);
     assert_eq!(report.failed, 0);
-    // 12 items at 5 per slice: three slices, the last one short.
     assert_eq!(report.batches_planned, 3);
     assert_eq!(report.batches_run, 3);
     assert!(!report.stopped_early);
@@ -104,9 +103,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     assert_eq!(pending, 7, "the untouched slices stay in the queue");
 }
 
-/// A later slice that cannot be read for revalidation ends the run as a refused one does: the
-/// earlier moves are reported, the job keeps its report, and the rest stays pending. A table it
-/// reads goes while the first slice's edit is held, so the second cannot load.
+/// Renaming a table it reads while the first slice's edit is held makes the second unloadable.
 #[tokio::test]
 async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_its_report() {
     use std::time::Duration;
@@ -134,11 +131,21 @@ async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_it
 
     let report = report.expect("the moves already made were not reported");
     assert!(report.stopped_early, "{report:?}");
+    assert_eq!(report.stopped, Some(executor::StopReason::Failed), "{report:?}");
     assert_eq!((report.batches_run, report.applied), (1, 5), "{report:?}");
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 5);
     assert_eq!(app.last_job_status("apply").await, "success");
+    assert_eq!(apply_detail(&app).await, "JobDetailStoppedSliceFailed");
     let stored = app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'apply' AND result IS NOT NULL");
     assert_eq!(stored.await, 1, "the job carries no report");
+}
+
+/// The key the apply task's detail is worded from.
+async fn apply_detail(app: &TestApp) -> String {
+    sqlx::query_scalar("SELECT detail_key FROM jobs WHERE kind = 'apply'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -160,9 +167,7 @@ async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty
     assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))));
 }
 
-/// A pass after a sync writes every proposal again under a new simulation. Applying the earlier
-/// one goes through the identical proposals since, leaves the one now going elsewhere, and
-/// moves no title it did not propose.
+/// A pass after each sync writes every proposal again under a new simulation.
 #[tokio::test]
 async fn an_earlier_simulation_is_applied_through_the_identical_proposals_since() {
     let arr = FakeArr::start().await;
@@ -193,8 +198,7 @@ async fn an_earlier_simulation_is_applied_through_the_identical_proposals_since(
     assert_eq!(pending, ["m-4"], "a title the earlier simulation never proposed was moved");
 }
 
-/// Every proposal of a simulation replaced by another move: refused with the reason, not "no
-/// decision selected".
+/// The refusal names the reason rather than "no decision selected".
 #[tokio::test]
 async fn a_simulation_whose_proposals_all_go_elsewhere_now_is_refused() {
     let arr = FakeArr::start().await;
@@ -226,7 +230,6 @@ async fn a_simulation_whose_proposals_all_go_elsewhere_now_is_refused() {
     assert!(arr.recorded().writes.is_empty());
 }
 
-/// A film Radarr no longer holds fails alone, and the others still move.
 #[tokio::test]
 async fn a_film_radarr_no_longer_holds_fails_alone() {
     let arr = FakeArr::start().await;
@@ -259,8 +262,7 @@ async fn apply(app: &TestApp, simulation: &str) -> crate::services::executor::Ba
     .unwrap()
 }
 
-/// Progress is written as each slice ends, so the operations queue shows a run moving rather
-/// than one that jumps to its end. Each edit is held so the count between slices can be read.
+/// Each edit is held, so the queue's count can be read between two slices.
 #[tokio::test]
 async fn progress_is_recorded_as_each_slice_ends() {
     use std::time::Duration;
@@ -306,8 +308,7 @@ async fn progress_is_recorded_as_each_slice_ends() {
     assert!(current < total, "{current} of {total} while running");
 }
 
-/// A run stops at the first slice the Arr refuses whole however much moved before it, and what
-/// moved counts: the job succeeded, and its counts say what failed.
+/// What moved counts: the task succeeds, and its counts say what failed.
 #[tokio::test]
 async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     let arr = FakeArr::start().await;
@@ -331,13 +332,13 @@ async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     .unwrap();
 
     assert!(report.stopped_early, "{report:?}");
+    assert_eq!(report.stopped, Some(executor::StopReason::Refused), "{report:?}");
     assert_eq!((report.batches_run, report.applied, report.failed), (2, 5, 5), "{report:?}");
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 2);
     assert_eq!(app.last_job_status("apply").await, "success");
+    assert_eq!(apply_detail(&app).await, "JobDetailStoppedSliceRefused");
 }
 
-/// The dry-run turned on while a whole simulation is applied stops the slice running before its
-/// next move, and the slices after it never run.
 #[tokio::test]
 async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
     use std::time::Duration;
@@ -369,8 +370,7 @@ async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 9);
 }
 
-/// One film the Arr refuses, deleted there since the last sync say, fails alone, and the
-/// slices after it still run.
+/// The Arr refuses a film deleted there since the last sync, say.
 #[tokio::test]
 async fn one_refused_film_does_not_end_the_run() {
     let arr = FakeArr::start().await;
@@ -402,8 +402,7 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
     assert!(arr.recorded().writes.is_empty(), "nothing may be written before confirming");
 }
 
-/// The question is asked whole: how many move, and whether their files move with them. The
-/// interface shows it as it comes, so a clause missing here is missing on screen.
+/// The interface shows the question as it comes, so a clause missing here is missing on screen.
 #[tokio::test]
 async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let arr = FakeArr::start().await;
