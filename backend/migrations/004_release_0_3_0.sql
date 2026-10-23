@@ -172,3 +172,9 @@ CREATE TABLE retired_overrides (
 -- How many titles the last sync kept although the Arr no longer reports them: an answer that drops
 -- most of a library waits for a person rather than deleting it on one read.
 ALTER TABLE instances ADD COLUMN removal_held INTEGER NOT NULL DEFAULT 0;
+
+-- What a session opened under besides its mode: the digest of the OIDC lists in force, or a
+-- digest of the API key mixed with the session's own id, so a change of either ends the sessions
+-- it concerns. A row written without one names neither, so every session ends here.
+ALTER TABLE sessions ADD COLUMN opened_under TEXT NOT NULL DEFAULT '';
+DELETE FROM sessions;

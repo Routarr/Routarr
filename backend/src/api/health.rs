@@ -274,12 +274,13 @@ pub async fn health_check(
         return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(failing)));
     }
 
-    // Another site can send a browser here with its cookie, so its request never sets off a probe.
-    let cross_site = headers
-        .get("sec-fetch-site")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|site| site.eq_ignore_ascii_case("cross-site"));
-    let probe = query.probe.unwrap_or(operates) && !cross_site;
+    // Another origin, another port of this host included, could set off a probe with the cookie.
+    let elsewhere = headers.get("sec-fetch-site").is_some_and(|value| {
+        !value.to_str().is_ok_and(|site| {
+            site.eq_ignore_ascii_case("same-origin") || site.eq_ignore_ascii_case("none")
+        })
+    });
+    let probe = query.probe.unwrap_or(operates) && !elsewhere;
     let pool = &state.pool;
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));

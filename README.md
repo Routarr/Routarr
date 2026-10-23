@@ -216,19 +216,28 @@ Behind a reverse proxy in `apikey`, `forms` or `oidc` mode, forward the public h
 443: the host is what a write from the browser is checked against, the scheme what marks the
 session cookie `Secure`. A refused sign-in is logged, sign-ins are checked at most three at a
 time per client address, and an address that fails five times waits before its next attempt.
-List the proxy in `ROUTARR_TRUSTED_PROXIES`, by address or by range such as `172.18.0.0/16`, so
-the client it forwards in `X-Forwarded-For` is counted, not the proxy. In `oidc` mode the provider
+List the proxy in `ROUTARR_TRUSTED_PROXIES`, so the client it forwards in `X-Forwarded-For` is
+counted, not the proxy, and so the proxy is not held to the 32 connections a client address keeps
+once half of the 512 are taken. List its own address, fixed on its Docker network
+(`ipv4_address`), or put Routarr and the proxy on a network nothing else joins: every peer inside
+a listed range, such as `172.18.0.0/16`, chooses the address its sign-ins count against. The
+session cookie reaches every service of the same host name, whatever its port: give Routarr a
+host name of its own, such as `routarr.nas.lan`, when the other services of the host are not
+trusted. In `oidc` mode the provider
 and the redirect URL have to be `https://`, except on `localhost`, and
 `ROUTARR_OIDC_ALLOWED_SUBJECTS` or `ROUTARR_OIDC_ALLOWED_GROUPS` names who may sign in: a provider
 left at its defaults would let every account of its directory in. `ROUTARR_OIDC_READ_SUBJECTS` and
 `ROUTARR_OIDC_READ_GROUPS` name who may sign in to read alone: the library, the proposals, the
-history and the tasks, what a key's read scope reaches, never a move or a setting. Someone the
-first two let in as well has full access. A group is read from the ID token: Authelia keeps groups
+history and the tasks, what a key's read scope reaches, never a move or a setting, and no one's
+name but their own. Someone the first two let in as well has full access. A start with other lists
+ends every session the earlier ones opened. A group is read from the ID token: Authelia keeps groups
 in userinfo unless a claims policy adds them, and Keycloak sends them through a group membership
 mapper. In `external` mode, publish the port to the proxy alone: the proxy is what signs people
 in. In `forms` mode, a lost password is reset with
 `docker exec routarr /app/routarr reset-account`, which prints a new one and signs everyone out.
-Add `--revoke-keys` to revoke every application key and replace the API key as well.
+Add `--revoke-keys` to revoke every application key and replace the API key, if there is one, as
+well: the running server accepts the old key until it restarts. In another mode the command
+refuses, unless `--force` resets the account for a later switch to `forms`.
 `docker exec routarr /app/routarr --help` lists every command.
 
 In `none` mode Routarr answers to its addresses and `localhost`. Reached by a name, such as

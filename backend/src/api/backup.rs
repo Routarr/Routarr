@@ -156,9 +156,13 @@ async fn stream_archive(
 
 pub async fn remove(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Path(name): Path<String>,
 ) -> AppResult<Json<super::Deleted>> {
     backup::delete(&state, &name)?;
+    let event = allowed(Kind::Backup, "AuditBackupDeleted").with("name", &name);
+    crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(super::Deleted { deleted: true }))
 }
 

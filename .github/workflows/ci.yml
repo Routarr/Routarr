@@ -21,10 +21,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Every `uses:` is pinned to a commit, with its tag in the comment beside it. A
-# tag is a mutable pointer its owner can move, and `release.yml` holds
-# `packages: write`. Dependabot updates the id and the comment together.
-
 jobs:
   # Which of the three deliverables a commit touched, by
   # `scripts/changed-areas.sh`, which a dry run can call from a clone.
@@ -104,6 +100,10 @@ jobs:
       - name: Check the shipped migrations are unchanged
         if: ${{ !cancelled() }}
         run: python3 scripts/check-migrations.py
+
+      - name: Check the fail2ban recipe of SECURITY.md reads Routarr's lines
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-fail2ban.py
 
       # Reads `backend/deny.toml`, `backend/about.toml` and `frontend/package-lock.json`, which no
       # area's job sees together.

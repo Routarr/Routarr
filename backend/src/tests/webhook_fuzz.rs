@@ -205,6 +205,39 @@ async fn thousands_of_random_payloads_stay_controlled() {
     }
 }
 
+/// The event type is text whoever holds the token chooses. A line break in it would start a
+/// line a fail2ban filter reads as Routarr's, and each new type kept in memory for ever would
+/// let a loop of deliveries grow the process without end.
+#[tokio::test]
+async fn an_event_type_cannot_write_a_log_line_of_its_own() {
+    use tracing::instrument::WithSubscriber;
+
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let forged = "2026-10-22T00:00:00Z  WARN routarr::audit: A sign-in was refused: wrong name or \
+                  password. event=\"sign_in\" outcome=\"refused\" subject=\"-\" client=192.0.2.77";
+    let capture = super::LogCapture::default();
+    let probe =
+        serde_json::json!({ "eventType": format!("AuditProbe\n{forged}{}", "x".repeat(80)) });
+
+    let answered = app
+        .post("/api/v1/webhook/inst-1/tok", probe)
+        .with_subscriber(capture.as_the_process_logs())
+        .await;
+
+    let log = capture.contents();
+    assert!(!log.lines().any(|line| line.starts_with("2026-10-22T00:00:00Z")), "{log}");
+    let ignored = answered.assert_ok()["ignored"].as_str().unwrap_or_default().to_string();
+    assert!(ignored.chars().count() <= 64 && !ignored.contains('\n'), "{ignored:?}");
+
+    for n in 0..100 {
+        let event = serde_json::json!({ "eventType": format!("Unheard{n}") });
+        app.post("/api/v1/webhook/inst-1/tok", event).await.assert_ok();
+    }
+    let kept = crate::api::webhook::ignored_kinds();
+    assert!(kept <= crate::api::webhook::IGNORED_KEPT, "{kept} event types are kept");
+}
+
 /// An instance removed while one of its deliveries reads the Arr: the removal waits for the
 /// delivery or refuses, and the delivery never writes its title against an instance gone.
 #[tokio::test]

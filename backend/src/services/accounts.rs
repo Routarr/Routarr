@@ -209,7 +209,9 @@ impl SignInThrottle {
         client: Option<IpAddr>,
     ) -> Result<bool, Busy> {
         let share = match client {
-            Some(ip) => Some(ClientShare::take(&self.by_client, bucket(ip)).ok_or(Busy)?),
+            Some(ip) => {
+                Some(ClientShare::take(&self.by_client, bucket(ip), PER_CLIENT).ok_or(Busy)?)
+            }
             None => None,
         };
         // Counted before the wait, so the refusal happens without holding a
@@ -260,18 +262,22 @@ impl Drop for Leaving {
     }
 }
 
-/// One client's slot in the queue, given back however the check ends.
-struct ClientShare {
+/// One client's slot, given back however its holder ends.
+pub(crate) struct ClientShare {
     clients: Arc<Mutex<HashMap<IpAddr, usize>>>,
     ip: IpAddr,
 }
 
 impl ClientShare {
-    /// A slot for `ip`, unless it already holds its share.
-    fn take(clients: &Arc<Mutex<HashMap<IpAddr, usize>>>, ip: IpAddr) -> Option<Self> {
+    /// A slot for `ip`, unless it already holds `at_most`.
+    pub(crate) fn take(
+        clients: &Arc<Mutex<HashMap<IpAddr, usize>>>,
+        ip: IpAddr,
+        at_most: usize,
+    ) -> Option<Self> {
         let mut held = clients.lock().unwrap_or_else(PoisonError::into_inner);
         let count = held.entry(ip).or_insert(0);
-        if *count >= PER_CLIENT {
+        if *count >= at_most {
             return None;
         }
         *count += 1;
@@ -410,11 +416,44 @@ pub async fn set_password(
 /// What the table holds of a session: the digest of the id its cookie
 /// carries, so a copy of the database, a backup or a stolen disk, opens none.
 pub(crate) fn stored(id: &str) -> String {
+    digest(&[b"routarr:session:v1:", id.as_bytes()])
+}
+
+fn digest(parts: &[&[u8]]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"routarr:session:v1:");
-    hasher.update(id.as_bytes());
+    for part in parts {
+        hasher.update(part);
+    }
     hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// What a session is bound to besides its mode, compared at every request: a change of it
+/// ends the sessions it concerns, whatever their lifetime has left. No `Debug`: it would print
+/// the API key.
+pub enum OpenedUnder {
+    /// The `forms` account, whose password change and reset end its sessions themselves.
+    Account,
+    /// The OIDC lists, by `Config::oidc_access_digest`.
+    Lists(String),
+    /// The API key in force.
+    Key(String),
+}
+
+impl OpenedUnder {
+    /// What `opened_under` holds for the session `id`. A key is mixed with the id, so a copy of
+    /// the database cannot test guesses of a weak pinned key.
+    fn stored(&self, id: &str) -> String {
+        match self {
+            Self::Account => String::new(),
+            Self::Lists(digest) => format!("lists:{digest}"),
+            Self::Key(key) => {
+                let parts: [&[u8]; 4] =
+                    [b"routarr:key-session:v1:", id.as_bytes(), b":", key.as_bytes()];
+                format!("key:{}", digest(&parts))
+            }
+        }
+    }
 }
 
 /// What a person signed in may reach: everything, or what an application key's read scope
@@ -446,20 +485,39 @@ pub async fn open_session(
     subject: &str,
     source: &str,
     reach: Reach,
+    under: &OpenedUnder,
 ) -> AppResult<String> {
     let id = crate::crypto::generate_secret()?;
     sqlx::query(
-        "INSERT INTO sessions (id, subject, source, expires_at, reach)
-         VALUES (?, ?, ?, datetime('now', ?), ?)",
+        "INSERT INTO sessions (id, subject, source, expires_at, reach, opened_under)
+         VALUES (?, ?, ?, datetime('now', ?), ?, ?)",
     )
     .bind(stored(&id))
     .bind(subject)
     .bind(source)
     .bind(format!("+{} seconds", opening_seconds(source)))
     .bind(reach.as_str())
+    .bind(under.stored(&id))
     .execute(pool)
     .await?;
     Ok(id)
+}
+
+/// Bind the `source` session `id` to `under` from now on, as a key replaced from the session
+/// that asked keeps that session.
+pub async fn rebind(
+    pool: &SqlitePool,
+    id: &str,
+    source: &str,
+    under: &OpenedUnder,
+) -> AppResult<()> {
+    sqlx::query("UPDATE sessions SET opened_under = ? WHERE id = ? AND source = ?")
+        .bind(under.stored(id))
+        .bind(stored(id))
+        .bind(source)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 /// A live session, as answering it left it.
@@ -473,23 +531,29 @@ pub struct Session {
     pub renewed: Option<i64>,
 }
 
-/// The session behind an id, if it is live and `source`, the mode in force, opened it,
-/// renewing it when due. A change of `ROUTARR_AUTH` changes who may enter, so a session
-/// another mode opened answers nothing. Expiry is compared in SQL, against what SQLite wrote.
-pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResult<Option<Session>> {
+/// The session behind an id, if it is live and `source`, the mode in force, opened it under
+/// `under`, renewing it when due: a change of the mode, the OIDC lists or the API key ends
+/// what it opened. Expiry is compared in SQL, against what SQLite wrote.
+pub async fn live_session(
+    pool: &SqlitePool,
+    id: &str,
+    source: &str,
+    under: &OpenedUnder,
+) -> AppResult<Option<Session>> {
     let lifetime = format!("-{} hours", lifetime_hours(source));
     // Renewal is due once less than `SESSION_DAYS - 1` days are left, never past the lifetime.
     let live: Option<(String, i64, String, bool)> = sqlx::query_as(
         "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER), reach,
                 expires_at < MIN(datetime('now', ?), datetime(created_at, ?, '-1 hour'))
            FROM sessions
-          WHERE id = ? AND source = ? AND expires_at > datetime('now')
+          WHERE id = ? AND source = ? AND opened_under = ? AND expires_at > datetime('now')
             AND created_at > datetime('now', ?)",
     )
     .bind(format!("+{} days", SESSION_DAYS - 1))
     .bind(format!("+{} hours", lifetime_hours(source)))
     .bind(stored(id))
     .bind(source)
+    .bind(under.stored(id))
     .bind(&lifetime)
     .fetch_optional(pool)
     .await?;
@@ -803,7 +867,11 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(
-            live_session(&pool, "fresh", "forms").await.unwrap().map(|s| s.subject).as_deref(),
+            live_session(&pool, "fresh", "forms", &OpenedUnder::Account)
+                .await
+                .unwrap()
+                .map(|s| s.subject)
+                .as_deref(),
             Some("admin")
         );
         let after: Option<String> =
@@ -824,7 +892,11 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            live_session(&pool, "stale", "forms").await.unwrap().map(|s| s.subject).as_deref(),
+            live_session(&pool, "stale", "forms", &OpenedUnder::Account)
+                .await
+                .unwrap()
+                .map(|s| s.subject)
+                .as_deref(),
             Some("admin")
         );
         let extended: String = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE id = ?")
@@ -853,9 +925,18 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(live_session(&pool, "month-old", "forms").await.unwrap().is_none());
-        assert!(live_session(&pool, "day-old", "oidc").await.unwrap().is_none());
-        assert!(live_session(&pool, "in-time", "forms").await.unwrap().is_some());
+        assert!(
+            live_session(&pool, "month-old", "forms", &OpenedUnder::Account)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            live_session(&pool, "day-old", "oidc", &OpenedUnder::Account).await.unwrap().is_none()
+        );
+        assert!(
+            live_session(&pool, "in-time", "forms", &OpenedUnder::Account).await.unwrap().is_some()
+        );
     }
 
     #[tokio::test]
@@ -869,7 +950,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let session = live_session(&pool, "closing", "forms").await.unwrap().unwrap();
+        let session =
+            live_session(&pool, "closing", "forms", &OpenedUnder::Account).await.unwrap().unwrap();
         let given = session.renewed.expect("renewed close to its expiry");
         assert!(given <= 24 * 3600 + 5, "renewed past the lifetime by {given} seconds");
         let ends: bool = sqlx::query_scalar(
@@ -881,8 +963,9 @@ mod tests {
         .unwrap();
         assert!(ends);
 
-        let id = open_session(&pool, "u-42", "oidc", Reach::Full).await.unwrap();
-        let session = live_session(&pool, &id, "oidc").await.unwrap().unwrap();
+        let lists = OpenedUnder::Lists("the lists".into());
+        let id = open_session(&pool, "u-42", "oidc", Reach::Full, &lists).await.unwrap();
+        let session = live_session(&pool, &id, "oidc", &lists).await.unwrap().unwrap();
         assert_eq!(session.renewed, None, "a session already at its lifetime was written to");
     }
 
@@ -925,16 +1008,21 @@ mod tests {
     #[tokio::test]
     async fn a_session_answers_until_it_is_closed() {
         let pool = crate::db::test_pool().await;
-        let id = open_session(&pool, "admin", "forms", Reach::Full).await.unwrap();
+        let account = OpenedUnder::Account;
+        let id = open_session(&pool, "admin", "forms", Reach::Full, &account).await.unwrap();
 
         assert_eq!(
-            live_session(&pool, &id, "forms").await.unwrap().map(|s| s.subject).as_deref(),
+            live_session(&pool, &id, "forms", &account)
+                .await
+                .unwrap()
+                .map(|s| s.subject)
+                .as_deref(),
             Some("admin")
         );
-        assert!(live_session(&pool, "not a session", "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, "not a session", "forms", &account).await.unwrap().is_none());
 
         close_session(&pool, &id).await.unwrap();
-        assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, &id, "forms", &account).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -943,12 +1031,14 @@ mod tests {
         let dir = crate::tests::TempDir::new("accounts-pw");
         ensure_account(&pool, &dir.join("routarr.password")).await.unwrap();
 
-        let id = open_session(&pool, "admin", "forms", Reach::Full).await.unwrap();
+        let id = open_session(&pool, "admin", "forms", Reach::Full, &OpenedUnder::Account)
+            .await
+            .unwrap();
         set_password(&pool, std::path::Path::new("/nonexistent/routarr.password"), "a new one")
             .await
             .unwrap();
 
-        assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, &id, "forms", &OpenedUnder::Account).await.unwrap().is_none());
         let (_, hash) = account(&pool).await.unwrap().unwrap();
         assert!(verify_password("a new one", &hash));
     }
@@ -970,8 +1060,12 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(live_session(&pool, "stale", "forms").await.unwrap().is_none());
+        assert!(
+            live_session(&pool, "stale", "forms", &OpenedUnder::Account).await.unwrap().is_none()
+        );
         assert_eq!(purge_expired_sessions(&pool).await.unwrap(), 1);
-        assert!(live_session(&pool, "live", "forms").await.unwrap().is_some());
+        assert!(
+            live_session(&pool, "live", "forms", &OpenedUnder::Account).await.unwrap().is_some()
+        );
     }
 }

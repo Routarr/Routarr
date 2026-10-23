@@ -6,11 +6,11 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use super::auth::{
-    Client, Identity, SESSION_COOKIE, allowed, audited, constant_time_eq, cookie, refusal,
+    Client, Identity, allowed, audited, constant_time_eq, cookie, refusal, session_cookie_name,
 };
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
-use crate::services::accounts::{self, RECENT_SIGN_IN_SECONDS};
+use crate::services::accounts::{self, OpenedUnder, RECENT_SIGN_IN_SECONDS};
 use crate::services::{applications, audit};
 use crate::state::AppState;
 
@@ -54,28 +54,8 @@ pub async fn prove(
     let localizer = state.localizer().await;
     let proven = match identity.source {
         AuthMode::Forms => {
-            if let Some(left) = state.sign_in.held_back(client) {
-                let seconds = left.as_secs() + 1;
-                let message = localizer
-                    .translate("ErrorSignInHeldBack", &[("seconds", &seconds.to_string())]);
-                return Err(AppError::TooManyRequests { message, retry_after: seconds });
-            }
-            let Some((_, hash)) = accounts::account(&state.pool).await? else {
-                return Err(AppError::Forbidden(
-                    localizer.translate("ErrorProofPasswordWrong", &[]),
-                ));
-            };
             let password = proof.current_password.as_deref().unwrap_or_default();
-            match state.sign_in.verify(password, &hash, client).await {
-                Ok(true) => true,
-                Ok(false) => {
-                    state.sign_in.failed(client);
-                    false
-                }
-                Err(accounts::Busy) => {
-                    return Err(AppError::Busy(localizer.translate("ErrorSignInBusy", &[])));
-                }
-            }
+            current_password_matches(state, password, client, &localizer).await?
         }
         AuthMode::ApiKey => match (state.api_key(), proof.current_key.as_deref()) {
             (Some(expected), Some(sent)) => constant_time_eq(sent.trim(), &expected),
@@ -102,6 +82,33 @@ pub async fn prove(
     Err(AppError::Forbidden(localizer.translate(key, &[])))
 }
 
+/// Whether `password` is the account's, asked as a sign-in asks it: refused unread while the
+/// address waits after its failures, and a wrong one counted toward that wait.
+async fn current_password_matches(
+    state: &AppState,
+    password: &str,
+    client: Option<std::net::IpAddr>,
+    localizer: &crate::localization::Localizer,
+) -> AppResult<bool> {
+    if let Some(left) = state.sign_in.held_back(client) {
+        let seconds = left.as_secs() + 1;
+        let message =
+            localizer.translate("ErrorSignInHeldBack", &[("seconds", &seconds.to_string())]);
+        return Err(AppError::TooManyRequests { message, retry_after: seconds });
+    }
+    let Some((_, hash)) = accounts::account(&state.pool).await? else {
+        return Ok(false);
+    };
+    match state.sign_in.verify(password, &hash, client).await {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            state.sign_in.failed(client);
+            Ok(false)
+        }
+        Err(accounts::Busy) => Err(AppError::Busy(localizer.translate("ErrorSignInBusy", &[]))),
+    }
+}
+
 fn refuse_if_pinned(state: &AppState) -> AppResult<()> {
     if state.config.api_key.is_some() {
         return Err(AppError::Conflict {
@@ -116,7 +123,7 @@ fn refuse_if_pinned(state: &AppState) -> AppResult<()> {
 }
 
 /// End the sessions a browser opened with the API key, but `keep`: they were
-/// opened with a key that no longer opens anything.
+/// opened with a key that no longer opens anything, which also refuses them.
 async fn end_key_sessions(state: &AppState, keep: Option<&str>) -> AppResult<()> {
     sqlx::query("DELETE FROM sessions WHERE source = ? AND id != ?")
         .bind(AuthMode::ApiKey.as_str())
@@ -126,11 +133,8 @@ async fn end_key_sessions(state: &AppState, keep: Option<&str>) -> AppResult<()>
     Ok(())
 }
 
-/// Mint a new API key, replacing whatever was there.
-///
-/// The value is returned exactly once. Storing it to show again later would
-/// make every subsequent read of this screen a second chance to copy it, which
-/// is the property a credential should not have.
+/// Mint a new API key, replacing whatever was there. This answer is the only time the value is
+/// shown.
 pub async fn rotate_api_key(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
@@ -141,7 +145,12 @@ pub async fn rotate_api_key(
     refuse_if_pinned(&state)?;
     prove(&state, &identity, &proof_in(&body)?, client).await?;
     let key = state.rotate_api_key().await?;
-    end_key_sessions(&state, cookie(&headers, SESSION_COOKIE).as_deref()).await?;
+    let asking = cookie(&headers, session_cookie_name(&state, &headers));
+    if let Some(id) = asking.as_deref() {
+        let source = AuthMode::ApiKey.as_str();
+        accounts::rebind(&state.pool, id, source, &OpenedUnder::Key(key.clone())).await?;
+    }
+    end_key_sessions(&state, asking.as_deref()).await?;
     audited(&state, &identity, client, allowed(audit::Kind::ApiKey, "AuditApiKeyReplaced"));
     Ok(super::Json(serde_json::json!({ "api_key": key })))
 }
@@ -154,9 +163,7 @@ pub async fn delete_api_key(
     body: axum::body::Bytes,
 ) -> AppResult<super::Json<super::Deleted>> {
     refuse_if_pinned(&state)?;
-    // In `apikey` mode it is the only credential there is, and the middleware
-    // refuses every request once it is gone, including the one that would put
-    // it back.
+    // Gone, the key would lock out every request, the one restoring it included.
     if state.config.auth_mode == AuthMode::ApiKey {
         return Err(AppError::Conflict { reason: "only_credential", message: "The API key is the only way in while ROUTARR_AUTH=apikey. Switch to a session mode \
              before removing it."
@@ -195,9 +202,8 @@ pub struct PasswordChange {
 
 /// Replace the password, having proved the old one.
 ///
-/// Behind the middleware, so a session already opened it, and still asking for
-/// the current password, because a session left open on a shared machine is
-/// exactly the case a password change must not be free in.
+/// The current password is asked even behind a session, since a shared machine may have left
+/// one open. Outside `forms` no sign-in reads the account, so there is none to change.
 pub async fn change_password(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
@@ -205,21 +211,11 @@ pub async fn change_password(
     headers: HeaderMap,
     super::Json(change): super::Json<PasswordChange>,
 ) -> AppResult<Response> {
+    if state.config.auth_mode != AuthMode::Forms {
+        return Err(AppError::NotFound("No such API route.".into()));
+    }
     let localizer = state.localizer().await;
-    let Some((_, hash)) = accounts::account(&state.pool).await? else {
-        return Err(AppError::Forbidden("This installation has no account to change".into()));
-    };
-    // Through the throttle like a sign-in: this route is behind the middleware,
-    // so the queue is not the point, and keeping argon2 off the runtime is. A
-    // check left there holds a worker for the whole hash, and on a small
-    // machine that is every other request waiting.
-    let matched = match state.sign_in.verify(&change.current, &hash, client).await {
-        Ok(matched) => matched,
-        Err(accounts::Busy) => {
-            return Err(AppError::Busy(localizer.translate("ErrorSignInBusy", &[])));
-        }
-    };
-    if !matched {
+    if !current_password_matches(&state, &change.current, client, &localizer).await? {
         let event = refusal(audit::Kind::Password, "AuditPasswordRefused");
         state.audit.record(event.by(Some(&identity.subject), client));
         return Err(AppError::Forbidden(localizer.translate("ErrorProofPasswordWrong", &[])));
@@ -242,14 +238,11 @@ pub async fn change_password(
     } else {
         None
     };
-    // Every session the old password opened is gone, this one included: the
-    // point of changing a password is that what the old one reached is closed.
-    // The browser that changed it proved the old one a moment ago, and gets a
-    // new session, so a key shown once in this answer is not lost to the
-    // sign-in screen.
+    // `set_password` ended every session, this one included. This browser gets a new one, so a
+    // key shown once here is not lost to the sign-in screen.
     let source = AuthMode::Forms.as_str();
-    let id = accounts::open_session(&state.pool, &identity.subject, source, accounts::Reach::Full)
-        .await?;
+    let (full, account) = (accounts::Reach::Full, &OpenedUnder::Account);
+    let id = accounts::open_session(&state.pool, &identity.subject, source, full, account).await?;
     let renewed =
         super::auth::session_cookie(&state, &headers, &id, accounts::opening_seconds(source));
     Ok((
@@ -265,7 +258,7 @@ pub async fn sessions(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> AppResult<super::Json<Vec<accounts::Listed>>> {
-    let current = cookie(&headers, SESSION_COOKIE);
+    let current = cookie(&headers, session_cookie_name(&state, &headers));
     Ok(super::Json(accounts::list_sessions(&state.pool, current.as_deref()).await?))
 }
 
@@ -295,7 +288,7 @@ pub async fn end_session(
     headers: HeaderMap,
     super::Path(handle): super::Path<String>,
 ) -> AppResult<Response> {
-    let current = cookie(&headers, SESSION_COOKIE)
+    let current = cookie(&headers, session_cookie_name(&state, &headers))
         .is_some_and(|id| accounts::stored(&id).starts_with(&handle));
     if !accounts::end_session(&state.pool, &handle).await? {
         return Err(AppError::NotFound("No live session has that handle".into()));

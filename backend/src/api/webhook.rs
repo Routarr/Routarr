@@ -3,7 +3,7 @@
 //! `X-Routarr-Token`), an older Arr in the URL, where every proxy and the Arr's own log keep it.
 
 use super::Json;
-use axum::extract::State;
+use axum::extract::{FromRequest, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
@@ -14,10 +14,12 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tracing::{info, warn};
 
+use crate::api::auth::{Client, refusal, refused};
 use crate::error::{AppError, AppResult};
 use crate::integrations::arr_webhook::{self, TOKEN_HEADER};
 use crate::jobs::registry::WaitingPlace;
 use crate::models::Instance;
+use crate::services::audit::Kind;
 use crate::services::auto_apply::{self, AutoApplyOutcome};
 use crate::services::{enrichment, routing, sync};
 use crate::state::AppState;
@@ -53,23 +55,60 @@ const DELETE_EVENTS: [&str; 2] = ["moviedelete", "seriesdelete"];
 /// The events ignored so far, each logged the first time it arrives.
 static IGNORED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
+/// How many event types [`IGNORED`] keeps: the Arrs send about twenty, and a type sent by
+/// whoever holds the token stays in memory until the process stops.
+pub const IGNORED_KEPT: usize = 64;
+
+/// The longest event type kept, as long as the longest an Arr sends with room to spare.
+const EVENT_LENGTH: usize = 64;
+
+/// How many event types are remembered as ignored, every test's included. Only a test asks.
+#[cfg(test)]
+pub fn ignored_kinds() -> usize {
+    IGNORED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).len()
+}
+
+/// The largest delivery read: a season import's is tens of KiB.
+pub const BODY_MAX: usize = 1024 * 1024;
+
 /// A delivery carrying its token in the URL, for an Arr that sends no header.
 pub async fn receive(
     State(state): State<AppState>,
     Path((instance_id, token)): Path<(String, String)>,
-    Json(payload): Json<ArrWebhook>,
-) -> AppResult<Response> {
-    deliver(state, &instance_id, Some(token), payload).await
+    Client(client): Client,
+    request: Request,
+) -> Response {
+    deliver(state, &instance_id, Some(token), client, request).await
 }
 
 /// A delivery carrying its token in a header.
 pub async fn receive_with_header(
     State(state): State<AppState>,
     Path(instance_id): Path<String>,
-    headers: HeaderMap,
-    Json(payload): Json<ArrWebhook>,
-) -> AppResult<Response> {
-    deliver(state, &instance_id, header_token(&headers), payload).await
+    Client(client): Client,
+    request: Request,
+) -> Response {
+    let token = header_token(request.headers());
+    deliver(state, &instance_id, token, client, request).await
+}
+
+/// The delivery `request` carries, read once its token names `instance_id`: a stranger's body
+/// is never read, and its refusal says nothing about its shape.
+async fn deliver(
+    state: AppState,
+    instance_id: &str,
+    token: Option<String>,
+    client: Option<std::net::IpAddr>,
+    request: Request,
+) -> Response {
+    let instance = match authenticated(&state, instance_id, token, client).await {
+        Ok(instance) => instance,
+        Err(refused) => return refused.into_response(),
+    };
+    match Json::<ArrWebhook>::from_request(request, &state).await {
+        Ok(Json(payload)) => delivered(state, instance, payload).await.into_response(),
+        Err(rejection) => rejection,
+    }
 }
 
 /// The token of `X-Routarr-Token`, or the password of Basic credentials.
@@ -94,7 +133,6 @@ fn header_token(headers: &HeaderMap) -> Option<String> {
 /// Record that `instance` heard from its Arr, at most once a minute: a season sends one delivery
 /// per episode. The stamp leaves `updated_at` alone, which the probe reuse reads.
 async fn stamp_delivery(state: &AppState, instance: &str, event: &str) {
-    let event: String = event.chars().take(64).collect();
     let stamped = sqlx::query(
         "UPDATE instances SET last_webhook_at = datetime('now'), last_webhook_event = ?
           WHERE id = ?
@@ -109,12 +147,14 @@ async fn stamp_delivery(state: &AppState, instance: &str, event: &str) {
     }
 }
 
-async fn deliver(
-    state: AppState,
+/// The instance `token` is the webhook token of. A wrong one is a refusal of the security log,
+/// summed per address, as a key that opens nothing is.
+async fn authenticated(
+    state: &AppState,
     instance_id: &str,
     token: Option<String>,
-    payload: ArrWebhook,
-) -> AppResult<Response> {
+    client: Option<std::net::IpAddr>,
+) -> AppResult<Instance> {
     // One answer for a wrong id and a wrong token, or the route confirms which ids exist.
     let instance = state
         .instance(instance_id)
@@ -124,10 +164,29 @@ async fn deliver(
     let expected = instance.webhook_token.as_deref().unwrap_or_default();
     let given = token.unwrap_or_default();
     if expected.is_empty() || !super::auth::constant_time_eq(&given, expected) {
-        warn!(instance = %instance.name, "Rejected a webhook with an invalid token");
+        let event =
+            refusal(Kind::Webhook, "AuditWebhookTokenRefused").with("instance", &instance.name);
+        refused(state, client, event);
         return Err(AppError::NotFound("Unknown webhook".into()));
     }
-    stamp_delivery(&state, &instance.id, payload.event_type.as_deref().unwrap_or("Unknown")).await;
+    Ok(instance)
+}
+
+async fn delivered(
+    state: AppState,
+    instance: Instance,
+    payload: ArrWebhook,
+) -> AppResult<Response> {
+    // Cut once, before the log, the stamp, the answer and the set of ignored types read it.
+    let event: String = payload
+        .event_type
+        .as_deref()
+        .unwrap_or("Unknown")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(EVENT_LENGTH)
+        .collect();
+    stamp_delivery(&state, &instance.id, &event).await;
 
     // No back door into an instance switched off. Acknowledged, not refused: the Arr is
     // configured correctly, and a refusal would only fill its log.
@@ -136,7 +195,6 @@ async fn deliver(
         return answered(serde_json::json!({ "ok": true, "ignored": "instance is disabled" }));
     }
 
-    let event = payload.event_type.clone().unwrap_or_else(|| "Unknown".into());
     let kind = event.to_ascii_lowercase();
 
     // `Test` is what the Arr sends when the user clicks "Test" in its UI.
@@ -145,10 +203,15 @@ async fn deliver(
     }
 
     if !arr_webhook::acted_on(&kind) {
-        let first = IGNORED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(kind);
-        if first {
-            info!(instance = %instance.name, event = %event, "Ignoring this webhook event");
+        let mut ignored = IGNORED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if ignored.len() < IGNORED_KEPT {
+            if ignored.insert(kind) {
+                info!(instance = %instance.name, event = %event, "Ignoring this webhook event");
+            }
+        } else if !ignored.contains(&kind) {
+            info!(instance = %instance.name, "Ignoring a webhook event of a type past those remembered");
         }
+        drop(ignored);
         return answered(serde_json::json!({ "ok": true, "ignored": event }));
     }
 
