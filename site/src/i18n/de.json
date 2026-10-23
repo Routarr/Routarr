@@ -58,7 +58,7 @@
   "api.ref.op.sync_instance": "Ein Arr erneut lesen",
   "api.ref.op.list_tasks": "Die Aufgaben, die neuesten zuerst",
   "api.ref.op.get_task": "Eine Aufgabe",
-  "api.ref.op.cancel_task": "Ein laufendes Anwenden oder Zurückverschieben anhalten",
+  "api.ref.op.cancel_task": "Ein Anwenden oder Zurückverschieben anhalten",
   "api.ref.op.list_media": "Die Bibliothek, Seite für Seite",
   "api.ref.op.get_media": "Ein Titel",
   "api.ref.op.explain_media": "Wohin ein Titel kommt, und warum",
