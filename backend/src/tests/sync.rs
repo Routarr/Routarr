@@ -4,6 +4,8 @@
 //! the user's overrides, so the orphan-cleanup guardrails get the most attention
 //! here.
 
+use serde_json::json;
+
 use crate::services::sync;
 
 use super::fake_arr::FakeArr;
@@ -347,7 +349,7 @@ async fn media_removed_upstream_is_removed_locally() {
     assert!(superseded, "the proposal for a row the Arr no longer has still stands");
 }
 
-/// A library leaving an Arr outnumbers what one statement binds, so the
+/// A library leaving an Arr, its removal asked for, outnumbers what one statement binds, so the
 /// retirement runs in chunks and the report counts every one of them.
 #[tokio::test]
 async fn a_sync_retiring_more_rows_than_one_statement_binds_retires_and_counts_them_all() {
@@ -365,9 +367,10 @@ async fn a_sync_retiring_more_rows_than_one_statement_binds_retires_and_counts_t
     .await
     .unwrap();
 
-    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
-        .await
-        .unwrap();
+    let report =
+        sync::sync_removing_missing(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
 
     assert_eq!(report.removed, gone as u64);
     assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1, "a chunk was left behind");
@@ -396,6 +399,48 @@ async fn an_arr_answering_no_title_keeps_the_library() {
     assert_eq!(report.removed, 0, "a misconfigured Arr must not look like a mass deletion");
     assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1);
     assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 1, "the exception went");
+}
+
+/// An Arr answering a fraction of the library, restored from an old backup or rebuilt, is held
+/// rather than read as most of the library deleted: the titles stay until a person removes them.
+#[tokio::test]
+async fn an_arr_answering_a_fraction_of_the_library_is_held_until_a_person_removes_it() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    for arr_id in 100..120 {
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
+                                monitored, has_files)
+             VALUES (?, 'inst-1', ?, 'movie', ?, ?, 1, 1)",
+        )
+        .bind(format!("m-inst-1-{arr_id}"))
+        .bind(arr_id)
+        .bind(format!("Film {arr_id}"))
+        .bind(arr_id + 5000)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+
+    let held = sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(held.removed, 0, "most of the library went on one read");
+    assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 21);
+    assert_eq!(app.count("SELECT removal_held FROM instances").await, 20);
+    let status = app.get("/api/v1/status").await.assert_ok().clone();
+    assert!(status.to_string().contains("removal_held"), "{status}");
+    let instance = app.get("/api/v1/instances/inst-1").await.assert_ok().clone();
+    assert_eq!(instance["removal_held"], 20);
+
+    app.post("/api/v1/instances/inst-1/remove-missing", serde_json::json!(null)).await.assert_ok();
+    assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1, "the removal asked for was held");
+    assert_eq!(app.count("SELECT removal_held FROM instances").await, 0);
 }
 
 /// The same for folders: an Arr answering no root folder keeps the ones it
@@ -500,6 +545,16 @@ async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
                                 action, status)
          VALUES ('d-1', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/standard',
                  '/movies/kids', 'kids', 'move', 'pending')",
+        // A move Routarr made of the old title into the folder the new one sits in.
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category,
+                                action, status, applied_at)
+         VALUES ('d-2', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/kids',
+                 '/movies/standard', 'standard', 'move', 'applied', datetime('now'))",
+        "INSERT INTO execution_logs (id, decision_id, action, details, success, instance_id,
+                                     media_id, media_title)
+         VALUES ('l-2', 'd-2', 'move', '/movies/kids → /movies/standard', 1, 'inst-1',
+                 'm-inst-1-10', 'Spirited Away')",
     ])
     .await;
 
@@ -507,9 +562,57 @@ async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
         .await
         .unwrap();
 
-    assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 0, "the exception carried over");
+    let live = "SELECT COUNT(*) FROM overrides WHERE media_id = 'm-inst-1-10'";
+    assert_eq!(app.count(live).await, 0, "the exception carried over");
     assert_eq!(app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await, 1);
     assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await, 8392);
+
+    let revertible = app.get("/api/v1/decisions?revertible=true").await.assert_ok().clone();
+    assert!(
+        !revertible.to_string().contains("\"d-2\""),
+        "the old move is revertible: {revertible}"
+    );
+    let log = app.get("/api/v1/move-log?media_id=m-inst-1-10").await.assert_ok().clone();
+    assert!(!log.to_string().contains("Spirited Away"), "the old moves show as the new title's");
+    app.store_setting("global_dry_run", "false").await;
+    let reverted = app.post("/api/v1/decisions/revert", json!({ "decision_ids": ["d-2"] })).await;
+    assert_eq!(reverted.assert_ok()["applied"], 0, "{:?}", reverted.json);
+    assert!(arr.recorded().writes.is_empty(), "a revert moved the title that took the id");
+    let kept = app.count("SELECT COUNT(*) FROM decisions WHERE id = 'd-2' AND status = 'applied'");
+    assert_eq!(kept.await, 1, "the history of the old title was lost");
+}
+
+/// An Arr that stops reporting a title, then reports it again under another id, gets its
+/// exception back: a partial answer would otherwise delete what the operator set by hand.
+#[tokio::test]
+async fn a_title_the_arr_reports_again_gets_its_exception_back() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let by = crate::jobs::Attribution::manual(None);
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+    app.execute(&[
+        "INSERT INTO categories (id, name) VALUES ('c-kids', 'kids')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-inst-1-77', 'inst-1', 77, 'movie', 'Akira', 149, '/movies/standard', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category, reason)
+         VALUES ('o-akira', 'm-inst-1-77', 'kids', 'set by hand')",
+    ])
+    .await;
+
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE id = 'm-inst-1-77'").await, 0);
+
+    arr.edit_movie(json!({ "tmdbId": 149, "title": "Akira" }));
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+
+    let back: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT media_id, target_category, reason FROM overrides")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(back, [("m-inst-1-10".into(), "kids".into(), Some("set by hand".into()))]);
 }
 
 /// Listing its root folders makes the Arr walk every folder inside each, so a

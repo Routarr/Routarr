@@ -201,7 +201,6 @@ pub struct RevertDecisionsRequest {
 
 pub async fn apply(
     State(state): State<AppState>,
-    // The middleware sets it on every protected request, so this extractor cannot fail.
     axum::Extension(identity): axum::Extension<Identity>,
     headers: HeaderMap,
     Json(req): Json<ApplyDecisionsRequest>,

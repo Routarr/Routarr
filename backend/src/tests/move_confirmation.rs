@@ -116,6 +116,38 @@ async fn a_move_whose_command_fails_is_recorded_as_failed() {
     assert!(reason.unwrap_or_default().contains("Access to the path is denied"));
 }
 
+/// Both Arrs skip a move whose source folder they cannot see, keep the new path and end the
+/// command completed, and their next scan drops the title's file records.
+#[tokio::test]
+async fn a_move_whose_folder_the_arr_cannot_see_is_not_recorded_as_moved() {
+    let arr = FakeArr::start().await;
+    arr.missing_source(10);
+    let (app, decision_id) = one_move_ready(&arr).await;
+
+    let report = apply_with_files(&app, &decision_id).await;
+
+    assert_eq!((report.applied, report.failed), (0, 1), "{report:?}");
+    let (status, reason) = decision(&app, &decision_id).await;
+    assert_eq!(status, "failed");
+    let reason = reason.unwrap_or_default();
+    assert!(reason.contains("Fake radarr cannot see") && reason.contains(BEFORE), "{reason}");
+    assert!(arr.recorded().writes.is_empty(), "{:?}", arr.recorded().query_strings);
+    assert_eq!(totoro_path(&app).await, BEFORE);
+}
+
+/// A title with no file yet has no folder to see, and moves.
+#[tokio::test]
+async fn a_title_without_files_moves_whatever_the_arr_sees_of_its_folder() {
+    let arr = FakeArr::with_unimported_movie().await;
+    arr.missing_source(10);
+    let (app, decision_id) = one_move_ready(&arr).await;
+
+    let report = apply_with_files(&app, &decision_id).await;
+
+    assert_eq!((report.applied, report.failed), (1, 0), "{report:?}");
+    assert_eq!(totoro_path(&app).await, AFTER);
+}
+
 #[tokio::test]
 async fn a_move_still_running_when_the_run_stops_waiting_is_confirmed_by_the_next_sync() {
     let arr = FakeArr::start().await;

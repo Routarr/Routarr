@@ -12,7 +12,8 @@ export type DecisionAction = 'move' | 'none' | 'skip';
 /** `requested`: the Arr took the move and was not yet seen to finish it. */
 export type DecisionStatus = 'pending' | 'requested' | 'applied' | 'failed' | 'skipped';
 /** Why a run that moves titles ended before its last move. */
-export type StopReason = 'dry_run' | 'cancelled' | 'shutdown' | 'unreachable' | 'stalled';
+export type StopReason =
+  'dry_run' | 'cancelled' | 'shutdown' | 'unreachable' | 'stalled' | 'refused' | 'failed';
 export type LogAction = 'move' | 'revert';
 
 export interface Instance {
@@ -36,6 +37,8 @@ export interface Instance {
   webhook_check: WebhookCheck | null;
   /** The switches that connection needs ticked, as the Arr's interface names them. */
   webhook_triggers: string[];
+  /** How many titles the last sync kept although the Arr no longer reports them. */
+  removal_held: number;
   /** When a sync last *succeeded*. Null while none ever has. */
   last_sync_at: string | null;
   /** When one was last attempted, successful or not. */
@@ -991,7 +994,7 @@ export interface ConfigImportReport {
   root_folders: number;
   overrides: number;
   rules: number;
-  /** Everything not restored, and why. Never silent. */
+  /** Everything not restored, and why. */
   skipped: string[];
   /** The instances restored disabled, by name, each waiting for its API key. */
   needs_key: string[];

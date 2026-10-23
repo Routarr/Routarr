@@ -23,7 +23,7 @@
     NO_TITLE_FILTER,
     type TitleFilter,
   } from '../components/DecisionFilterFields.svelte';
-  import { reportMoves } from '../lib/moves';
+  import { endedOnFailure, reportMoves } from '../lib/moves';
   import { access } from '../lib/access.svelte';
 
   const STATUS_TONE: Record<string, string> = {
@@ -130,7 +130,7 @@
       if (!report) return;
       reportMoves(
         outcome,
-        report.stopped_early && !report.stopped
+        endedOnFailure(report)
           ? t('BatchRevertStopped', {
               applied: report.applied,
               candidates: report.candidates,

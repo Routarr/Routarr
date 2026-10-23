@@ -21,7 +21,7 @@ use crate::state::{AppState, Settings};
 /// What the liveness probe answers. No version: `/status` gives it to a caller with a key.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Pong {
-    /// Always `ok`: an answer at all is the news.
+    /// Always `ok`.
     pub status: &'static str,
 }
 
@@ -56,8 +56,8 @@ pub struct Warning {
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
     /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,
-    /// `webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed` or
-    /// `deprecated_api_called`. The list may grow.
+    /// `webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,
+    /// `deprecated_api_called` or `removal_held`. The list may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -628,8 +628,6 @@ fn provider_health(
 pub(crate) const UNMAPPED: &str =
     "NOT EXISTS (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)";
 
-/// Every warning known without the network, for the top bar and the diagnostics page alike, so
-/// the badge counts what the page lists. Probe findings are read back from `probe_results`.
 /// The code and severity of each warning `/status` shows, which the metrics count.
 pub(crate) async fn warning_codes(
     state: &AppState,
@@ -639,6 +637,8 @@ pub(crate) async fn warning_codes(
     Ok(warnings.into_iter().map(|warning| (warning.code, warning.severity)).collect())
 }
 
+/// Every warning known without the network, for the top bar and the diagnostics page alike,
+/// so the badge counts what the page lists. Probe findings are read back from `probe_results`.
 async fn offline_warnings(
     state: &AppState,
     localizer: &Localizer,
@@ -699,6 +699,17 @@ async fn offline_warnings(
         let counts = [("failed", failed.to_string()), ("total", total.to_string())];
         let counts: Vec<(&str, &str)> = counts.iter().map(|(k, v)| (*k, v.as_str())).collect();
         warnings.push(Warning::new("rule_tests_failing", localizer.translate(key, &counts)));
+    }
+
+    let kept: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT name, removal_held FROM instances WHERE enabled = 1 AND removal_held > 0
+          ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for (instance, count) in kept {
+        let said = [("instance", instance.as_str()), ("count", &count.to_string())];
+        warnings.push(Warning::new("removal_held", localizer.translate("WarnRemovalHeld", &said)));
     }
 
     let held: Vec<_> = state

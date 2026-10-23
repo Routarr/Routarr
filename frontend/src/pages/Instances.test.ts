@@ -40,11 +40,6 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, 'clipboard');
 });
 
-/**
- * The only screen that holds an Arr credential. It must never show one back,
- * must not lose the stored one on an edit that did not mean to change it, and
- * must not let a user sync a library they have not connected yet.
- */
 describe('Instances', () => {
   it('invites a first instance instead of showing an empty table', async () => {
     show([]);
@@ -72,11 +67,6 @@ describe('Instances', () => {
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
   });
 
-  /**
-   * A new token breaks the webhook the Arr holds at once, until the new address
-   * is pasted there: asked first, like every other action that cannot be
-   * taken back.
-   */
   it('asks before rotating a webhook token, and rotates nothing on Cancel', async () => {
     const rotate = vi.spyOn(api, 'rotateWebhookToken');
     show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
@@ -106,6 +96,37 @@ describe('Instances', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
+  /** A sync that would remove most of a library holds it: removed only once a person asks. */
+  it('shows the titles a sync held and removes them once confirmed', async () => {
+    const remove = vi.spyOn(api, 'removeMissing').mockResolvedValue({
+      instance_id: 'i1',
+      instance_name: 'Radarr',
+      root_folders: 2,
+      media: 3,
+      removed: 40,
+    });
+    show([instance({ removal_held: 40 })]);
+
+    expect(await screen.findByText('Held: 40')).toBeTruthy();
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
+    await fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Remove the titles it no longer reports' }),
+    );
+    expect(await answerConfirmation()).toContain('no longer reports 40 titles');
+
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+    expect(nthCall(remove)[0]).toBe('i1');
+    expect(await screen.findByText('"Radarr": titles removed: 40.')).toBeTruthy();
+  });
+
+  it('offers no removal while no title is held', async () => {
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
+    expect(await screen.findByRole('menuitem', { name: 'Delete' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: /no longer reports/ })).toBeNull();
+  });
+
   it('deletes the instance whose row was used once confirmed', async () => {
     const sonarr = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
     show([instance(), sonarr]);
@@ -121,7 +142,6 @@ describe('Instances', () => {
     expect(nthCall(remove)[0]).toBe('i2');
     expect(await screen.findByText('Instance deleted')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('Sonarr')).toBeNull());
-    // The shell counts instances in its warnings, and hears of a removal only here.
     expect(statusRevision()).toBeGreaterThan(before);
   });
 
@@ -145,10 +165,6 @@ describe('Instances', () => {
     expect(sync.title).toBe("Instance 'Radarr' is disabled. Enable it to sync it.");
   });
 
-  /**
-   * Never log or return a decrypted key. The row says the value is sealed, and
-   * not what the value is, not even partially.
-   */
   it('says the key is sealed without showing any of it', async () => {
     show([instance({ api_key_masked: 'abc•••••xyz' })]);
 
@@ -156,11 +172,6 @@ describe('Instances', () => {
     expect(screen.queryByText('abc•••••xyz')).toBeNull();
   });
 
-  /**
-   * Encrypted at rest is a property of the stored value, not something that
-   * went well: green in this interface means "this succeeded" and nothing
-   * else.
-   */
   it('states encryption as a fact rather than as a success', async () => {
     show([instance()]);
 
@@ -168,11 +179,7 @@ describe('Instances', () => {
     expect(badge.className).not.toContain('badge-success');
   });
 
-  /**
-   * Blank means "keep the stored key" on the backend, the only way to edit a base URL without
-   * retyping a credential the user no longer has. Pre-filled with a mask, the form would save
-   * the mask as the key.
-   */
+  /** Pre-filled with a mask, the form would save the mask as the key. */
   it('opens the editor with the key field empty, so an edit keeps the stored one', async () => {
     show([instance()]);
 
@@ -197,11 +204,6 @@ describe('Instances', () => {
     expect(nthCall(update)[1]).toMatchObject({ api_key: '', base_url: 'http://nas:7878' });
   });
 
-  /**
-   * `showModal()` makes the page inert and the overlay dims it: a refusal put
-   * in the page banner would sit behind the dialog, faded, with a Dismiss nobody
-   * can press, and a 400 on the URL would look like a Save button doing nothing.
-   */
   it('shows a refused save inside the dialog, where it can be read', async () => {
     vi.spyOn(api, 'updateInstance').mockRejectedValue(
       new ApiError('base_url must start with http:// or https://', 400, 'bad_request'),
@@ -218,7 +220,6 @@ describe('Instances', () => {
     expect(alert).toHaveTextContent('base_url must start with http:// or https://');
   });
 
-  /** Said in the row, not in a title only a mouse can show. */
   it('says why the last sync failed in the row', async () => {
     show([
       instance({
@@ -231,11 +232,6 @@ describe('Instances', () => {
     expect(row).toHaveTextContent('connection refused');
   });
 
-  /**
-   * An imported instance holds no key until somebody enters it. The row says
-   * so, and what to do, where a keyboard reads it, rather than calling an
-   * empty value encrypted.
-   */
   it('says an instance waits for its key, and how to give it one', async () => {
     show([instance({ api_key_set: false, api_key_masked: '' })]);
 
@@ -245,7 +241,6 @@ describe('Instances', () => {
     expect(within(row).queryByText('encrypted')).toBeNull();
   });
 
-  /** A typed address and key go with the dialog, whether it closes or the screen changes. */
   it('asks before dropping a changed instance form, and keeps it on Cancel', async () => {
     show([instance()]);
 
@@ -312,7 +307,6 @@ describe('Instances', () => {
     expect(save.disabled).toBe(false);
   });
 
-  /** Leaving the screen stops the looking at a sync, not the sync. */
   it.each([
     ['Sync now – Radarr', 'syncInstance', 1],
     ['Sync all', 'syncAll', 0],
@@ -330,11 +324,7 @@ describe('Instances', () => {
     expect(following?.signal?.aborted).toBe(true);
   });
 
-  /**
-   * A grey Save says nothing about the field that holds it. The ceiling is the one the
-   * scheduler clamps an interval to, read where the backend writes it: a form that let more
-   * through would save a number that is not the one running.
-   */
+  /** The ceiling is the scheduler's, read where `backend/src/jobs/mod.rs` writes it. */
   it('says why an interval outside its bounds holds Save', async () => {
     const jobs = readBackend('backend/src/jobs/mod.rs');
     const written = /pub const MAX_SYNC_INTERVAL_MINUTES: i64 = ([\d_ *]+);/.exec(jobs)?.[1] ?? '';
@@ -392,7 +382,6 @@ describe('Instances', () => {
     expect(nthCall(update)[1]).toMatchObject({ auto_apply: true });
   });
 
-  /** Whether the Arr's webhook ever arrived, in the row and where its address is copied from. */
   it('says when each instance last sent a webhook, and what to do while none has', async () => {
     const heard = new Date(Date.now() - 120_000).toISOString();
     show([
@@ -452,7 +441,6 @@ describe('Instances', () => {
     expect(within(proxied).queryByText('Not set up')).toBeNull();
   });
 
-  /** The editor says how the Arr's connection reads, and a try's newer reading replaces it. */
   it("reads the Arr's connection in the editor, a try's reading over the stored one", async () => {
     const tried = vi.spyOn(api, 'probeInstance').mockResolvedValue({
       ...PROBED,
@@ -486,7 +474,6 @@ describe('Instances', () => {
     ).toBeNull();
   });
 
-  /** A dialog opens on its own form, never on the refusal of the one before. */
   it.each(['Edit – Radarr', 'Add instance'])(
     'opens %s without the refusal of the last dialog',
     async (next) => {
@@ -512,7 +499,6 @@ describe('Instances', () => {
     },
   );
 
-  /** Every instance failing is a failure, whatever the count of zero synced says. */
   it('reports a sync in which every instance failed as a failure', async () => {
     vi.spyOn(api, 'syncAll').mockResolvedValue([
       {
@@ -534,7 +520,6 @@ describe('Instances', () => {
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
-  /** Some instances synced and some not is a partial result, each failure named. */
   it('reports a sync in which some instances failed as a partial result', async () => {
     vi.spyOn(api, 'syncAll').mockResolvedValue([
       { instance_id: 'i1', instance_name: 'Radarr', root_folders: 3, media: 40, removed: 0 },
@@ -608,7 +593,6 @@ describe('Instances', () => {
     );
   });
 
-  /** The clipboard exists on secure origins only, and a homelab often serves plain http. */
   it('hands the webhook URL over when the browser keeps the clipboard closed', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
 
@@ -638,7 +622,6 @@ describe('Instances', () => {
     await fireEvent.submit(key.closest('form') as HTMLFormElement);
   }
 
-  /** A second submit would come back refused, the first having taken the name. */
   it('adds an instance once however often the form is submitted', async () => {
     const create = vi.spyOn(api, 'createInstance').mockReturnValue(new Promise(() => {}));
     show([]);
@@ -652,10 +635,6 @@ describe('Instances', () => {
     expect(button.disabled).toBe(true);
   });
 
-  /**
-   * Left to the scheduler, a new instance waits up to a whole pass with no
-   * library, no root folders and the guide's first step still open.
-   */
   it('syncs a new instance at once rather than at the next scheduled pass', async () => {
     vi.spyOn(api, 'createInstance').mockResolvedValue(instance({ id: 'i9', name: 'Films' }));
     const sync = vi.spyOn(api, 'syncInstance').mockResolvedValue({
@@ -678,7 +657,6 @@ describe('Instances', () => {
     expect(statusRevision()).toBeGreaterThan(before);
   });
 
-  /** Saved and not synced is a partial result, and the reason is the Arr's answer. */
   it('keeps a new instance whose first sync fails, and says why', async () => {
     vi.spyOn(api, 'createInstance').mockResolvedValue(instance({ id: 'i9', name: 'Films' }));
     vi.spyOn(api, 'syncInstance').mockRejectedValue(
@@ -695,11 +673,6 @@ describe('Instances', () => {
     expect(screen.getByText('Radarr answered 401 Unauthorized')).toBeTruthy();
   });
 
-  /**
-   * The server finishes a sync the browser stopped waiting for, and a large
-   * library outlasts the request. Called failed, it would send the reader to
-   * doubt a key that is right.
-   */
   it('follows a first sync that outlasts the request instead of calling it failed', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
@@ -789,7 +762,6 @@ describe('Instances', () => {
     await fireEvent.input(screen.getByLabelText('API key'), { target: { value: key } });
   }
 
-  /** A guess left in the field is saved by whoever does not notice it. */
   it('starts a new instance with an empty address and an example for its type', async () => {
     show([]);
     await openAdd();
@@ -833,7 +805,6 @@ describe('Instances', () => {
     }
   });
 
-  /** An address copied from a browser bar or typed from memory often has no scheme. */
   it('adds the scheme an address typed without one lacks', async () => {
     show([]);
     await openAdd();
@@ -913,10 +884,6 @@ describe('Instances', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  /**
-   * A focused button that turns disabled drops the focus to the page. A second
-   * press starts the try over, so nothing needs holding it while it runs.
-   */
   it('leaves Test connectivity pressable while a try runs', async () => {
     vi.spyOn(api, 'probeInstance').mockReturnValue(new Promise(() => {}));
     show([]);
@@ -929,7 +896,6 @@ describe('Instances', () => {
     expect(test).toBeEnabled();
   });
 
-  /** Filled rather than added: a region that arrives with its text says nothing. */
   it('holds the region a try answers in before the try is pressed', async () => {
     vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
     show([]);
@@ -942,7 +908,6 @@ describe('Instances', () => {
     await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
   });
 
-  /** An Arr below the oldest supported release connects, and what it lacks is said there. */
   it('says beside a working connection what an older Arr lacks', async () => {
     const older = 'Sonarr 3.0.10 is older than 4: a series it adds is routed at the next sync.';
     vi.spyOn(api, 'probeInstance').mockResolvedValue({ ...PROBED, warning: older });
@@ -957,7 +922,6 @@ describe('Instances', () => {
     expect(region).toHaveTextContent(older);
   });
 
-  /** Read where the values were typed, and about those values only. */
   it('shows why a try failed inside the dialog, until a value it tried changes', async () => {
     vi.spyOn(api, 'probeInstance').mockRejectedValue(
       new ApiError('Nothing answers at http://localhost:7878.', 502, 'external_api_error'),
@@ -977,7 +941,6 @@ describe('Instances', () => {
     expect(within(dialog).queryByRole('alert')).toBeNull();
   });
 
-  /** The edit form never shows the stored key: blank stands for it. */
   it('tries an edit with the stored key when its field is left blank', async () => {
     const probe = vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
     show([instance({ id: 'i1' })]);
@@ -994,7 +957,6 @@ describe('Instances', () => {
     );
   });
 
-  /** A result about other values would vouch for these, a success as a failure. */
   it('holds a try to the address, the key and the type it tried', async () => {
     vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
     show([]);
@@ -1020,7 +982,6 @@ describe('Instances', () => {
     expect(result).toBeEmptyDOMElement();
   });
 
-  /** A refused save is what happened last: the try before it no longer speaks. */
   it('shows one outcome at a time in the dialog', async () => {
     vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
     vi.spyOn(api, 'createInstance').mockRejectedValue(
@@ -1040,7 +1001,6 @@ describe('Instances', () => {
     expect(result).toBeEmptyDOMElement();
   });
 
-  /** Given up on, a try that answers later belongs to no dialog. */
   it('says nothing in the next dialog about a try still running in the last one', async () => {
     let fail!: (reason: unknown) => void;
     vi.spyOn(api, 'probeInstance').mockReturnValueOnce(
@@ -1065,7 +1025,6 @@ describe('Instances', () => {
     expect(within(dialog).queryByRole('alert')).toBeNull();
   });
 
-  /** The Arr's own interface is one click away, in a tab of its own. */
   it('links each address to the Arr it names, in a new tab', async () => {
     show([instance({ base_url: 'http://radarr.home.arpa' })]);
 
@@ -1093,10 +1052,6 @@ describe('Instances', () => {
     );
   });
 
-  /**
-   * The container name the form recommends in Docker resolves inside
-   * Routarr's network only, so the reader's browser cannot open it.
-   */
   it('offers no link for a container name, and one for any other host', async () => {
     show([
       instance({ id: 'i1', base_url: 'http://radarr:7878' }),
@@ -1116,7 +1071,6 @@ describe('Instances', () => {
     expect(screen.queryByRole('link', { name: /javascript/ })).toBeNull();
   });
 
-  /** The guide's first step lands here with the dialog open, once. */
   it('opens the Add dialog when the guide sends the reader here', async () => {
     window.history.replaceState({}, '', '/instances?add=1');
     show([]);
@@ -1125,11 +1079,6 @@ describe('Instances', () => {
     expect(window.location.search).toBe('');
   });
 
-  /**
-   * Opened on arrival, the dialog has no opener but the page, and closing it
-   * would leave the focus on `<body>`, several stops away from the guide's
-   * next link.
-   */
   it('hands the focus to Add instance when the dialog the guide opened closes', async () => {
     window.history.replaceState({}, '', '/instances?add=1');
     show([]);
@@ -1141,7 +1090,6 @@ describe('Instances', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add instance' }));
   });
 
-  /** Opened on its close button, a form is one reflex Enter from thrown away. */
   it('opens the form on its first field', async () => {
     show([]);
     await openAdd();
@@ -1150,7 +1098,6 @@ describe('Instances', () => {
   });
 });
 
-/** A deleted instance takes its row and its menu: the next row's menu takes the focus. */
 it('hands the focus to the instance that took the place of the deleted one', async () => {
   const next = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
   show([instance(), next]);
@@ -1166,7 +1113,6 @@ it('hands the focus to the instance that took the place of the deleted one', asy
   );
 });
 
-/** A row's Test connectivity asks the server about that instance and says what answered. */
 it('tests the connection of the instance whose row was used', async () => {
   const sonarr = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
   show([instance(), sonarr]);

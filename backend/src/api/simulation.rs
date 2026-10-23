@@ -18,8 +18,6 @@ use crate::state::AppState;
 /// `persist: false` writes no decision. The run is still recorded as a job.
 pub async fn run(
     State(state): State<AppState>,
-    // Whoever asked, so the decisions this writes name them. The middleware
-    // puts one there for every protected route, so the extractor cannot fail.
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     headers: HeaderMap,
     Json(req): Json<SimulationRequest>,
@@ -55,8 +53,6 @@ async fn simulate(
     by: Attribution,
     req: SimulationRequest,
 ) -> AppResult<SimulationResult> {
-    // Refused before any task starts, as every refusal is: answered at once,
-    // a caller would otherwise hold a task that only fails.
     let instances = req.instance_ids.as_ref().map_or(0, Vec::len);
     if instances > routing::BIND_CHUNK {
         return Err(crate::error::AppError::BadRequest(format!(
@@ -72,11 +68,9 @@ async fn simulate(
         ));
     }
 
-    // One *persisting* pass at a time (see `jobs::FULL_SIMULATION`). What the
-    // lock protects is the writing: two passes each supersede the other's
-    // pending decisions and the later commit wins. A run that persists
-    // nothing supersedes nothing. What bounds it is the permit every pass
-    // takes in `routing::run_simulation`, which waits rather than refuses.
+    // One persisting pass at a time (`jobs::FULL_SIMULATION`): two would each supersede the
+    // other's pending decisions. A preview is bounded by the permit `routing::run_simulation`
+    // takes.
     let _pass = if req.persist {
         match state.jobs.try_lock(crate::jobs::FULL_SIMULATION) {
             Some(lock) => Some(lock),
@@ -131,10 +125,8 @@ async fn simulate(
                     },
                 );
             }
-            // A stored run keeps the counts alone: a task row is not where a
-            // thousand proposals are kept, and `/decisions` lists them. A
-            // preview stores none, so its task keeps the ones it returned,
-            // within `max_returned`, or they would be nowhere at all.
+            // A stored run's task keeps the counts alone, and `/decisions` lists its proposals.
+            // A preview stores none, so its task keeps those it returned.
             if let Ok(mut summary) = serde_json::to_value(result) {
                 if req.persist {
                     summary["decisions"] = serde_json::json!([]);

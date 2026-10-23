@@ -141,6 +141,7 @@ kinds of a condition) may appear in any release."
         unpin_by_external_id,
         list_tasks,
         get_task,
+        cancel_task,
         sync_all,
         sync_instance,
         list_instances,
@@ -284,9 +285,9 @@ impl Modify for Scopes {
 }
 
 /// Each deprecated path (`api::deprecated::DEPRECATED_PATHS`) as a copy of its replacement,
-/// every operation marked deprecated and naming the path to call instead. Last, so a copy
-/// carries the scope of its replacement. The API reference screen pairs a copy with its replacement by the
-/// `_deprecated` suffix of its operation id.
+/// marked deprecated and naming the path to call instead. Last, so a copy carries the scope of
+/// its replacement. The API reference screen pairs the two by the `_deprecated` suffix of the
+/// operation id.
 struct DeprecatedPaths;
 
 impl Modify for DeprecatedPaths {
@@ -333,12 +334,10 @@ pub fn for_each_operation(
     }
 }
 
-// ------------------------------------------------------------------ status
-
 /// Whether Routarr is up
 ///
-/// Needs no key, touches no database and calls nothing: an answer at all is
-/// the news. For a container runtime or an uptime monitor.
+/// Needs no key, touches no database and calls nothing. For a container runtime or an uptime
+/// monitor.
 #[utoipa::path(get, path = "/ping", tag = "status", responses((status = 200, body = Pong)))]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn ping() {}
@@ -393,8 +392,6 @@ body = HealthResponse),
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn health() {}
-
-// ----------------------------------------------------------------- library
 
 /// The categories, with what uses each
 #[utoipa::path(
@@ -461,8 +458,6 @@ fn explain_media() {}
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn place_title() {}
-
-// --------------------------------------------------------------- proposals
 
 /// The decisions, a page at a time
 ///
@@ -598,8 +593,6 @@ or the global dry run is on.", body = ErrorResponse),
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn revert_all() {}
 
-// -------------------------------------------------------------- exceptions
-
 /// The exceptions
 ///
 /// A page of them, the newest first.
@@ -690,8 +683,6 @@ fn pin_by_external_id() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn unpin_by_external_id() {}
 
-// ------------------------------------------------------------------- tasks
-
 /// The tasks, newest first
 #[utoipa::path(
     get,
@@ -714,7 +705,25 @@ fn list_tasks() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn get_task() {}
 
-// --------------------------------------------------------------- instances
+/// Stop an apply or a revert
+///
+/// The run stops before its next move: what already reached the Arr stays done, and the task's
+/// report says where it stopped. An application key stops only the tasks it started.
+#[utoipa::path(
+    post,
+    path = "/tasks/{id}/cancel",
+    tag = "tasks",
+    params(("id" = String, Path, description = "The task's id.")),
+    responses(
+        (status = 202, description = "The run stops before its next move."),
+        (status = 403, description = "An application key asked to stop a task it did not start.",
+body = ErrorResponse),
+        (status = 409, description = "`reason` is `not_cancellable`: the task has ended, or is \
+not an apply or a revert.", body = ErrorResponse),
+    )
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn cancel_task() {}
 
 /// Read every enabled Arr again
 ///
@@ -803,8 +812,6 @@ fn list_sources() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn library_facets() {}
 
-// -------------------------------------------------------------------- logs
-
 /// What every move did, a page at a time
 ///
 /// Each move and revert Routarr asked an Arr for, with its outcome, newest
@@ -834,8 +841,6 @@ than the export."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn export_logs() {}
-
-// ----------------------------------------------------------------- backups
 
 /// The backups kept
 ///
@@ -872,8 +877,6 @@ second.", body = ErrorResponse),
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn take_backup() {}
-
-// ------------------------------------------------------------------- rules
 
 /// The rules, in priority order
 #[utoipa::path(get, path = "/rules", tag = "rules", responses((status = 200, body = Vec<Rule>)))]
@@ -1114,8 +1117,6 @@ fn remove_rule_test() {}
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn run_rule_tests() {}
-
-// -------------------------------------------------------------- categories
 
 /// Create a category
 #[utoipa::path(

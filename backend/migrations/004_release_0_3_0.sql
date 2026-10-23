@@ -144,3 +144,23 @@ CREATE TABLE secret_salt_one (id INTEGER PRIMARY KEY CHECK (id = 1), salt TEXT N
 INSERT INTO secret_salt_one (id, salt) SELECT 1, salt FROM secret_salt ORDER BY rowid LIMIT 1;
 DROP TABLE secret_salt;
 ALTER TABLE secret_salt_one RENAME TO secret_salt;
+
+-- The exceptions of titles a sync removed, kept by the title's own id (TMDB for a film, TheTVDB for
+-- a series) and given back when the instance reports it again: an Arr answering part of its
+-- library would otherwise delete what the operator set by hand.
+CREATE TABLE retired_overrides (
+    instance_id TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'series')),
+    work_id INTEGER NOT NULL,
+    target_category TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL,
+    subject TEXT,
+    subject_key TEXT,
+    retired_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (instance_id, media_type, work_id)
+);
+
+-- How many titles the last sync kept although the Arr no longer reports them: an answer that drops
+-- most of a library waits for a person rather than deleting it on one read.
+ALTER TABLE instances ADD COLUMN removal_held INTEGER NOT NULL DEFAULT 0;

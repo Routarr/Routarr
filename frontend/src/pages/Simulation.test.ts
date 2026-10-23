@@ -125,7 +125,6 @@ describe('what the screen shows', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('later');
   });
 
-  /** Loaded as every screen loads, so a failed list is one click from a retry. */
   it('asks the pending list again when the reader retries', async () => {
     const pendingDecision = decision({ id: 'd-retry', media_title: 'Retried' });
     vi.spyOn(api, 'getDecisions')
@@ -139,7 +138,6 @@ describe('what the screen shows', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  /** An empty state before the list has answered is a claim nobody checked. */
   it('holds the table open while the pending list loads', async () => {
     vi.spyOn(api, 'getDecisions').mockReturnValue(new Promise(() => {}));
     renderWithI18n(Simulation);
@@ -175,7 +173,6 @@ describe('what the screen shows', () => {
     expect(screen.queryByText('Akira')).toBeNull();
   });
 
-  /** The shell draws the guide, whose simulation step hears of a run only through this. */
   it('tells the shell a simulation ran', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
@@ -342,10 +339,6 @@ describe('what the screen refuses to do', () => {
     expect(nthCall(apply, 1)[2]).toEqual(['threshold']);
   });
 
-  /**
-   * Only the server knows a destination is not answering or short of room, so it asks. Answered
-   * in advance, one generic yes would send the batches to a sleeping NAS.
-   */
   it('lets the server ask its own question before Apply all writes', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
@@ -372,7 +365,6 @@ describe('what the screen refuses to do', () => {
     expect(nthCall(applyAll, 1)[3]).toEqual(['batch', 'unreachable']);
   });
 
-  /** The screen where the category is mapped, by the name the navigation gives it. */
   it('sends a skipped item to the screen that maps its category', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue({
@@ -389,7 +381,6 @@ describe('what the screen refuses to do', () => {
     ).toBeTruthy();
   });
 
-  /** What Apply all reaches is said beside it, not in a title only a mouse shows. */
   it('says that Apply all reaches past the rows on screen', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
@@ -407,7 +398,6 @@ describe('what the screen refuses to do', () => {
     ).toBeInTheDocument();
   });
 
-  /** Leaving the screen stops the looking at an apply, not the apply. */
   it('stops following an apply once the screen closes', async () => {
     const applyDecisions = vi.spyOn(api, 'applyDecisions').mockReturnValue(new Promise(() => {}));
     const { unmount } = await show([]);
@@ -444,10 +434,6 @@ describe('what the screen refuses to do', () => {
   });
 });
 
-/**
- * Only the latest outcome of an apply stays on screen: a report of moves that worked, left above
- * the next refusal, reads as the result of that apply.
- */
 describe('what the screen says after applying', () => {
   it('takes the previous report off screen when the next apply is refused', async () => {
     await show([]);
@@ -489,7 +475,6 @@ describe('what the screen says after applying', () => {
     expect(screen.queryByText('Decisions applied: 1 of 1. Batches: 1.')).toBeNull();
   });
 
-  /** An apply in which every decision failed is a failure, not a count of zero. */
   it('reports an apply in which every decision failed as a failure', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
@@ -514,7 +499,6 @@ describe('what the screen says after applying', () => {
     expect(screen.getByText('Akira: The Arr refused the move')).toBeTruthy();
   });
 
-  /** The moves were made even when the refresh fails, whose failure sits beside the report. */
   it('keeps the report of an apply whose refresh failed', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation')
@@ -529,7 +513,6 @@ describe('what the screen says after applying', () => {
     expect(screen.getByText('Decisions applied: 1 of 1.')).toBeTruthy();
   });
 
-  /** The apply moved what the shell counts, whatever the refresh after it ends in. */
   it('tells the shell of an apply whose refresh failed', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation')
@@ -567,7 +550,7 @@ describe('what the screen says after applying', () => {
         moving: 0,
         superseded: 0,
         stopped_early: true,
-        stopped: null,
+        stopped: 'refused',
         errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
       });
 
@@ -579,9 +562,13 @@ describe('what the screen says after applying', () => {
       'Stopped after a failure. Applied: 49 of 50. Batches run: 1 of 1. The rest is still pending.',
     );
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(
+      screen.getByText(
+        'Stopped: the Arr refused every move of a batch. The rest was not attempted.',
+      ),
+    ).toBeTruthy();
   });
 
-  /** A move the Arr is still making and a proposal replaced since each say so beside the count. */
   it('says what the Arr is still moving and what was replaced', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision({ id: 'd1' })]));
@@ -607,7 +594,6 @@ describe('what the screen says after applying', () => {
     expect(screen.getByText('Replaced since by other moves, not applied: 1.')).toBeTruthy();
   });
 
-  /** Stop reaches the task the screen follows, and the report says why it ended. */
   it('stops the apply it follows', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision({ id: 'd1' })]));
@@ -724,7 +710,6 @@ describe('what the screen says after applying', () => {
     await waitFor(() => expect(screen.queryByText('Decisions applied: 1 of 1.')).toBeNull());
   });
 
-  /** The moves that failed belong to the outcome they explain, and go with it. */
   it('takes the failed moves off screen with the outcome they explain', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
@@ -750,7 +735,6 @@ describe('what the screen says after applying', () => {
     expect(screen.queryByText('Akira: The Arr refused the move')).toBeNull();
   });
 
-  /** A disabled apply button drops its focus to the page, where the next Tab starts at the top. */
   it.each([
     ['Apply selected', /apply selected/i],
     ['Apply all', /apply all/i],
@@ -799,7 +783,6 @@ describe('a run followed through its task', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '200');
   });
 
-  /** Left and opened again, the screen finds the run still going and waits for it. */
   it('follows a run already going when the screen opens, and lists what it proposed', async () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ id: 'j9', kind: 'simulate' })]));
     let finish: (result: SimulationResult) => void = () => {};
@@ -833,7 +816,6 @@ describe('a run followed through its task', () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  /** Listed by the run's id, a page at a time, however many it proposed. */
   it('pages through what the run proposed', async () => {
     const getDecisions = vi
       .spyOn(api, 'getDecisions')
@@ -855,7 +837,6 @@ describe('a run followed through its task', () => {
 });
 
 describe('narrowing what is reviewed and applied', () => {
-  /** The batch limit refuses a selection past it whole, so a page never preselects more. */
   it('preselects no more moves than the batch limit, and says where the selection stops', async () => {
     vi.spyOn(api, 'getSettings').mockResolvedValue({ batch_limit: '2' });
     await show([]);
@@ -873,7 +854,6 @@ describe('narrowing what is reviewed and applied', () => {
     expect(screen.getByRole('button', { name: 'Apply selected (2)' })).toBeTruthy();
   });
 
-  /** The top bar counts every pending decision, and the list it sends the reader to pages. */
   it('counts every pending decision and pages through them', async () => {
     const getDecisions = vi
       .spyOn(api, 'getDecisions')
@@ -892,7 +872,6 @@ describe('narrowing what is reviewed and applied', () => {
     );
   });
 
-  /** A pass after a sync replaces the proposals under review, and the list would empty. */
   it('offers the latest proposals once a newer simulation replaced the run', async () => {
     await show([]);
     const reviewed = simulation([decision()]);
@@ -1016,7 +995,6 @@ describe('for a reader', () => {
     expect(api.getSettings).not.toHaveBeenCalled();
   });
 
-  /** Opened before the shell knows who reads, the screen asks, and a reader is refused. */
   it('lists the proposals when the settings are refused, at the default batch limit', async () => {
     vi.mocked(api.getSettings).mockRejectedValue(
       new ApiError('You can read this Routarr and change nothing in it.', 403, 'forbidden'),

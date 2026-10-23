@@ -41,11 +41,8 @@ pub enum JobKind {
     BackupCopy,
     /// The anime identifier table, downloaded or imported, then given to the library's titles.
     AnimeIds,
-    /// The unattended loop itself, recorded only when a pass *panicked*.
-    ///
-    /// Not a job anyone starts: the individual tasks keep their own kinds.
-    /// This exists so a panic leaves evidence where the Tasks screen and
-    /// `offline_warnings` already look, instead of only in a log nobody reads.
+    /// The unattended loop itself, recorded only when a pass panicked, so the panic shows on the
+    /// Tasks screen and in `offline_warnings` and not only in the log.
     Scheduler,
 }
 
@@ -185,12 +182,8 @@ impl JobRegistry {
         cancels.get(id).map(|flag| flag.store(true, Ordering::SeqCst)).is_some()
     }
 
-    /// The permit for `key`, made on first sight.
-    ///
-    /// A poisoned mutex is recovered rather than propagated: the guarded value
-    /// is a map of semaphores with no invariant a panic could corrupt, and
-    /// refusing every later task because one of them panicked would be worse
-    /// than the panic itself.
+    /// The permit for `key`, made on first sight. A poisoned mutex is recovered: the map holds no
+    /// invariant a panic could break.
     fn permit_for(&self, key: &str) -> Arc<Semaphore> {
         let mut locks = self.locks.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         Arc::clone(locks.entry(key.to_string()).or_insert_with(|| Arc::new(Semaphore::new(1))))
@@ -212,14 +205,9 @@ impl JobRegistry {
         acquired.ok().map(|permit| JobLock { _permit: permit })
     }
 
-    /// Take a place in the queue for `key`, or none when `max_waiting` are
-    /// already there.
-    ///
-    /// A lock a caller *waits* for costs a connection and a task for as long
-    /// as the wait lasts, and `try_lock` alone bounds the work, not the queue
-    /// behind it. The place is given back when the returned guard drops, as it
-    /// does with a cancelled future, so a caller that hangs up while waiting
-    /// does not keep its place.
+    /// Take a place in the queue for `key`, or none when `max_waiting` are already there: a wait
+    /// holds a connection and a task, and `try_lock` bounds the work, not the queue. The place
+    /// comes back when the guard drops, a cancelled future's included.
     pub fn try_wait(&self, key: &str, max_waiting: usize) -> Option<WaitingPlace> {
         let mut waiting = self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let count = waiting.entry(key.to_string()).or_insert(0);
@@ -245,11 +233,7 @@ impl JobRegistry {
         queued.get(key).copied().unwrap_or(0)
     }
 
-    /// Mark jobs left `running` by a previous process as failed.
-    ///
-    /// Without this, a crash mid-sync leaves a job spinning forever in the UI.
-    /// Its lock needs no release: the permits live in memory and die with the
-    /// process.
+    /// Mark jobs left `running` by a previous process as failed. Their locks died with it.
     pub async fn recover_orphans(&self) -> AppResult<u64> {
         let interrupted = Detail::new("JobDetailInterrupted");
         let result = sqlx::query(
@@ -651,10 +635,6 @@ mod tests {
         assert!(registry.try_lock("sync:all").is_some(), "lock must be released on drop");
     }
 
-    /// A handle dropped before an outcome was recorded is a job that ended
-    /// without saying how (a `?` on the way, or a panic on the task). Its row
-    /// fails at once rather than sitting `running` until the next restart
-    /// fails it as an orphan.
     #[tokio::test]
     async fn a_handle_dropped_without_an_outcome_fails_its_job() {
         let registry = JobRegistry::new(crate::db::test_pool().await);
@@ -738,7 +718,6 @@ mod tests {
         assert_eq!(*served.lock().unwrap(), [1, 2, 3], "served out of the order asked");
     }
 
-    /// Past the budget a wait answers `None` and holds nothing.
     #[tokio::test]
     async fn a_wait_past_its_budget_takes_nothing() {
         let registry = JobRegistry::new(crate::db::test_pool().await);
@@ -750,8 +729,6 @@ mod tests {
         assert!(registry.lock_within("sync:all", Duration::from_millis(50)).await.is_some());
     }
 
-    /// The queue behind a key is bounded like the key itself, and a place
-    /// comes back when its holder drops, cancelled or not.
     #[tokio::test]
     async fn a_place_in_the_queue_is_refused_past_the_bound_and_returned_on_drop() {
         let registry = JobRegistry::new(crate::db::test_pool().await);
@@ -769,9 +746,6 @@ mod tests {
         drop(second);
     }
 
-    /// A busy database refusing a job's outcome leaves the task running for
-    /// ever unless the write is tried again: written once the database takes
-    /// it, and logged when it never does.
     #[tokio::test]
     async fn a_job_outcome_the_database_refuses_is_written_again_or_logged() {
         use tracing_subscriber::layer::SubscriberExt;

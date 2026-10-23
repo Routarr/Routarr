@@ -139,6 +139,10 @@ pub enum StopReason {
     Unreachable,
     /// An Arr held one move of files past the longest wait, its queue likely stuck.
     Stalled,
+    /// The Arr refused every move of a slice of a run in slices.
+    Refused,
+    /// A slice of a run in slices could not be read once earlier slices had moved titles.
+    Failed,
 }
 
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
@@ -226,7 +230,7 @@ pub async fn apply_decisions(
     // A count first, so no list too long to bind reaches the guards that spell the ids out.
     guard_batch_limit(state, decision_ids.len()).await?;
     // Then the gravest first: a destination not answering, short of room, then the threshold.
-    guard_reachable(state, CapacityScope::Decisions(decision_ids), confirmed).await?;
+    guard_reachable(state, CapacityScope::Decisions(decision_ids), move_files, confirmed).await?;
     guard_capacity(state, CapacityScope::Decisions(decision_ids), move_files, confirmed).await?;
     guard_confirmation(state, decision_ids.len(), confirmed).await?;
     refuse_unknown_decisions(state, decision_ids).await?;
@@ -344,7 +348,7 @@ async fn ask_once(
     let mut includes = Vec::new();
     let mut facts = Vec::new();
     for check in [
-        guard_reachable(state, scope, confirmed).await,
+        guard_reachable(state, scope, move_files, confirmed).await,
         guard_capacity(state, scope, move_files, confirmed).await,
     ] {
         match check {
@@ -429,11 +433,14 @@ async fn run_in_slices(
             }
             let loaded = match direction {
                 MoveDirection::Forward => load_pending_moves(&state.pool, batch).await,
-                MoveDirection::Revert => load_revertible_moves(&state.pool, batch).await,
+                MoveDirection::Revert => {
+                    load_revertible_moves(&state.pool, batch).await.map(|moves| (moves, 0))
+                }
             };
             let outcome = match loaded {
-                Ok(moves) => {
-                    report.skipped += batch.len() - moves.len();
+                Ok((moves, replaced)) => {
+                    report.superseded += replaced;
+                    report.skipped += batch.len() - moves.len() - replaced;
                     report.batches_run += 1;
                     let attempted = report.applied + report.failed + report.skipped + report.moving;
                     let tally = Tally::new(job.progress_reporter(), attempted, ids.len());
@@ -457,6 +464,7 @@ async fn run_in_slices(
                         break;
                     }
                     if slice.applied == 0 && slice.moving == 0 && slice.failed > 0 {
+                        report.stopped = Some(StopReason::Refused);
                         report.stopped_early = true;
                         break;
                     }
@@ -464,6 +472,7 @@ async fn run_in_slices(
                 // Earlier slices wrote to the Arr, which a bare error would leave unreported.
                 Err(e) if report.applied + report.moving + report.failed > 0 => {
                     error!(slices = report.batches_run, "A run in slices stopped: {e}");
+                    report.stopped = Some(StopReason::Failed);
                     report.stopped_early = true;
                     break;
                 }
@@ -573,17 +582,18 @@ async fn run_locked(
     let stop = job.stop();
     detached(&state.jobs.clone(), async move {
         let _lock = lock;
-        let moves = match load_pending_moves(&state.pool, &ids).await {
-            Ok(moves) => moves,
+        let (moves, replaced) = match load_pending_moves(&state.pool, &ids).await {
+            Ok(loaded) => loaded,
             Err(e) => {
                 job.fail(&e).await;
                 return Err(e);
             }
         };
-        let skipped = ids.len() - moves.len();
+        let skipped = ids.len() - moves.len() - replaced;
+        let superseded = superseded + replaced;
 
         let direction = MoveDirection::Forward;
-        let requested = ids.len() + superseded;
+        let requested = ids.len() + superseded - replaced;
         let tally = Tally::new(job.progress_reporter(), skipped, ids.len());
         let outcome = execute_moves(&state, moves, move_files, direction, &by, &stop, &tally)
             .await
@@ -630,7 +640,7 @@ pub async fn revert_decisions(
     let decision_ids = decision_ids.as_slice();
     guard_batch_limit(state, decision_ids.len()).await?;
     // A revert asks of the folders its moves came from what an apply asks, in the same order.
-    guard_reachable(state, CapacityScope::Reverting(decision_ids), confirmed).await?;
+    guard_reachable(state, CapacityScope::Reverting(decision_ids), move_files, confirmed).await?;
     guard_capacity(state, CapacityScope::Reverting(decision_ids), move_files, confirmed).await?;
     guard_confirmation(state, decision_ids.len(), confirmed).await?;
     refuse_unknown_decisions(state, decision_ids).await?;
@@ -881,7 +891,9 @@ async fn revalidated(
 ) -> Option<PendingMove> {
     let ids = [mv.decision_id.clone()];
     let loaded = match direction {
-        MoveDirection::Forward => load_pending_moves(&state.pool, &ids).await,
+        MoveDirection::Forward => {
+            load_pending_moves(&state.pool, &ids).await.map(|(moves, _)| moves)
+        }
         MoveDirection::Revert => load_revertible_moves(&state.pool, &ids).await,
     };
     match loaded {
@@ -897,7 +909,7 @@ async fn revalidated(
 /// so the title is read back before it counts as failed.
 async fn send(adapter: &ArrAdapter, mv: &PendingMove, move_files: bool) -> AppResult<Repointed> {
     match adapter.move_item(mv.arr_id, &mv.to, move_files).await {
-        Err(e @ AppError::ExternalApi { status: 0, .. }) => {
+        Err(e @ AppError::ExternalApi { status: 0, .. }) if !refused_unsent(&e) => {
             match adapter.get_media_one(mv.arr_id).await {
                 Ok(Some(held)) => held
                     .path
@@ -909,6 +921,11 @@ async fn send(adapter: &ArrAdapter, mv: &PendingMove, move_files: bool) -> AppRe
         }
         sent => sent,
     }
+}
+
+/// A move refused before anything was written to the Arr.
+fn refused_unsent(error: &AppError) -> bool {
+    matches!(error, AppError::ExternalApi { kind: crate::error::Upstream::SourceUnseen, .. })
 }
 
 /// The moves of each instance, instances and moves in the order given, so the Arrs are called
@@ -986,6 +1003,8 @@ fn stopped_detail(
         StopReason::Shutdown => "JobDetailStoppedForShutdown",
         StopReason::Unreachable => "JobDetailStoppedArrUnreachable",
         StopReason::Stalled => "JobDetailStoppedArrStalled",
+        StopReason::Refused => "JobDetailStoppedSliceRefused",
+        StopReason::Failed => "JobDetailStoppedSliceFailed",
     };
     Some(Detail::new(key).with("done", done).with("failed", failed).with("moving", moving))
 }

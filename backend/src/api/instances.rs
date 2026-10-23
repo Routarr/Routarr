@@ -163,7 +163,9 @@ pub async fn update(
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
     // A pending proposal names ids another Arr gives to other titles. The next sync tells
     // which titles stay the same (`sync::reassigned`), and the next simulation proposes again.
-    if base_url != existing.base_url || instance_type != existing.instance_type {
+    let elsewhere = base_url != existing.base_url || instance_type != existing.instance_type;
+    // Switched off, it is neither synced nor routed, so no run would replace them.
+    if elsewhere || (existing.enabled && !req.enabled) {
         sqlx::query(
             "UPDATE decisions SET superseded = 1
               WHERE instance_id = ? AND status = 'pending' AND superseded = 0",
@@ -171,7 +173,9 @@ pub async fn update(
         .bind(&id)
         .execute(&mut *tx)
         .await?;
-        // Read from the Arr no longer named.
+    }
+    if elsewhere {
+        // The stored check describes the Arr at the old address.
         sqlx::query(
             "UPDATE instances SET webhook_check = NULL, webhook_checked_at = NULL WHERE id = ?",
         )
@@ -204,24 +208,49 @@ pub async fn update(
     )))
 }
 
+/// How long a removal waits for a webhook delivery of its instance, which holds the lock for one
+/// title's sync and simulation.
+const DELIVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
-    // Not under its sync, whose writes would fail on rows gone and notify a deleted instance.
-    let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
+    // Not under a sync or a delivery, which would fail on rows gone and notify a deleted instance.
+    let syncing = async || {
         let message = state.localizer().await.translate("ErrorInstanceSyncing", &[]);
-        return Err(AppError::InProgress { reason: "sync_running", message });
+        AppError::InProgress { reason: "sync_running", message }
+    };
+    let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
+        return Err(syncing().await);
+    };
+    let Some(_delivery) = state.jobs.lock_within(&format!("webhook:{id}"), DELIVERY_WAIT).await
+    else {
+        return Err(syncing().await);
     };
     // One transaction: the proposals go with the instance or not at all.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
-    crate::services::routing::supersede_instance_decisions(&mut tx, &id).await?;
-    let result =
-        sqlx::query("DELETE FROM instances WHERE id = ?").bind(&id).execute(&mut *tx).await?;
-
-    if result.rows_affected() == 0 {
+    let Some(name) = sqlx::query_scalar::<_, String>("SELECT name FROM instances WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&mut *tx)
+        .await?
+    else {
         return Err(AppError::NotFound(format!("Instance {id} not found")));
-    }
+    };
+    crate::services::routing::supersede_instance_decisions(&mut tx, &id).await?;
+    // Settled by the instance's next sync, which never comes. A revert keeps its move's time.
+    let removed = crate::localization::Told::new("ErrorMoveInstanceRemoved").with("arr", &name);
+    sqlx::query(
+        "UPDATE decisions
+            SET status = 'failed', error_message = ?,
+                applied_at = CASE WHEN reverted_at IS NULL THEN NULL ELSE applied_at END
+          WHERE instance_id = ? AND status = 'requested'",
+    )
+    .bind(removed.stored())
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM instances WHERE id = ?").bind(&id).execute(&mut *tx).await?;
 
     // A rule scoped to this instance alone is switched off: left with no instance, its scope
     // reads as every one, and it would route libraries it was never written for.
@@ -430,6 +459,35 @@ pub async fn sync_now(
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move {
         match sync::sync_instance(&task_state, &id, &by).await {
+            Ok(report) => {
+                crate::jobs::scheduler::follow_sync(&task_state, &by).await;
+                Ok(report)
+            }
+            Err(error) => Err(explained(&task_state, &id, error).await),
+        }
+    };
+    answer(&state, prefers_async(&headers), work).await
+}
+
+/// Sync the instance and remove every title its Arr no longer reports, the removal a sync holds
+/// when it would take most of the library. The owner's alone.
+pub async fn remove_missing(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Response> {
+    let instance = state.instance(&id).await?;
+    if !instance.enabled {
+        let localizer = state.localizer().await;
+        return Err(AppError::Conflict {
+            reason: "instance_disabled",
+            message: localizer.translate("ErrorInstanceSyncDisabled", &[("name", &instance.name)]),
+        });
+    }
+    let (task_state, by) = (state.clone(), identity.attribution());
+    let work = async move {
+        match sync::sync_removing_missing(&task_state, &id, &by).await {
             Ok(report) => {
                 crate::jobs::scheduler::follow_sync(&task_state, &by).await;
                 Ok(report)

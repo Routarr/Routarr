@@ -25,8 +25,7 @@ async fn post_raw(app: &TestApp, path: &str, body: Vec<u8>, content_type: &str) 
     app.send(request).await.status
 }
 
-/// Posts `body` under the right token, a wrong one and an empty one. A 404 under the right
-/// token means the body never reached the handler, and the case tested nothing.
+/// A 404 under the right token would mean the body never reached the handler.
 async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, note: &str) {
     for token in ["tok", "wrong-token", ""] {
         let path = format!("/api/v1/webhook/inst-1/{token}");
@@ -41,8 +40,6 @@ async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, not
         );
     }
 }
-
-// --------------------------------------------------------------- corpus
 
 fn adversarial_corpus() -> Vec<(&'static str, Vec<u8>)> {
     let deep_array = format!("{}{}", "[".repeat(2000), "]".repeat(2000));
@@ -117,8 +114,7 @@ async fn no_hostile_payload_makes_the_webhook_panic_or_500() {
     }
 }
 
-/// An Arr sends JSON. A delivery under any other content type is refused as
-/// unsupported, never read, even under the right token.
+/// An Arr sends JSON, so anything else is refused unread, even under the right token.
 #[tokio::test]
 async fn the_wrong_content_type_is_refused_as_unsupported() {
     let app = TestApp::new().await;
@@ -136,8 +132,6 @@ async fn the_wrong_content_type_is_refused_as_unsupported() {
         assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{content_type:?} was read");
     }
 }
-
-// -------------------------------------------------------- generative
 
 /// A reproducible RNG that needs no dependency.
 struct XorShift(u64);
@@ -209,4 +203,32 @@ async fn thousands_of_random_payloads_stay_controlled() {
             "iteration {i} produced an uncontrolled {status} for: {value}"
         );
     }
+}
+
+/// An instance removed while one of its deliveries reads the Arr: the removal waits for the
+/// delivery or refuses, and the delivery never writes its title against an instance gone.
+#[tokio::test]
+async fn a_delivery_for_an_instance_removed_meanwhile_answers_without_a_500() {
+    let arr = super::fake_arr::FakeArr::holding_edits(std::time::Duration::from_millis(150)).await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let added = serde_json::json!({ "eventType": "MovieAdded", "movie": { "id": 10 } });
+    let read_the_title =
+        || async { arr.recorded().reads.iter().any(|read| read == "/api/v3/movie/10") };
+
+    let removal = async {
+        super::until(read_the_title).await;
+        app.delete("/api/v1/instances/inst-1").await
+    };
+    let (delivered, removed) = tokio::join!(app.post("/api/v1/webhook/inst-1/tok", added), removal);
+
+    assert!(read_the_title().await, "the removal did not meet the delivery");
+    let answered = delivered.status.as_u16();
+    assert!(
+        matches!(answered, 200..=299 | 404),
+        "the delivery answered {answered}: {}",
+        delivered.json
+    );
+    let removing = removed.status.as_u16();
+    assert!(matches!(removing, 200 | 409), "the removal answered {removing}: {}", removed.json);
 }

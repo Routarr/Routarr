@@ -117,9 +117,9 @@ pub(super) async fn record_confirmed(
         sqlx::query("UPDATE decisions SET status = ? WHERE id = ? AND status = 'requested'")
             .bind(status)
             .bind(&mv.decision_id)
-            .execute(connection)
+            .execute(&mut *connection)
             .await?;
-        Ok(())
+        settle_proposals_since(connection, mv).await
     })
     .await;
     if let Err(e) = confirmed {
@@ -228,7 +228,24 @@ async fn write_outcome(
     .bind(&mv.media_id)
     .execute(&mut *tx)
     .await?;
+    settle_proposals_since(&mut tx, mv).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+/// A run stored while the move was on its way proposed it again: made, it settles them.
+async fn settle_proposals_since(
+    connection: &mut SqliteConnection,
+    mv: &PendingMove,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE decisions SET superseded = 1
+          WHERE media_id = ? AND id <> ? AND status = 'pending' AND superseded = 0",
+    )
+    .bind(&mv.media_id)
+    .bind(&mv.decision_id)
+    .execute(connection)
+    .await?;
     Ok(())
 }
 

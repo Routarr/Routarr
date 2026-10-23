@@ -7,8 +7,6 @@ use super::fake_arr::FakeArr;
 use super::{TestApp, warning_messages};
 use tower::ServiceExt;
 
-// ------------------------------------------------------------ authentication
-
 /// Every response names its request, so a line in the server log and the
 /// request that produced it can be matched from either end.
 #[tokio::test]
@@ -37,8 +35,6 @@ async fn a_request_id_supplied_by_the_caller_is_propagated() {
         .unwrap();
     assert_eq!(response.headers().get("x-request-id").unwrap(), "trace-4711");
 }
-
-// ------------------------------------------------------------ instances
 
 #[tokio::test]
 async fn instance_api_keys_are_encrypted_at_rest() {
@@ -165,8 +161,6 @@ async fn an_unknown_instance_type_is_rejected() {
     .await
     .assert_status(StatusCode::BAD_REQUEST);
 }
-
-// ------------------------------------------------------------ rules
 
 fn anime_rule_body() -> serde_json::Value {
     serde_json::json!({
@@ -748,6 +742,34 @@ async fn pointing_an_instance_elsewhere_withdraws_its_proposals() {
     assert_eq!(app.count(withdrawn).await, 1, "the proposals outlived the address they name");
 }
 
+/// A switched-off instance is neither synced nor routed, so no run evaluates its titles
+/// again: its proposals go with its routing, or an apply fails each one.
+#[tokio::test]
+async fn switching_an_instance_off_retires_its_proposals() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          current_root_folder, target_root_folder,
+                                          target_category, action, status)
+                   VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', '/movies/standard',
+                           '/movies/anime', 'anime', 'move', 'pending')"])
+        .await;
+    let switched = |enabled: bool| {
+        serde_json::json!({
+            "name": "Radarr", "instance_type": "radarr", "base_url": "http://127.0.0.1:1",
+            "api_key": "", "enabled": enabled, "sync_interval_minutes": 60
+        })
+    };
+    let pending = async || app.get("/api/v1/status").await.assert_ok()["pending_decisions"].clone();
+
+    app.put("/api/v1/instances/inst-1", switched(true)).await.assert_ok();
+    assert_eq!(pending().await, 1, "an edit leaving the instance on withdrew its proposals");
+
+    app.put("/api/v1/instances/inst-1", switched(false)).await.assert_ok();
+    assert_eq!(app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await, 1);
+    assert_eq!(pending().await, 0);
+}
+
 #[tokio::test]
 async fn updating_a_missing_rule_is_a_404() {
     let app = TestApp::new().await;
@@ -1258,8 +1280,6 @@ async fn preview_shows_the_impact_without_persisting() {
     assert_eq!(rules, 0, "a preview must not create the rule");
 }
 
-// ------------------------------------------------------------ categories
-
 /// The library list pages by title, and a later page carries on where the
 /// first stopped, with the total the screen numbers its pages from.
 #[tokio::test]
@@ -1420,8 +1440,6 @@ async fn a_category_name_is_trimmed_and_lowercased() {
     assert_eq!(created.assert_ok()["name"], "kids");
 }
 
-// ------------------------------------------------------------ root folders
-
 #[tokio::test]
 async fn mapping_the_same_category_twice_on_one_instance_is_refused() {
     let app = TestApp::new().await;
@@ -1468,11 +1486,8 @@ async fn conflicts_report_unmapped_categories() {
     assert!(conflicts.iter().any(|c| c["kind"] == "unmapped_category"));
 }
 
-/// A movie-only rule cannot ever route anything into a Sonarr, so warning that
-/// Sonarr has no folder for its category is a warning nobody can act on. A
-/// perfectly ordinary setup, movie categories on Radarr and series categories
-/// on Sonarr, would fill the page with warnings that can never be cleared,
-/// which is how users learn to ignore them.
+/// A movie rule never routes into a Sonarr, and a warning nobody can clear teaches people to
+/// ignore warnings.
 #[tokio::test]
 async fn a_movie_rule_does_not_warn_about_a_sonarr_that_could_never_receive_it() {
     let app = TestApp::new().await;
@@ -1513,8 +1528,6 @@ async fn a_movie_rule_does_not_warn_about_a_sonarr_that_could_never_receive_it()
         "the actionable warning disappeared: {conflicts:?}"
     );
 }
-
-// ------------------------------------------------------------ overrides
 
 #[tokio::test]
 async fn removing_an_override_hands_the_media_back_to_the_rules() {
@@ -1765,8 +1778,6 @@ async fn removing_an_override_supersedes_pending_decisions() {
     assert_eq!(pending["pagination"]["total"], 0, "{pending}");
 }
 
-// ------------------------------------------------------------ settings
-
 #[tokio::test]
 async fn unknown_settings_are_rejected() {
     let app = TestApp::new().await;
@@ -1835,8 +1846,6 @@ async fn every_setting_read_can_be_written_back_as_it_came() {
     let after = app.get("/api/v1/settings").await;
     assert_eq!(after.assert_ok()["tmdb_api_key_configured"], true, "the write-back erased it");
 }
-
-// ------------------------------------------------------------ decisions
 
 #[tokio::test]
 async fn applying_more_than_the_batch_limit_is_refused() {
@@ -1937,8 +1946,31 @@ async fn deleting_an_instance_retires_its_proposals_and_keeps_its_history() {
     let applied = app.get("/api/v1/decisions?status=applied").await.assert_ok().clone();
     assert_eq!(applied["pagination"]["total"], 1, "the history is kept: {applied}");
 }
-// ------------------------------------------------------------ media
+/// A move waiting for its Arr to confirm it is settled by that instance's next sync, which a
+/// deleted instance never has: it ends failed, saying why.
+#[tokio::test]
+async fn deleting_an_instance_fails_its_moves_waiting_for_confirmation() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          current_root_folder, target_root_folder,
+                                          target_category, action, status)
+                   VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', '/movies/standard',
+                           '/movies/anime', 'anime', 'move', 'requested')"])
+        .await;
 
+    app.delete("/api/v1/instances/inst-1").await.assert_ok();
+
+    let (status, stored): (String, Option<String>) =
+        sqlx::query_as("SELECT status, error_message FROM decisions WHERE id = 'd-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "failed");
+    let english = crate::localization::Localizer::new("en");
+    let reason = crate::localization::said(&stored.unwrap_or_default(), &english);
+    assert!(reason.contains("Radarr") && reason.contains("removed"), "{reason}");
+}
 #[tokio::test]
 async fn explain_traces_every_applicable_rule() {
     let app = TestApp::new().await;
@@ -2099,18 +2131,9 @@ async fn pagination_is_clamped() {
     assert_eq!(list["pagination"]["page"], 1);
 }
 
-// ------------------------------------------------------------ webhooks
-
-/// The only route an unauthenticated party reaches, and each accepted call
-/// costs a request to the Arr, a metadata fetch, a simulation and, with
-/// automatic application armed, a write. The token travels in the URL, so it
-/// sits in the proxy's log and in Radarr's own, and once it is read, the lock
-/// each instance's deliveries share is what bounds what it can start.
-///
-/// Serialised rather than dropped: an Arr does not retry a webhook it considers
-/// delivered, and the run this guards covers *one* media item, so a skipped
-/// delivery would leave that item unsynced until the next sweep, or for ever
-/// with `auto_sync_enabled` off.
+/// The token travels in the URL, in the proxy's log and Radarr's, so the lock each instance's
+/// deliveries share is what bounds the work an unauthenticated caller starts. A delivery waits
+/// rather than being dropped: an Arr does not retry one it considers delivered.
 #[tokio::test]
 async fn a_second_delivery_waits_for_the_first_rather_than_being_dropped() {
     let arr = FakeArr::start().await;
@@ -2210,15 +2233,12 @@ async fn sonarr_deleting_an_episode_file_is_an_event_worth_acting_on() {
     assert_ne!(ignored, "EpisodeFileDelete", "the event was still being skipped");
 }
 
-/// Rotating is only worth offering if it actually revokes: without this,
-/// nothing says the previous token stops being accepted, which is the entire
-/// point of the button.
+/// Nothing else proves the previous token stops being accepted.
 #[tokio::test]
 async fn rotating_the_webhook_token_revokes_the_previous_one() {
     let app = TestApp::new().await;
     app.seed_library().await;
 
-    // The seeded token works.
     app.post("/api/v1/webhook/inst-1/tok", serde_json::json!({ "eventType": "Test" }))
         .await
         .assert_status(StatusCode::OK);
@@ -2228,12 +2248,10 @@ async fn rotating_the_webhook_token_revokes_the_previous_one() {
     let new_token = url.rsplit('/').next().unwrap().to_string();
     assert_ne!(new_token, "tok", "rotation must produce a different token");
 
-    // The old one is dead...
     app.post("/api/v1/webhook/inst-1/tok", serde_json::json!({ "eventType": "Test" }))
         .await
         .assert_status(StatusCode::NOT_FOUND);
 
-    // ...and the new one is live.
     app.post(
         &format!("/api/v1/webhook/inst-1/{new_token}"),
         serde_json::json!({ "eventType": "Test" }),
@@ -2434,8 +2452,7 @@ async fn irrelevant_webhook_events_are_ignored() {
 
 #[tokio::test]
 async fn webhooks_bypass_the_api_key_middleware() {
-    // Radarr cannot send custom headers, so the token in the path is the only
-    // credential, and this must keep working when ROUTARR_API_KEY is set.
+    // The webhook carries its own token, so it must keep working when ROUTARR_API_KEY is set.
     let app = TestApp::with_api_key("s3cret").await;
     app.seed_library().await;
 
@@ -2443,8 +2460,6 @@ async fn webhooks_bypass_the_api_key_middleware() {
         app.post("/api/v1/webhook/inst-1/tok", serde_json::json!({ "eventType": "Test" })).await;
     response.assert_ok();
 }
-
-// ------------------------------------------------------------ jobs & logs
 
 #[tokio::test]
 async fn an_unknown_job_is_a_404() {
@@ -2534,8 +2549,7 @@ async fn logs_can_be_exported_as_csv() {
     assert!(csv.contains(r#","Totoro","a,b ""quoted""","#), "{csv}");
 }
 
-/// An export holds the newest 50 000 rows, and says so when the log holds
-/// more, rather than handing on a file that reads as the whole log.
+/// An export past its row cap says so, rather than handing on a file that reads as the whole log.
 #[tokio::test]
 async fn an_export_says_when_it_leaves_rows_out() {
     let app = TestApp::new().await;
@@ -2595,8 +2609,6 @@ async fn a_log_entry_names_its_trigger_and_its_account() {
     assert!(lines.next().unwrap().contains(r#","manual","alice","#), "{csv}");
     assert!(lines.next().unwrap().contains(r#","schedule","","#), "{csv}");
 }
-
-// ------------------------------------------------------------ status
 
 #[tokio::test]
 async fn status_makes_no_outbound_calls() {
@@ -2686,12 +2698,8 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
     assert!(codes.contains(&"instance_without_mapping"), "the badge missed it: {codes:?}");
 }
 
-/// An unreachable Arr or metadata source is a finding only a probe can make,
-/// and `/status` may not probe: it is polled, and one dead host costs the full
-/// connect timeout. A probe writes down what it saw and the endpoint that
-/// cannot look reads it back, or the dashboard reports a source that has
-/// stopped answering while the navigation beside it, unable to know, counts
-/// zero.
+/// `/status` is polled and may not probe, where one dead host costs the full connect timeout, so
+/// a probe writes down what it saw and `/status` reads it back.
 #[tokio::test]
 async fn the_badge_reports_what_the_last_probe_found() {
     let app = TestApp::new().await;
@@ -2756,8 +2764,6 @@ async fn a_subject_that_answers_again_stops_being_reported() {
     app.get("/api/v1/health").await.assert_ok();
     assert!(!unreachable().await, "the verdict of the first probe outlived the second");
 }
-
-// ------------------------------------------------------------ health
 
 /// The dashboard opens `/health?probe=false`, and the difference is not
 /// cosmetic: probing an unreachable Arr costs the full connect timeout, and an
@@ -2851,7 +2857,6 @@ async fn health_probes_by_default() {
     }
 }
 
-// ------------------------------------------------------------ helpers
 async fn disable_dry_run(app: &TestApp) {
     app.put("/api/v1/settings", serde_json::json!({ "settings": { "global_dry_run": "false" } }))
         .await
@@ -2993,11 +2998,8 @@ async fn aged_rows() -> TestApp {
     app
 }
 
-/// What outlived its retention goes, what is younger stays, and the report the
-/// Settings screen renders says how much went. Under the default windows, 90
-/// days for logs and jobs, 30 for proposals and 365 for the security log, each
-/// table holds a row a day past its window and a row a day inside it. A
-/// running job is never purged, however old.
+/// What outlived its retention goes, what is younger stays, and the report says how much went.
+/// Each table holds a row a day past its default window and a row a day inside it.
 #[tokio::test]
 async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     let app = aged_rows().await;
@@ -3032,11 +3034,8 @@ async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     }
 }
 
-/// The catalogue drives the rule builder, so a condition offered there is a
-/// condition a user can put on a rule. Radarr's payload carries no `tvdbId`,
-/// no `seriesType` and no season list, so `upsert_media` leaves those columns
-/// null for every film, and offering them on a movie rule is offering something
-/// that can only ever fail.
+/// Radarr's payload carries no `tvdbId`, `seriesType` or season list, so offering those on a movie
+/// rule offers a condition that can only fail.
 #[tokio::test]
 async fn the_condition_catalogue_says_which_media_types_each_condition_applies_to() {
     let app = TestApp::new().await;
@@ -3073,18 +3072,13 @@ async fn the_condition_catalogue_says_which_media_types_each_condition_applies_t
     );
 }
 
-// ------------------------------------------------ settings bounds, retroactive
-
-/// The Settings screen sends every field, so one value stored before its bound
-/// existed travels with whatever the operator changed and the whole save is
-/// refused (nothing written, the field they changed included) until a start
-/// converges the stale value. What each key converges to is the matrix test's
-/// claim, below, and this one is the screen's.
+/// The Settings screen sends every field, so one stale stored value refuses the whole save until a
+/// start converges it.
 #[tokio::test]
 async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_value() {
     let app = TestApp::new().await;
 
-    // What an installation running the previous version could hold.
+    // A value below today's bound, as an older database holds it.
     app.store_setting("backup_interval_hours", "5000").await;
     app.store_setting("scheduler_interval_minutes", "2880").await;
 
@@ -3351,12 +3345,9 @@ async fn a_delete_event_waits_for_a_running_sync_before_retiring() {
     assert!(app.state.jobs.try_lock("sync:inst-1").is_some(), "the sync key was left held");
 }
 
-/// A 404 on any other event is not news of a deletion: a base URL pointing at
-/// something that is not an Arr answers 404 to everything, and the full sync,
-/// which reads the whole list and refuses to act on an empty one, is the safer
-/// judge of what is gone. Acknowledged rather than refused, since Radarr would
-/// retry a rejection it can do nothing about. And nothing is created for an id
-/// nobody has.
+/// A base URL pointing at something that is not an Arr answers 404 to everything, so only the
+/// full sync, which refuses an empty list, judges what is gone. Acknowledged, since Radarr would
+/// retry a refusal.
 #[tokio::test]
 async fn an_item_the_arr_does_not_know_is_kept_unless_the_event_says_it_is_gone() {
     let arr = FakeArr::start().await;

@@ -413,6 +413,8 @@ export const api = {
     }),
   syncInstance: (id: string, following?: Following) =>
     followed<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }, following),
+  removeMissing: (id: string, following?: Following) =>
+    followed<SyncReport>(`/instances/${id}/remove-missing`, { method: 'POST' }, following),
   syncAll: (following?: Following) =>
     followed<SyncReport[]>('/instances/sync', { method: 'POST' }, following),
   rotateWebhookToken: (id: string) =>

@@ -684,11 +684,15 @@ pub async fn one_move_ready(arr: &fake_arr::FakeArr) -> (TestApp, String) {
 }
 
 /// Once every webhook delivery to `instance` has ended: none waiting, none
-/// holding the instance.
+/// holding the instance, none making its automatic move.
 pub async fn webhook_settled(app: &TestApp, instance: &str) {
     let key = format!("webhook:{instance}");
+    let moving = format!("auto-apply:{instance}");
     let settled = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        while app.state.jobs.waiting_for(&key) > 0 || app.state.jobs.try_lock(&key).is_none() {
+        while app.state.jobs.waiting_for(&key) > 0
+            || app.state.jobs.try_lock(&key).is_none()
+            || app.state.jobs.waiting_for(&moving) > 0
+        {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     });

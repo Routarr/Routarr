@@ -179,18 +179,32 @@ fn spawn_post_sync(state: AppState, by: Attribution) -> JoinHandle<()> {
             error!("Enrichment after a sync failed: {e}");
         }
 
+        if !state.bool_setting("auto_simulate_enabled").await {
+            return;
+        }
         // Locked against a full pass from the interface. The webhook's one-item run must not lock.
-        if state.bool_setting("auto_simulate_enabled").await
-            && let Some(_pass) = state.jobs.try_lock(FULL_SIMULATION)
-        {
-            let Some(result) = simulate_after_sync(&state, &by).await else { return };
-            // Catches what the webhook missed, under the same guardrails.
-            if let Err(e) = auto_apply::apply_simulation(&state, &result.simulation_id, &by).await {
-                error!("Auto-apply after a sync failed: {e}");
-            }
+        let Some(pass) = state.jobs.lock_within(FULL_SIMULATION, SIMULATION_WAIT).await else {
+            info!(
+                "The simulation after the sync was skipped: another stored simulation ran past \
+                 {SIMULATION_WAIT:?}"
+            );
+            return;
+        };
+        let simulated = simulate_after_sync(&state, &by).await;
+        // Its automatic moves can wait minutes for a running apply, which a Simulate must not.
+        drop(pass);
+        let Some(result) = simulated else { return };
+        // Catches what the webhook missed, under the same guardrails.
+        if let Err(e) = auto_apply::apply_simulation(&state, &result.simulation_id, &by).await {
+            error!("Auto-apply after a sync failed: {e}");
         }
     })
 }
+
+/// How long the simulation after a sync waits for a stored one already running, which may have
+/// read the library before this sync wrote it.
+const SIMULATION_WAIT: Duration =
+    if cfg!(test) { Duration::from_millis(200) } else { Duration::from_secs(60) };
 
 /// The simulation that follows a sync, as a task the Tasks screen lists with
 /// its outcome, its proposals left to `/decisions`.
@@ -386,9 +400,6 @@ mod tests {
     use super::*;
     use tokio::time::Instant;
 
-    /// A chain still running at shutdown is dropped once the grace is out:
-    /// `main` closes the pool right after, and a chain left running would go
-    /// on writing into it.
     #[tokio::test]
     async fn a_shutdown_waits_for_the_post_sync_work_no_longer_than_its_grace() {
         let state = AppState::for_tests().await;

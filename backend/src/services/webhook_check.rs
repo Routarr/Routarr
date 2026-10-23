@@ -13,8 +13,8 @@ use crate::localization::Localizer;
 use crate::models::{Instance, TokenCheck, WebhookCheck, WebhookCheckResponse, WebhookState};
 use crate::state::AppState;
 
-/// The check of `instance` among its Arr's `connections`. `others` names by id the instances
-/// on another Arr, which a connection pasted into the wrong one names, and `tags` the Arr's tags.
+/// The check of `instance` among its Arr's `connections`. `others` names the instances on
+/// another Arr by id, to spot a connection pasted into the wrong Arr, and `tags` the Arr's tags.
 pub fn evaluate(
     instance: &Instance,
     connections: &[RoutarrConnection],

@@ -116,67 +116,76 @@ pub(super) async fn guard_confirmation(
     Ok(())
 }
 
-/// Ask before writing into a destination the Arr reports unreachable. A sleeping NAS stays in
-/// the routing map, unknown rather than gone, and cannot be told from a dead disk, so the
-/// question is asked here, at the one moment it can be answered.
+/// Ask before writing into a destination the Arr reports unreachable, or moving files out of a
+/// folder it reports so, a move both Arrs skip without a word. A sleeping NAS stays mapped,
+/// unknown rather than gone, so the question is asked here, the one moment it can be answered.
 pub(super) async fn guard_reachable(
     state: &AppState,
     scope: CapacityScope<'_>,
+    move_files: bool,
     confirmed: &Confirmed,
 ) -> AppResult<()> {
     if confirmed.has(confirm::UNREACHABLE) {
         return Ok(());
     }
-    let Some(Weighed { rows, binds, to, .. }) = scope.weighed() else {
+    let Some(Weighed { rows, binds, to, from }) = scope.weighed() else {
         return Ok(());
+    };
+    let mut folders = vec![(to, "", ("ErrorTargetUnreachable", "ErrorTargetNeverReached"))];
+    if move_files {
+        let with_files = "JOIN media m ON m.id = d.media_id AND m.has_files = 1";
+        folders.push((from, with_files, ("ErrorSourceUnreachable", "ErrorSourceNeverReached")));
+    }
+    let asleep = |folder: &str, with_files: &str, columns: &str| {
+        format!(
+            "SELECT DISTINCT {columns}
+             FROM decisions d
+             {with_files}
+             JOIN root_folders rf
+                  ON rf.instance_id = d.instance_id
+                 AND rf.path = {folder} COLLATE path
+             WHERE {rows}
+               AND rf.accessible = 0"
+        )
     };
 
     // A folder stored as asleep may have woken since the last sync: its instance is asked again.
-    let sleeping = format!(
-        "SELECT DISTINCT tgt.instance_id
-         FROM decisions d
-         JOIN root_folders tgt
-              ON tgt.instance_id = d.instance_id
-             AND tgt.path = {to} COLLATE path
-         WHERE {rows}
-           AND tgt.accessible = 0"
-    );
-    let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sleeping.as_str()));
-    for bind in &binds {
-        query = query.bind(bind);
+    let mut sleeping = std::collections::BTreeSet::new();
+    for (folder, with_files, _) in &folders {
+        let sql = asleep(folder, with_files, "rf.instance_id");
+        let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sql.as_str()));
+        for bind in &binds {
+            query = query.bind(bind);
+        }
+        sleeping.extend(query.fetch_all(&state.pool).await?);
     }
-    for instance_id in query.fetch_all(&state.pool).await? {
+    for instance_id in sleeping {
         if let Err(e) = crate::services::sync::refresh_root_folders(state, &instance_id).await {
             tracing::debug!(instance = %instance_id, "The root folders could not be read again: {e}");
         }
     }
 
-    let sql = format!(
-        "SELECT DISTINCT tgt.path, tgt.last_accessible_at
-         FROM decisions d
-         JOIN root_folders tgt
-              ON tgt.instance_id = d.instance_id
-             AND tgt.path = {to} COLLATE path
-         WHERE {rows}
-           AND tgt.accessible = 0
-         ORDER BY tgt.path
-         LIMIT 1"
-    );
-    let mut query = sqlx::query_as::<_, (String, Option<String>)>(AssertSqlSafe(sql.as_str()));
-    for bind in &binds {
-        query = query.bind(bind);
-    }
-
-    if let Some((path, last_seen)) = query.fetch_optional(&state.pool).await? {
+    for (folder, with_files, (unreachable, never)) in folders {
+        let sql = format!(
+            "{} ORDER BY rf.path LIMIT 1",
+            asleep(folder, with_files, "rf.path, rf.last_accessible_at")
+        );
+        let mut query = sqlx::query_as::<_, (String, Option<String>)>(AssertSqlSafe(sql.as_str()));
+        for bind in &binds {
+            query = query.bind(bind);
+        }
+        let Some((path, last_seen)) = query.fetch_optional(&state.pool).await? else {
+            continue;
+        };
         let localizer = state.localizer().await;
         // An age rather than a verdict: only the operator knows if it reads as a nap or a fault.
         let since = last_seen.as_deref().and_then(crate::services::routing::parse_timestamp);
         let message = match since {
             Some(then) => localizer.translate(
-                "ErrorTargetUnreachable",
+                unreachable,
                 &[("path", &path), ("age", &crate::localization::human_age(then, &localizer))],
             ),
-            None => localizer.translate("ErrorTargetNeverReached", &[("path", &path)]),
+            None => localizer.translate(never, &[("path", &path)]),
         };
         return Err(AppError::ConfirmationRequired {
             includes: Vec::new(),
@@ -302,16 +311,16 @@ pub(super) async fn guard_capacity(
     }
 
     let rows = query.fetch_all(&state.pool).await?;
-    // Folders of one instance with the same free space are one volume: together, they must fit.
-    let mut volumes: Vec<((&str, i64), Vec<&str>, i64)> = Vec::new();
-    for (instance, path, incoming, free, _) in &rows {
+    // Equal free space is one volume, whichever Arr reports it, so all the moves into it must fit.
+    let mut volumes: Vec<(i64, Vec<&str>, i64)> = Vec::new();
+    for (_, path, incoming, free, _) in &rows {
         let Some(free) = *free else { continue };
-        match volumes.iter_mut().find(|(volume, _, _)| *volume == (instance.as_str(), free)) {
+        match volumes.iter_mut().find(|(volume, _, _)| *volume == free) {
             Some((_, paths, total)) => {
                 paths.push(path);
                 *total += incoming;
             }
-            None => volumes.push(((instance, free), vec![path], *incoming)),
+            None => volumes.push((free, vec![path], *incoming)),
         }
     }
     for &(_, ref path, incoming, free, declared) in &rows {
@@ -350,8 +359,7 @@ pub(super) async fn guard_capacity(
         }
     }
     // Each folder fits alone by now, so a volume still short is short for several together.
-    if let Some(((_, free), paths, needed)) =
-        volumes.into_iter().find(|((_, free), _, needed)| needed > free)
+    if let Some((free, paths, needed)) = volumes.into_iter().find(|(free, _, needed)| needed > free)
     {
         let localizer = state.localizer().await;
         let paths = paths.join(&localizer.translate("ListSeparator", &[]));
