@@ -14,8 +14,7 @@ use super::{TestApp, one_move_ready};
 const BEFORE: &str = "/movies/standard/My Neighbor Totoro (1988)";
 const AFTER: &str = "/movies/anime/My Neighbor Totoro (1988)";
 
-/// A move running past the longest wait a 1 ms `move_wait` gives, 360 ms: the run stops waiting
-/// and leaves it to a sync.
+/// Longer than `CEILING_ROUNDS` rounds of a 1 ms `move_wait`, so the run stops waiting.
 const STALLED: Duration = Duration::from_millis(800);
 
 async fn apply_with_files(app: &TestApp, decision_id: &str) -> executor::ApplyReport {
@@ -53,9 +52,39 @@ async fn sync(app: &TestApp) {
     sync::sync_instance(&app.state, "inst-1", &Attribution::manual(None)).await.unwrap();
 }
 
-/// The Arr's move fails on disk and the Arr puts the old path back: the
-/// apply reads the title back and records a failure naming the instance,
-/// with the title where the Arr holds it.
+/// Every row a move with files writes waits for the disk: under the pool's `synchronous =
+/// NORMAL` a power cut can roll back the record of a move the Arr made.
+#[tokio::test]
+async fn every_record_of_a_move_with_files_is_written_durably() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    app.execute(&[
+        // As `db::init_pool` sets it, where the test pool keeps SQLite's FULL.
+        "PRAGMA synchronous = NORMAL",
+        "CREATE TEMP TABLE written (tbl TEXT, level INTEGER)",
+        "CREATE TEMP TRIGGER durable_decisions AFTER UPDATE ON decisions BEGIN
+             INSERT INTO written SELECT 'decisions', synchronous FROM pragma_synchronous;
+         END",
+        "CREATE TEMP TRIGGER durable_media AFTER UPDATE ON media BEGIN
+             INSERT INTO written SELECT 'media', synchronous FROM pragma_synchronous;
+         END",
+        "CREATE TEMP TRIGGER durable_logs AFTER INSERT ON execution_logs BEGIN
+             INSERT INTO written SELECT 'execution_logs', synchronous FROM pragma_synchronous;
+         END",
+    ])
+    .await;
+
+    let report = apply_with_files(&app, &decision_id).await;
+
+    assert_eq!(report.applied, 1, "{report:?}");
+    let written: Vec<(String, i64)> =
+        sqlx::query_as("SELECT tbl, level FROM written").fetch_all(&app.state.pool).await.unwrap();
+    assert!(written.len() >= 3, "{written:?}");
+    let normal: Vec<_> = written.iter().filter(|(_, level)| *level != 2).collect();
+    assert!(normal.is_empty(), "written under NORMAL: {normal:?}");
+}
+
+/// The move fails on disk and the Arr puts the old path back.
 #[tokio::test]
 async fn a_move_the_arr_rolls_back_is_recorded_as_failed() {
     let arr = FakeArr::start().await;
@@ -72,8 +101,7 @@ async fn a_move_the_arr_rolls_back_is_recorded_as_failed() {
     assert_eq!(totoro_path(&app).await, BEFORE, "the row kept a move the Arr undid");
 }
 
-/// A move command the Arr ends as failed leaves the new path recorded and the
-/// files where they were: the decision fails with the Arr's own words.
+/// The Arr records the new path but leaves the files where they were.
 #[tokio::test]
 async fn a_move_whose_command_fails_is_recorded_as_failed() {
     let arr = FakeArr::start().await;
@@ -88,9 +116,6 @@ async fn a_move_whose_command_fails_is_recorded_as_failed() {
     assert!(reason.unwrap_or_default().contains("Access to the path is denied"));
 }
 
-/// A move still running when the apply stops waiting, past the longest wait, is recorded as
-/// requested, the title where the Arr already holds it. The next sync, once the Arr has
-/// finished, confirms it.
 #[tokio::test]
 async fn a_move_still_running_when_the_run_stops_waiting_is_confirmed_by_the_next_sync() {
     let arr = FakeArr::start().await;
@@ -113,8 +138,6 @@ async fn a_move_still_running_when_the_run_stops_waiting_is_confirmed_by_the_nex
     assert_eq!(decision(&app, &decision_id).await.0, "applied");
 }
 
-/// The same, but the Arr undid the move after the apply stopped waiting: the
-/// next sync reads the title outside its target and fails the decision.
 #[tokio::test]
 async fn a_requested_move_the_arr_undid_is_failed_by_the_next_sync() {
     let arr = FakeArr::start().await;
@@ -133,8 +156,6 @@ async fn a_requested_move_the_arr_undid_is_failed_by_the_next_sync() {
     assert_eq!(totoro_path(&app).await, BEFORE);
 }
 
-/// A title the Arr stopped holding while its move ran is gone from the
-/// library after the next sync, and its requested move fails saying so.
 #[tokio::test]
 async fn a_requested_move_whose_title_is_gone_is_failed_by_the_next_sync() {
     let arr = FakeArr::start().await;
@@ -157,8 +178,7 @@ async fn a_requested_move_whose_title_is_gone_is_failed_by_the_next_sync() {
     assert!(reason.unwrap_or_default().contains("no longer holds"));
 }
 
-/// A revert still moving when the run stopped waiting is settled the same
-/// way: once the Arr holds the title back where it came from, it is undone.
+/// Once the Arr holds the title back where it came from, the decision reads `skipped`.
 #[tokio::test]
 async fn a_requested_revert_is_settled_by_the_next_sync() {
     let arr = FakeArr::start().await;
@@ -193,12 +213,10 @@ async fn a_requested_revert_is_settled_by_the_next_sync() {
     assert_eq!(totoro_path(&app).await, BEFORE);
 }
 
-/// The decision says `requested` before the write leaves: a stop or a crash
-/// between the Arr's answer and the record then leaves a move the next sync
-/// settles from what the Arr holds, rather than one nobody recorded.
+/// A crash between the Arr's answer and the record then leaves a move the next sync settles.
 #[tokio::test]
 async fn a_move_is_recorded_as_requested_before_it_is_sent() {
-    // Within the tests' 300 ms budget for an answer.
+    // Within the outbound timeout of `Config::for_tests`.
     let arr = FakeArr::holding_edits(Duration::from_millis(100)).await;
     let (app, decision_id) = one_move_ready(&arr).await;
     let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
@@ -226,8 +244,7 @@ async fn a_move_is_recorded_as_requested_before_it_is_sent() {
     assert_eq!(decision(&app, &decision_id).await.0, "applied");
 }
 
-/// A move whose answer never came may have been made all the same: the title
-/// is read back, and recorded from where the Arr holds it.
+/// A move whose answer never came may have been made all the same.
 #[tokio::test]
 async fn a_move_answered_after_the_timeout_is_recorded_from_what_the_arr_holds() {
     let arr = FakeArr::start().await;
@@ -250,8 +267,7 @@ async fn a_move_answered_after_the_timeout_is_recorded_from_what_the_arr_holds()
     assert_eq!(totoro_path(&app).await, AFTER);
 }
 
-/// An upgrade keeps every decision and the log lines pointing at it, and
-/// lets a decision be `requested`.
+/// The upgraded table also accepts the `requested` status.
 #[tokio::test]
 async fn an_upgrade_keeps_every_decision_and_its_log() {
     let pool = super::database_of_0_1_5().await;

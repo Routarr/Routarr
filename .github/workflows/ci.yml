@@ -1,25 +1,19 @@
 name: CI
 
-# No `paths-ignore` here on purpose: the `changes` job below is the filter, and
-# it always runs. A commit the workflow skips entirely has no run at all, and
-# the release guard then refuses to tag it while telling the author to wait for
-# a CI that was never going to come.
+# No `paths-ignore`: `changes` filters and always runs. A skipped workflow never reports, so a
+# required check blocks the pull request and the release guard refuses the commit.
 on:
   push:
     branches: [main]
   pull_request:
 
-# Nothing here writes to the repository: the token can only read it. A job that
-# one day needs more states it on the job, not here. No checkout keeps the token
-# in its clone, where every later step could read it: `gh` takes `GH_TOKEN`,
-# and the rest reads the clone alone.
+# Read only: a job that needs more states it on the job. No checkout keeps the token in its
+# clone, where every later step could read it: `gh` takes `GH_TOKEN`.
 permissions:
   contents: read
 
-# A pull request keeps its newest run, a new push cancelling the one it
-# supersedes, keyed by number since two forks can name a branch alike. A push
-# to main runs to the end in a group of its own: the next one is compared with
-# the last commit whose run succeeded, and a cancelled run succeeds at nothing.
+# A pull request keeps its newest run, keyed by number since two forks can name a branch
+# alike. A push to main runs to the end: the next one is compared with the last that succeeded.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -53,11 +47,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # A pull request is compared with its base. A push to main is compared
-      # with the last commit of main whose run succeeded, not with the one
-      # before it: a failed run tested nothing, and the release guard reads only
-      # the tagged commit's own runs, so the areas it left behind are tested in
-      # this run.
+      # A push to main is compared with the last commit of main whose run succeeded: a failed
+      # run tested nothing, so its areas are tested in this one.
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}
@@ -79,27 +70,18 @@ jobs:
             grep -qxE "$area=(true|false)" <<<"$areas" || { echo "::error::no $area line"; exit 1; }
           done
 
-      # `changes` and `repository` are the two jobs with no path filter, and a
-      # check that must see every commit goes in one of them: a commit touching
-      # just `Dockerfile` matches none of the three areas, so every filtered job
-      # skips and a partial version bump would land green.
+      # Here, unfiltered: a commit touching only a Dockerfile matches no area, and a partial
+      # version bump would land green.
       - name: Check the toolchain versions agree
         run: python3 scripts/check-versions.py
 
-  # What no deliverable's job reads: the workflows, the shell harnesses, the
-  # Dockerfiles, the memory files Claude Code loads, the history, the API
-  # contract against the last release, and the punctuation of every
-  # deliverable at once. Unfiltered for the same reason as
-  # `changes`, and needed by no other job, so a failure here skips nothing else.
+  # What no deliverable's job reads: the workflows, scripts, Dockerfiles, memory files, history,
+  # the contract against the last release and the punctuation of everything. Unfiltered, like
+  # `changes`, and needed by no other job.
   #
-  # The six binaries are fetched from their releases and checked against the
-  # sums recorded here, so a moved tag or a replaced asset fails the step
-  # rather than running. The dev container installs the same versions, which
-  # `scripts/check-versions.py` holds in step: shellcheck is pinned rather than
-  # taken from the runner image, whose version moves with the image.
-  #
-  # Each check runs whatever the one before it answered, so a first failure
-  # hides none of the others, gitleaks included.
+  # The linters come from their releases at the sums below, the dev container's versions
+  # (`check-versions.py`), shellcheck included, whose runner copy moves with the image. Every
+  # check runs whatever the one before answered.
   repository:
     name: Repository lint
     runs-on: ubuntu-latest
@@ -119,8 +101,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/check-typography.py
 
-      # The npm packages the interface bundles and the notices the image carries
-      # read three files of two areas, and no area's job sees all three.
+      - name: Check the shipped migrations are unchanged
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-migrations.py
+
+      # Reads `backend/deny.toml`, `backend/about.toml` and `frontend/package-lock.json`, which no
+      # area's job sees together.
       - name: Check the licences of what the image ships
         if: ${{ !cancelled() }}
         run: python3 scripts/check-licences.py
@@ -168,9 +154,8 @@ jobs:
           tar -xJf /tmp/shellcheck.txz -C "$HOME/bin" --strip-components=1 shellcheck-v0.11.0/shellcheck
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      # Unfiltered with the rest of this job: a commit touching the pinned
-      # contract alone would wake the backend job, but one moving the tag the
-      # contract is compared with wakes nothing else.
+      # Here, unfiltered: a new release tag changes what the contract is compared with, and wakes
+      # no area.
       - name: Check the API contract breaks no client of the last release
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: bash scripts/check-api-breaks.sh
@@ -181,8 +166,6 @@ jobs:
       - name: Lint the shell scripts
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: git ls-files -z '*.sh' | xargs -0 shellcheck -S style
-      # The Python scripts decide whether CI passes, and the fakes stand in for
-      # the Arrs: a mistake in one passes or fails a build for the wrong reason.
       - name: Lint the Python scripts
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: ruff check scripts frontend/e2e site/screenshots
@@ -218,8 +201,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # No toolchain pin here on purpose: rustup reads rust-toolchain.toml, so
-      # CI compiles with the exact version the release image ships.
+      # No toolchain step: rustup reads rust-toolchain.toml, the version the image ships.
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -253,11 +235,8 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-      # The one gate on the crates: a RustSec advisory, an unmaintained or
-      # yanked crate, a licence the GPL cannot ship beside, a crate from a
-      # source nobody named. `deny.toml` states each rule. The dependency tree
-      # is pruned (`sqlx` with `default-features = false`) so this can be a
-      # hard gate.
+      # A RustSec advisory, an unmaintained or yanked crate, a licence the GPL cannot ship beside,
+      # or a source nobody named fails here (`deny.toml`).
       - name: Check advisories, licences and sources
         uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
@@ -291,11 +270,8 @@ jobs:
           # the floor is measured by one tool on both sides.
           tool: cargo-llvm-cov@0.9.1
 
-      # A floor at the whole figure below the measure, raised with it: a module
-      # landing with no test trips it. `src/tests/` is excluded because
-      # measuring the tests' own coverage inflates the figure, and `process.rs`
-      # because only a running process reaches it: the start, the signals, the
-      # stop.
+      # The floor sits at the whole figure below the measure and rises with it. `src/tests/` would
+      # inflate the figure, and only a running process reaches `process.rs`.
       - name: Measure coverage
         run: |
           cargo llvm-cov --locked --summary-only --fail-under-lines 96 \
@@ -327,13 +303,10 @@ jobs:
       - id: install
         run: npm ci --ignore-scripts
 
-      # What ships in the image, the packages the bundle carries. A development
-      # tool's advisory is Dependabot's to raise, and an advisory with no fix
-      # yet would block every pull request with no way out. `high` rather than
-      # `moderate`: a gate that fires on everything is one people learn to skip.
+      # Only what the bundle ships, at `high`: a development tool's advisory is Dependabot's to
+      # raise, and a gate that fires on everything is one people learn to skip.
       #
-      # Each step below runs whatever the one before it answered, so a first
-      # failure hides none of the others.
+      # Each step below runs whatever the one before it answered.
       - name: Audit the shipped dependencies
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm audit --omit=dev --audit-level=high
@@ -352,19 +325,12 @@ jobs:
         working-directory: .
         run: python3 scripts/check-api-types.py
 
-      # Same reason: the dictionaries live in `backend/`, the keys that read
-      # them in `frontend/src`. A pull request touching only a component never
-      # runs the backend job, so without this step a key with no dictionary
-      # entry, rendered raw on screen, would pass here and fail on the next
-      # person's backend change.
+      # Same reason: the dictionaries are in `backend/`, the keys reading them in `frontend/src`.
       - name: Check locales
         if: ${{ !cancelled() }}
         working-directory: .
         run: python3 scripts/check-locales.py
 
-      # `coverage.include` in vite.config.ts is load-bearing: without it v8
-      # counts only the files a test imported, reporting a high number over a
-      # small fraction of the tree.
       - name: Test
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run coverage
@@ -382,9 +348,7 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npx tsc -p e2e --noEmit
 
-      # The two bundles every visit downloads, held to a ceiling: nothing else
-      # measures them, and a size that drifts up is invisible until the
-      # dashboard downloads the rule builder with it.
+      # The two bundles every visit downloads: nothing else measures them.
       - name: Check the bundle size
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         working-directory: .
@@ -393,14 +357,13 @@ jobs:
   e2e:
     name: End-to-end in ${{ matrix.browser }}
     runs-on: ubuntu-latest
-    # WebKit runs the suite at about half Chromium's pace.
+    # WebKit runs the suite the slowest.
     timeout-minutes: 40
     needs: changes
     # Drives the release binary *serving the built frontend*, so either side
     # changing is reason enough to run it.
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
-    # Once per engine the README promises, each the whole suite: a fault one
-    # engine shows is not stopped by another's.
+    # The whole suite in each engine the README promises, none cancelling another.
     strategy:
       fail-fast: false
       matrix:
@@ -425,15 +388,11 @@ jobs:
       - run: npx playwright install ${{ matrix.browser }} --with-deps
         working-directory: frontend
 
-      # Drives the release binary serving the built frontend against a fake
-      # Radarr: the only place a broken route, a dead control or a folded table
-      # cell can actually be caught.
       - name: End-to-end
         run: npm run test:e2e
         working-directory: frontend
 
-      # Mounted under a sub-path, the case that only ever breaks behind a
-      # reverse proxy, where it is hardest to diagnose.
+      # Under a sub-path, as behind a reverse proxy, where a break is hardest to diagnose.
       - name: End-to-end behind a sub-path
         run: npm run test:e2e:base
         working-directory: frontend
@@ -487,10 +446,8 @@ jobs:
       - run: npm ci
         working-directory: site
 
-      # Informational. Every package here builds the site and none reaches a
-      # visitor or the image, and an advisory against a build tool can stand
-      # with no fixed version for weeks. A gate would hold every site change
-      # hostage to it, so this warns and Dependabot's alerts follow it up.
+      # Warns only: these packages build the site, and an advisory against a build tool can stand
+      # unfixed for weeks. Dependabot's alerts follow it up.
       - name: Audit the build tools
         working-directory: site
         run: |
@@ -498,8 +455,7 @@ jobs:
             echo "::warning::npm audit reports a high advisory in the site's build tools"
           fi
 
-      # Everything below reads `site/dist`, which is what Cloudflare serves.
-      # Checking the sources would test the intention. This tests the artefact.
+      # Everything below reads `site/dist`, what Cloudflare serves.
       - name: Build
         run: npm run build
         working-directory: site
@@ -511,14 +467,12 @@ jobs:
         run: npx astro check
         working-directory: site
 
-      # Playwright, for the browser pass below. The site has no runtime
-      # dependency of its own.
+      # Playwright for `verify.mjs`, loaded from frontend/node_modules (`site/playwright.mjs`).
       - run: npm ci --ignore-scripts
         working-directory: frontend
       - run: npx playwright install chromium --with-deps
         working-directory: frontend
 
-      # Origins, CSP hash, image dimensions, contrast, dead links.
       - name: Static checks
         run: node site/check.mjs
 

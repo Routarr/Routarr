@@ -255,7 +255,7 @@ pub struct DecisionQuery {
     pub instance_id: Option<String>,
     /// `movie` or `series`.
     pub media_type: Option<String>,
-    /// `pending`, `applied`, `failed` or `skipped`.
+    /// `pending`, `requested`, `applied`, `failed` or `skipped`.
     pub status: Option<String>,
     /// Only the decisions sending a title to this category.
     pub category: Option<String>,

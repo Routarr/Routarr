@@ -1,6 +1,6 @@
-//! Sessions and what a session proves: their lifetime, the screen that lists
-//! and ends them, the key a browser exchanges for one, and the proof a session
-//! gives before it makes or withdraws a key.
+//! Sessions and what a session proves: the screen that lists and ends them, the key a browser
+//! exchanges for one, the proof a session gives before it makes or withdraws a key, and what a
+//! session request writes.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
@@ -16,9 +16,7 @@ fn handed(response: &axum::response::Response) -> String {
     response.headers()[header::SET_COOKIE].to_str().unwrap().split(';').next().unwrap().to_string()
 }
 
-/// A session left open on a shared machine would otherwise make keys that
-/// outlive it: making or withdrawing one takes the current password, a key
-/// for another application too.
+/// A session left open on a shared machine would otherwise make keys that outlive it.
 #[tokio::test]
 async fn a_session_cannot_mint_a_key_without_the_password() {
     let (app, _dir) = forms_app("proof").await;
@@ -44,9 +42,7 @@ async fn a_session_cannot_mint_a_key_without_the_password() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
 }
 
-/// A password changed because it leaked closes what it opened, and the keys
-/// made with it when asked: the API key is replaced, shown once, and every
-/// application key is revoked.
+/// A password that leaked may have made keys, so its change can revoke them.
 #[tokio::test]
 async fn a_password_change_can_revoke_every_key() {
     let (app, _dir) = forms_app("revoke").await;
@@ -78,8 +74,7 @@ async fn a_password_change_can_revoke_every_key() {
     assert_eq!(status_with(replaced.to_string()).await, StatusCode::OK);
 }
 
-/// A change refused because two sign-ins are already being checked says to
-/// come back in a moment: neither a wrong password nor a credential gone.
+/// A 503 says to come back in a moment, where a 403 would read as a wrong password.
 #[tokio::test]
 async fn a_busy_password_check_answers_503() {
     let (app, _dir) = forms_app("busy").await;
@@ -108,9 +103,7 @@ async fn a_busy_password_check_answers_503() {
     );
 }
 
-/// The browser sends the key once and keeps a session cookie instead, which
-/// no script on the page can read. A wrong key opens nothing, and counts
-/// toward the address's wait as a wrong password does.
+/// The cookie the browser keeps instead is one no script on the page can read.
 #[tokio::test]
 async fn the_key_opens_a_session_and_the_browser_keeps_no_key() {
     let app = TestApp::with_api_key(KEY).await;
@@ -136,9 +129,7 @@ async fn the_key_opens_a_session_and_the_browser_keeps_no_key() {
     assert_ne!(status, StatusCode::UNAUTHORIZED, "a write with the session was refused");
 }
 
-/// A key guessed back to back is slowed as a password is: after five wrong
-/// keys from one address the next exchange waits, the right key included, and
-/// the wait is in the security log.
+/// The right key waits too, as the right password does after wrong ones.
 #[tokio::test]
 async fn wrong_keys_from_one_address_are_slowed_and_logged() {
     let app = TestApp::with_api_key(KEY).await;
@@ -167,8 +158,7 @@ async fn wrong_keys_from_one_address_are_slowed_and_logged() {
     assert_eq!(held, ["198.51.100.9"]);
 }
 
-/// A cookie travels on a cross-site request whether the page meant it or not:
-/// a write whose origin is another site is refused, as in the sign-in modes.
+/// A cookie travels on a cross-site request whether the page meant it or not.
 #[tokio::test]
 async fn a_write_from_another_site_is_refused_with_a_key_session() {
     let app = TestApp::with_api_key(KEY).await;
@@ -192,8 +182,6 @@ async fn a_write_from_another_site_is_refused_with_a_key_session() {
     assert_eq!(app.send(request).await.status, StatusCode::FORBIDDEN);
 }
 
-/// A session the key opened replaces the key only with the key itself, and a
-/// key replaced ends every other session it opened.
 #[tokio::test]
 async fn a_key_session_proves_itself_with_the_key_and_a_new_key_ends_the_others() {
     let (app, _dir) = super::security::stored_key_app("key-session", KEY).await;
@@ -230,8 +218,6 @@ async fn a_key_session_proves_itself_with_the_key_and_a_new_key_ends_the_others(
     assert_eq!(still(other).await, StatusCode::UNAUTHORIZED, "the old key's session lives on");
 }
 
-/// The sessions screen lists every live session with the mode that opened it,
-/// marks the one asking, ends one by its handle, and signs out everywhere.
 #[tokio::test]
 async fn the_sessions_are_listed_ended_one_by_one_and_all_at_once() {
     let (app, _dir) = forms_app("sessions").await;
@@ -269,4 +255,31 @@ async fn the_sessions_are_listed_ended_one_by_one_and_all_at_once() {
         let (status, _) = with_session(&app, "GET", "/api/v1/auth/me", &cookie, Value::Null).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "a session outlived signing out everywhere");
     }
+}
+
+/// A session request writes only when its renewal is due: a write would wait out the busy
+/// timeout behind a sync on every request of the interface.
+#[tokio::test]
+async fn a_session_request_does_not_wait_for_a_writer() {
+    let dir = super::TempDir::new("session-writer");
+    let mut config = crate::config::Config::for_tests();
+    config.auth_mode = crate::config::AuthMode::Forms;
+    config.data_dir = dir.to_path_buf();
+    config.set_db_path(dir.join("routarr.db"));
+    let pool = crate::db::init_pool(&config).await.unwrap();
+    let state = crate::state::AppState::for_tests_on(pool.clone()).with_config(config);
+    crate::services::accounts::ensure_account(&state.pool, &state.config.password_path())
+        .await
+        .unwrap();
+    let app = TestApp::around(state);
+    let session = sign_in(&app, &generated_password(&app)).await;
+    let mut writer = pool.acquire().await.unwrap();
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *writer).await.unwrap();
+
+    let started = std::time::Instant::now();
+    let (status, _) = with_session(&app, "GET", "/api/v1/categories", &session, json!(null)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+    sqlx::query("COMMIT").execute(&mut *writer).await.unwrap();
 }

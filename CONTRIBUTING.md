@@ -243,11 +243,15 @@ version is published because somebody decided to publish it.
    When the interface changed since the last release, refresh the README's
    screenshot with `bash site/screenshots/run.sh`, which writes
    `.github/assets/simulation.webp` from a throwaway instance.
+   Fold the migrations added since the last release into one
+   `NNN_release_X_Y_Z.sql` listed in `MIGRATIONS` (`backend/src/db.rs`), before
+   any pre-release tag: `python3 scripts/check-migrations.py --release X.Y.Z`
+   names what is left.
 2. Commit, merge to `main`, and let CI finish. The release refuses a commit that
    is not on `main`, a tag naming another version than `backend/Cargo.toml`, a
-   commit CI or the image build did not pass on a push, and a version the
-   registry already holds (`scripts/release-guard.sh`, which a dry run can
-   call), so tagging ahead of them only wastes a tag.
+   commit CI or the image build did not pass on a push, migrations not folded,
+   and a version the registry already holds (`scripts/release-guard.sh`, which a
+   dry run can call), so tagging ahead of them only wastes a tag.
 3. `git tag -a vX.Y.Z -m "Routarr X.Y.Z" && git push origin vX.Y.Z`. Annotated:
    the tag records who made it and when, which a lightweight one does not.
 

@@ -65,9 +65,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         | commands::Invocation::Help
         | commands::Invocation::Version => {}
     }
-    // Before anything binds a port: a value the server cannot honour should
-    // stop it with a sentence naming the variable, not with a panic from a
-    // dependency four layers down.
     config.validate()?;
     init_tracing(&config);
     crate::log_panics();
@@ -77,16 +74,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Routarr v{}", env!("CARGO_PKG_VERSION"));
 
-    // Say where the data is, absolutely. `ROUTARR_DB_PATH` defaults to a
-    // *relative* path, so the working directory decides which library the
-    // server opens. Started from two places, it makes two installations, each
-    // with its own key and its own backups, and nothing on screen says which
-    // one is in use.
+    // The data directory, absolute: `ROUTARR_DB_PATH` defaults to a relative path, so the
+    // working directory decides which library opens.
     info!(
         "Data directory: {}",
-        // `canonicalize` fails until the directory exists, which is the first
-        // start, the one where this line matters most. `absolute` answers
-        // then, since it only needs the working directory.
+        // `canonicalize` fails before the directory exists, at the first start, where `absolute`
+        // still answers.
         std::fs::canonicalize(&config.data_dir)
             .or_else(|_| std::path::absolute(&config.data_dir))
             .unwrap_or_else(|_| config.data_dir.clone())
@@ -100,6 +93,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         http: http::build_client(&config)?,
         audit: Arc::new(services::audit::Log::storing(pool.clone())),
+        deprecated_calls: Arc::new(api::deprecated::Calls::counting(pool.clone())),
         pool,
         secrets,
         tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
@@ -126,9 +120,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let started = jobs::Attribution::unattended(jobs::TRIGGER_SCHEDULE);
     services::backup::copy_in_background(&state, started);
 
-    // The single account, generated on first start like the API key. Only in
-    // the mode that reads it: creating one for an installation that
-    // authenticates another way would write a password nobody asked for.
+    // The single account, generated on first start like the API key, in `forms` mode only.
     if state.config.auth_mode == AuthMode::Forms {
         services::accounts::ensure_account(&state.pool, &state.config.password_path()).await?;
     }
@@ -142,12 +134,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let scheduler = jobs::scheduler::start(state.clone(), stopping.clone());
 
     let bind_addr = state.config.bind_address();
-    // Kept past `build_router`, which consumes the state: the pool has to be
-    // closed *after* the server stops and the work in flight has recorded
-    // what it did, not dropped along with it.
+    // Kept past `build_router`, which consumes the state: the pool closes once the server and
+    // the work in flight have stopped.
     let pool = state.pool.clone();
     let jobs = state.jobs.clone();
     let audit = Arc::clone(&state.audit);
+    let deprecated_calls = Arc::clone(&state.deprecated_calls);
     let app = crate::build_router(state);
 
     let socket = tokio::net::TcpListener::bind(&bind_addr).await.map_err(|e| {
@@ -167,12 +159,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
-    // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
-    // shutdown open for the full connect timeout, and a runtime that has sent
-    // SIGTERM is counting. Past the deadline SQLite rolls the sweep back and
-    // only the WAL truncation is lost. An apply ends before its next move and
-    // records the moves the Arr has made. With the drain, the stop fits the
-    // Compose file's 30s grace, and a second signal stops waiting.
+    // Bounded to fit the Compose file's 30-second grace with the drain: past it SQLite rolls a
+    // sweep back and only the WAL truncation is lost. A second signal stops waiting.
     let waits = async {
         tokio::join!(
             jobs.drain(std::time::Duration::from_secs(20)),
@@ -192,6 +180,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     audit.flush().await;
+    deprecated_calls.flush().await;
     db::checkpoint_and_close(&pool).await;
 
     // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.

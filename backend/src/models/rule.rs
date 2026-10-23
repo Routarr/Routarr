@@ -122,9 +122,6 @@ pub enum Condition {
     YearRange { min: Option<i64>, max: Option<i64> },
 
     /// One of the tags the user attached in the Arr.
-    ///
-    /// The only signal that carries the user's own intent, which no external
-    /// metadata provider can supply.
     #[serde(rename = "tag_in")]
     TagIn(Vec<String>),
 
@@ -216,10 +213,8 @@ pub enum Condition {
     #[serde(rename = "imdb_id_in")]
     ImdbIdIn(Vec<String>),
 
-    /// Media added to the Arr instance within the last N days, N times 24
-    /// hours, so a rule can target new additions without touching the
-    /// existing library. An Arr clock less than a day ahead reads as just
-    /// added. At least 1.
+    /// Added to the Arr within the last N days, N times 24 hours, N at least 1. An Arr clock
+    /// less than a day ahead reads as just added.
     #[serde(rename = "added_within_days")]
     AddedWithinDays(i64),
 

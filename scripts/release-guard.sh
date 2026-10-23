@@ -36,10 +36,8 @@ still_tagged() {
   [ "$tagged" = "$SHA" ] || refuse "$TAG now names $tagged, not $SHA. Nothing published."
 }
 
-# Not published yet. A tag deleted and pushed again would republish the version
-# from another tree, and a backup the first image took could carry a schema the
-# second refuses to restore. Publishing it again on purpose means deleting that
-# version from the registry first. Any answer but "absent" refuses.
+# Not published yet: a version republished from another tree could refuse the backups the
+# first image took. Any answer but 404 refuses.
 unpublished() {
   local image="${REPOSITORY,,}" token status
   token=$(curl -sf "https://ghcr.io/token?scope=repository:$image:pull" \
@@ -85,12 +83,14 @@ crate=$(gh api "repos/$REPOSITORY/contents/backend/Cargo.toml?ref=$SHA" \
 [ "$crate" = "$VERSION" ] ||
   refuse "$TAG names $VERSION, but backend/Cargo.toml at $SHA says $crate. Set the version first, then tag that commit."
 
-# Green in the two workflows that test it, each run on a push of the commit.
-# The other runs on the commit test nothing about it, and a run that never
-# started is as much a refusal as a failed one (`scripts/release-runs.py`).
+# Green in ci.yml and docker.yml on a push of the commit (`scripts/release-runs.py`).
 gh api "repos/$REPOSITORY/actions/runs?head_sha=$SHA&per_page=100" |
   python3 "$(dirname "${BASH_SOURCE[0]}")/release-runs.py" ||
   refuse "$SHA is not green in CI and Docker image. Push it to main and let both finish before tagging it."
+
+# One migration file per release, and the shipped ones as they shipped (`check-migrations.py`).
+python3 "$(dirname "${BASH_SOURCE[0]}")/check-migrations.py" --release "$VERSION" ||
+  refuse "The migrations of $SHA are not ready for $TAG. Fold them into one file first."
 
 unpublished
 

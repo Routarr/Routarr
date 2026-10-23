@@ -6,7 +6,7 @@
         "properties": {
           "job_id": {
             "deprecated": true,
-            "description": "The same id, under its old name. Read `task_id`.",
+            "description": "The same id, deprecated. Read `task_id`.",
             "type": "string"
           },
           "task_id": {
@@ -870,7 +870,7 @@
             "type": "object"
           },
           {
-            "description": "One of the tags the user attached in the Arr.\n\nThe only signal that carries the user's own intent, which no external\nmetadata provider can supply.",
+            "description": "One of the tags the user attached in the Arr.",
             "properties": {
               "type": {
                 "enum": [
@@ -879,7 +879,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "One of the tags the user attached in the Arr.\n\nThe only signal that carries the user's own intent, which no external\nmetadata provider can supply.",
+                "description": "One of the tags the user attached in the Arr.",
                 "items": {
                   "type": "string"
                 },
@@ -1358,7 +1358,7 @@
             "type": "object"
           },
           {
-            "description": "Media added to the Arr instance within the last N days, N times 24\nhours, so a rule can target new additions without touching the\nexisting library. An Arr clock less than a day ahead reads as just\nadded. At least 1.",
+            "description": "Added to the Arr within the last N days, N times 24 hours, N at least 1. An Arr clock\nless than a day ahead reads as just added.",
             "properties": {
               "type": {
                 "enum": [
@@ -1367,7 +1367,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "Media added to the Arr instance within the last N days, N times 24\nhours, so a rule can target new additions without touching the\nexisting library. An Arr clock less than a day ahead reads as just\nadded. At least 1.",
+                "description": "Added to the Arr within the last N days, N times 24 hours, N at least 1. An Arr clock\nless than a day ahead reads as just added.",
                 "format": "int64",
                 "type": "integer"
               }
@@ -1991,7 +1991,7 @@
             ]
           },
           "error": {
-            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`method_not_allowed`, `conflict`, `confirmation_required`,\n`payload_too_large`, `unsupported_media_type`, `too_many_requests`,\n`busy`, `reauthentication_required`, `passphrase_required`,\n`external_api_error` or `internal_error`. An open list.",
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`method_not_allowed`, `conflict`, `confirmation_required`,\n`payload_too_large`, `unsupported_media_type`, `too_many_requests`,\n`busy`, `reauthentication_required`, `passphrase_required`,\n`external_api_error`, `insufficient_storage` (the data disk is full) or `internal_error`.\nAn open list.",
             "type": "string"
           },
           "includes": {
@@ -2009,7 +2009,7 @@
             "type": "string"
           },
           "reason": {
-            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an\napplication key past its expiry.",
+            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`. Beside `unauthorized`: `key_expired`, an\napplication key past its expiry. Beside `busy`: `database_busy`, another write held the\ndatabase past the wait.",
             "type": [
               "string",
               "null"
@@ -2496,7 +2496,7 @@
             ]
           },
           "kind": {
-            "description": "`sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that\nstores nothing), `apply`, `revert`, `backup`, `maintenance` or\n`scheduler`.",
+            "description": "`sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that\nstores nothing), `apply`, `revert`, `backup`, `backup_copy`, `maintenance`,\n`anime_ids` or `scheduler`.",
             "type": "string"
           },
           "progress_current": {
@@ -2916,6 +2916,7 @@
             "type": "string"
           },
           "last_synced_at": {
+            "description": "When a sync last found the Arr's data for it changed.",
             "format": "date-time",
             "type": [
               "string",
@@ -3129,6 +3130,7 @@
             "type": "string"
           },
           "last_synced_at": {
+            "description": "When a sync last found the Arr's data for it changed.",
             "format": "date-time",
             "type": [
               "string",
@@ -5072,7 +5074,7 @@
         "description": "Result of syncing one instance.",
         "properties": {
           "error": {
-            "description": "Set when the sync failed, so the caller of sync-all still gets one entry\nper instance instead of the failure silently vanishing from the report.",
+            "description": "Set when the sync failed: a sync of every instance answers one entry per instance.",
             "type": [
               "string",
               "null"
@@ -5990,7 +5992,7 @@
             }
           },
           {
-            "description": "`pending`, `applied`, `failed` or `skipped`.",
+            "description": "`pending`, `requested`, `applied`, `failed` or `skipped`.",
             "in": "query",
             "name": "status",
             "required": false,

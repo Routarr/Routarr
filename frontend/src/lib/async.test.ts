@@ -7,13 +7,6 @@ import { ENGLISH } from '../test/render';
 import { describeError } from './async.svelte';
 import AsyncHarness from '../test/AsyncHarness.svelte';
 
-/**
- * The one function every failure is worded by. What reaches the banner has to
- * be translated, has to say when the server was never reached, and has to hand
- * the operator the id that finds a server-side failure in the log, and only
- * then, since a refusal already says what to change.
- */
-
 seedDictionary({ ...ENGLISH });
 
 describe('describeError', () => {
@@ -35,10 +28,6 @@ describe('describeError', () => {
     );
   });
 
-  /**
-   * Empty, the message drew no banner at all over a failed load, and a proxy's
-   * page drew one full of markup.
-   */
   it('words a refusal that says nothing of its own by its status', () => {
     expect(describeError(new ApiError('', 502, 'http_error'))).toBe(
       'The server answered 502 without saying why. A proxy in front of Routarr may have refused the request.',
@@ -76,6 +65,20 @@ describe('describeError', () => {
     );
   });
 
+  it('says a full disk and a busy database in the interface language', () => {
+    const full = new ApiError('The disk is full.', 507, 'insufficient_storage', 'req-1');
+    expect(describeError(full)).toBe(
+      "The disk holding Routarr's data is full. Free some space, then try again. (request req-1)",
+    );
+    const busy = new ApiError('Busy.', 503, 'busy', null, null, [], 'database_busy');
+    expect(describeError(busy)).toBe(
+      'The database is busy with another write. Try again in a moment.',
+    );
+    expect(describeError(new ApiError('Checking a password.', 503, 'busy'))).toBe(
+      'Checking a password.',
+    );
+  });
+
   it('leaves a refusal alone even when it carries an id', () => {
     const refusal = new ApiError('No such rule', 404, 'not_found', 'req-0001');
     expect(describeError(refusal)).toBe('No such rule');
@@ -99,12 +102,6 @@ function deferred<T>() {
 }
 
 describe('createAsync', () => {
-  /**
-   * The generation counter is the one thing here that is not a bare
-   * try/catch: a response arriving after the inputs moved on must not
-   * overwrite the result of the newer request. Of two loads answering in
-   * reverse order, the screen must show the second.
-   */
   it('drops a response that arrives after the inputs moved on', async () => {
     const first = deferred<string>();
     const second = deferred<string>();
@@ -125,13 +122,6 @@ describe('createAsync', () => {
     expect(screen.getByTestId('loading')).toHaveTextContent('idle');
   });
 
-  /**
-   * New inputs ask a new question. The last one's failure left up while the
-   * new one loads reads as its answer: a filter moved after a refusal would
-   * show the refusal over the loading table, and its Retry would offer to
-   * repeat a request that has not failed. The same inputs asked again keep
-   * theirs, which the next test holds.
-   */
   it('renders the failure as a message, and clears it on the next load', async () => {
     const first = deferred<string>();
     const second = deferred<string>();
@@ -150,11 +140,6 @@ describe('createAsync', () => {
     await waitFor(() => expect(screen.getByTestId('data')).toHaveTextContent('fresh'));
   });
 
-  /**
-   * A poll asks the same thing again. Cleared on the way, its last error makes
-   * a banner blink at every poll and takes down a gate driven by it. The answer
-   * is what settles it.
-   */
   it('keeps an error through a reload of the same inputs, until the answer', async () => {
     const first = deferred<string>();
     const second = deferred<string>();
@@ -173,11 +158,6 @@ describe('createAsync', () => {
     expect(screen.getByTestId('error')).toHaveTextContent('');
   });
 
-  /**
-   * The generation counter keeps a late response off the screen, but only the
-   * signal stops the request itself. Without it every superseded load would
-   * stay open against the operator's own host.
-   */
   it('aborts the request a newer load supersedes', async () => {
     const signals: AbortSignal[] = [];
     const loader = vi.fn((signal: AbortSignal) => {
@@ -196,12 +176,6 @@ describe('createAsync', () => {
     expect(signals[1]?.aborted).toBe(false);
   });
 
-  /**
-   * Only a cancellation this helper caused is silent. An abort from anywhere
-   * else, the browser stopping its requests or a loader cancelling its own, is
-   * a load that did not happen, and swallowing it would leave an empty table
-   * with no banner, the one failure this helper exists to prevent.
-   */
   it('reports an abort it did not cause', async () => {
     const loader = vi.fn(() =>
       Promise.reject(new DOMException('The request was stopped', 'AbortError')),
@@ -214,11 +188,6 @@ describe('createAsync', () => {
     expect(screen.getByTestId('loading')).toHaveTextContent('idle');
   });
 
-  /**
-   * An action that finishes after its screen closed still calls `reload`, and
-   * nothing would ever cancel what that started: every request its loader
-   * makes, against the operator's host, for a screen nobody is looking at.
-   */
   it('loads nothing once the component has gone away', async () => {
     const loader = vi.fn(() => Promise.resolve('data'));
     const { component, unmount } = render(AsyncHarness, { loader, filter: 'a' });
@@ -230,7 +199,6 @@ describe('createAsync', () => {
     expect(loader).toHaveBeenCalledTimes(1);
   });
 
-  /** A screen left mid-load must not hold its request open. */
   it('aborts the request in flight when the component goes away', async () => {
     const signals: AbortSignal[] = [];
     const loader = vi.fn((signal: AbortSignal) => {

@@ -373,6 +373,5 @@ pub async fn last_copied_at(state: &AppState) -> Option<chrono::DateTime<chrono:
     .fetch_one(&state.pool)
     .await
     .ok()?;
-    let finished = chrono::NaiveDateTime::parse_from_str(&finished?, "%Y-%m-%d %H:%M:%S").ok()?;
-    Some(finished.and_utc())
+    crate::services::routing::parse_timestamp(&finished?)
 }

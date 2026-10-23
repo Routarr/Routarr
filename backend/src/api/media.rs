@@ -35,6 +35,7 @@ pub struct MediaListItem {
     pub monitored: bool,
     pub has_files: bool,
     pub status: Option<String>,
+    /// When a sync last found the Arr's data for it changed.
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
@@ -662,8 +663,7 @@ fn name_statuses(held: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> {
 }
 
 /// Count the distinct values of one column, commonest first.
-async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
-    // `column` is spliced, so it stays a literal from this file, never caller input.
+async fn column_facets(pool: &sqlx::SqlitePool, column: &'static str) -> AppResult<Vec<Facet>> {
     let sql = format!(
         "SELECT {column} AS value, COUNT(*) AS n FROM media
          WHERE {column} IS NOT NULL AND {column} != ''
@@ -680,9 +680,12 @@ async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<F
 /// The quality profiles of every instance, by name, with the titles holding each.
 async fn profile_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
     Ok(sqlx::query_as::<_, (String, i64)>(
-        "SELECT name AS value, (SELECT COUNT(*) FROM media WHERE quality_profile = name) AS n
-           FROM (SELECT DISTINCT name FROM arr_quality_profiles
-                 UNION SELECT quality_profile FROM media WHERE quality_profile IS NOT NULL)
+        "SELECT p.name AS value, COALESCE(c.n, 0) AS n
+           FROM (SELECT name FROM arr_quality_profiles
+                 UNION SELECT quality_profile FROM media WHERE quality_profile IS NOT NULL) p
+           LEFT JOIN (SELECT quality_profile, COUNT(*) AS n FROM media
+                       WHERE quality_profile IS NOT NULL GROUP BY quality_profile) c
+             ON c.quality_profile = p.name
           ORDER BY n DESC, value",
     )
     .fetch_all(pool)
@@ -696,20 +699,33 @@ async fn profile_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
 /// it: `D:\Media\Movies\` and `d:/media/movies` are one, as the `path`
 /// collation compares them.
 async fn folder_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
-    Ok(sqlx::query_as::<_, (String, i64)>(
-        "SELECT MIN(current_root_folder) AS value, COUNT(*) AS n FROM media
+    // Grouped as written, a handful of rows, and merged here: the collation sorts every title.
+    let written: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT current_root_folder, COUNT(*) FROM media
           WHERE current_root_folder IS NOT NULL AND current_root_folder != ''
-          GROUP BY current_root_folder COLLATE path ORDER BY n DESC, value",
+          GROUP BY current_root_folder",
     )
     .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|(value, count)| Facet { value, label: None, count, group: None })
-    .collect())
+    .await?;
+    let mut folders: std::collections::HashMap<String, (String, i64)> = Default::default();
+    for (folder, count) in written {
+        let entry = folders.entry(crate::paths::key(&folder)).or_insert((folder.clone(), 0));
+        entry.0 = entry.0.clone().min(folder);
+        entry.1 += count;
+    }
+    let mut facets: Vec<Facet> = folders
+        .into_values()
+        .map(|(value, count)| Facet { value, label: None, count, group: None })
+        .collect();
+    facets.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    Ok(facets)
 }
 
 /// Count the distinct values of a column holding a JSON array, commonest first.
-pub(crate) async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
+pub(crate) async fn json_facets(
+    pool: &sqlx::SqlitePool,
+    column: &'static str,
+) -> AppResult<Vec<Facet>> {
     let sql = format!(
         "SELECT j.value AS value, COUNT(*) AS n
          FROM media, json_each(media.{column}) j
@@ -781,8 +797,8 @@ fn name_certifications(
 async fn metadata_facets(
     pool: &sqlx::SqlitePool,
     sources: &[&'static ProviderInfo],
-    media_column: Option<&str>,
-    cache_column: &str,
+    media_column: Option<&'static str>,
+    cache_column: &'static str,
     json: bool,
 ) -> AppResult<Vec<Facet>> {
     let Some((rows, binds)) =
