@@ -601,6 +601,7 @@ impl Config {
             .transpose()?
             .unwrap_or_default();
         startup_notes.extend(proxy_range_notes(&trusted_proxies));
+        startup_notes.extend(time_zone_note(std::env::var("TZ").ok().as_deref(), zone_known));
         Ok(Self {
             host: env_or("ROUTARR_HOST", "0.0.0.0"),
             port: env_parse("ROUTARR_PORT", 9876)?,
@@ -626,17 +627,10 @@ impl Config {
             oidc_read_subjects: list("ROUTARR_OIDC_READ_SUBJECTS"),
             oidc_read_groups: list("ROUTARR_OIDC_READ_GROUPS"),
             oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
-            oidc_allow_anyone: env_parse("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
+            oidc_allow_anyone: env_switch("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
             cors_origins: origins_from(non_empty("ROUTARR_CORS_ORIGINS")),
             trusted_proxies,
-            allowed_hosts: non_empty("ROUTARR_ALLOWED_HOSTS")
-                .map(|v| {
-                    v.split(',')
-                        .map(|host| host_name(host.trim()))
-                        .filter(|host| !host.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default(),
+            allowed_hosts: allowed_hosts_from(non_empty("ROUTARR_ALLOWED_HOSTS"))?,
             http_timeout: Duration::from_secs(env_parse(
                 "ROUTARR_HTTP_TIMEOUT_SECS",
                 DEFAULT_HTTP_TIMEOUT_SECS,
@@ -651,7 +645,7 @@ impl Config {
             webhook_answer_wait: WEBHOOK_ANSWER_WAIT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
-            allow_new_master_key: env_parse("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
+            allow_new_master_key: env_switch("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
             metadata_concurrency,
             tmdb_base_url: env_or("ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
                 .trim_end_matches('/')
@@ -760,8 +754,7 @@ impl Config {
         self.data_dir.join("routarr.key")
     }
 
-    /// Where the generated password is written on first start, 0600: it is printed once, and
-    /// an operator who missed the line needs it back.
+    /// Where the generated password is written on first start, 0600, for the owner to read once.
     pub fn password_path(&self) -> PathBuf {
         self.data_dir.join("routarr.password")
     }
@@ -794,23 +787,28 @@ impl Config {
         self.validate_backup_copy_dir()?;
         // Zero is not "no timeout": every outbound call would fail at once as unreachable.
         if self.http_timeout.is_zero() {
-            return Err(AppError::Config(
+            return Err(AppError::Config(format!(
                 "ROUTARR_HTTP_TIMEOUT_SECS: 0 would make every call to an Arr or a source fail \
-                 at once. Unset it for the default of 20 seconds"
-                    .into(),
-            ));
+                 at once. Unset it for the default of {DEFAULT_HTTP_TIMEOUT_SECS} seconds"
+            )));
         }
         if self.library_timeout.is_zero() {
-            return Err(AppError::Config(
+            return Err(AppError::Config(format!(
                 "ROUTARR_LIBRARY_TIMEOUT_SECS: 0 would make every library listing fail at once. \
-                 Unset it for the default of 300 seconds"
-                    .into(),
-            ));
+                 Unset it for the default of {} seconds",
+                crate::http::LIBRARY_TIMEOUT.as_secs()
+            )));
         }
         if self.max_library_bytes == 0 {
-            return Err(AppError::Config(
+            return Err(AppError::Config(format!(
                 "ROUTARR_MAX_LIBRARY_MIB: 0 would refuse every library. Unset it for the default \
-                 of 256 MiB"
+                 of {DEFAULT_MAX_LIBRARY_MIB} MiB"
+            )));
+        }
+        if self.port == 0 {
+            return Err(AppError::Config(
+                "ROUTARR_PORT: 0 asks the system for any free port, which no client and no \
+                 health check can find. Unset it for 9876"
                     .into(),
             ));
         }
@@ -947,7 +945,8 @@ impl Config {
         Self {
             base_path: String::new(),
             host: "127.0.0.1".into(),
-            port: 0,
+            // Port 1, where nothing listens: a test pinging it never reaches a server running here.
+            port: 1,
             db_path: PathBuf::from(":memory:"),
             // Not derived: from `:memory:` it is relative, and a backup would land in the sources.
             data_dir: test_data_dir(),
@@ -1019,6 +1018,28 @@ pub fn host_name(host: &str) -> String {
     }
 }
 
+/// The names `ROUTARR_ALLOWED_HOSTS` lists: an address written as a URL names its host, and an
+/// entry holding a path, which no `Host` header carries, is refused by name.
+fn allowed_hosts_from(raw: Option<String>) -> AppResult<Vec<String>> {
+    let Some(raw) = raw else { return Ok(Vec::new()) };
+    let mut hosts = Vec::new();
+    for entry in raw.split(',').map(str::trim).filter(|entry| !entry.is_empty()) {
+        let host = match reqwest::Url::parse(entry) {
+            Ok(url) if entry.contains("://") => url.host_str().map(str::to_string),
+            _ if entry.contains('/') => None,
+            _ => Some(entry.to_string()),
+        };
+        let Some(host) = host.map(|host| host_name(&host)).filter(|host| !host.is_empty()) else {
+            return Err(AppError::Config(format!(
+                "'{entry}' in ROUTARR_ALLOWED_HOSTS is no host name. Write the name alone, as \
+                 nas.lan"
+            )));
+        };
+        hosts.push(host);
+    }
+    Ok(hosts)
+}
+
 /// A host as it is written beside a port: an IPv6 address in brackets.
 fn bracketed(host: &str) -> String {
     match host.parse::<std::net::Ipv6Addr>() {
@@ -1075,6 +1096,77 @@ fn non_empty(key: &str) -> Option<String> {
 
 fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> AppResult<T> {
     parse_setting(key, std::env::var(key).ok(), default)
+}
+
+fn env_switch(key: &str, default: bool) -> AppResult<bool> {
+    parse_switch(key, std::env::var(key).ok(), default)
+}
+
+/// A switch variable: `true` or `false` in any case, as a stored setting is read, or its default
+/// when unset or blank.
+fn parse_switch(key: &str, raw: Option<String>, default: bool) -> AppResult<bool> {
+    match raw.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        None => Ok(default),
+        Some(value) => crate::state::parse_switch(&value).ok_or_else(|| {
+            AppError::Config(format!(
+                "{key}: '{value}' is neither true nor false. Unset it for the default"
+            ))
+        }),
+    }
+}
+
+/// The `.env` of `dir`, the working directory, once every line of it reads: a file in a folder
+/// above configures nothing, and a line it cannot read stops the start, named by its variable.
+/// The caller loads it, since setting a variable is the process's business.
+pub fn read_dotenv(dir: &Path) -> AppResult<Option<PathBuf>> {
+    let file = dir.join(".env");
+    let unreadable = |e: &dyn std::fmt::Display| {
+        AppError::Config(format!("{} cannot be read: {e}", file.display()))
+    };
+    let content = match std::fs::read_to_string(&file) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(unreadable(&e)),
+    };
+    for line in dotenvy::from_read_iter(content.as_bytes()) {
+        match line {
+            Ok(_) => {}
+            // The variable alone, from the line holding what failed: a value may be a key.
+            Err(dotenvy::Error::LineParse(failed, _)) => {
+                let failed = failed.trim();
+                let line = content.lines().find(|line| line.contains(failed)).unwrap_or_default();
+                let name = line.split_once('=').map_or("a variable", |(name, _)| name.trim());
+                return Err(AppError::Config(format!(
+                    "{}: the line of {name} cannot be read, so it and every line after it would \
+                     be left out. Quote a value holding a space or a quote",
+                    file.display()
+                )));
+            }
+            Err(e) => return Err(unreadable(&e)),
+        }
+    }
+    Ok(Some(file))
+}
+
+/// What the start says of `TZ` when it names no zone `known` holds, which chrono reads as UTC.
+/// A POSIX rule (`CET-1CEST`) names no file, and is not judged.
+fn time_zone_note(tz: Option<&str>, known: impl Fn(&str) -> bool) -> Option<String> {
+    let zone = tz?.trim().trim_start_matches(':');
+    let utc = ["UTC", "Etc/UTC", "GMT", "Etc/GMT", "Z"].contains(&zone);
+    if zone.is_empty() || utc || zone.chars().any(|c| c.is_ascii_digit()) || known(zone) {
+        return None;
+    }
+    let variable = "TZ";
+    Some(format!(
+        "{variable} is '{zone}', which names no time zone this system knows: the log is in UTC"
+    ))
+}
+
+/// Whether the system's zone files hold `zone`, or `true` on a system without them, which
+/// cannot tell.
+fn zone_known(zone: &str) -> bool {
+    let zones = Path::new("/usr/share/zoneinfo");
+    !zones.is_dir() || zones.join(zone).is_file()
 }
 
 /// The value of a variable, or its default when unset or blank, and a
@@ -1441,6 +1533,73 @@ mod tests {
         assert!(notes(&["172.18.0.2", "fd00::2/128"]).is_empty());
     }
 
+    /// A switch is read as the stored settings read one, and a refusal names what it takes.
+    #[test]
+    fn a_switch_is_read_in_any_case_and_refused_by_name_otherwise() {
+        const KEY: &str = "ROUTARR_ALLOW_NEW_MASTER_KEY";
+        for (written, read) in [("TRUE", true), (" true ", true), ("False", false), ("", true)] {
+            assert_eq!(parse_switch(KEY, Some(written.into()), true).unwrap(), read, "{written}");
+        }
+        assert!(!parse_switch(KEY, None, false).unwrap());
+        for refused in ["maybe", "1", "yes"] {
+            let err = parse_switch(KEY, Some(refused.into()), false).unwrap_err().to_string();
+            assert!(err.contains(KEY) && err.contains("true") && err.contains("false"), "{err}");
+        }
+    }
+
+    /// A `.env` is configuration like the environment: read from the working directory alone,
+    /// and a line it cannot read stops the start naming the file and the variable, never the
+    /// value, which may be a key.
+    #[test]
+    fn a_dotenv_line_that_cannot_be_read_stops_the_start_by_name() {
+        let dir = crate::tests::TempDir::new("dotenv-line");
+        let file = dir.join(".env");
+        std::fs::write(&file, "A_PORT=19874\nA_KEY=a key pasted with spaces\n").unwrap();
+        let err = read_dotenv(&dir).unwrap_err().to_string();
+        assert!(err.contains(".env") && err.contains("A_KEY"), "{err}");
+        assert!(!err.contains("pasted"), "the value was quoted: {err}");
+
+        std::fs::write(&file, "A_PORT=19874\nA_KEY='a key with spaces'\n").unwrap();
+        assert_eq!(read_dotenv(&dir).unwrap(), Some(file), "the control");
+    }
+
+    #[test]
+    fn a_dotenv_in_a_parent_folder_is_not_read() {
+        let dir = crate::tests::TempDir::new("dotenv-parent");
+        std::fs::write(dir.join(".env"), "A_PORT=19874\n").unwrap();
+        let below = dir.join("below");
+        std::fs::create_dir(&below).unwrap();
+        assert_eq!(read_dotenv(&below).unwrap(), None);
+        assert_eq!(read_dotenv(&dir).unwrap(), Some(dir.join(".env")), "the control");
+    }
+
+    /// chrono reads a `TZ` naming no zone as UTC, unsaid, and every log line is off by its offset.
+    #[test]
+    fn a_time_zone_no_system_knows_is_said() {
+        let known = |zone: &str| zone == "Europe/Paris";
+        let note = time_zone_note(Some("Europe/Pari"), known).expect("a note");
+        assert!(
+            note.contains("TZ") && note.contains("Europe/Pari") && note.contains("UTC"),
+            "{note}"
+        );
+        for quiet in [None, Some(""), Some("Europe/Paris"), Some(":Europe/Paris"), Some("UTC")] {
+            assert_eq!(time_zone_note(quiet, known), None, "{quiet:?}");
+        }
+        assert_eq!(time_zone_note(Some("CET-1CEST"), known), None, "a POSIX rule names no file");
+    }
+
+    /// A URL in `ROUTARR_ALLOWED_HOSTS` names its host, which an operator means, and a path no
+    /// host has is refused by name.
+    #[test]
+    fn an_allowed_host_written_as_a_url_is_read_or_refused() {
+        let read =
+            allowed_hosts_from(Some("http://NAS.lan:9876/, media.example, [::1]:9876".into()));
+        assert_eq!(read.unwrap(), ["nas.lan", "media.example", "::1"]);
+        let err = allowed_hosts_from(Some("nas.lan/routarr".into())).unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_ALLOWED_HOSTS") && err.contains("nas.lan/routarr"), "{err}");
+        assert!(allowed_hosts_from(None).unwrap().is_empty());
+    }
+
     #[test]
     fn a_zero_timeout_or_cap_is_refused_at_startup() {
         let refused = |change: fn(&mut Config)| {
@@ -1454,6 +1613,9 @@ mod tests {
         assert!(err.contains("ROUTARR_LIBRARY_TIMEOUT_SECS"), "{err}");
         let err = refused(|config| config.max_library_bytes = 0);
         assert!(err.contains("ROUTARR_MAX_LIBRARY_MIB"), "{err}");
+        // Any free port, which no client and no health check can find.
+        let err = refused(|config| config.port = 0);
+        assert!(err.contains("ROUTARR_PORT"), "{err}");
     }
 
     #[test]

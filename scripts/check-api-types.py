@@ -53,7 +53,7 @@ PAIRS: dict[str, str] = {
     "StatusResponse": "Status",
     "Warning": "Warning",
     "RestoreResponse": "RestoreResult",
-    "BackupManifest": "BackupManifest",
+    "StagedManifest": "BackupManifest",
     "TestConnectionResponse": "TestConnectionResponse",
     "Minted": "MintedApplication",
     "ErrorResponse": "ErrorBody",

@@ -146,16 +146,20 @@ async fn a_dismissal_holds_through_a_sync_and_goes_with_its_folder() {
     let docs = folder_id(&app, "/movies/docs").await;
     let dismissal = format!("/api/v1/root-folders/{docs}/dismissal");
 
-    assert_eq!(app.post(&dismissal, json!({})).await.assert_ok(), &json!({ "dismissed": true }));
+    // Set as a state, twice the same, and lifted as any removal answers.
+    for _ in 0..2 {
+        assert_eq!(app.put(&dismissal, json!({})).await.assert_ok(), &json!({ "dismissed": true }));
+    }
     sync(&app).await;
     let offered = suggestions_by_path(&app).await;
     assert_eq!(offered["/movies/docs"]["dismissed"], true);
     assert_eq!(offered["/movies/kids"]["dismissed"], false, "the control");
 
-    app.delete(&dismissal).await.assert_ok();
+    assert_eq!(app.delete(&dismissal).await.assert_ok(), &json!({ "deleted": true }));
     assert!(!dismissed(&app, "/movies/docs").await);
+    assert_eq!(app.delete(&dismissal).await.assert_ok(), &json!({ "deleted": false }));
 
-    app.post(&dismissal, json!({})).await.assert_ok();
+    app.put(&dismissal, json!({})).await.assert_ok();
     arr.withdraw_reported_root_folders();
     // A sync tells the folders it did not see by a stamp to the second: the last one is older.
     app.execute(&["UPDATE root_folders SET last_synced_at = datetime('now', '-1 minute')"]).await;
@@ -163,8 +167,38 @@ async fn a_dismissal_holds_through_a_sync_and_goes_with_its_folder() {
     let left = app.count("SELECT COUNT(*) FROM folder_suggestion_dismissals").await;
     assert_eq!(left, 0, "a dismissal outlived its folder");
 
-    let missing = app.post("/api/v1/root-folders/nope/dismissal", json!({})).await;
+    let missing = app.put("/api/v1/root-folders/nope/dismissal", json!({})).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
+}
+
+/// An Arr closes a folder with its separator, and a sync promotes a declared folder it adopts
+/// to that spelling: the dismissal made before is still the folder's, and lifts.
+#[tokio::test]
+async fn a_dismissal_lifts_after_the_arr_adopts_the_folder() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.execute(&["INSERT INTO root_folders (id, instance_id, path, accessible, origin)
+                   VALUES ('rf-docs', 'inst-1', '/movies/docs', 1, 'declared')"])
+        .await;
+    let dismissal = "/api/v1/root-folders/rf-docs/dismissal";
+    app.put(dismissal, json!({})).await.assert_ok();
+
+    arr.report_root_folder(
+        json!({ "id": 4, "path": "/movies/docs/", "freeSpace": 1, "accessible": true }),
+    );
+    sync(&app).await;
+    let promoted = app.count("SELECT COUNT(*) FROM root_folders WHERE path = '/movies/docs/'");
+    assert_eq!(promoted.await, 1, "the fixture did not promote the declared folder");
+    assert!(dismissed(&app, "/movies/docs/").await, "the dismissal was lost to the sync");
+    let docs = folder_id(&app, "/movies/docs/").await;
+    let dismissal = format!("/api/v1/root-folders/{docs}/dismissal");
+    app.put(&dismissal, json!({})).await.assert_ok();
+    let rows = app.count("SELECT COUNT(*) FROM folder_suggestion_dismissals");
+    assert_eq!(rows.await, 1, "a second dismissal of one folder in another spelling");
+
+    assert_eq!(app.delete(&dismissal).await.assert_ok(), &json!({ "deleted": true }));
+    assert!(!dismissed(&app, "/movies/docs/").await);
+    assert_eq!(app.count("SELECT COUNT(*) FROM folder_suggestion_dismissals").await, 0);
 }
 
 async fn dismissed(app: &TestApp, path: &str) -> bool {

@@ -5,6 +5,7 @@ use axum::extract::State;
 
 use super::Path;
 use serde::Deserialize;
+use sqlx::AssertSqlSafe;
 use uuid::Uuid;
 
 use crate::api::media::ExternalTitle;
@@ -36,14 +37,9 @@ pub async fn list(
     Query(query): Query<super::PageQuery>,
 ) -> AppResult<Json<super::Page<OverrideWithMedia>>> {
     let (page, per_page, offset) = super::paginate(query.page, query.per_page);
-    let rows: Vec<OverrideListRow> = sqlx::query_as(
-        "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
-         m.title, m.media_type, i.name AS instance_name, o.subject_key
-         FROM overrides o
-         JOIN media m ON o.media_id = m.id
-         JOIN instances i ON m.instance_id = i.id
-         ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?",
-    )
+    let rows: Vec<OverrideListRow> = sqlx::query_as(AssertSqlSafe(format!(
+        "{LISTED} ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?"
+    )))
     .bind(per_page)
     .bind(offset)
     .fetch_all(&state.pool)
@@ -57,23 +53,49 @@ pub async fn list(
     .fetch_one(&state.pool)
     .await?;
 
-    let entries = rows
-        .into_iter()
-        .map(|r| OverrideWithMedia {
-            override_entry: OverrideEntry {
-                id: r.id,
-                media_id: r.media_id,
-                target_category: r.target_category,
-                reason: r.reason,
-                created_at: r.created_at,
-                subject: identity.shown_subject(r.subject, r.subject_key.as_deref()),
-            },
-            media_title: r.title,
-            media_type: r.media_type,
-            instance_name: r.instance_name,
-        })
-        .collect();
+    let entries = rows.into_iter().map(|row| row.shown_to(&identity)).collect();
     Ok(Json(super::Page::new(entries, page, per_page, total)))
+}
+
+/// Every exception with its title, as the list and a read of one select it.
+const LISTED: &str =
+    "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
+         m.title, m.media_type, i.name AS instance_name, o.subject_key
+         FROM overrides o
+         JOIN media m ON o.media_id = m.id
+         JOIN instances i ON m.instance_id = i.id";
+
+impl OverrideListRow {
+    fn shown_to(self, identity: &crate::api::auth::Identity) -> OverrideWithMedia {
+        OverrideWithMedia {
+            override_entry: OverrideEntry {
+                id: self.id,
+                media_id: self.media_id,
+                target_category: self.target_category,
+                reason: self.reason,
+                created_at: self.created_at,
+                subject: identity.shown_subject(self.subject, self.subject_key.as_deref()),
+            },
+            media_title: self.title,
+            media_type: self.media_type,
+            instance_name: self.instance_name,
+        }
+    }
+}
+
+/// One exception, with its title, as the list shows it.
+pub async fn get_one(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    Path(id): Path<String>,
+) -> AppResult<Json<OverrideWithMedia>> {
+    let row: Option<OverrideListRow> =
+        sqlx::query_as(AssertSqlSafe(format!("{LISTED} WHERE o.id = ?")))
+            .bind(&id)
+            .fetch_optional(&state.pool)
+            .await?;
+    let row = row.ok_or_else(|| AppError::NotFound(format!("Exception {id} not found")))?;
+    Ok(Json(row.shown_to(&identity)))
 }
 
 pub async fn create(

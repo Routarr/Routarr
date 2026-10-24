@@ -64,13 +64,62 @@ pub fn decimal_separator(code: &str) -> char {
 /// How long ago `then` was, in its largest whole unit and the reader's words, `3 h` or
 /// `2 d`, since the age is what a reader weighs, never a UTC time.
 pub fn human_age(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
-    let minutes = (chrono::Utc::now() - then).num_minutes().max(1);
+    age_of((chrono::Utc::now() - then).num_minutes(), localizer)
+}
+
+/// An age of `minutes` in its largest whole unit, as [`human_age`] writes it.
+pub fn age_of(minutes: i64, localizer: &Localizer) -> String {
+    let minutes = minutes.max(1);
     let (key, count) = match minutes {
         ..60 => ("AgeMinutes", minutes),
         60..2880 => ("AgeHours", minutes / 60),
         _ => ("AgeDays", minutes / 1440),
     };
     localizer.translate(key, &[("count", &count.to_string())])
+}
+
+/// How a language writes a date, as the interface's short date (`Intl.DateTimeFormat`) writes
+/// it, in chrono's terms. Any other language writes it as English. `date_cases.json` holds
+/// both sides to it.
+const DATES: &[(&str, &str)] = &[
+    ("ar", "%-d\u{200f}/%-m\u{200f}/%Y"),
+    ("ca", "%-d/%-m/%y"),
+    ("cs", "%d.%m.%y"),
+    ("da", "%d.%m.%Y"),
+    ("de", "%d.%m.%y"),
+    ("el", "%-d/%-m/%y"),
+    ("es", "%-d/%-m/%y"),
+    ("fi", "%-d.%-m.%Y"),
+    ("fr", "%d/%m/%Y"),
+    ("hu", "%Y. %m. %d."),
+    ("it", "%d/%m/%y"),
+    ("ja", "%Y/%m/%d"),
+    ("ko", "%y. %-m. %-d."),
+    ("nb", "%d.%m.%Y"),
+    ("nl", "%d-%m-%Y"),
+    ("pl", "%-d.%m.%Y"),
+    ("pt", "%d/%m/%Y"),
+    ("ro", "%d.%m.%Y"),
+    ("ru", "%d.%m.%Y"),
+    ("sk", "%-d. %-m. %Y"),
+    ("sv", "%Y-%m-%d"),
+    ("tr", "%-d.%m.%Y"),
+    ("uk", "%d.%m.%y"),
+    ("zh", "%Y/%-m/%-d"),
+];
+
+/// `date` as `code` writes a date.
+pub fn written_date(date: chrono::NaiveDate, code: &str) -> String {
+    let tag = base_tag(code);
+    let pattern =
+        DATES.iter().find(|(language, _)| *language == tag).map_or("%-m/%-d/%y", |(_, p)| *p);
+    date.format(pattern).to_string()
+}
+
+/// The day of `at` where Routarr runs (`TZ`, as the log reads it), as the reader's language
+/// writes a date.
+pub fn human_date(at: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
+    written_date(at.with_timezone(&chrono::Local).date_naive(), localizer.language())
 }
 
 /// Bytes as an operator reads them, in binary steps as a file manager shows them, with the
@@ -104,7 +153,7 @@ const UNIT_AGAINST_ITS_NUMBER: &[&str] = &["ko"];
 /// right-to-left language each is set in a first strong isolate, or a path's leading slash
 /// moves to its end. The interface reads this list from `/localization`.
 pub const ISOLATED: &[&str] =
-    &["address", "file", "folder", "host", "path", "paths", "url", "variable"];
+    &["address", "date", "file", "folder", "host", "path", "paths", "url", "variable"];
 
 /// The placeholders holding a count, its digits grouped as the language groups them
 /// (`12 345` in French), which a year would not survive. `scripts/check-locales.py` refuses a
@@ -434,15 +483,29 @@ fn substitute(template: &str, params: &[(&str, &str)]) -> String {
 }
 
 /// Resolve a requested code to a shipped language: a variant shipped in its own right
-/// whole, any other by its base language, so `fr-CA` gets French.
+/// whole, any other by its base language, so `fr-CA` gets French, and a base language by the
+/// one variant shipped for it, so `nb` gets `nb_NO` (RFC 4647 lookup).
 fn resolve(code: &str) -> Option<&'static str> {
     let requested = code.trim().to_lowercase().replace('_', "-");
     if let Some(exact) = shipped(&requested) {
         return Some(exact);
     }
+    if let Some((_, alias)) = ALIASES.iter().find(|(alias, _)| *alias == requested) {
+        return shipped(alias);
+    }
     let base = requested.split('-').next().unwrap_or_default();
-    shipped(base)
+    shipped(base).or_else(|| {
+        let mut variants = catalogue()
+            .map(|(language, _)| language.code)
+            .filter(|candidate| base_tag(candidate) == base);
+        variants.next().filter(|_| variants.next().is_none())
+    })
 }
+
+/// Tags naming a shipped language another way: Norwegian, and Chinese by its script, whose
+/// two variants share a base tag.
+const ALIASES: &[(&str, &str)] =
+    &[("no", "nb-no"), ("zh", "zh-cn"), ("zh-hans", "zh-cn"), ("zh-hant", "zh-tw")];
 
 /// Match a normalized code against the catalogue, whose Servarr names (`nb_NO`) are
 /// normalized too, or `nb-no` would never find `nb_NO`.
@@ -529,8 +592,15 @@ impl Localizer {
             ("size_on_disk_over_gb", bytes) if !bytes.is_empty() => {
                 bytes.parse().map_or_else(|_| bytes.to_string(), |n| human_bytes(n, self))
             }
-            ("added_within_days", added) => crate::services::routing::parse_timestamp(added)
-                .map_or_else(|| added.to_string(), |added| added.format("%Y-%m-%d").to_string()),
+            // The engine's `PT<minutes>M`, an older row's date added, or the condition's own days.
+            ("added_within_days", value) => {
+                let minutes = value.strip_prefix("PT").and_then(|rest| rest.strip_suffix('M'));
+                match minutes.and_then(|minutes| minutes.parse().ok()) {
+                    Some(minutes) => age_of(minutes, self),
+                    None => crate::services::routing::parse_timestamp(value)
+                        .map_or_else(|| value.to_string(), |added| human_age(added, self)),
+                }
+            }
             // `8,1 (393 000)` in French, the votes grouped. No scale name holds a full stop.
             ("score_range", found) => {
                 let decimal = |score: &str| {
@@ -759,6 +829,33 @@ mod tests {
         assert_eq!(Localizer::new("zh_tw").language(), "zh_TW");
         assert_eq!(Localizer::new("zh-CN").language(), "zh_CN");
         assert_eq!(Localizer::new("nb-NO").language(), "nb_NO");
+        for (asked, shipped) in
+            [("nb", "nb_NO"), ("no", "nb_NO"), ("zh-Hans", "zh_CN"), ("zh-Hant", "zh_TW")]
+        {
+            assert_eq!(Localizer::new(asked).language(), shipped, "{asked}");
+        }
+    }
+
+    /// The interface writes a date through `Intl.DateTimeFormat`, the server through
+    /// `written_date`: one table of cases holds both to the same writing, the frontend's in
+    /// `format.test.ts`.
+    #[test]
+    fn a_date_is_written_as_the_language_writes_it() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("date_cases.json")).unwrap();
+        let dates: Vec<chrono::NaiveDate> = cases["dates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|day| day.as_str().unwrap().parse().unwrap())
+            .collect();
+        let languages = cases["written"].as_object().unwrap();
+        assert_eq!(languages.len(), CATALOG.len(), "a language has no case");
+        for (language, written) in languages {
+            for (date, expected) in dates.iter().zip(written.as_array().unwrap()) {
+                assert_eq!(written_date(*date, language), expected.as_str().unwrap(), "{language}");
+            }
+        }
     }
 
     #[test]

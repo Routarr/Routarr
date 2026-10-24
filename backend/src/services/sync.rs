@@ -222,7 +222,10 @@ async fn sync_instance_inner(
             if was_failing {
                 notify::send_later(
                     state,
-                    notify::Event::InstanceRecovered { instance: instance.name.clone() },
+                    notify::Event::InstanceRecovered {
+                        instance_id: instance.id.clone(),
+                        instance: instance.name.clone(),
+                    },
                 );
             }
         }
@@ -273,6 +276,7 @@ async fn sync_instance_inner(
                 notify::send_later(
                     state,
                     notify::Event::InstanceUnreachable {
+                        instance_id: instance.id.clone(),
                         instance: instance.name.clone(),
                         error: said.stored,
                     },

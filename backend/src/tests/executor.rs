@@ -733,6 +733,16 @@ async fn an_upstream_failure_marks_the_decision_failed_and_logs_it() {
             .unwrap();
     assert_eq!(logged, 1);
     assert!(!success);
+    // Where the title was going, as for a move made: the outcome is `success`.
+    let (details, from, to): (String, String, String) = sqlx::query_as(
+        "SELECT l.details, d.current_root_folder, d.target_root_folder
+           FROM execution_logs l, decisions d WHERE d.id = ?",
+    )
+    .bind(&decision_id)
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(details, format!("{from} → {to}"));
 
     // The library must be left describing reality, not the attempted move.
     let root: String = sqlx::query_scalar("SELECT current_root_folder FROM media WHERE id = 'm-1'")

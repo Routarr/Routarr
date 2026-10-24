@@ -1,9 +1,17 @@
-# Alert rules for Routarr's metrics, at /api/v1/metrics read with a key holding the read scope.
-# Load the file from `rule_files` in prometheus.yml. The warnings Routarr shows are the series
-# `routarr_warnings`, with the thresholds the application itself applies.
+# Alert rules for Routarr's metrics, at /api/v1/metrics read with a key holding the read scope,
+# loaded from `rule_files` in prometheus.yml. `routarr_warnings` holds the warnings Routarr shows.
+# `job="routarr"` is the job of the README's `scrape_configs` example: change it if yours differs.
 groups:
   - name: routarr
     rules:
+      - alert: RoutarrDown
+        expr: up{job="routarr"} == 0 or absent(up{job="routarr"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus cannot read Routarr's metrics"
+          description: "Routarr is stopped, refuses to start, or refuses the scrape's key. No other Routarr alert fires meanwhile."
       - alert: RoutarrInstanceDown
         expr: routarr_instance_up == 0 and on (arr_instance_id) routarr_instance_enabled == 1
         for: 30m
@@ -105,7 +113,7 @@ groups:
           summary: "The data disk has less free space than the next backup needs"
           description: "Fewer bytes free than twice the database and 100 MiB."
       - alert: RoutarrOtherError
-        expr: routarr_warnings{severity="error", code!~"backup_failed|data_disk_low"} > 0
+        expr: routarr_warnings{severity="error", code!~"backup_failed|data_disk_low|instance_sync_failing"} > 0
         for: 15m
         labels:
           severity: critical
@@ -113,7 +121,7 @@ groups:
           summary: "Routarr reports an error: {{ $labels.code }}"
           description: "Diagnostics says what stopped working and what to change. A metadata source's probe counts a day."
       - alert: RoutarrDecisionsFailed
-        expr: routarr_decisions_by_status{status="failed"} > 0
+        expr: routarr_decisions{status="failed"} > 0
         for: 1h
         labels:
           severity: warning
@@ -121,7 +129,7 @@ groups:
           summary: "Moves failed and wait for a person"
           description: "The Move log says why each failed."
       - alert: RoutarrMovesStuck
-        expr: routarr_decisions_by_status{status="requested"} > 0
+        expr: routarr_decisions{status="requested"} > 0
         for: 2h
         labels:
           severity: warning

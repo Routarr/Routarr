@@ -7,7 +7,7 @@
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
   import { formatBytes, formatRelative } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
-  import { askConfirmation } from '../lib/confirm.svelte';
+  import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import NoValue from '../components/NoValue.svelte';
@@ -54,12 +54,8 @@
   const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
 
   /**
-   * The select must show the instance the declaration will use.
-   *
-   * Bound to an empty string it matches no option, so it renders blank, and a
-   * blank select beside a fallback to `instances[0]` means that with two Arrs a
-   * destination is declared against one the operator never chose and the screen
-   * never named.
+   * The select shows the instance the declaration will use: bound to an empty string it renders
+   * blank, while the fallback would declare against `instances[0]`, which nobody chose.
    */
   $effect(() => {
     if (!instances.some((instance) => instance.id === target)) target = instances[0]?.id ?? '';
@@ -69,10 +65,8 @@
   let newName = $state('');
 
   /**
-   * The category picked for each folder, by folder id, until Save writes it.
-   * On Windows and Linux an arrow key on a closed select fires `change`, and
-   * writing on `change` would send every category passed on the way to the
-   * server.
+   * The category picked for each folder, by folder id, until Save writes it: an arrow key on a
+   * closed select fires `change` on Windows and Linux.
    */
   const picked = $state<Record<string, string>>({});
   const pickedFor = (folder: RootFolder) => picked[folder.id] ?? folder.category ?? '';
@@ -160,6 +154,23 @@
   // the one before, else the table.
   const removeId = (index: number) => `folders-remove-${index}`;
   const deleteCategoryId = (index: number) => `categories-delete-${index}`;
+
+  /** Whether to delete the category. One still in use is not offered: the server would refuse. */
+  async function confirmRemoval(category: Category): Promise<boolean> {
+    const { rule_count, root_folder_count, exception_count, rule_test_count } = category;
+    if (rule_count + root_folder_count + exception_count + rule_test_count === 0) {
+      return askConfirmation(t('ConfirmDeleteCategory', { name: category.name }), 'Delete');
+    }
+    const held = t('CategoryHeld', {
+      name: category.name,
+      rules: rule_count,
+      folders: root_folder_count,
+      overrides: exception_count,
+      tests: rule_test_count,
+    });
+    await ask(held, []);
+    return false;
+  }
 
   /**
    * Declare a destination the instance does not report as a root folder: one
@@ -283,12 +294,8 @@
                 <td class="mono">{folder.path}</td>
                 <td class="text-muted">{formatBytes(folder.free_space, i18n.language)}</td>
                 <td>
-                  <!-- A warning, not an error, and stated with its date: a NAS
-                       that spins down is reported unreachable every night, and
-                       an error badge for a disk that is merely asleep is how a
-                       diagnostic gets ignored. No threshold decides which is
-                       which: "20 minutes ago" reads as a nap and "3 days ago"
-                       as a fault, and the reader knows their own hardware. -->
+                  <!-- A warning with its date, not an error: a NAS that spins down is unreachable
+                       every night, and the reader tells a nap from a fault by the date. -->
                   <span class="badge {folder.accessible ? 'badge-success' : 'badge-warning'}">
                     {t(folder.accessible ? 'Accessible' : 'Inaccessible')}
                   </span>
@@ -471,12 +478,7 @@
                         aria-label="{t('Delete')} – {category.name}"
                         title={t('Delete')}
                         onclick={async () => {
-                          if (
-                            await askConfirmation(
-                              t('ConfirmDeleteCategory', { name: category.name }),
-                              'Delete',
-                            )
-                          ) {
+                          if (await confirmRemoval(category)) {
                             await act(() => api.deleteCategory(category.id), t('CategoryDeleted'));
                             void handFocus(
                               deleteCategoryId(index),
@@ -518,10 +520,8 @@
         </button>
       </div>
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
-      <!-- `novalidate`, like the form below and the rule editor: the browser's
-           bubble speaks the browser's language, not `ui_language`. Save is held
-           until the field is filled, so the constraint is enforced before the
-           press rather than complained about after it. -->
+      <!-- `novalidate`: the browser's bubble speaks the browser's language. Save waits for the
+           field instead. -->
       <form
         novalidate
         onsubmit={async (event) => {
@@ -579,11 +579,6 @@
         </button>
       </div>
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
-      <!-- `novalidate`: the browser's own bubble renders in the *browser's*
-       language whatever `ui_language` says, and fires before the submit
-       handler. Nothing is traded away for it: Save is held until the required
-       fields are filled, so the constraint is enforced before the press rather
-       than complained about after it. -->
       <form novalidate onsubmit={createCategory}>
         <div class="form-group">
           <label class="form-label" for="rootfolders-name">{t('Name')}</label>

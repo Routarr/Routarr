@@ -51,9 +51,8 @@ use crate::services::sync::SyncReport;
 /// The scope an operation asks of an application key, as the document states it.
 pub const SCOPE_EXTENSION: &str = "x-routarr-scope";
 
-/// A page of a list as the contract describes it: its items reference their
-/// own schema, where `Page<T>` describes each again inline. The handlers
-/// answer `Page<T>`, which serializes the same.
+/// A page of a list as the contract describes it, its items by reference. The handlers answer
+/// `Page<T>`, which serializes the same.
 macro_rules! documented_page {
     ($page:ident, $name:ident, $item:ty) => {
         #[derive(utoipa::ToSchema)]
@@ -123,6 +122,7 @@ kinds of a condition) may appear in any release."
         metrics,
         health,
         list_categories,
+        get_category,
         list_media,
         get_media,
         explain_media,
@@ -135,6 +135,7 @@ kinds of a condition) may appear in any release."
         revert,
         revert_all,
         list_exceptions,
+        get_exception,
         set_exception,
         remove_exception,
         pin_by_external_id,
@@ -169,6 +170,7 @@ kinds of a condition) may appear in any release."
         preview_template,
         import_template,
         list_rule_tests,
+        get_rule_test,
         create_rule_test,
         remove_rule_test,
         run_rule_tests,
@@ -176,6 +178,7 @@ kinds of a condition) may appear in any release."
         rename_category,
         remove_category,
         list_root_folders,
+        get_root_folder,
         mapping_conflicts,
         declare_destination,
         remove_destination,
@@ -403,6 +406,17 @@ fn health() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_categories() {}
 
+/// One category, with what uses it
+#[utoipa::path(
+    get,
+    path = "/categories/{id}",
+    tag = "categories",
+    params(("id" = String, Path, description = "The category's id.")),
+    responses((status = 200, body = CategoryWithUsage))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn get_category() {}
+
 /// The library, a page at a time
 ///
 /// Every title Routarr read from the Arrs, with the category the rules chose
@@ -605,6 +619,17 @@ fn revert_all() {}
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_exceptions() {}
+
+/// One exception
+#[utoipa::path(
+    get,
+    path = "/exceptions/{id}",
+    tag = "exceptions",
+    params(("id" = String, Path, description = "The exception's id.")),
+    responses((status = 200, body = OverrideWithMedia))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn get_exception() {}
 
 /// Force a title's category
 ///
@@ -1085,6 +1110,17 @@ fn import_template() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_rule_tests() {}
 
+/// One rule test
+#[utoipa::path(
+    get,
+    path = "/rule-tests/{id}",
+    tag = "rules",
+    params(("id" = String, Path, description = "The test's id.")),
+    responses((status = 200, body = RuleTest))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn get_rule_test() {}
+
 /// Pin what the rules decide for a title as a test
 #[utoipa::path(
     post,
@@ -1147,8 +1183,8 @@ fn rename_category() {}
 
 /// Remove a category
 ///
-/// Refused with 409 while a rule, a mapping, an exception or a test names it,
-/// and with 400 for the fallback category.
+/// Refused with 409 `in_use` while a rule, a mapping, an exception or a test names it, and
+/// with 409 `fallback_category` for the fallback category.
 #[utoipa::path(
     delete,
     path = "/categories/{id}",
@@ -1172,10 +1208,21 @@ fn remove_category() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_root_folders() {}
 
+/// One root folder, and the category it leads to
+#[utoipa::path(
+    get,
+    path = "/root-folders/{id}",
+    tag = "categories",
+    params(("id" = String, Path, description = "The folder's id.")),
+    responses((status = 200, body = RootFolderWithInstance))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn get_root_folder() {}
+
 /// What the mappings leave unsaid
 ///
-/// Two folders of one instance claiming one category, a rule's category with no folder on an
-/// instance it reaches, a folder the Arr did not reach last time, a mapping to a removed one.
+/// A rule's category with no folder on an instance it reaches, a folder the Arr did not reach
+/// last time, and a mapping to a removed category.
 #[utoipa::path(
     get,
     path = "/root-folders/conflicts",

@@ -4,7 +4,7 @@
 
 use super::TestApp;
 
-/// A configured installation: two categories, a mapped folder, an override, a rule.
+/// A configured installation: two categories, a mapped folder, an override, a rule, a rule test.
 async fn configured() -> TestApp {
     let app = TestApp::new().await;
     app.seed_library().await;
@@ -27,6 +27,10 @@ async fn configured() -> TestApp {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    let pinned = serde_json::json!({
+        "name": "Totoro is for kids", "media_id": "m-1", "expected_category": "kids",
+    });
+    app.post("/api/v1/rule-tests", pinned).await.assert_status(axum::http::StatusCode::CREATED);
 
     app
 }
@@ -41,8 +45,16 @@ async fn the_bundle_carries_what_cannot_be_regenerated() {
 
     let bundle = export(&app).await;
 
-    assert_eq!(bundle["version"], 1);
+    assert_eq!(bundle["version"], 2);
     assert!(bundle["exported_at"].is_string());
+
+    // A rule test holds automatic application while it fails, and no resync brings it back.
+    let test = &bundle["rule_tests"][0];
+    assert_eq!(test["name"], "Totoro is for kids");
+    assert_eq!(test["expected_category"], "kids");
+    assert_eq!(test["instance_name"], "Radarr", "its title's instance travels by name");
+    assert_eq!(test["media"]["title"], "My Neighbor Totoro");
+    assert!(test["media"].get("instance_id").is_none(), "an id of this installation travelled");
 
     let categories: Vec<&str> = bundle["categories"]
         .as_array()
@@ -193,6 +205,15 @@ async fn a_bundle_restores_onto_an_empty_installation() {
 
     assert!(report["categories"].as_u64().unwrap() >= 2);
     assert_eq!(report["instances"], 1);
+    assert_eq!(report["rule_tests"], 1, "{report}");
+    let restored: (bool, String) = sqlx::query_as(
+        "SELECT json_extract(t.media_json, '$.instance_id') = i.id, t.expected_category
+           FROM rule_tests t, instances i",
+    )
+    .fetch_one(&target.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(restored, (true, "kids".to_string()), "the test is not on the copy's Radarr");
 
     let restored: Vec<String> = sqlx::query_scalar("SELECT name FROM categories ORDER BY name")
         .fetch_all(&target.state.pool)
@@ -281,6 +302,81 @@ async fn a_mapping_whose_folder_is_not_synced_yet_is_reported_not_dropped() {
         skipped.iter().any(|s| s.as_str().unwrap().contains("sync that instance")),
         "got {skipped:?}"
     );
+}
+
+/// A destination declared in Routarr is the operator's, never brought back by a sync: the bundle
+/// declares it again, with its category, on the instance of the same name.
+#[tokio::test]
+async fn a_declared_destination_comes_back_with_its_category() {
+    let source = configured().await;
+    source
+        .execute(&["INSERT INTO root_folders (id, instance_id, path, accessible, category, origin)
+                      VALUES ('rf-d', 'inst-1', '/movies/anime/kids', 1, 'kids', 'declared'),
+                             ('rf-e', 'inst-1', '/movies/empty', 1, NULL, 'declared')"])
+        .await;
+    let bundle = export(&source).await;
+    let target = TestApp::new().await;
+    target.execute(&[crate::tests::AN_INSTANCE]).await;
+    crate::api::instances::converge_names(&target.state.pool).await.unwrap();
+
+    let report = target
+        .post("/api/v1/config/import", serde_json::json!({ "bundle": bundle }))
+        .await
+        .assert_ok()
+        .clone();
+
+    let declared: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT path, category FROM root_folders
+          WHERE origin = 'declared' AND instance_id = 'inst-1' ORDER BY path",
+    )
+    .fetch_all(&target.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        declared,
+        [
+            ("/movies/anime/kids".to_string(), Some("kids".to_string())),
+            ("/movies/empty".into(), None)
+        ]
+    );
+    assert_eq!(report["root_folders"], 2, "{report}");
+    let skipped = report["skipped"].to_string();
+    assert!(
+        !skipped.contains("/movies/anime/kids") && !skipped.contains("/movies/empty"),
+        "{skipped}"
+    );
+    // Only an Arr's own folders wait for a sync.
+    assert!(skipped.contains("sync that instance"), "{skipped}");
+}
+
+/// A destination or a rule test naming an instance this installation does not hold is left out,
+/// and the report says which and why.
+#[tokio::test]
+async fn what_names_an_instance_not_here_is_skipped_and_said() {
+    let source = configured().await;
+    source
+        .execute(&["INSERT INTO root_folders (id, instance_id, path, accessible, origin)
+                      VALUES ('rf-d', 'inst-1', '/movies/anime/kids', 1, 'declared')"])
+        .await;
+    let mut bundle = export(&source).await;
+    bundle["instances"] = serde_json::json!([]);
+    let target = TestApp::new().await;
+
+    let report = target
+        .post("/api/v1/config/import", serde_json::json!({ "bundle": bundle }))
+        .await
+        .assert_ok()
+        .clone();
+
+    assert_eq!(report["rule_tests"], 0);
+    let skipped = report["skipped"].to_string();
+    for said in [
+        "Rule test 'Totoro is for kids': no instance here is named 'Radarr'",
+        "Destination '/movies/anime/kids': no instance here is named 'Radarr'",
+    ] {
+        assert!(skipped.contains(said), "{said} missing from {skipped}");
+    }
+    assert_eq!(target.count("SELECT COUNT(*) FROM rule_tests").await, 0);
 }
 
 /// One rule tells two instance names apart, case beyond ASCII and spaces aside: a bundle
@@ -599,6 +695,8 @@ async fn importing_twice_changes_nothing_the_second_time() {
     assert_eq!(overrides, 1);
     assert_eq!(second["rules"], 0, "{second}");
     assert_eq!(target.count("SELECT COUNT(*) FROM rules").await, 1, "the rule was added twice");
+    assert_eq!(second["rule_tests"], 0, "{second}");
+    assert_eq!(target.count("SELECT COUNT(*) FROM rule_tests").await, 1, "the test came twice");
 }
 
 /// A bundle is the settings table's second writer. Everything `PUT /settings`

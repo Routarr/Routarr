@@ -16,7 +16,7 @@ use subtle::ConstantTimeEq;
 
 use crate::AppState;
 use crate::config::AuthMode;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, ErrorResponse};
 use crate::jobs::Attribution;
 use crate::services::accounts::{OpenedUnder, Reach};
 use crate::services::applications::{self, Grant, Resolved, Scope, TOKEN_PREFIX};
@@ -418,26 +418,22 @@ fn expired_application_key(expires_at: &str) -> Response {
         "This application key expired on {}. Make a new one on the Applications screen.",
         crate::timestamp::written(expires_at)
     );
-    (
-        StatusCode::UNAUTHORIZED,
-        [(axum::http::header::WWW_AUTHENTICATE, r#"Bearer realm="Routarr""#)],
-        axum::Json(serde_json::json!({
-            "error": "unauthorized", "message": message, "reason": "key_expired",
-        })),
-    )
-        .into_response()
+    let refusal = ErrorResponse::new("unauthorized", message).with_reason("key_expired");
+    challenged(refusal.answered(StatusCode::UNAUTHORIZED))
+}
+
+/// `response` with the challenge every 401 carries.
+fn challenged(mut response: Response) -> Response {
+    let challenge = axum::http::HeaderValue::from_static(r#"Bearer realm="Routarr""#);
+    response.headers_mut().insert(axum::http::header::WWW_AUTHENTICATE, challenge);
+    response
 }
 
 /// A 401 in the envelope, naming the scheme a key is sent with: RFC 9110
 /// requires the challenge on every 401, and a Bearer one opens no browser
 /// dialog, where a Basic one would.
 fn unauthorized_because(message: &str) -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        [(axum::http::header::WWW_AUTHENTICATE, r#"Bearer realm="Routarr""#)],
-        axum::Json(serde_json::json!({ "error": "unauthorized", "message": message })),
-    )
-        .into_response()
+    challenged(ErrorResponse::new("unauthorized", message).answered(StatusCode::UNAUTHORIZED))
 }
 
 /// The name a request was sent to, when it is neither an address, `localhost`
@@ -597,21 +593,13 @@ fn split_port(authority: &str) -> (&str, Option<u16>) {
 
 /// Refused to a reader, with the `reason` the interface keys on.
 fn read_only(message: &str) -> Response {
-    (
-        StatusCode::FORBIDDEN,
-        axum::Json(serde_json::json!({
-            "error": "forbidden", "message": message, "reason": "read_only",
-        })),
-    )
-        .into_response()
+    ErrorResponse::new("forbidden", message)
+        .with_reason("read_only")
+        .answered(StatusCode::FORBIDDEN)
 }
 
 fn forbidden(message: &str) -> Response {
-    (
-        StatusCode::FORBIDDEN,
-        axum::Json(serde_json::json!({ "error": "forbidden", "message": message })),
-    )
-        .into_response()
+    ErrorResponse::new("forbidden", message).answered(StatusCode::FORBIDDEN)
 }
 
 fn extract_key(headers: &HeaderMap) -> Option<String> {
@@ -754,15 +742,11 @@ pub async fn login(
     let matched = match state.sign_in.verify(&credentials.password, &hash, client).await {
         Ok(matched) => matched,
         Err(accounts::Busy) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(axum::http::header::RETRY_AFTER, "1")],
-                axum::Json(serde_json::json!({
-                    "error": "busy",
-                    "message": "Too many sign-ins are being checked at once. Try again in a moment.",
-                })),
-            )
-                .into_response();
+            let message = "Too many sign-ins are being checked at once. Try again in a moment.";
+            let mut busy =
+                ErrorResponse::new("busy", message).answered(StatusCode::SERVICE_UNAVAILABLE);
+            busy.headers_mut().insert(axum::http::header::RETRY_AFTER, 1.into());
+            return busy;
         }
     };
 
@@ -1002,8 +986,7 @@ pub async fn oidc_callback(
         }
     };
 
-    // A refusal and an unknown client look alike on screen, so the reason goes to the log,
-    // summed per address since anyone can send one. The code never does.
+    // The reason goes to the log, summed per address as anyone can send one, never to the screen.
     if let Some(error) = callback.error.as_deref() {
         // RFC 6749 §4.1.2.1 codes are short words: anything longer is not the provider's.
         let error: String = error.chars().take(64).collect();

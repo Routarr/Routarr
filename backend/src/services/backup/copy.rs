@@ -87,27 +87,50 @@ fn failed(e: std::io::Error) -> Refusal {
 pub fn in_background(state: &AppState, by: Attribution) {
     let Some(folder) = state.config.backup_copy_dir.clone() else { return };
     let state = state.clone();
-    tokio::spawn(async move { run(&state, folder, &by).await });
+    // Its outcome is the task's, logged and notified there.
+    tokio::spawn(async move { run(&state, folder, &by).await.ok() });
 }
 
-async fn run(state: &AppState, folder: PathBuf, by: &Attribution) {
+/// Copy into `ROUTARR_BACKUP_COPY_DIR` now, as a task the caller follows: its report, or why
+/// nothing was copied.
+pub async fn now(state: &AppState, by: Attribution) -> AppResult<CopyReport> {
+    let Some(folder) = state.config.backup_copy_dir.clone() else {
+        let localizer = state.localizer().await;
+        return Err(AppError::BadRequest(localizer.translate("ErrorBackupCopyUnset", &[])));
+    };
+    run(state, folder, &by).await
+}
+
+/// One copy, its outcome settled in its task and, when it failed, notified.
+async fn run(state: &AppState, folder: PathBuf, by: &Attribution) -> AppResult<CopyReport> {
     // Behind the copy before it, whose work this one only checks.
     let lock = lock_while_writing(state).await;
     let shown = folder.display().to_string();
     let detail = Detail::new("JobDetailCopyingBackups").with("folder", &shown);
     let mut job = match state.jobs.start(JobKind::BackupCopy, by, None, detail).await {
         Ok(job) => job,
-        Err(e) => return warn!("The backups were not copied: {e}"),
+        Err(e) => {
+            warn!("The backups were not copied: {e}");
+            return Err(e);
+        }
+    };
+    let refused = async |refused: Detail| {
+        let message = refused.said(&state.localizer().await);
+        said_failed(state, &shown, refused);
+        Err(AppError::Conflict { reason: "backup_copy_unreachable", message })
     };
     let Some(lock) = lock else {
         let busy = Detail::new("JobDetailBackupCopyBusy").with("folder", &shown);
         job.fail_with(busy.clone()).await;
-        return said_failed(state, &shown, busy);
+        return refused(busy).await;
     };
     let read = (adopted(state, &folder).await, super::kept(state).await, ours(state).await);
     let (adopted, keep, ours) = match read {
         (Ok(adopted), Ok(keep), Ok(ours)) => (adopted, keep, ours),
-        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => return job.fail(&e).await,
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+            job.fail(&e).await;
+            return Err(e);
+        }
     };
     let pass = Pass {
         source: super::backup_dir(state),
@@ -144,11 +167,12 @@ async fn run(state: &AppState, folder: PathBuf, by: &Attribution) {
                 .with("count", report.copied.len());
             job.report(&report);
             job.succeed(done).await;
+            Ok(report)
         }
         Err(refusal) => {
-            let refused = refusal.detail(&shown);
-            job.fail_with(refused.clone()).await;
-            said_failed(state, &shown, refused);
+            let detail = refusal.detail(&shown);
+            job.fail_with(detail.clone()).await;
+            refused(detail).await
         }
     }
 }
@@ -378,9 +402,9 @@ async fn forget_gone(state: &AppState, present: &[String]) -> AppResult<()> {
     Ok(())
 }
 
-/// Take the copy folder as it is now, its marker written and the folder recorded, then copy:
-/// for a folder changed on purpose, which a share left unmounted is not.
-pub async fn adopt(state: &AppState, by: Attribution) -> AppResult<()> {
+/// Take the copy folder as it is now, its marker written and the folder recorded, for the copy
+/// [`now`] makes: for a folder changed on purpose, which a share left unmounted is not.
+pub async fn adopt(state: &AppState) -> AppResult<()> {
     let localizer = state.localizer().await;
     let Some(folder) = state.config.backup_copy_dir.clone() else {
         return Err(AppError::BadRequest(localizer.translate("ErrorBackupCopyUnset", &[])));
@@ -411,9 +435,7 @@ pub async fn adopt(state: &AppState, by: Attribution) -> AppResult<()> {
         };
         return Err(AppError::Conflict { reason: "backup_copy_unreachable", message });
     }
-    record_adopted(state, &folder).await?;
-    in_background(state, by);
-    Ok(())
+    record_adopted(state, &folder).await
 }
 
 /// Remove `name`'s copy behind any copy running, its outcome logged alone: a share that does not

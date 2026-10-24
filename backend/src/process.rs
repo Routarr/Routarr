@@ -58,9 +58,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         _ => {}
     }
 
-    dotenvy::dotenv().ok();
+    // The working directory's alone, held to the rule of every other variable.
+    let dotenv = crate::config::read_dotenv(&std::env::current_dir()?)?;
+    if let Some(file) = &dotenv {
+        dotenvy::from_path(file)?;
+    }
 
-    let config = Config::from_env()?;
+    let mut config = Config::from_env()?;
+    if let Some(file) = dotenv {
+        config.startup_notes.push(format!("Variables read from {}", file.display()));
+    }
     match invocation {
         commands::Invocation::Healthcheck => return commands::healthcheck(&config).await,
         commands::Invocation::ResetAccount { revoke_keys, force } => {

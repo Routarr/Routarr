@@ -272,7 +272,14 @@ async fn the_category_the_engine_falls_back_to_cannot_be_deleted() {
         .fetch_one(&app.state.pool)
         .await
         .unwrap();
-    app.delete(&format!("/api/v1/categories/{id}")).await.assert_status(StatusCode::BAD_REQUEST);
+    // A state the operator changes in Settings, said in the reader's language.
+    app.save_setting("ui_language", "fr").await.assert_ok();
+    let refused = app.delete(&format!("/api/v1/categories/{id}")).await;
+    let body = refused.assert_status(StatusCode::CONFLICT);
+    assert_eq!(body["reason"], "fallback_category", "{body}");
+    let said = crate::localization::Localizer::new("fr")
+        .translate("ErrorCategoryIsFallback", &[("name", "kids")]);
+    assert_eq!(refused.message(), said);
 
     // The control: a category that is not the fallback is deletable.
     app.delete("/api/v1/categories/cat-standard").await.assert_ok();
@@ -343,7 +350,7 @@ async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting()
     let response = app.delete(&format!("/api/v1/categories/{id}")).await;
     assert_eq!(
         response.status,
-        axum::http::StatusCode::BAD_REQUEST,
+        axum::http::StatusCode::CONFLICT,
         "the fallback category was deletable: {}",
         response.json
     );

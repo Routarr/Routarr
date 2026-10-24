@@ -224,6 +224,7 @@ describe('Instances', () => {
     show([
       instance({
         last_sync_status: 'error: connection refused',
+        last_sync_error: 'connection refused',
         last_sync_attempt_at: '2026-08-27 10:00:00',
       }),
     ]);

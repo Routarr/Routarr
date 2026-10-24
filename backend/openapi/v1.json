@@ -589,6 +589,11 @@
           },
           {
             "properties": {
+              "exception_count": {
+                "description": "Exceptions pinning a title to it.",
+                "format": "int64",
+                "type": "integer"
+              },
               "root_folder_count": {
                 "format": "int64",
                 "type": "integer"
@@ -596,16 +601,23 @@
               "rule_count": {
                 "format": "int64",
                 "type": "integer"
+              },
+              "rule_test_count": {
+                "description": "Rule tests expecting it.",
+                "format": "int64",
+                "type": "integer"
               }
             },
             "required": [
               "rule_count",
-              "root_folder_count"
+              "root_folder_count",
+              "exception_count",
+              "rule_test_count"
             ],
             "type": "object"
           }
         ],
-        "description": "A category with the counts that make it safe (or unsafe) to delete."
+        "description": "A category with the counts that make it safe (or unsafe) to delete: a removal is refused\nwhile any of them is above 0."
       },
       "Condition": {
         "description": "One condition of a rule, written `{\"type\": \"genre_contains\", \"value\":\n[\"Animation\"]}`. `GET /rules/conditions` lists each `type` with the shape\nof its `value`.",
@@ -2020,7 +2032,7 @@
             ]
           },
           "error": {
-            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`method_not_allowed`, `conflict`, `confirmation_required`,\n`payload_too_large`, `unsupported_media_type`, `too_many_requests`,\n`busy`, `reauthentication_required`, `passphrase_required`,\n`external_api_error`, `insufficient_storage` (the data disk is full) or `internal_error`.\nAn open list.",
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`method_not_allowed`, `request_timeout` (the body did not arrive in time), `conflict`,\n`confirmation_required`, `payload_too_large`, `unsupported_media_type`, `too_many_requests`,\n`busy`, `reauthentication_required`, `passphrase_required`, `external_api_error`,\n`insufficient_storage` (the data disk is full) or `internal_error`. An open list.",
             "type": "string"
           },
           "includes": {
@@ -2038,7 +2050,7 @@
             "type": "string"
           },
           "reason": {
-            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`, `disk_full`. Beside `unauthorized`: `key_expired`, an\napplication key past its expiry. Beside `busy`: `database_busy`, another write held the\ndatabase past the wait. Beside `forbidden`: `proof_required`, a session that proves itself\nagain through the route the message names.",
+            "description": "Why a `conflict` refuses, an open list. A job still running, with a `Retry-After` header:\n`apply_running`, `simulation_running`, `previews_full`, `sync_running`,\n`enrichment_running`, `backup_running`, `backup_just_taken`, `restore_staging`,\n`purge_running`, `anime_ids_running`. A state that stays until somebody changes it:\n`name_taken`, `in_use`, `fallback_category`, `already_listed`, `not_declared`,\n`category_mapped`, `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`, `disk_full`, `instance_disabled`,\n`no_current_folder`, `folder_unmapped`, `template_added`, `backup_copy_unreachable`. Beside\n`unauthorized`: `key_expired`, an application key past its expiry. Beside `busy`:\n`database_busy`, another write held the database past the wait. Beside `forbidden`:\n`proof_required`, a session that proves itself again through the route the message names,\nand `read_only`, a person signed in to read alone.",
             "type": [
               "string",
               "null"
@@ -2287,8 +2299,16 @@
               "null"
             ]
           },
+          "last_sync_error": {
+            "description": "Why the last sync failed, in the interface language. Null when it succeeded or none ran.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "last_sync_status": {
-            "description": "How the last sync ended: `success`, or `error: ` and the reason.",
+            "deprecated": true,
+            "description": "How the last sync ended: `success`, or `error: ` and the reason. Deprecated: the reason\nalone is `last_sync_error`.",
             "type": [
               "string",
               "null"
@@ -2396,7 +2416,16 @@
               "null"
             ]
           },
+          "last_sync_error": {
+            "description": "Why the last sync failed, in the interface language. Null when it succeeded or none ran.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "last_sync_status": {
+            "deprecated": true,
+            "description": "How the last sync ended: `success`, or `error: ` and the reason. Deprecated: the reason\nalone is `last_sync_error`.",
             "type": [
               "string",
               "null"
@@ -2721,7 +2750,7 @@
             ]
           },
           "details": {
-            "description": "Where the title went, from and to.",
+            "description": "Where the title was and where the write sent it, the origin empty when Routarr did not\nknow it.",
             "type": [
               "string",
               "null"
@@ -2836,7 +2865,7 @@
             "type": "string"
           },
           "severity": {
-            "description": "`error` for what routing cannot settle, `warning` for the rest.",
+            "description": "`warning` for every kind today. An open list.",
             "type": "string"
           }
         },
@@ -3464,7 +3493,7 @@
             "type": "string"
           },
           "data": {
-            "description": "Ids and counts for a program: the instance, the simulation, how many titles moved. For\n`apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`\nand `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,\ntvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or\n`failed` and the paths as the Arr holds them. The two first carry `task_id`, which\n`GET /move-log?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`\nand `expires_at`.",
+            "description": "Ids and counts for a program: the instance (`instance_id` and its name `instance`), the\nsimulation, how many titles moved. For `apply_completed`, `revert_completed` and\n`moves_settled` also `moves_total`, `truncated` and `moves`, the first 50 titles, each\n`{title, media_type, instance, instance_id, tmdb_id, tvdb_id, imdb_id, from_path, to_path,\nstatus}` with `status` `applied`, `moving` or `failed` and the paths as the Arr holds them.\nThe two first carry `task_id`, which `GET /move-log?task_id=` lists in full. For\n`application_key_expiring` the key's `id`, `name` and `expires_at`.",
             "type": "object"
           },
           "event": {
@@ -4400,7 +4429,7 @@
         "type": "object"
       },
       "RootFolder": {
-        "description": "A root folder synchronized from an Arr instance.",
+        "description": "A root folder an Arr reports, or a destination declared in Routarr, told apart by `origin`.",
         "properties": {
           "accessible": {
             "type": "boolean"
@@ -5611,7 +5640,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,\n`backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`, `auto_apply_held`, `arr_below_version`,\n`oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,\n`webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,\n`deprecated_api_called`, `removal_held` or `restore_pending`. The list may grow.",
+            "description": "What the warning is about, stable across releases and languages: `api_unauthenticated`,\n`api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,\n`source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,\n`instance_sync_failing`, `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `backup_failed`, `backup_overdue`, `data_disk_low`,\n`setting_above_maximum`, `instance_without_mapping`,\n`certification_country_outside_regions`, `certification_country_changed`, `auto_apply_held`,\n`arr_below_version`, `oidc_open_to_anyone`, `backup_passphrase_unreadable`,\n`rule_tests_failing`, `webhook_never_delivered`, `webhook_misconfigured`,\n`backup_copy_failed`, `deprecated_api_called`, `removal_held` or `restore_pending`. The list\nmay grow.",
             "type": "string"
           },
           "guide_step": {
@@ -5975,7 +6004,7 @@
     },
     "/categories/{id}": {
       "delete": {
-        "description": "Refused with 409 while a rule, a mapping, an exception or a test names it,\nand with 400 for the fallback category.",
+        "description": "Refused with 409 `in_use` while a rule, a mapping, an exception or a test names it, and\nwith 409 `fallback_category` for the fallback category.",
         "operationId": "remove_category",
         "parameters": [
           {
@@ -6014,6 +6043,46 @@
           "categories"
         ],
         "x-routarr-scope": "configure"
+      },
+      "get": {
+        "operationId": "get_category",
+        "parameters": [
+          {
+            "description": "The category's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryWithUsage"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One category, with what uses it",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "read"
       },
       "put": {
         "description": "Every rule, mapping, exception and test naming it follows, in one\ntransaction.",
@@ -6962,6 +7031,46 @@
           "exceptions"
         ],
         "x-routarr-scope": "write"
+      },
+      "get": {
+        "operationId": "get_exception",
+        "parameters": [
+          {
+            "description": "The exception's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideWithMedia"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One exception",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "read"
       }
     },
     "/health": {
@@ -8232,78 +8341,6 @@
         "x-routarr-scope": "read"
       }
     },
-    "/media/{id}/keep": {
-      "post": {
-        "deprecated": true,
-        "description": "The old path of `POST /library/{id}/keep`, answered as it is until its removal before 1.0. Call `POST /library/{id}/keep` instead.",
-        "operationId": "keep_title_deprecated",
-        "parameters": [
-          {
-            "description": "The title's media id.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeepRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OverrideEntry"
-                }
-              }
-            },
-            "headers": {
-              "Location": {
-                "description": "Where the exception is found.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "`reason` is `no_current_folder`, or `folder_unmapped` when the folder leads to no category."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A refusal or a failure, in the envelope every error shares."
-          }
-        },
-        "summary": "Keep a title where it is",
-        "tags": [
-          "exceptions"
-        ],
-        "x-routarr-scope": "write"
-      }
-    },
     "/metadata/providers": {
       "get": {
         "deprecated": true,
@@ -8893,6 +8930,48 @@
           "exceptions"
         ],
         "x-routarr-scope": "write"
+      },
+      "get": {
+        "deprecated": true,
+        "description": "The old path of `GET /exceptions/{id}`, answered as it is until its removal before 1.0. Call `GET /exceptions/{id}` instead.",
+        "operationId": "get_exception_deprecated",
+        "parameters": [
+          {
+            "description": "The exception's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideWithMedia"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One exception",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "read"
       }
     },
     "/ping": {
@@ -9012,7 +9091,7 @@
     },
     "/root-folders/conflicts": {
       "get": {
-        "description": "Two folders of one instance claiming one category, a rule's category with no folder on an\ninstance it reaches, a folder the Arr did not reach last time, a mapping to a removed one.",
+        "description": "A rule's category with no folder on an instance it reaches, a folder the Arr did not reach\nlast time, and a mapping to a removed category.",
         "operationId": "mapping_conflicts",
         "responses": {
           "200": {
@@ -9086,6 +9165,46 @@
           "categories"
         ],
         "x-routarr-scope": "configure"
+      },
+      "get": {
+        "operationId": "get_root_folder",
+        "parameters": [
+          {
+            "description": "The folder's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RootFolderWithInstance"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One root folder, and the category it leads to",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "read"
       }
     },
     "/root-folders/{id}/category": {
@@ -9450,6 +9569,46 @@
           "rules"
         ],
         "x-routarr-scope": "configure"
+      },
+      "get": {
+        "operationId": "get_rule_test",
+        "parameters": [
+          {
+            "description": "The test's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTest"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One rule test",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
       }
     },
     "/rules": {

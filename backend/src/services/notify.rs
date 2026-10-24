@@ -24,15 +24,15 @@ use crate::state::AppState;
 #[derive(Debug, Clone)]
 pub enum Event {
     /// A sync could not reach an Arr. Sent on the transition only.
-    InstanceUnreachable { instance: String, error: String },
+    InstanceUnreachable { instance_id: String, instance: String, error: String },
     /// The same instance answered again.
-    InstanceRecovered { instance: String },
+    InstanceRecovered { instance_id: String, instance: String },
     /// An unattended apply wrote to an Arr and the Arr refused. `title` and
     /// `error` are the first refusal.
     AutoApplyFailed { failed: usize, applied: usize, title: String, error: String },
     /// An unattended pass found more moves than one run may make, and made
     /// none. Sent on the transition only.
-    AutoApplyHeld { instance: String, candidates: usize, cap: usize },
+    AutoApplyHeld { instance_id: String, instance: String, candidates: usize, cap: usize },
     /// A run found rule tests failing where none did, which holds auto-apply.
     RuleTestsFailing { failed: usize, total: usize },
     /// A sync failed, every time it does. Asked for by `notify_sync_failed`.
@@ -143,11 +143,11 @@ impl Event {
         let said = |stored: &str| crate::localization::said(stored, localizer);
         let count = |n: &usize| n.to_string();
         match self {
-            Event::InstanceUnreachable { instance, error } => localizer.translate(
+            Event::InstanceUnreachable { instance, error, .. } => localizer.translate(
                 "NotificationMessageInstanceUnreachable",
                 &[("instance", instance), ("error", &said(error))],
             ),
-            Event::InstanceRecovered { instance } => localizer
+            Event::InstanceRecovered { instance, .. } => localizer
                 .translate("NotificationMessageInstanceRecovered", &[("instance", instance)]),
             Event::AutoApplyFailed { failed, applied, title, error } => localizer.translate(
                 "NotificationMessageAutoApplyFailed",
@@ -158,7 +158,7 @@ impl Event {
                     ("error", &said(error)),
                 ],
             ),
-            Event::AutoApplyHeld { instance, candidates, cap } => localizer.translate(
+            Event::AutoApplyHeld { instance, candidates, cap, .. } => localizer.translate(
                 "NotificationMessageAutoApplyHeld",
                 &[("instance", instance), ("candidates", &count(candidates)), ("cap", &count(cap))],
             ),
@@ -206,10 +206,15 @@ impl Event {
                 );
                 with_titles(counts, moves, *total, localizer)
             }
-            Event::ApplicationKeyExpiring { name, expires_at, .. } => localizer.translate(
-                "NotificationMessageApplicationKeyExpiring",
-                &[("name", name), ("date", expires_at.get(..10).unwrap_or(expires_at))],
-            ),
+            Event::ApplicationKeyExpiring { name, expires_at, .. } => {
+                let day = crate::services::routing::parse_timestamp(expires_at)
+                    .map(|at| crate::localization::human_date(at, localizer))
+                    .unwrap_or_else(|| expires_at.clone());
+                localizer.translate(
+                    "NotificationMessageApplicationKeyExpiring",
+                    &[("name", name), ("date", &day)],
+                )
+            }
             Event::Test => localizer.translate("NotificationMessageTest", &[]),
         }
     }
@@ -239,15 +244,16 @@ impl Event {
     /// Ids and counts, never prose: what a program reads.
     fn data(&self) -> serde_json::Value {
         match self {
-            Event::InstanceUnreachable { instance, .. } | Event::InstanceRecovered { instance } => {
-                serde_json::json!({ "instance": instance })
+            Event::InstanceUnreachable { instance_id, instance, .. }
+            | Event::InstanceRecovered { instance_id, instance } => {
+                serde_json::json!({ "instance_id": instance_id, "instance": instance })
             }
             Event::AutoApplyFailed { failed, applied, .. } => {
                 serde_json::json!({ "failed": failed, "applied": applied })
             }
-            Event::AutoApplyHeld { instance, candidates, cap } => {
-                serde_json::json!({ "instance": instance, "candidates": candidates, "cap": cap })
-            }
+            Event::AutoApplyHeld { instance_id, instance, candidates, cap } => serde_json::json!({
+                "instance_id": instance_id, "instance": instance, "candidates": candidates, "cap": cap
+            }),
             Event::RuleTestsFailing { failed, total } => {
                 serde_json::json!({ "failed": failed, "total": total })
             }
@@ -497,13 +503,13 @@ pub struct Notification {
     pub allowed_mentions: AllowedMentions,
     /// The message again, where Apprise reads it.
     pub body: String,
-    /// Ids and counts for a program: the instance, the simulation, how many titles moved. For
-    /// `apply_completed`, `revert_completed` and `moves_settled` also `moves_total`, `truncated`
-    /// and `moves`, the first 50 titles, each `{title, media_type, instance, instance_id, tmdb_id,
-    /// tvdb_id, imdb_id, from_path, to_path, status}` with `status` `applied`, `moving` or
-    /// `failed` and the paths as the Arr holds them. The two first carry `task_id`, which
-    /// `GET /move-log?task_id=` lists in full. For `application_key_expiring` the key's `id`, `name`
-    /// and `expires_at`.
+    /// Ids and counts for a program: the instance (`instance_id` and its name `instance`), the
+    /// simulation, how many titles moved. For `apply_completed`, `revert_completed` and
+    /// `moves_settled` also `moves_total`, `truncated` and `moves`, the first 50 titles, each
+    /// `{title, media_type, instance, instance_id, tmdb_id, tvdb_id, imdb_id, from_path, to_path,
+    /// status}` with `status` `applied`, `moving` or `failed` and the paths as the Arr holds them.
+    /// The two first carry `task_id`, which `GET /move-log?task_id=` lists in full. For
+    /// `application_key_expiring` the key's `id`, `name` and `expires_at`.
     #[schema(value_type = Object)]
     pub data: serde_json::Value,
 }
@@ -790,11 +796,10 @@ async fn signing_keys(state: &AppState) -> AppResult<Signing> {
 }
 
 /// Whether notifications are signed, and since when.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize)]
 pub struct SigningStatus {
     pub signed: bool,
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
-    #[schema(format = DateTime)]
     pub since: Option<String>,
     /// False when a secret is set and cannot be opened with this
     /// installation's key: nothing is sent until it is replaced.
@@ -846,15 +851,24 @@ mod receivers {
     /// One of each event, every variant the payload can carry.
     fn every_event() -> Vec<Event> {
         vec![
-            Event::InstanceUnreachable { instance: "Radarr".into(), error: "refused".into() },
-            Event::InstanceRecovered { instance: "Radarr".into() },
+            Event::InstanceUnreachable {
+                instance_id: "inst-1".into(),
+                instance: "Radarr".into(),
+                error: "refused".into(),
+            },
+            Event::InstanceRecovered { instance_id: "inst-1".into(), instance: "Radarr".into() },
             Event::AutoApplyFailed {
                 failed: 1,
                 applied: 0,
                 title: "Totoro".into(),
                 error: "no".into(),
             },
-            Event::AutoApplyHeld { instance: "Radarr 4K".into(), candidates: 60, cap: 50 },
+            Event::AutoApplyHeld {
+                instance_id: "inst-2".into(),
+                instance: "Radarr 4K".into(),
+                candidates: 60,
+                cap: 50,
+            },
             Event::RuleTestsFailing { failed: 1, total: 4 },
             Event::SyncFailed {
                 instance_id: "inst-1".into(),
@@ -925,13 +939,23 @@ mod receivers {
     fn each_event_carries_its_name_its_severity_and_its_data() {
         use serde_json::json;
         let expected = [
-            ("instance_unreachable", "error", json!({ "instance": "Radarr" })),
-            ("instance_recovered", "info", json!({ "instance": "Radarr" })),
+            (
+                "instance_unreachable",
+                "error",
+                json!({ "instance_id": "inst-1", "instance": "Radarr" }),
+            ),
+            (
+                "instance_recovered",
+                "info",
+                json!({ "instance_id": "inst-1", "instance": "Radarr" }),
+            ),
             ("auto_apply_failed", "error", json!({ "failed": 1, "applied": 0 })),
             (
                 "auto_apply_held",
                 "warning",
-                json!({ "instance": "Radarr 4K", "candidates": 60, "cap": 50 }),
+                json!({
+                    "instance_id": "inst-2", "instance": "Radarr 4K", "candidates": 60, "cap": 50,
+                }),
             ),
             ("rule_tests_failing", "warning", json!({ "failed": 1, "total": 4 })),
             ("sync_failed", "error", json!({ "instance_id": "inst-1", "instance": "Radarr" })),
@@ -997,7 +1021,10 @@ mod receivers {
 
     #[test]
     fn a_title_naming_everyone_pings_nobody_on_discord() {
-        let event = Event::InstanceRecovered { instance: "@everyone @here <@&1>".into() };
+        let event = Event::InstanceRecovered {
+            instance_id: "inst-1".into(),
+            instance: "@everyone @here <@&1>".into(),
+        };
         let sent = sent(&event);
         assert!(sent["content"].as_str().unwrap().contains("@everyone"), "{sent}");
         assert_eq!(sent["allowed_mentions"], serde_json::json!({ "parse": [] }), "{sent}");

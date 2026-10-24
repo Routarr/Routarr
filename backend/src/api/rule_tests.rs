@@ -39,6 +39,20 @@ pub async fn list(
     Ok(Json(super::Page::new(cases, page, per_page, total)))
 }
 
+pub async fn get_one(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    Path(id): Path<String>,
+) -> AppResult<Json<RuleTest>> {
+    let case = sqlx::query_as::<_, RuleTest>("SELECT * FROM rule_tests WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Rule test {id} not found")))?;
+    let subject = identity.shown_subject(case.subject.clone(), case.subject_key.as_deref());
+    Ok(Json(RuleTest { subject, ..case }))
+}
+
 pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> {
     Ok(Json(rule_tests::check(&state).await?))
 }

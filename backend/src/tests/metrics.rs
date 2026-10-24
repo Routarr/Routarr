@@ -43,7 +43,8 @@ async fn every_family_declares_its_help_and_type() {
         // `_total` names a counter: a gauge under it misleads a rate the first time it goes down.
         let kind = if name.ends_with("_total") { "counter" } else { "gauge" };
         assert!(body.contains(&format!("# TYPE {name} {kind}")), "{name} is not a {kind}");
-        assert!(name.starts_with("routarr_"), "{name} is not namespaced");
+        // The `process_` families carry the names every Prometheus client gives them.
+        assert!(name.starts_with("routarr_") || name.starts_with("process_"), "{name}");
     }
     assert!(names.contains(&"routarr_deprecated_api_requests_total"), "no counter is emitted");
 }
@@ -72,10 +73,73 @@ async fn the_decision_gauges_count_where_each_title_stands_now() {
 
     let body = scrape(&app).await;
 
-    assert!(body.contains("routarr_decisions_by_category{category=\"standard\"} 2"), "{body}");
-    assert!(!body.contains("routarr_decisions_by_category{category=\"anime\"}"), "{body}");
-    assert!(body.contains("routarr_decisions_by_status{status=\"pending\"} 1"), "{body}");
-    assert!(!body.contains("routarr_decisions_by_status{status=\"applied\"}"), "{body}");
+    // Each under its name and its deprecated alias, whose help says so.
+    for (by_category, by_status) in [
+        ("routarr_titles_routed", "routarr_decisions"),
+        ("routarr_decisions_by_category", "routarr_decisions_by_status"),
+    ] {
+        assert!(body.contains(&format!("{by_category}{{category=\"standard\"}} 2")), "{body}");
+        assert!(!body.contains(&format!("{by_category}{{category=\"anime\"}}")), "{body}");
+        assert!(body.contains(&format!("{by_status}{{status=\"pending\"}} 1")), "{body}");
+        assert!(!body.contains(&format!("{by_status}{{status=\"applied\"}}")), "{body}");
+    }
+    for old in ["routarr_decisions_by_category", "routarr_decisions_by_status"] {
+        assert!(body.contains(&format!("# HELP {old} Deprecated, read routarr_")), "{old}");
+    }
+}
+
+/// A restart loop or a memory leak shows in the two families every Prometheus client exposes.
+#[tokio::test]
+async fn the_process_says_when_it_started_and_what_memory_it_holds() {
+    let app = TestApp::new().await;
+    let body = scrape(&app).await;
+    let value = |name: &str| {
+        body.lines()
+            .find_map(|line| line.strip_prefix(&format!("{name} ")))
+            .map(|value| value.parse::<f64>().unwrap())
+    };
+    let started = value("process_start_time_seconds").expect("a start time");
+    let now = chrono::Utc::now().timestamp() as f64;
+    assert!(started > now - 3600.0 && started <= now, "{started}");
+    if cfg!(target_os = "linux") {
+        assert!(value("process_resident_memory_bytes").expect("a resident size") > 1e6);
+    }
+}
+
+/// A failure a later run found settled is no move waiting for a person: the metric counts what
+/// the top bar counts.
+#[tokio::test]
+async fn a_failure_a_later_run_settled_is_not_counted_failed() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                target_category, action, status, decided_at)
+         VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move',
+                 'failed', '2026-09-01 10:00:00')",
+        "INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
+         VALUES ('m-1', 'anime', 1, '2026-09-01 11:00:00')",
+    ])
+    .await;
+    let counted = |body: &str| {
+        let sample = |name| {
+            body.lines()
+                .find_map(|line| line.strip_prefix(&format!("{name}{{status=\"failed\"}} ")))
+                .map_or(0, |count| count.parse::<i64>().unwrap())
+        };
+        let counted = sample("routarr_decisions_by_status");
+        assert_eq!(sample("routarr_decisions"), counted, "the two names disagree");
+        counted
+    };
+    let shown =
+        || async { app.get("/api/v1/status").await.assert_ok()["failed_decisions"].clone() };
+
+    assert_eq!(shown().await, 0);
+    assert_eq!(counted(&scrape(&app).await), 0, "a settled failure is counted");
+
+    app.execute(&["DELETE FROM media_routing"]).await;
+    assert_eq!(shown().await, 1);
+    assert_eq!(counted(&scrape(&app).await), 1, "an open failure is not counted");
 }
 
 #[tokio::test]
@@ -379,5 +443,23 @@ async fn the_shipped_dashboard_and_alerts_read_series_routarr_emits() {
     assert!(named.len() > 10, "{named:?}");
     for name in named {
         assert!(body.contains(&format!("# HELP {name} ")), "{name} is not emitted");
+        assert!(!body.contains(&format!("# HELP {name} Deprecated")), "{name} is deprecated");
     }
+
+    // A rule on a warning code reads a code Routarr writes, or it never fires.
+    let mut codes = std::collections::BTreeSet::new();
+    for text in [dashboard, rules] {
+        for (at, _) in text.match_indices("code") {
+            let rest = text[at + 4..].trim_start_matches(['=', '!', '~', '\\']);
+            let Some(quoted) = rest.strip_prefix('"') else { continue };
+            let values = quoted.split(['"', '\\']).next().unwrap_or_default();
+            codes.extend(values.split('|').map(str::to_owned));
+        }
+    }
+    assert!(codes.len() > 5, "{codes:?}");
+    for code in &codes {
+        let known = crate::api::health::CODES.iter().any(|(listed, _)| listed == code);
+        assert!(known, "a shipped rule selects {code}, a code Routarr never writes");
+    }
+    assert!(rules.contains("absent(up{job=\"routarr\"})"), "no rule fires when Routarr is down");
 }

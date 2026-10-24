@@ -9,35 +9,25 @@ import { dropFocus } from '../test/focus';
 import { click } from '../test/links';
 import LoginGate from './LoginGate.svelte';
 
-/**
- * The screen a `forms` installation opens on. Its whole job is to be usable by
- * someone who has never been handed a credential, which is why it says where
- * the generated password is rather than assuming they know.
- */
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('LoginGate', () => {
-  it('says where the password is, since nobody chose it', () => {
+  it('says where the password is, since nobody chose it, and how to replace a lost one', () => {
     renderWithI18n(LoginGate, { props: { mode: 'forms' } });
 
     expect(
       screen.getByText(
-        'The password was generated at first start: it is in the server log, and in routarr.password beside the database.',
+        'The first password is in routarr.password beside the database until it is changed. A lost password is replaced by running routarr reset-account on the server.',
       ),
     ).toBeInTheDocument();
     // One account, so the name is filled in and only the password is asked for.
     expect(screen.getByLabelText('Username')).toHaveValue('admin');
   });
 
-  /**
-   * Then a reload rather than a state update: every screen behind the gate
-   * fetched and failed already. jsdom reloads nothing, so the page's own
-   * `location` stands in for the browser's.
-   */
+  /** jsdom reloads nothing, so a stub `location` stands in for the browser's. */
   it('signs in with what was typed, then reloads the page', async () => {
     const login = vi.spyOn(api, 'login').mockResolvedValue({ username: 'admin' });
     const reload = vi.fn();
@@ -51,11 +41,6 @@ describe('LoginGate', () => {
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   });
 
-  /**
-   * A refusal has to reach the screen: swallowed, a wrong password looks like
-   * a button that does nothing. Worded as every other 401 is, it asks for an
-   * API key this screen offers no way to set.
-   */
   it('says a wrong password is wrong, rather than swallowing it', async () => {
     vi.spyOn(api, 'login').mockRejectedValue(
       new ApiError('Wrong username or password.', 401, 'unauthorized'),
@@ -88,10 +73,6 @@ describe('LoginGate', () => {
     await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
-  /**
-   * Nothing to type: the provider decides, and the browser has to leave this
-   * origin, so the control is a link and not a button calling fetch.
-   */
   it('offers the provider instead of a password field in oidc mode', () => {
     renderWithI18n(LoginGate, { props: { mode: 'oidc' } });
 
@@ -115,10 +96,6 @@ describe('LoginGate', () => {
     expect(router.path).not.toContain('/auth/oidc/start');
   });
 
-  /**
-   * The provider's refusal is said once. Left in the address, a reload or a
-   * bookmark says it again about a sign-in nobody attempted.
-   */
   it('says the provider refused, and takes the word out of the address', () => {
     window.history.replaceState({}, '', '/?signin=failed');
     renderWithI18n(LoginGate, { props: { mode: 'oidc' } });

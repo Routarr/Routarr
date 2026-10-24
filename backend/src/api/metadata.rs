@@ -88,7 +88,7 @@ pub async fn import_anime_ids(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    crate::api::Bytes(body): crate::api::Bytes,
 ) -> AppResult<Response> {
     let entries = anime_ids::read_file(&state, body.into()).await?;
     let by = identity.attribution();

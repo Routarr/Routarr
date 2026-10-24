@@ -1,8 +1,5 @@
-//! End-to-end behaviour of the translation layer.
-//!
-//! The interesting property is not that the interface shows French words but
-//! that everything Routarr *produces* (justifications, diagnostics, guardrail
-//! refusals) follows the same setting.
+//! The translation layer end to end: everything Routarr produces (reasons, diagnostics,
+//! refusals) follows the interface's language.
 
 use axum::http::StatusCode;
 
@@ -33,10 +30,7 @@ async fn the_dictionary_follows_the_configured_language() {
 
     assert_eq!(body["language"], "fr");
 
-    // Asserted as a proportion rather than by pinning one key to one sentence:
-    // a partial translation is allowed, so any individual key may legitimately
-    // still be English, and a test that pins one would forbid what the policy
-    // permits.
+    // A proportion rather than one pinned key: a partial translation may leave any key English.
     let english = TestApp::new().await.get("/api/v1/localization").await;
     let french_strings = body["strings"].as_object().unwrap();
     let english_strings = english.json["strings"].as_object().unwrap();
@@ -203,9 +197,8 @@ async fn validation_messages_are_translated() {
     assert!(contradiction["message"].as_str().unwrap().contains("se contredisent"));
 }
 
-/// The global dry run is a state of the installation, not a fault in the
-/// request: told apart by its reason, the one refusal a setting clears, and
-/// said in the interface's language.
+/// The dry run is a state of the installation, told apart by its reason as the one refusal a
+/// setting clears.
 #[tokio::test]
 async fn guardrail_refusals_are_translated() {
     let app = TestApp::new().await;
@@ -239,10 +232,8 @@ async fn a_refusal_during_a_sync_is_translated() {
     }
 }
 
-/// A run keeps why a title goes where it goes as values, not as sentences:
-/// read after the language changed, the reasons, the rules that lost and the
-/// exception's name are all in the new one, and each line says whether it
-/// states what decided.
+/// A run keeps its reasons as values, so the reasons, the rules that lost and the exception's
+/// name read in the new language, each line saying whether it states what decided.
 #[tokio::test]
 async fn a_decision_is_said_in_the_language_it_is_read_in() {
     let app = TestApp::new().await;
@@ -299,9 +290,7 @@ async fn a_decision_stored_as_sentences_is_read_as_it_is() {
     assert_eq!(decision["alternatives"][0]["reason"], "✓ Family");
 }
 
-/// A failed move is kept as what went wrong rather than as a sentence: read
-/// after the language changed, the move log and the history say it in the
-/// new one, as the instance's own test says it.
+/// Kept as what went wrong rather than as a sentence, as the instance's own test says it.
 #[tokio::test]
 async fn a_failed_move_is_said_in_the_language_it_is_read_in() {
     let arr = super::fake_arr::FakeArr::start().await;
@@ -334,16 +323,8 @@ async fn diagnostics_warnings_are_translated() {
     assert!(warnings.iter().any(|w| w.contains("n'est pas authentifiée")), "{warnings:?}");
 }
 
-/// Where the line falls between a translated refusal and an English one.
-///
-/// A refusal that names something the operator typed and says what to change is
-/// content produced for them, and reads under the field that produced it. An
-/// id the interface itself sent is a client fault and stays English, as it does
-/// in Radarr and Sonarr. Translating those would put the whole dictionary
-/// behind every 404.
-/// A probe that cannot reach an Arr says what to change, in the interface
-/// language, as the instance's own test says it, and the warning built from
-/// it carries neither a state code nor the transport's English.
+/// As the instance's own test says it, and the warning carries neither a state code nor the
+/// transport's English.
 #[tokio::test]
 async fn a_probed_instance_failure_is_explained_in_the_interface_language() {
     let app = TestApp::new().await;
@@ -365,8 +346,21 @@ async fn a_probed_instance_failure_is_explained_in_the_interface_language() {
     let message = unreachable["message"].as_str().unwrap();
     assert!(message.contains(&tested.message()), "{message}");
     assert!(!message.contains("error:") && !message.contains("is unreachable"), "{message}");
+
+    // A failed sync's reason stands alone, beside the deprecated status that glues it on.
+    app.post("/api/v1/instances/i-1/sync", serde_json::json!({})).await;
+    let health = app.get("/api/v1/health?probe=false").await;
+    let listed = app.get("/api/v1/instances").await;
+    for instance in [&health.assert_ok()["instances"][0], &listed.assert_ok()[0]] {
+        let error = instance["last_sync_error"].as_str().expect("the reason, alone");
+        assert!(!error.is_empty() && !error.contains("error:"), "{instance}");
+        let glued = instance["last_sync_status"].as_str().unwrap();
+        assert_eq!(glued, format!("error: {error}"), "{instance}");
+    }
 }
 
+/// An id the interface itself sent is a client fault and stays English, as in Radarr and
+/// Sonarr.
 #[tokio::test]
 async fn a_refusal_about_what_was_typed_is_translated() {
     let app = TestApp::new().await;
@@ -467,9 +461,7 @@ async fn each_language_advertises_its_completion() {
     assert_eq!(english["completion"], 100, "the source language is complete by definition");
 }
 
-/// A fresh installation states its language rather than leaving the field
-/// empty for every reader to fill in with a fallback of its own, and speaks
-/// it: a run's reasons read in English.
+/// It states its language rather than leaving each reader a fallback of its own.
 #[tokio::test]
 async fn a_fresh_installation_speaks_english_by_default() {
     let app = TestApp::new().await;
@@ -483,9 +475,7 @@ async fn a_fresh_installation_speaks_english_by_default() {
     assert!(reasons[0].as_str().unwrap().contains("Original language"), "{reasons:?}");
 }
 
-/// A key a language leaves untranslated is English, both in the dictionary
-/// the interface loads and in the refusals the server words. Every shipped
-/// language is complete, so a partial one only the tests know stands in.
+/// Every shipped language is complete, so a partial one only the tests know stands in.
 #[tokio::test]
 async fn a_key_a_language_leaves_untranslated_is_served_in_english() {
     let english = TestApp::new().await.get("/api/v1/localization").await.json["strings"].clone();
@@ -506,9 +496,7 @@ async fn a_key_a_language_leaves_untranslated_is_served_in_english() {
     assert_eq!(refused.json["message"], english["CategoryNameRefused"]);
 }
 
-/// A setting typed by hand and refused by the server alone is refused in the
-/// interface language, naming the field: Settings shows it in a banner, away
-/// from the field.
+/// Settings shows it in a banner, away from the field, so the message names the field.
 #[tokio::test]
 async fn a_typed_setting_is_refused_in_the_interface_language() {
     let app = TestApp::new().await;
@@ -522,6 +510,7 @@ async fn a_typed_setting_is_refused_in_the_interface_language() {
         ),
         ("certification_regions", " , ", "Régions de certification\u{a0}: au moins un code pays"),
         ("certification_regions", "FR, FRA", "«\u{a0}FRA\u{a0}»"),
+        ("certification_regions", "FR, XX", "XX"),
     ] {
         let refused =
             app.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } })).await;
@@ -531,8 +520,7 @@ async fn a_typed_setting_is_refused_in_the_interface_language() {
     }
 }
 
-/// The name of a rule test is typed on the Tests screen, so its refusal is too
-/// read in the interface language.
+/// The name is typed on the Tests screen.
 #[tokio::test]
 async fn a_rule_test_without_a_name_is_refused_in_the_interface_language() {
     let app = TestApp::new().await;
@@ -593,7 +581,7 @@ async fn a_bundle_from_a_newer_routarr_is_refused_in_the_interface_language() {
     let read = [("version", "3"), ("last", "2")];
     assert_eq!(rules.message(), in_french("ErrorRuleBundleVersion", &read));
     assert_eq!(configuration.status, 400);
-    let read = [("version", "3"), ("supported", "1")];
+    let read = [("version", "3"), ("supported", "2")];
     assert_eq!(configuration.message(), in_french("ErrorBundleVersion", &read));
 }
 

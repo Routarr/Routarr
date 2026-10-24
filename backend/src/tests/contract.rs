@@ -296,11 +296,46 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
 struct Checker {
     document: Value,
     seen: BTreeSet<(String, String, String)>,
+    /// The `Location` of each 201 the walk has not read back yet.
+    unfollowed: BTreeSet<String>,
 }
 
 impl Checker {
     fn new() -> Self {
-        Self { document: described(), seen: BTreeSet::new() }
+        Self { document: described(), seen: BTreeSet::new(), unfollowed: BTreeSet::new() }
+    }
+
+    /// The documented route a path under `/api/v1` is an instance of, for `method`.
+    fn route_of(&self, method: &str, path: &str) -> Option<String> {
+        let sent: Vec<&str> = path.trim_matches('/').split('/').collect();
+        let paths = self.document["paths"].as_object().unwrap();
+        paths
+            .iter()
+            .filter(|(_, item)| item[method.to_lowercase()].is_object())
+            .map(|(route, _)| route)
+            .find(|route| {
+                let template: Vec<&str> = route.trim_matches('/').split('/').collect();
+                template.len() == sent.len()
+                    && template.iter().zip(&sent).all(|(part, sent)| {
+                        part == sent || (part.starts_with('{') && part.ends_with('}'))
+                    })
+            })
+            .cloned()
+    }
+
+    /// Read back, as the same caller, what a 201 says it created: RFC 9110 names the resource
+    /// at its `Location`, and the contract says it is found there.
+    async fn follow(&mut self, app: &TestApp, created: &TestResponse) {
+        let location = created.location().expect("a creation names its resource");
+        let path = location.strip_prefix("/api/v1").unwrap_or(&location);
+        let route = self.route_of("GET", path);
+        let route = route.unwrap_or_else(|| panic!("no documented read at {location}"));
+        let read = app.get(&location).await;
+        self.check("GET", &route, 200, &read);
+        if let Some(id) = created.json.get("id") {
+            assert_eq!(&read.json["id"], id, "{location} names another resource");
+        }
+        self.unfollowed.remove(&location);
     }
 
     fn check(&mut self, method: &str, route: &str, expected: u16, response: &TestResponse) {
@@ -319,7 +354,11 @@ impl Checker {
 
         let mut root = schema.clone();
         root["components"] = self.document["components"].clone();
-        let validator = jsonschema::validator_for(&root).expect("the schema compiles");
+        // Formats asserted: by default 2020-12 lets a zoneless timestamp pass as a `date-time`.
+        let validator = jsonschema::options()
+            .should_validate_formats(true)
+            .build(&root)
+            .expect("the schema compiles");
         let errors: Vec<String> = validator
             .iter_errors(&response.json)
             .map(|error| format!("{} at {}", error, error.instance_path()))
@@ -330,11 +369,12 @@ impl Checker {
             errors.join("\n"),
             response.json
         );
-        // A creation says where the new resource is, as the contract states.
+        // A creation answers the documented `Location` of its resource, which the walk follows.
         if response.status == StatusCode::CREATED {
             let location = response.location().unwrap_or_default();
             assert!(location.starts_with("/api/v1/"), "{method} {route} answered no Location");
             assert!(responses["201"]["headers"]["Location"].is_object(), "{method} {route}");
+            self.unfollowed.insert(location);
         }
         if response.status.is_success() {
             self.seen.insert((method.to_string(), route.to_string(), status));
@@ -422,12 +462,16 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     let pin = json!({ "media_id": "m-1", "target_category": "anime", "reason": "a test" });
     let set = app.post("/api/v1/exceptions", pin).await;
     checker.check("POST", "/exceptions", 201, &set);
+    checker.follow(&app, &set).await;
     checker.check("GET", "/exceptions", 200, &app.get("/api/v1/exceptions").await);
     let exception = set.json["id"].as_str().unwrap();
     let removed = app.delete(&format!("/api/v1/exceptions/{exception}")).await;
     checker.check("DELETE", "/exceptions/{id}", 200, &removed);
     let kept = app.post("/api/v1/library/m-1/keep", json!({ "reason": "a test" })).await;
     checker.check("POST", "/library/{id}/keep", kept.status.as_u16(), &kept);
+    if kept.status == StatusCode::CREATED {
+        checker.follow(&app, &kept).await;
+    }
     let asked = app.post("/api/v1/decisions/revert-all", json!({})).await;
     assert_eq!(asked.status, StatusCode::CONFLICT, "{}", asked.json);
     checker.check("POST", "/decisions/revert-all", 409, &asked);
@@ -521,6 +565,7 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     let documented = checker.documented_successes();
     let missed: Vec<_> = documented.difference(&checker.seen).collect();
     assert!(missed.is_empty(), "documented successes never checked: {missed:?}");
+    assert!(checker.unfollowed.is_empty(), "created and never read: {:?}", checker.unfollowed);
 }
 
 /// What a configuring application reads and writes: the instances, the
@@ -556,6 +601,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     );
     let declared = declared.await;
     checker.check("POST", "/root-folders", 201, &declared);
+    checker.follow(app, &declared).await;
     let folder = declared.json["id"].as_str().unwrap().to_string();
     let mapping = format!("/api/v1/root-folders/{folder}/category");
     let mapped = app.put(&mapping, json!({ "category": null })).await;
@@ -564,6 +610,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     checker.check("DELETE", "/root-folders/{id}", 200, &removed);
     let created = app.post("/api/v1/categories", json!({ "name": "docs" })).await;
     checker.check("POST", "/categories", 201, &created);
+    checker.follow(app, &created).await;
     let category = created.json["id"].as_str().unwrap().to_string();
     let renaming = format!("/api/v1/categories/{category}");
     let renamed = app.put(&renaming, json!({ "name": "documentaries" })).await;
@@ -589,12 +636,14 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     checker.check("POST", "/rules/preview", 200, &preview);
     let created = app.post("/api/v1/rules", draft.clone()).await;
     checker.check("POST", "/rules", 201, &created);
+    checker.follow(app, &created).await;
     let rule = created.json["id"].as_str().unwrap().to_string();
     checker.check("GET", "/rules/{id}", 200, &app.get(&format!("/api/v1/rules/{rule}")).await);
     let updated = app.put(&format!("/api/v1/rules/{rule}"), draft).await;
     checker.check("PUT", "/rules/{id}", 200, &updated);
     let copied = app.post(&format!("/api/v1/rules/{rule}/duplicate"), json!({})).await;
     checker.check("POST", "/rules/{id}/duplicate", 201, &copied);
+    checker.follow(app, &copied).await;
     let ids: Vec<Value> = app
         .get("/api/v1/rules")
         .await
@@ -611,6 +660,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     checker.check("POST", "/rules/templates/{id}/preview", 200, &template);
     let template = app.post("/api/v1/rules/templates/anime/import", json!({})).await;
     checker.check("POST", "/rules/templates/{id}/import", 201, &template);
+    checker.follow(app, &template).await;
     let bundle = app.get("/api/v1/rules/export").await.json.clone();
     let imported =
         app.post("/api/v1/rules/import", json!({ "bundle": bundle, "replace": false })).await;
@@ -621,6 +671,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     let pinned =
         app.post("/api/v1/rule-tests", json!({ "name": "A case", "media_id": media })).await;
     checker.check("POST", "/rule-tests", 201, &pinned);
+    checker.follow(app, &pinned).await;
     checker.check(
         "POST",
         "/rule-tests/run",
@@ -694,4 +745,87 @@ fn each_published_vocabulary_is_the_one_its_type_writes() {
             &document["components"]["schemas"][schema]["properties"][field]["x-extensible-enum"];
         assert_eq!(published, &values, "{schema}.{field}");
     }
+}
+
+/// The words of a published description written between backticks.
+fn backticked(description: &str) -> BTreeSet<&str> {
+    description.split('`').skip(1).step_by(2).collect()
+}
+
+/// A script branches on a warning's code: the contract lists every one Routarr writes, and no
+/// code it never writes.
+#[test]
+fn the_contract_lists_every_warning_code_and_no_other() {
+    let document = described();
+    let description =
+        document["components"]["schemas"]["Warning"]["properties"]["code"]["description"]
+            .as_str()
+            .expect("the codes are described");
+    let codes: BTreeSet<&str> = crate::api::health::CODES.iter().map(|(code, _)| *code).collect();
+    assert_eq!(backticked(description), codes);
+}
+
+/// Every `reason` the source writes, read from the files under `src/` the tests are not in: a
+/// literal beside `reason`, the first argument of a `refused` helper, or a constant one names.
+fn reasons_written() -> BTreeSet<String> {
+    fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() && !path.ends_with("tests") {
+                walk(&path, files);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    let quoted = |rest: &str| -> Option<String> {
+        let word: String = rest
+            .strip_prefix('"')?
+            .chars()
+            .take_while(|c| c.is_ascii_lowercase() || *c == '_')
+            .collect();
+        (!word.is_empty()).then_some(word)
+    };
+    let mut files = Vec::new();
+    walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+    let mut found = BTreeSet::new();
+    for file in files {
+        let source = std::fs::read_to_string(&file).unwrap();
+        let source = source.split("#[cfg(test)]").next().unwrap_or_default();
+        for marker in ["reason: ", "\"reason\": ", "refused("] {
+            for (at, _) in source.match_indices(marker) {
+                let rest = &source[at + marker.len()..];
+                if let Some(word) = quoted(rest) {
+                    found.insert(word);
+                } else if marker == "reason: " {
+                    let constant: String =
+                        rest.chars().take_while(|c| c.is_ascii_uppercase() || *c == '_').collect();
+                    let declared = format!("const {constant}: &str = ");
+                    if let Some(at) = source.find(&declared).filter(|_| !constant.is_empty()) {
+                        found.extend(quoted(&source[at + declared.len()..]));
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A script tells a wait from a refusal by the published list of reasons, so the list holds
+/// every one the code writes. `file_exists` is the command line's alone.
+#[test]
+fn every_reason_the_code_writes_is_listed() {
+    let document = described();
+    let description =
+        document["components"]["schemas"]["ErrorResponse"]["properties"]["reason"]["description"]
+            .as_str()
+            .expect("the reasons are described");
+    let listed = backticked(description);
+    let written = reasons_written();
+    assert!(written.len() > 20 && written.contains("backup_just_taken"), "{written:?}");
+    let missing: Vec<&String> = written
+        .iter()
+        .filter(|reason| reason.as_str() != "file_exists" && !listed.contains(reason.as_str()))
+        .collect();
+    assert!(missing.is_empty(), "written and not listed: {missing:?}");
 }

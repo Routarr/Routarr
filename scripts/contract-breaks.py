@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What `scripts/check-api-breaks.sh` asks of the contract besides oasdiff.
 
-    python3 scripts/contract-breaks.py RELEASED.json CURRENT.json [ACCEPTED.txt]
+    python3 scripts/contract-breaks.py [--routes MAIN.rs] RELEASED.json CURRENT.json [ACCEPTED.txt]
 
 oasdiff compares the operations, and reads neither the scope an operation is
 granted under nor a schema no operation returns. Two promises live there:
@@ -12,12 +12,16 @@ granted under nor a schema no operation returns. Two promises live there:
 - The notification webhook receives a `Notification`, and no operation returns
   one. A receiver reads it whole, the schemas it names included: a property
   removed, a type changed or a field no longer required breaks it.
+- A deprecated path is kept for the clients of a release. One no release
+  published keeps nobody's script working, and is removed instead. MAIN.rs,
+  the release's route table, adds the owner's routes its contract leaves out.
 
 Prints one line per break and exits 1 when there is any. A break written whole as a line of
 ACCEPTED, the release's list of breaks it names in its notes, is not one.
 """
 
 import json
+import re
 import sys
 
 PAYLOADS = ["Notification"]
@@ -38,6 +42,22 @@ def scope_changes(released: dict, current: dict) -> list[str]:
         f"x-routarr-scope changed on {operation}: {scope} in the release, {after[operation]} now"
         for operation, scope in sorted(before.items())
         if scope and operation in after and after[operation] != scope
+    ]
+
+
+def routed(main: str) -> set[str]:
+    """The paths a route table (`backend/src/main.rs`) mounts, under `/api/v1`."""
+    return set(re.findall(r'\.route\(\s*"(/[^"]*)"', main))
+
+
+def unreleased_deprecations(released: dict, current: dict, routes: set[str] = frozenset()) -> list[str]:
+    """The deprecated operations of `current` whose path neither `released` nor its `routes` held."""
+    published = set(released.get("paths", {})) | set(routes)
+    return [
+        f"{method.upper()} {route} is deprecated, and no release published it: remove it"
+        for route, item in sorted(current.get("paths", {}).items())
+        for method, operation in item.items()
+        if isinstance(operation, dict) and operation.get("deprecated") and route not in published
     ]
 
 
@@ -95,11 +115,16 @@ def unaccepted(problems: list[str], accepted: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    routes: set[str] = set()
+    if len(argv) > 2 and argv[1] == "--routes":
+        with open(argv[2]) as file:
+            routes = routed(file.read())
+        argv = [argv[0], *argv[3:]]
     with open(argv[1]) as file:
         released = json.load(file)
     with open(argv[2]) as file:
         current = json.load(file)
-    problems = scope_changes(released, current)
+    problems = scope_changes(released, current) + unreleased_deprecations(released, current, routes)
     for name in PAYLOADS:
         problems += payload_breaks(released, current, name)
     if len(argv) > 3:

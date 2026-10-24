@@ -696,7 +696,7 @@ describe('importing a configuration', () => {
 
   /** What the summary says of `BUNDLE`. */
   const RESTORED =
-    'Restored. Settings: 3, categories: 1, instances: 0, mappings: 0, rules: 0, exceptions: 0.';
+    'Restored. Settings: 3, categories: 1, instances: 0, mappings: 0, rules: 0, exceptions: 0, rule tests: 0.';
 
   const BUNDLE = {
     settings: 3,
@@ -705,6 +705,7 @@ describe('importing a configuration', () => {
     root_folders: 0,
     overrides: 0,
     rules: 0,
+    rule_tests: 0,
     skipped: [],
     needs_key: [],
     adjusted: [],
@@ -790,10 +791,6 @@ describe('importing a configuration', () => {
     await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(before));
   });
 
-  /**
-   * An import is a save of every setting at once, and a save applies the
-   * theme. Left to the next reload, the screen would keep the old one.
-   */
   it('applies the imported theme at once', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ ui_theme: 'dark' });
@@ -818,7 +815,6 @@ describe('importing a configuration', () => {
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 
-  /** The import wrote every setting, so an edit made before it is replaced, not kept. */
   it('replaces an unsaved edit with the values it wrote', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ global_dry_run: 'true', batch_limit: '50' });
@@ -838,10 +834,6 @@ describe('importing a configuration', () => {
     expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
   });
 
-  /**
-   * The same when the settings cannot be read back at once: the edit carried
-   * over the values a later Retry reads would be written over the import.
-   */
   it('drops an edit made before it even when the read after it fails', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ global_dry_run: 'true' });
@@ -862,7 +854,6 @@ describe('importing a configuration', () => {
     expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
   });
 
-  /** An instance restored without its key is restored: amber and named, never a refusal. */
   it('names the instances waiting for their API key without calling them refused', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue({
       ...BUNDLE,
@@ -875,13 +866,12 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
 
     const summary = await screen.findByText(
-      'Restored. Settings: 3, categories: 1, instances: 2, mappings: 0, rules: 0, exceptions: 0. Instances waiting for their API key: Radarr, Sonarr',
+      'Restored. Settings: 3, categories: 1, instances: 2, mappings: 0, rules: 0, exceptions: 0, rule tests: 0. Instances waiting for their API key: Radarr, Sonarr',
     );
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  /** Part restored and part refused is a partial result, each refusal on a line of its own. */
   it('reports what it could not restore, until the next import', async () => {
     const importConfig = vi
       .spyOn(api, 'importConfig')
@@ -911,6 +901,7 @@ describe('importing a configuration', () => {
       root_folders: 0,
       overrides: 0,
       rules: 0,
+      rule_tests: 0,
       skipped: ['setting "colour": unknown'],
       needs_key: [],
       adjusted: [],
@@ -921,16 +912,34 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
 
     const summary = await screen.findByText(
-      'Restored. Settings: 0, categories: 0, instances: 0, mappings: 0, rules: 0, exceptions: 0. Not restored: 1',
+      'Restored. Settings: 0, categories: 0, instances: 0, mappings: 0, rules: 0, exceptions: 0, rule tests: 0. Not restored: 1',
     );
     expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
   });
+
+  /** A bundle carries the rule tests, and one restoring them alone restored something. */
+  it('counts the rule tests an import restored', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue({
+      ...BUNDLE,
+      settings: 0,
+      categories: 0,
+      rule_tests: 2,
+      skipped: [
+        "Rule test 'Totoro': no instance here is named 'Radarr', the one that held its title.",
+      ],
+    });
+    mount({});
+    await openSection('Maintenance');
+
+    await importFile({ version: 2 });
+
+    const summary = await screen.findByText(
+      'Restored. Settings: 0, categories: 0, instances: 0, mappings: 0, rules: 0, exceptions: 0, rule tests: 2. Not restored: 1',
+    );
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+  });
 });
 
-/**
- * The card shows only where the middleware reads a key: `none` and `external` resolve an
- * identity before they look at the header. Where a key can be rotated, the card mints one.
- */
 describe('the API key card', () => {
   // Who may come in is the Security section's.
   beforeEach(() => window.history.replaceState({}, '', '/settings#security'));
@@ -980,11 +989,6 @@ describe('the API key card', () => {
     expect(await screen.findByRole('button', { name: 'Create a key' })).toBeInTheDocument();
   });
 
-  /**
-   * A key the environment states cannot be replaced from here: the new one
-   * would last until the next restart. A button that quietly expires is worse
-   * than no button.
-   */
   it('offers no button when the environment pins the key, and says why', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: true });
 
@@ -994,10 +998,6 @@ describe('the API key card', () => {
     expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull();
   });
 
-  /**
-   * Shown once, with the proof sent, and kept nowhere: this browser holds a
-   * session, not the key.
-   */
   it('shows what it just minted, once, and keeps no copy', async () => {
     const rotate = vi.spyOn(api, 'rotateApiKey').mockResolvedValue({ api_key: 'the-new-one' });
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
@@ -1060,11 +1060,6 @@ describe('the API key card', () => {
   });
 });
 
-/**
- * The backend bounds every number and refuses a payload outside them, but only
- * after Save, naming a key in a tab the operator may never have opened. The
- * field says so first, and Save waits.
- */
 describe('a number outside its bounds', () => {
   it('disables Save and marks the field, until it is back in range', async () => {
     mount({ batch_limit: '50' });
@@ -1106,7 +1101,6 @@ describe('a number outside its bounds', () => {
     );
   });
 
-  /** From another tab, the field that holds Save is out of sight. */
   it('marks the tab that holds a value outside its bounds', async () => {
     mount({ batch_limit: '50' });
     await openSection('Guardrails');
@@ -1124,11 +1118,6 @@ describe('a number outside its bounds', () => {
 });
 
 describe('a refused save', () => {
-  /**
-   * A write that failed is not a load to try again. Offered a Retry, the
-   * refusal would reload the settings and reseed the form, and every unsaved
-   * change in every section would go with it.
-   */
   it('offers no retry, and keeps every edit', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
@@ -1145,7 +1134,6 @@ describe('a refused save', () => {
     expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
   });
 
-  /** Save guards against a second press while one runs, and a refusal ends the run. */
   it('sends the next save once the refused one is answered', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
@@ -1164,7 +1152,6 @@ describe('a refused save', () => {
     await waitFor(() => expect(screen.queryByText('The batch limit is out of range')).toBeNull());
   });
 
-  /** Save waits for a read that succeeded, and only Retry gives it one. */
   it('holds Save while the settings cannot be read', async () => {
     mount({ global_dry_run: 'true' });
     vi.mocked(api.getSettings)
@@ -1189,11 +1176,6 @@ describe('a refused save', () => {
     );
   });
 
-  /**
-   * A reload after a failed load takes the stored values and keeps what was
-   * edited meanwhile. Reseeded, the edit is lost. Kept alone, every field the
-   * failed load never delivered is saved as its fallback.
-   */
   it('keeps an edit across a reload, over the values it reads', async () => {
     mount({ global_dry_run: 'true', batch_limit: '25' });
     vi.mocked(api.getSettings)
@@ -1249,7 +1231,6 @@ describe('the getting-started guide', () => {
     }
   });
 
-  /** A link to another section of the screen on display moves no route, only the fragment. */
   it('opens the section a link names without leaving the screen', async () => {
     window.history.replaceState({}, '', '/settings#general');
     mount({});

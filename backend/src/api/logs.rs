@@ -21,7 +21,8 @@ pub struct LogEntry {
     pub decision_id: Option<String>,
     /// `move`, or `revert` for a move taken back. An open list.
     pub action: String,
-    /// Where the title went, from and to.
+    /// Where the title was and where the write sent it, the origin empty when Routarr did not
+    /// know it.
     pub details: Option<String>,
     /// Whether the Arr took the write.
     pub success: bool,
@@ -194,8 +195,9 @@ async fn write_csv(
     mut sender: futures::channel::mpsc::Sender<Chunk>,
 ) {
     use futures::SinkExt;
-    let mut chunk = String::from(
-        "executed_at,action,actor,subject,success,media_title,details,error_message\n",
+    let mut chunk = format!(
+        "{BYTE_ORDER_MARK}executed_at,action,actor,subject,success,media_title,details,\
+         error_message\n"
     );
     let mut last: Option<(String, String)> = None;
     let mut written = 0;
@@ -231,7 +233,7 @@ async fn write_csv(
             let entry = shown_entry(&identity, &localizer, entry);
             chunk.push_str(&format!(
                 "{},{},{},{},{},{},{},{}\n",
-                csv_field(&entry.executed_at),
+                csv_field(&crate::timestamp::written(&entry.executed_at)),
                 csv_field(&entry.action),
                 csv_field(entry.actor.as_deref().unwrap_or("")),
                 csv_field(entry.subject.as_deref().unwrap_or("")),
@@ -294,6 +296,10 @@ fn build_filters(query: &LogFilter) -> (String, Vec<String>) {
 
     (filters, binds)
 }
+
+/// What a CSV export starts with: Excel on Windows reads a file without it in the system's
+/// code page, which garbles every title outside ASCII.
+pub(crate) const BYTE_ORDER_MARK: char = '\u{feff}';
 
 /// Quote a field (RFC 4180), since details carry paths and upstream bodies whose commas and
 /// newlines would shift every column. A title comes from public metadata or a filename, and one

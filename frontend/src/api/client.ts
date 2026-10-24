@@ -444,9 +444,11 @@ export const api = {
   getFolderSuggestions: (signal?: AbortSignal) =>
     request<FolderSuggestion[]>('/root-folders/suggestions', { signal }),
   dismissFolderSuggestion: (id: string) =>
-    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'POST' }),
+    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'PUT' }),
   restoreFolderSuggestion: (id: string) =>
-    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'DELETE' }),
+    request<{ deleted: boolean }>(`/root-folders/${encodeURIComponent(id)}/dismissal`, {
+      method: 'DELETE',
+    }),
   updateRootFolderCategory: (id: string, category: string | null, addToSet = false) =>
     request<unknown>(`/root-folders/${id}/category`, {
       method: 'PUT',

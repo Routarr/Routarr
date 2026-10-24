@@ -178,27 +178,22 @@ async fn refuse_a_lost_master_key(
 const WEBHOOK_ROUTE: &str = "/webhook/{instance_id}/{token}";
 
 async fn api_not_found() -> Response {
-    (
-        StatusCode::NOT_FOUND,
-        axum::Json(serde_json::json!({
-            "error": "not_found",
-            "message": "No such API route.",
-        })),
-    )
-        .into_response()
+    error::ErrorResponse::new("not_found", "No such API route.").answered(StatusCode::NOT_FOUND)
 }
 
 /// A path that exists, asked with a method it does not take. The router adds
 /// the `Allow` header that lists the ones it does.
-async fn api_method_not_allowed() -> Response {
-    (
-        StatusCode::METHOD_NOT_ALLOWED,
-        axum::Json(serde_json::json!({
-            "error": "method_not_allowed",
-            "message": "This API route does not take this method.",
-        })),
+async fn api_method_not_allowed(matched: Option<axum::extract::MatchedPath>) -> Response {
+    let mut response = error::ErrorResponse::new(
+        "method_not_allowed",
+        "This API route does not take this method.",
     )
-        .into_response()
+    .answered(StatusCode::METHOD_NOT_ALLOWED);
+    let route = matched.as_ref().map(|matched| api::deprecated::under_the_api(matched.as_str()));
+    if route.and_then(api::deprecated::replacement).is_some() {
+        api::deprecated::mark(response.headers_mut());
+    }
+    response
 }
 
 /// What the request span records as the path: the webhook route as its template, since its
@@ -213,6 +208,7 @@ fn loggable_path(request: &axum::extract::Request) -> String {
 /// Assemble the API, middleware stack and static frontend.
 fn build_router(state: AppState) -> Router {
     let config = Arc::clone(&state.config);
+    std::sync::LazyLock::force(&api::metrics::STARTED);
 
     // The routes outside the middleware. The liveness probe reveals nothing about the library.
     let public = Router::new()
@@ -225,9 +221,9 @@ fn build_router(state: AppState) -> Router {
         .route("/auth/logout", post(api::auth::logout))
         // The contract describes the software, and a client reads it before it holds a key.
         .route("/openapi.json", get(api::contract::serve));
-    // Each way in exists in its own mode only, or `/auth/login` checks a stale `forms` password.
     // A sign-in body is small, so an anonymous caller cannot send the size other routes take.
     let signing_in = DefaultBodyLimit::max(SIGN_IN_BODY_MAX);
+    // Each way in exists in its own mode only, or `/auth/login` checks a stale `forms` password.
     let public = match config.auth_mode {
         AuthMode::Forms => public.route("/auth/login", post(api::auth::login).layer(signing_in)),
         // Both ends outside the middleware: no session on the way out, none on the redirect back.
@@ -251,7 +247,10 @@ fn build_router(state: AppState) -> Router {
         .route("/auth/sessions", get(api::account::sessions).delete(api::account::end_sessions))
         .route("/auth/sessions/{handle}", delete(api::account::end_session))
         .route("/applications", get(api::applications::list).post(api::applications::create))
-        .route("/applications/{id}", delete(api::applications::revoke))
+        .route(
+            "/applications/{id}",
+            get(api::applications::get_one).delete(api::applications::revoke),
+        )
         .route("/status", get(api::health::status))
         .route("/health", get(api::health::health_check))
         // Behind the key, since it names instances. Prometheus authenticates as a bearer token.
@@ -268,16 +267,24 @@ fn build_router(state: AppState) -> Router {
         .route("/instances/{id}/remove-missing", post(api::instances::remove_missing))
         .route("/instances/{id}/webhook-token", post(api::instances::rotate_webhook_token))
         .route("/root-folders", get(api::root_folders::list).post(api::root_folders::create))
-        .route("/root-folders/{id}", axum::routing::delete(api::root_folders::delete))
+        .route(
+            "/root-folders/{id}",
+            get(api::root_folders::get_one).delete(api::root_folders::delete),
+        )
         .route("/root-folders/conflicts", get(api::root_folders::conflicts))
         .route("/root-folders/suggestions", get(api::root_folders::suggestions))
         .route(
             "/root-folders/{id}/dismissal",
-            post(api::root_folders::dismiss).delete(api::root_folders::undismiss),
+            put(api::root_folders::dismiss).delete(api::root_folders::undismiss),
         )
         .route("/root-folders/{id}/category", put(api::root_folders::update_category))
         .route("/categories", get(api::categories::list).post(api::categories::create))
-        .route("/categories/{id}", put(api::categories::rename).delete(api::categories::remove))
+        .route(
+            "/categories/{id}",
+            get(api::categories::get_one)
+                .put(api::categories::rename)
+                .delete(api::categories::remove),
+        )
         .route("/rules", get(api::rules::list).post(api::rules::create))
         .route("/rules/export", get(api::rules::export))
         .route("/rules/import", post(api::rules::import))
@@ -291,7 +298,7 @@ fn build_router(state: AppState) -> Router {
         .route("/rule-tests/run", post(api::rule_tests::run))
         .route("/rules/health", get(api::rules::health))
         .route("/library/facets", get(api::media::facets))
-        .route("/rule-tests/{id}", delete(api::rule_tests::delete))
+        .route("/rule-tests/{id}", get(api::rule_tests::get_one).delete(api::rule_tests::delete))
         .route("/rules/reorder", post(api::rules::reorder))
         .route(
             "/rules/{id}",
@@ -314,7 +321,7 @@ fn build_router(state: AppState) -> Router {
             "/exceptions/external",
             put(api::overrides::pin_external).delete(api::overrides::unpin_external),
         )
-        .route("/exceptions/{id}", delete(api::overrides::remove))
+        .route("/exceptions/{id}", get(api::overrides::get_one).delete(api::overrides::remove))
         .route("/tasks", get(api::jobs::list))
         .route("/tasks/{id}", get(api::jobs::get_one))
         .route("/tasks/{id}/cancel", post(api::jobs::cancel))
@@ -358,7 +365,7 @@ fn build_router(state: AppState) -> Router {
             "/overrides/external",
             put(api::overrides::pin_external).delete(api::overrides::unpin_external),
         )
-        .route("/overrides/{id}", delete(api::overrides::remove))
+        .route("/overrides/{id}", get(api::overrides::get_one).delete(api::overrides::remove))
         .route("/jobs", get(api::jobs::list))
         .route("/jobs/{id}", get(api::jobs::get_one))
         .route("/jobs/{id}/cancel", post(api::jobs::cancel))
@@ -368,11 +375,12 @@ fn build_router(state: AppState) -> Router {
         .route("/media/facets", get(api::media::facets))
         .route("/media/{id}", get(api::media::get_one))
         .route("/media/{id}/explain", get(api::media::explain))
-        .route("/media/{id}/keep", post(api::overrides::keep))
         .route("/metadata/providers", get(api::metadata::list))
         .route("/metadata/refresh", post(api::metadata::refresh))
-        .route_layer(middleware::from_fn_with_state(state.clone(), api::deprecated::signal))
-        .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));
+        .route_layer(middleware::from_fn_with_state(state.clone(), api::deprecated::count))
+        .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate))
+        // Around the key's check, so its refusals say the path is deprecated too.
+        .route_layer(middleware::from_fn(api::deprecated::signal));
 
     // Authenticated by their own per-instance token, outside the API-key middleware.
     let webhooks = Router::new()
@@ -380,7 +388,7 @@ fn build_router(state: AppState) -> Router {
         .route("/webhook/{instance_id}", post(api::webhook::receive_with_header))
         .layer(DefaultBodyLimit::max(api::webhook::BODY_MAX));
 
-    // A JSON 404 for any miss under the API prefix, or a typo answers `index.html` with a 200.
+    // A JSON 404 for a miss under `/api/v1`, and under any other `/api` from `misses_the_page`.
     let api_routes = public
         .merge(protected)
         .merge(webhooks)
@@ -414,8 +422,26 @@ const SIGN_IN_BODY_MAX: usize = 16 * 1024;
 
 /// How long a request body may take to arrive, whole. A body sent a byte at a
 /// time would otherwise hold its connection open as long as the sender likes.
-/// The largest body taken is 2 MiB, seconds on the slowest link.
+/// Every body but the anime table's is 2 MiB at most, seconds on the slowest link.
 pub(crate) const BODY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The anime table's, up to 64 MiB (`services::anime_ids::MAX_BYTES`): a megabit a second.
+pub(crate) const IMPORT_BODY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The one route whose body may take [`IMPORT_BODY_DEADLINE`] to arrive, as `build_router`
+/// mounts it.
+const ANIME_IDS_IMPORT: &str = "/sources/anime-ids/import";
+
+/// The body of `request` held to its route's deadline, past which it reads as an error the
+/// extractors answer 408 for.
+async fn body_deadline(request: axum::extract::Request, next: middleware::Next) -> Response {
+    let matched = request.extensions().get::<axum::extract::MatchedPath>();
+    let import = matched.is_some_and(|matched| matched.as_str().ends_with(ANIME_IDS_IMPORT));
+    let deadline = if import { IMPORT_BODY_DEADLINE } else { BODY_DEADLINE };
+    let (parts, body) = request.into_parts();
+    let body = axum::body::Body::new(tower_http::timeout::DeadlineBody::new(deadline, body));
+    next.run(axum::extract::Request::from_parts(parts, body)).await
+}
 
 /// The layers every API request passes through, around `routes`, shared with the tests
 /// that make a handler panic, since a `.layer()` wraps only the routes registered before it.
@@ -426,10 +452,11 @@ where
     let proxies: Arc<[config::Network]> = proxies.into();
     routes
         // The span carries the request id, set outermost, so a logged failure matches its click.
-        .layer(TraceLayer::new_for_http().make_span_with(request_span))
+        // No line per 5xx: `AppError` logs each with its cause, at the level the fault deserves.
+        .layer(TraceLayer::new_for_http().make_span_with(request_span).on_failure(()))
         // Inside the request-id layers, so a panic's answer still carries its `X-Request-Id`.
         .layer(CatchPanicLayer::custom(panic_response))
-        .layer(tower_http::timeout::RequestBodyDeadlineLayer::new(BODY_DEADLINE))
+        .layer(middleware::from_fn(body_deadline))
         .layer(middleware::map_response(not_stored))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
@@ -517,14 +544,8 @@ pub(crate) fn log_panics() {
 /// What a panicking handler answers, in the envelope every error shares, so the interface
 /// appends the request id to it as to any 5xx.
 pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Response {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        axum::Json(serde_json::json!({
-            "error": "internal_error",
-            "message": "Something went wrong. The request id is in the response headers.",
-        })),
-    )
-        .into_response()
+    let message = "Something went wrong. The request id is in the response headers.";
+    error::ErrorResponse::new("internal_error", message).answered(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Headers every response carries. `script-src 'self'` keeps injected markup from running.
@@ -569,18 +590,22 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
     let page = index_html(config);
 
     // Its strings are added per request and never cached, since the language can change.
-    let fallback = get(move || {
+    let fallback = axum::routing::any(move |method: axum::http::Method, uri: axum::http::Uri| {
         let page = page.clone();
         let state = state.clone();
         async move {
+            if let Some(miss) = misses_the_page(&method, uri.path()).await {
+                return miss;
+            }
             let html = with_dictionary(&page, &api::localization::answer(&state).await);
-            ([(axum::http::header::CACHE_CONTROL, "no-cache")], Html(html))
+            ([(axum::http::header::CACHE_CONTROL, "no-cache")], Html(html)).into_response()
         }
     });
 
     // Off, or ServeDir answers `/` with index.html off disk and the rewrite never runs.
     let service = ServeDir::new(&config.frontend_dir)
         .append_index_html_on_directories(false)
+        .call_fallback_on_method_not_allowed(true)
         .fallback(fallback);
     let service = Router::new()
         .fallback_service(service)
@@ -593,6 +618,23 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
         // Mounted under a sub-path, anything outside it is not ours to answer.
         app.nest_service(&config.base_path, service)
     }
+}
+
+/// What a path the interface's files do not hold answers instead of the page, `path` relative
+/// to the mount point: the API's 404 under `/api`, whatever its version, a bare 404 for a file
+/// of `assets/` (a chunk a tab opened before an upgrade asks for), and a 405 to a write.
+async fn misses_the_page(method: &axum::http::Method, path: &str) -> Option<Response> {
+    if path == "/api" || path.starts_with("/api/") {
+        return Some(api_not_found().await);
+    }
+    if path.starts_with("/assets/") {
+        return Some(StatusCode::NOT_FOUND.into_response());
+    }
+    if method != axum::http::Method::GET && method != axum::http::Method::HEAD {
+        let allow = [(axum::http::header::ALLOW, "GET,HEAD")];
+        return Some((StatusCode::METHOD_NOT_ALLOWED, allow).into_response());
+    }
+    None
 }
 
 /// A file under `assets/` is named after a hash of its content, so a browser may keep it
@@ -685,12 +727,16 @@ fn cors_layer(config: &Config) -> CorsLayer {
             // `respond-async`, which the contract documents for a long call.
             axum::http::HeaderName::from_static("prefer"),
         ])
-        // What a page needs to follow a 202 and to report a failure, the request id included.
+        // Exposed so a page's script can read them: CORS hides every other response header.
         .expose_headers([
             axum::http::header::LOCATION,
             axum::http::header::RETRY_AFTER,
             axum::http::HeaderName::from_static("preference-applied"),
             axum::http::HeaderName::from_static("x-request-id"),
+            axum::http::HeaderName::from_static("deprecation"),
+            axum::http::header::LINK,
+            axum::http::HeaderName::from_static("x-routarr-truncated"),
+            axum::http::header::CONTENT_DISPOSITION,
         ])
         .allow_credentials(true)
 }

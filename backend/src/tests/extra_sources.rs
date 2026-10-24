@@ -854,7 +854,7 @@ fn tvdb_logins(sources: &FakeSources) -> Vec<String> {
         .collect()
 }
 
-/// A PIN saved on the Sources screen is the one the login carries, over
+/// A PIN saved on the Metadata sources screen is the one the login carries, over
 /// `TVDB_SUBSCRIBER_PIN`: otherwise saving one looks done and changes nothing.
 #[tokio::test]
 async fn a_saved_tvdb_pin_reaches_the_login_over_the_environment() {

@@ -20,12 +20,14 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/status", Scope::Read),
     ("GET", "/metrics", Scope::Read),
     ("GET", "/categories", Scope::Read),
+    ("GET", "/categories/{id}", Scope::Read),
     ("GET", "/library", Scope::Read),
     ("GET", "/library/{id}", Scope::Read),
     ("GET", "/library/{id}/explain", Scope::Read),
     ("GET", "/route", Scope::Read),
     ("GET", "/decisions", Scope::Read),
     ("GET", "/exceptions", Scope::Read),
+    ("GET", "/exceptions/{id}", Scope::Read),
     ("GET", "/tasks", Scope::Read),
     ("GET", "/tasks/{id}", Scope::Read),
     ("GET", "/move-log", Scope::Read),
@@ -34,6 +36,7 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/instances", Scope::Read),
     ("GET", "/instances/{id}", Scope::Read),
     ("GET", "/root-folders", Scope::Read),
+    ("GET", "/root-folders/{id}", Scope::Read),
     ("GET", "/root-folders/conflicts", Scope::Read),
     ("GET", "/rules", Scope::Read),
     ("GET", "/rules/{id}", Scope::Read),
@@ -42,6 +45,7 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/rules/health", Scope::Read),
     ("GET", "/rules/export", Scope::Read),
     ("GET", "/rule-tests", Scope::Read),
+    ("GET", "/rule-tests/{id}", Scope::Read),
     ("GET", "/library/facets", Scope::Read),
     ("GET", "/sources", Scope::Read),
     // The list only: an archive holds the master key that seals every credential.
@@ -124,6 +128,15 @@ pub fn asked(request: &axum::extract::Request) -> (String, Option<Scope>) {
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Application>>> {
     Ok(Json(applications::list(&state.pool).await?))
+}
+
+/// One key not revoked, as the list shows it: its token is never readable again.
+pub async fn get_one(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Application>> {
+    let found = applications::list(&state.pool).await?.into_iter().find(|key| key.id == id);
+    found.map(Json).ok_or_else(|| AppError::NotFound(format!("Application key {id} not found")))
 }
 
 /// A key asked for, with the proof a session gives (`api::account::prove`).

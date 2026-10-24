@@ -1,6 +1,6 @@
-//! Exporting and restoring the configuration: rules, folder mappings and the
-//! overrides no resync brings back, keyed by meaning, since ids and sealed keys
-//! belong to one installation. A full backup is `services::backup`.
+//! Exporting and restoring the configuration: rules, folder mappings, declared destinations,
+//! rule tests and the overrides no resync brings back, keyed by meaning, since ids and sealed
+//! keys belong to one installation. A full backup is `services::backup`.
 
 use super::Json;
 use axum::extract::State;
@@ -10,8 +10,11 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-/// The version this build writes and is able to read.
-const BUNDLE_VERSION: u32 = 1;
+/// The version this build writes. Version 1 carries no declared destination and no rule test.
+const BUNDLE_VERSION: u32 = 2;
+
+/// The oldest version this build reads.
+const OLDEST_BUNDLE_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +34,26 @@ pub struct ConfigBundle {
     pub overrides: Vec<Override>,
     #[serde(default)]
     pub rules: Vec<crate::models::BundledRule>,
+    // Left out when empty, so an older release refuses the bundle by its version, not its field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_tests: Vec<BundledRuleTest>,
+}
+
+/// A rule test as it was pinned, its title's instance by name.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BundledRuleTest {
+    pub name: String,
+    pub expected_category: String,
+    /// The instance that held the title. `None` once the exporting installation lost it.
+    pub instance_name: Option<String>,
+    /// The pinned `Media`, without its `instance_id`, which `instance_name` stands for.
+    pub media: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    pub evaluated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_media_title: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,13 +93,17 @@ fn on() -> bool {
     true
 }
 
-/// A folder mapping, keyed by what means the same thing on another machine.
+/// A folder mapping, keyed by what means the same thing on another machine, or a destination
+/// declared in Routarr, which no sync brings back, mapped or not.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RootFolderMapping {
     pub instance_name: String,
     pub path: String,
-    pub category: String,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub declared: bool,
 }
 
 /// A human decision about one media, keyed by its external identity.
@@ -142,18 +169,24 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
     })
     .collect();
 
-    let root_folders: Vec<RootFolderMapping> = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT i.name, rf.path, rf.category
-           FROM root_folders rf
-           JOIN instances i ON i.id = rf.instance_id
-          WHERE rf.category IS NOT NULL AND rf.category != ''
-          ORDER BY i.name, rf.path",
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|(instance_name, path, category)| RootFolderMapping { instance_name, path, category })
-    .collect();
+    let root_folders: Vec<RootFolderMapping> =
+        sqlx::query_as::<_, (String, String, Option<String>, bool)>(
+            "SELECT i.name, rf.path, NULLIF(rf.category, ''), rf.origin = 'declared'
+               FROM root_folders rf
+               JOIN instances i ON i.id = rf.instance_id
+              WHERE (rf.category IS NOT NULL AND rf.category != '') OR rf.origin = 'declared'
+              ORDER BY i.name, rf.path",
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(instance_name, path, category, declared)| RootFolderMapping {
+            instance_name,
+            path,
+            category,
+            declared,
+        })
+        .collect();
 
     type OverrideRow = (String, String, String, Option<i64>, Option<i64>, String, Option<String>);
     let overrides: Vec<Override> = sqlx::query_as::<_, OverrideRow>(
@@ -182,6 +215,38 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
 
     let rules = super::rules::bundled_rules(pool).await?;
 
+    type TestRow = (String, String, Option<String>, String, String, Option<String>, Option<String>);
+    let tests: Vec<TestRow> = sqlx::query_as(
+        "SELECT t.name, t.media_json, t.metadata_json, t.evaluated_at, t.expected_category,
+                t.source_media_title, i.name
+           FROM rule_tests t
+           LEFT JOIN instances i ON i.id = json_extract(t.media_json, '$.instance_id')
+          ORDER BY t.name, t.created_at, t.id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut rule_tests = Vec::with_capacity(tests.len());
+    for (name, media, metadata, evaluated_at, expected_category, source_media_title, instance) in
+        tests
+    {
+        // A snapshot that does not read travels as it is stored: the import says it is unreadable.
+        let read =
+            |raw: String| serde_json::from_str(&raw).unwrap_or(serde_json::Value::String(raw));
+        let mut media = read(media);
+        if let Some(fields) = media.as_object_mut() {
+            fields.remove("instance_id");
+        }
+        rule_tests.push(BundledRuleTest {
+            name,
+            expected_category,
+            instance_name: instance,
+            media,
+            metadata: metadata.map(read),
+            evaluated_at,
+            source_media_title,
+        });
+    }
+
     Ok(Json(ConfigBundle {
         version: BUNDLE_VERSION,
         exported_at: Some(super::rules::exported_now()),
@@ -191,6 +256,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
         root_folders,
         overrides,
         rules,
+        rule_tests,
     }))
 }
 
@@ -213,6 +279,7 @@ pub struct ImportReport {
     pub root_folders: usize,
     pub overrides: usize,
     pub rules: usize,
+    pub rule_tests: usize,
     /// Everything that could not be restored, and why, so nothing drops silently.
     pub skipped: Vec<String>,
     /// The instances restored disabled, by name, each waiting for its API key.
@@ -237,7 +304,7 @@ pub async fn import(
     .with("rules", req.bundle.rules.len());
     let bundle = req.bundle;
     let localizer = state.localizer().await;
-    if bundle.version != BUNDLE_VERSION {
+    if !(OLDEST_BUNDLE_VERSION..=BUNDLE_VERSION).contains(&bundle.version) {
         return Err(AppError::BadRequest(localizer.translate(
             "ErrorBundleVersion",
             &[("version", &bundle.version.to_string()), ("supported", &BUNDLE_VERSION.to_string())],
@@ -418,20 +485,59 @@ pub async fn import(
     // Matched on instance name and path, which mean the same on another machine.
     for mapping in &bundle.root_folders {
         // In the form the category loop writes, or `Anime` names a row nobody holds.
-        let category = crate::api::categories::stored_form(&mapping.category);
+        let category = mapping.category.as_deref().map(crate::api::categories::stored_form);
 
         // No foreign key guards a category, so a mapping naming a missing one routes nowhere.
         let mapped = [
             ("path", mapping.path.as_str()),
-            ("category", mapping.category.as_str()),
+            ("category", mapping.category.as_deref().unwrap_or_default()),
             ("instance", mapping.instance_name.as_str()),
         ];
-        if !categories.contains(&category) {
+        let missing = category.as_ref().is_some_and(|category| !categories.contains(category));
+
+        let instance_id = ids.get(&super::instances::name_key(&mapping.instance_name));
+        // No sync brings a declared destination back, so it is declared again, then mapped.
+        if mapping.declared {
+            let Some(instance_id) = instance_id else {
+                report.skipped.push(skip("ImportSkippedDestinationNoInstance", &mapped));
+                continue;
+            };
+            let path = match super::root_folders::destination(&mapping.path, &localizer) {
+                Ok(path) => path,
+                Err(e) => {
+                    let reason = e.public_message();
+                    let values = [mapped.as_slice(), &[("reason", reason.as_str())]].concat();
+                    report.skipped.push(skip("ImportSkippedDestination", &values));
+                    continue;
+                }
+            };
+            super::root_folders::declare_in(&mut tx, instance_id, &path).await?;
+            report.root_folders += 1;
+            match category {
+                Some(_) if missing => {
+                    report.skipped.push(skip("ImportSkippedMappingNoCategory", &mapped));
+                }
+                Some(category) => {
+                    sqlx::query(
+                        "UPDATE root_folders SET category = ?
+                          WHERE path = ? COLLATE path AND instance_id = ?",
+                    )
+                    .bind(&category)
+                    .bind(&path)
+                    .bind(instance_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                None => {}
+            }
+            continue;
+        }
+        if missing {
             report.skipped.push(skip("ImportSkippedMappingNoCategory", &mapped));
             continue;
         }
+        let Some(category) = category else { continue };
 
-        let instance_id = ids.get(&super::instances::name_key(&mapping.instance_name));
         let affected = sqlx::query(
             "UPDATE root_folders SET category = ? WHERE path = ? COLLATE path AND instance_id = ?",
         )
@@ -553,13 +659,110 @@ pub async fn import(
         report.rules += 1;
     }
 
+    for test in &bundle.rule_tests {
+        let by = identity.attribution();
+        match restore_rule_test(&mut tx, test, &ids, &categories, &by).await? {
+            Restored::Written => report.rule_tests += 1,
+            Restored::AlreadyHere => report
+                .adjusted
+                .push(skip("ImportRuleTestAlreadyPresent", &[("name", test.name.trim())])),
+            Restored::Refused(key, values) => {
+                let values: Vec<(&str, &str)> =
+                    values.iter().map(|(name, value)| (*name, value.as_str())).collect();
+                report.skipped.push(skip(key, &values));
+            }
+        }
+    }
+
     tx.commit().await?;
+    // As `POST /rule-tests` does: a test restored failing holds auto-apply from now.
+    if report.rule_tests > 0
+        && let Err(e) = crate::services::rule_tests::check(&state).await
+    {
+        tracing::warn!("The rule tests did not run after an import: {e}");
+    }
     // As `PUT /settings` does: archives above a lowered retention go now.
     if bundle.settings.iter().any(|setting| setting.key == "backup_retention_count") {
         crate::services::backup::retention_changed(&state, identity.attribution()).await;
     }
     crate::api::auth::audited(&state, &identity, client, bundled);
     Ok(Json(report))
+}
+
+/// What became of one bundled rule test.
+enum Restored {
+    Written,
+    AlreadyHere,
+    /// The key saying why, and its values.
+    Refused(&'static str, Vec<(&'static str, String)>),
+}
+
+/// Store `test` as `POST /rule-tests` stores one, its title on the instance of the same name
+/// here, unless one alike is already in place.
+async fn restore_rule_test(
+    tx: &mut sqlx::SqliteConnection,
+    test: &BundledRuleTest,
+    ids: &std::collections::HashMap<String, String>,
+    categories: &[String],
+    by: &crate::jobs::Attribution,
+) -> AppResult<Restored> {
+    let name = test.name.trim().to_string();
+    let named = |key, more: &[(&'static str, String)]| {
+        Restored::Refused(key, [vec![("name", name.clone())], more.to_vec()].concat())
+    };
+    let Some(instance) = test.instance_name.as_deref() else {
+        return Ok(named("ImportSkippedRuleTestNoInstance", &[]));
+    };
+    let Some(instance_id) = ids.get(&super::instances::name_key(instance)) else {
+        return Ok(named("ImportSkippedRuleTestInstance", &[("instance", instance.to_string())]));
+    };
+    let expected = crate::api::categories::stored_form(&test.expected_category);
+    if !categories.contains(&expected) {
+        return Ok(named("ImportSkippedRuleTestCategory", &[("category", expected)]));
+    }
+    let mut media = test.media.clone();
+    if let Some(fields) = media.as_object_mut() {
+        fields.insert("instance_id".into(), instance_id.clone().into());
+    }
+    let evaluated_at = crate::services::routing::parse_timestamp(&test.evaluated_at);
+    let read = serde_json::from_value::<crate::models::Media>(media.clone()).ok();
+    let (Some(read), Some(evaluated_at)) = (read, evaluated_at) else {
+        return Ok(named("ImportSkippedRuleTestUnreadable", &[]));
+    };
+    if !matches!(read.media_type.as_str(), "movie" | "series") {
+        return Ok(named("ImportSkippedRuleTestUnreadable", &[]));
+    }
+    let media_json = serde_json::to_string(&read)?;
+    let here: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM rule_tests
+                        WHERE name = ? AND expected_category = ? AND media_json = ?)",
+    )
+    .bind(&name)
+    .bind(&expected)
+    .bind(&media_json)
+    .fetch_one(&mut *tx)
+    .await?;
+    if here {
+        return Ok(Restored::AlreadyHere);
+    }
+    sqlx::query(
+        "INSERT INTO rule_tests (id, name, media_type, media_json, metadata_json, evaluated_at,
+         expected_category, source_media_title, subject, subject_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&name)
+    .bind(&read.media_type)
+    .bind(&media_json)
+    .bind(test.metadata.as_ref().map(serde_json::to_string).transpose()?)
+    .bind(crate::services::routing::format_timestamp(evaluated_at))
+    .bind(&expected)
+    .bind(&test.source_media_title)
+    .bind(&by.subject)
+    .bind(&by.key)
+    .execute(&mut *tx)
+    .await?;
+    Ok(Restored::Written)
 }
 
 /// The category names in the table and those `bundle` creates, through the

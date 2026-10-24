@@ -59,6 +59,27 @@ class Payload(unittest.TestCase):
         self.assertEqual(contract_breaks.payload_breaks(CONTRACT, current, "Notification"), [])
 
 
+class Deprecations(unittest.TestCase):
+    def test_a_deprecated_path_no_release_published_is_named(self):
+        current = copy.deepcopy(CONTRACT)
+        current["paths"]["/never/released"] = {"post": {"deprecated": True, "responses": {}}}
+        self.assertEqual(
+            contract_breaks.unreleased_deprecations(CONTRACT, current),
+            ["POST /never/released is deprecated, and no release published it: remove it"],
+        )
+
+    def test_a_deprecated_path_of_the_release_is_not(self):
+        self.assertEqual(contract_breaks.unreleased_deprecations(CONTRACT, CONTRACT), [])
+
+    def test_an_owner_route_the_release_mounted_is_released(self):
+        current = copy.deepcopy(CONTRACT)
+        current["paths"]["/jobs/{id}/cancel"] = {"post": {"deprecated": True, "responses": {}}}
+        main = '        .route("/jobs/{id}/cancel", post(api::jobs::cancel))\n'
+        routes = contract_breaks.routed(main)
+        self.assertEqual(routes, {"/jobs/{id}/cancel"})
+        self.assertEqual(contract_breaks.unreleased_deprecations(CONTRACT, current, routes), [])
+
+
 class Scopes(unittest.TestCase):
     def test_a_scope_changed_either_way_is_named(self):
         current = copy.deepcopy(CONTRACT)

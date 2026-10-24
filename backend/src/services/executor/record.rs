@@ -148,9 +148,9 @@ pub(super) async fn record_held(pool: &SqlitePool, mv: &PendingMove, held: &ArrM
     }
 }
 
-/// What the log says a move did.
+/// What the log says a move did or was to do, the origin empty when Routarr did not know it.
 pub(super) fn moved_between(mv: &PendingMove) -> String {
-    format!("{} → {}", mv.from.as_deref().unwrap_or("(unknown)"), mv.to)
+    format!("{} → {}", mv.from.as_deref().unwrap_or_default(), mv.to)
 }
 
 /// Record a move the Arr made, the decision and the title's row together: an `applied` decision
@@ -277,7 +277,7 @@ pub(super) async fn record_failure(
     }
 
     let stored = Some(failed.stored.as_str());
-    log_execution(&state.pool, by, direction.action(), "failed", false, stored, mv).await;
+    log_execution(&state.pool, by, direction.action(), &moved_between(mv), false, stored, mv).await;
 }
 
 /// One execution log line for a move or a revert. Mind the names: `actor` holds the trigger,
@@ -318,5 +318,32 @@ pub(super) async fn log_execution(
     .await;
     if let Err(e) = written {
         error!(decision = %mv.decision_id, "The execution log entry could not be written: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The move log is read in every language, so an origin Routarr never knew is left blank
+    /// rather than named in English.
+    #[test]
+    fn a_move_from_a_folder_routarr_did_not_know_leaves_the_origin_blank() {
+        let mv = PendingMove {
+            decision_id: "d-1".into(),
+            media_id: "m-1".into(),
+            media_title: "Totoro".into(),
+            instance_id: "inst-1".into(),
+            arr_id: 10,
+            from: None,
+            to: "/movies/anime".into(),
+            media_type: "movie".into(),
+            tmdb_id: None,
+            tvdb_id: None,
+            imdb_id: None,
+        };
+        assert_eq!(moved_between(&mv), " → /movies/anime");
+        let known = PendingMove { from: Some("/movies/standard".into()), ..mv };
+        assert_eq!(moved_between(&known), "/movies/standard → /movies/anime");
     }
 }

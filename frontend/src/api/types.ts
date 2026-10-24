@@ -43,7 +43,10 @@ export interface Instance {
   last_sync_at: string | null;
   /** When one was last attempted, successful or not. */
   last_sync_attempt_at: string | null;
+  /** @deprecated `success`, or `error: ` and the reason. Read `last_sync_error`. */
   last_sync_status: string | null;
+  /** Why the last sync failed, in the interface language. Null when it succeeded. */
+  last_sync_error: string | null;
   /** The webhook address with its token in it, for an Arr that sends no header. */
   webhook_url: string | null;
   /** The address without the token, which goes in `X-Routarr-Token`. */
@@ -106,6 +109,9 @@ export interface Category {
   created_at: string;
   rule_count: number;
   root_folder_count: number;
+  /** Exceptions pinning a title to it: a removal is refused while any count is above 0. */
+  exception_count: number;
+  rule_test_count: number;
 }
 
 /** Discriminated by `type`. The shape of `value` follows the condition catalog. */
@@ -896,7 +902,9 @@ export interface Health {
     detail: string | null;
     version: string | null;
     last_sync: string | null;
+    /** @deprecated Read `last_sync_error`. */
     last_sync_status: string | null;
+    last_sync_error: string | null;
     media_count: number;
     mapped_root_folders: number;
     last_webhook_at: string | null;
@@ -1015,6 +1023,7 @@ export interface ConfigImportReport {
   root_folders: number;
   overrides: number;
   rules: number;
+  rule_tests: number;
   /** Everything not restored, and why. */
   skipped: string[];
   /** The instances restored disabled, by name, each waiting for its API key. */

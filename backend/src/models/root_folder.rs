@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// A root folder synchronized from an Arr instance.
+/// A root folder an Arr reports, or a destination declared in Routarr, told apart by `origin`.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct RootFolder {
     pub id: String,

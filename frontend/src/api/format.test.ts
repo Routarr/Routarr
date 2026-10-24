@@ -1,13 +1,13 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { readBackend } from '../test/backend';
 import {
+  bcp47,
   expiresWithinAWeek,
   idleFor90Days,
   dayStart,
   formatDecimal,
   setFields,
   describeCondition,
-  failureDetail,
   formatBytes,
   formatPercent,
   formatTimestamp,
@@ -18,16 +18,6 @@ import {
   swapped,
   toggled,
 } from './format';
-
-describe('failureDetail', () => {
-  it('keeps the error text and drops the marker the backend puts before it', () => {
-    expect(failureDetail('error: connection refused')).toBe('connection refused');
-  });
-
-  it('leaves a status without the marker as it is', () => {
-    expect(failureDetail('timed out')).toBe('timed out');
-  });
-});
 
 describe('mediaTypeKey', () => {
   it('names each kind of title by its dictionary key', () => {
@@ -181,6 +171,25 @@ describe('describeCondition', () => {
 });
 
 describe('formatTimestamp', () => {
+  /**
+   * A sentence the server writes names a day through its own table of patterns, held to the
+   * date this helper writes by the cases `localization.rs` reads too.
+   */
+  it('writes its date as the server writes one, in every language', () => {
+    const cases = JSON.parse(readBackend('backend/src/date_cases.json')) as {
+      dates: string[];
+      written: Record<string, string[]>;
+    };
+    for (const [language, written] of Object.entries(cases.written)) {
+      const short = new Intl.DateTimeFormat(bcp47(language), {
+        dateStyle: 'short',
+        timeZone: 'UTC',
+      });
+      const days = cases.dates.map((day) => short.format(new Date(`${day}T12:00:00Z`)));
+      expect(days, language).toEqual(written);
+    }
+  });
+
   it('renders a stored UTC timestamp in the configured language', () => {
     // Same instant, two languages: month-first against day-first.
     const en = formatTimestamp('2026-08-22 14:05:57', 'en-US');

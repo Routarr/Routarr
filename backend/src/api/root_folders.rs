@@ -5,6 +5,7 @@ use axum::extract::State;
 
 use super::Path;
 use serde::Serialize;
+use sqlx::AssertSqlSafe;
 
 use crate::error::{AppError, AppResult};
 use crate::models::*;
@@ -13,17 +14,30 @@ use crate::state::AppState;
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<RootFolderWithInstance>>> {
     Ok(Json(
-        sqlx::query_as(
-            "SELECT rf.id, rf.instance_id, rf.arr_id, rf.path, rf.free_space, rf.accessible,
-             rf.category, rf.last_synced_at, rf.last_accessible_at, rf.origin,
-             i.name AS instance_name, i.instance_type
-             FROM root_folders rf
-             JOIN instances i ON rf.instance_id = i.id
-             ORDER BY i.name, rf.path",
-        )
-        .fetch_all(&state.pool)
-        .await?,
+        sqlx::query_as(AssertSqlSafe(format!("{WITH_INSTANCE} ORDER BY i.name, rf.path")))
+            .fetch_all(&state.pool)
+            .await?,
     ))
+}
+
+/// Every folder with its instance's name and kind, as the list and a read of one select it.
+const WITH_INSTANCE: &str =
+    "SELECT rf.id, rf.instance_id, rf.arr_id, rf.path, rf.free_space, rf.accessible,
+     rf.category, rf.last_synced_at, rf.last_accessible_at, rf.origin,
+     i.name AS instance_name, i.instance_type
+     FROM root_folders rf
+     JOIN instances i ON rf.instance_id = i.id";
+
+pub async fn get_one(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<RootFolderWithInstance>> {
+    let found: Option<RootFolderWithInstance> =
+        sqlx::query_as(AssertSqlSafe(format!("{WITH_INSTANCE} WHERE rf.id = ?")))
+            .bind(&id)
+            .fetch_optional(&state.pool)
+            .await?;
+    found.map(Json).ok_or_else(|| AppError::NotFound("No such folder".into()))
 }
 
 /// A mapping problem the user should resolve.
@@ -34,7 +48,7 @@ pub struct MappingConflict {
     /// its last look, mapped or not. `orphaned_mapping`: a folder is mapped to a category that no
     /// longer exists.
     pub kind: String,
-    /// `error` for what routing cannot settle, `warning` for the rest.
+    /// `warning` for every kind today. An open list.
     pub severity: String,
     /// The instance it is about.
     pub instance_name: Option<String>,
@@ -44,8 +58,8 @@ pub struct MappingConflict {
     pub message: String,
 }
 
-/// Surface duplicate, missing and unusable mappings, and any disagreement
-/// between Routarr's configuration and what the Arrs report.
+/// Surface missing and unusable mappings, and any disagreement between Routarr's
+/// configuration and what the Arrs report.
 pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<MappingConflict>>> {
     let pool = &state.pool;
     let localizer = state.localizer().await;
@@ -141,24 +155,7 @@ pub async fn create(
     Json(req): Json<DeclareRootFolder>,
 ) -> AppResult<super::Created<Declared>> {
     let localizer = state.localizer().await;
-    // A share to Windows and a plain folder to Linux, so read one way or the
-    // other it is somewhere the operator did not mean.
-    if req.path.trim().starts_with("//") {
-        return Err(AppError::BadRequest(localizer.translate("ErrorDestinationTwoSlashes", &[])));
-    }
-    // As the Arr writes it once trimmed: `/data/movies/4k` for an Arr in a
-    // Linux container, `D:\Media\4K` or `\\nas\films` for one on Windows.
-    if !crate::paths::is_absolute(&req.path) {
-        return Err(AppError::BadRequest(localizer.translate("ErrorDestinationAbsolute", &[])));
-    }
-    let path = crate::paths::trimmed(&req.path);
-    // A path climbing out of a folder would take that folder's free space
-    // and reachability, and weigh its moves as renames on that volume.
-    if !crate::paths::is_plain(&path) {
-        return Err(AppError::BadRequest(
-            localizer.translate("ErrorDestinationNotPlain", &[("path", &path)]),
-        ));
-    }
+    let path = destination(&req.path, &localizer)?;
 
     let instance = state.instance(&req.instance_id).await?;
 
@@ -191,6 +188,57 @@ pub async fn create(
     }
 
     crate::race::checked("root_folders::declare", &req.instance_id).await;
+    let mut connection = state.pool.acquire().await?;
+    let declared =
+        declare_in(&mut connection, &req.instance_id, &path).await.map_err(|e| match e {
+            AppError::Database(e) => gone_instance(e, &req.instance_id),
+            other => other,
+        })?;
+    let Some(id) = declared else {
+        return Err(AppError::Conflict {
+            reason: "already_listed",
+            message: localizer.translate("ErrorDestinationAlreadyListed", &[("path", &path)]),
+        });
+    };
+
+    let declared = Declared { id: id.clone(), path, verified: seen == Some(true) };
+    Ok(super::Created::at(&state, format!("/root-folders/{id}"), declared))
+}
+
+/// A destination's path as it is stored, or why it is refused: written as the Arr writes it once
+/// trimmed, `/data/movies/4k` for an Arr in a Linux container, `D:\Media\4K` or `\\nas\films`
+/// for one on Windows.
+pub(crate) fn destination(
+    raw: &str,
+    localizer: &crate::localization::Localizer,
+) -> AppResult<String> {
+    // A share to Windows and a plain folder to Linux, so read one way or the
+    // other it is somewhere the operator did not mean.
+    if raw.trim().starts_with("//") {
+        return Err(AppError::BadRequest(localizer.translate("ErrorDestinationTwoSlashes", &[])));
+    }
+    if !crate::paths::is_absolute(raw) {
+        return Err(AppError::BadRequest(localizer.translate("ErrorDestinationAbsolute", &[])));
+    }
+    let path = crate::paths::trimmed(raw);
+    // A path climbing out of a folder would take that folder's free space
+    // and reachability, and weigh its moves as renames on that volume.
+    if !crate::paths::is_plain(&path) {
+        return Err(AppError::BadRequest(
+            localizer.translate("ErrorDestinationNotPlain", &[("path", &path)]),
+        ));
+    }
+    Ok(path)
+}
+
+/// Declare `path` on the instance, and give it the free space and reachability of the Arr's
+/// folder holding it now rather than at the next sync. Its id, or `None` when the instance
+/// already lists the folder.
+pub(crate) async fn declare_in(
+    connection: &mut sqlx::SqliteConnection,
+    instance_id: &str,
+    path: &str,
+) -> AppResult<Option<String>> {
     let id = format!("rf-declared-{}", uuid::Uuid::new_v4());
     // `/x` and `/x/` are one folder, as are `D:\X` and `d:/x/`: the guard compares through the
     // path collation, and the statement is its own check.
@@ -201,27 +249,18 @@ pub async fn create(
                              WHERE instance_id = ? AND path = ? COLLATE path)",
     )
     .bind(&id)
-    .bind(&req.instance_id)
-    .bind(&path)
-    .bind(&req.instance_id)
-    .bind(&path)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| gone_instance(e, &req.instance_id))?
+    .bind(instance_id)
+    .bind(path)
+    .bind(instance_id)
+    .bind(path)
+    .execute(&mut *connection)
+    .await?
     .rows_affected();
     if inserted == 0 {
-        return Err(AppError::Conflict {
-            reason: "already_listed",
-            message: localizer.translate("ErrorDestinationAlreadyListed", &[("path", &path)]),
-        });
+        return Ok(None);
     }
-
-    // Now rather than at the next sync, so the new row shows its free space and reachability.
-    let mut connection = state.pool.acquire().await?;
-    crate::services::sync::inherit_declared(&mut connection, &req.instance_id).await?;
-
-    let declared = Declared { id: id.clone(), path, verified: seen == Some(true) };
-    Ok(super::Created::at(&state, format!("/root-folders/{id}"), declared))
+    crate::services::sync::inherit_declared(connection, instance_id).await?;
+    Ok(Some(id))
 }
 
 /// An instance removed since it was read leaves the insert pointing at
@@ -363,16 +402,19 @@ pub async fn suggestions(State(state): State<AppState>) -> AppResult<Json<Vec<Fo
     Ok(Json(found))
 }
 
-/// `POST /root-folders/{id}/dismissal`: the folder's suggestion stays hidden, through syncs,
+/// `PUT /root-folders/{id}/dismissal`: the folder's suggestion stays hidden, through syncs,
 /// until shown again.
 pub async fn dismiss(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Dismissal>> {
+    // Compared through the collation: an Arr adopting the folder respells it with its separator.
     let stored = sqlx::query(
         "INSERT INTO folder_suggestion_dismissals (instance_id, path)
-         SELECT instance_id, path FROM root_folders WHERE id = ?
-         ON CONFLICT DO NOTHING",
+         SELECT rf.instance_id, rf.path FROM root_folders rf
+          WHERE rf.id = ?
+            AND NOT EXISTS (SELECT 1 FROM folder_suggestion_dismissals d
+                             WHERE d.instance_id = rf.instance_id AND d.path = rf.path COLLATE path)",
     )
     .bind(&id)
     .execute(&state.pool)
@@ -383,22 +425,24 @@ pub async fn dismiss(
     Ok(Json(Dismissal { dismissed: true }))
 }
 
-/// `DELETE /root-folders/{id}/dismissal`: the folder's suggestion shows again.
+/// `DELETE /root-folders/{id}/dismissal`: the folder's suggestion shows again. `deleted` says
+/// whether it was dismissed.
 pub async fn undismiss(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<Dismissal>> {
+) -> AppResult<Json<super::Deleted>> {
     if !folder_exists(&state, &id).await? {
         return Err(AppError::NotFound("No such folder".into()));
     }
-    sqlx::query(
+    let lifted = sqlx::query(
         "DELETE FROM folder_suggestion_dismissals
-          WHERE (instance_id, path) IN (SELECT instance_id, path FROM root_folders WHERE id = ?)",
+          WHERE instance_id = (SELECT instance_id FROM root_folders WHERE id = ?1)
+            AND path = (SELECT path FROM root_folders WHERE id = ?1) COLLATE path",
     )
     .bind(&id)
     .execute(&state.pool)
     .await?;
-    Ok(Json(Dismissal { dismissed: false }))
+    Ok(Json(super::Deleted { deleted: lifted.rows_affected() > 0 }))
 }
 
 async fn folder_exists(state: &AppState, id: &str) -> AppResult<bool> {

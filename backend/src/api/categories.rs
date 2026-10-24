@@ -13,37 +13,56 @@ use crate::state::AppState;
 
 /// `is_default` comes from `AppState::default_category`, the answer `services::routing`
 /// reads, never from a stored flag.
-type CategoryRow = (String, String, Option<String>, bool, i64, String, i64, i64);
+type CategoryRow = (String, String, Option<String>, bool, i64, String, i64, i64, i64, i64);
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryWithUsage>>> {
+    Ok(Json(with_usage(&state, None).await?))
+}
+
+pub async fn get_one(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<CategoryWithUsage>> {
+    let found = with_usage(&state, Some(&id)).await?.pop();
+    found.map(Json).ok_or_else(|| AppError::NotFound(format!("Category {id} not found")))
+}
+
+/// Every category with what holds it, or the one `id` names.
+async fn with_usage(state: &AppState, id: Option<&str>) -> AppResult<Vec<CategoryWithUsage>> {
     let fallback = AppState::default_category(&state.pool).await?;
     let rows: Vec<CategoryRow> = sqlx::query_as(
-        "SELECT c.id, c.name, c.description, c.name = ?,
+        "SELECT c.id, c.name, c.description, c.name = ?1,
                 c.display_order, c.created_at,
                 (SELECT COUNT(*) FROM rules r WHERE r.target_category = c.name),
-                (SELECT COUNT(*) FROM root_folders rf WHERE rf.category = c.name)
-         FROM categories c ORDER BY c.display_order, c.name",
+                (SELECT COUNT(*) FROM root_folders rf WHERE rf.category = c.name),
+                (SELECT COUNT(*) FROM overrides o WHERE o.target_category = c.name),
+                (SELECT COUNT(*) FROM rule_tests t WHERE t.expected_category = c.name)
+         FROM categories c
+         WHERE ?2 IS NULL OR c.id = ?2
+         ORDER BY c.display_order, c.name",
     )
     .bind(&fallback)
+    .bind(id)
     .fetch_all(&state.pool)
     .await?;
 
-    Ok(Json(
-        rows.into_iter()
-            .map(|r| CategoryWithUsage {
-                category: Category {
-                    id: r.0,
-                    name: r.1,
-                    description: r.2,
-                    is_default: r.3,
-                    display_order: r.4,
-                    created_at: r.5,
-                },
-                rule_count: r.6,
-                root_folder_count: r.7,
-            })
-            .collect(),
-    ))
+    Ok(rows
+        .into_iter()
+        .map(|r| CategoryWithUsage {
+            category: Category {
+                id: r.0,
+                name: r.1,
+                description: r.2,
+                is_default: r.3,
+                display_order: r.4,
+                created_at: r.5,
+            },
+            rule_count: r.6,
+            root_folder_count: r.7,
+            exception_count: r.8,
+            rule_test_count: r.9,
+        })
+        .collect())
 }
 
 /// A unique-constraint failure on the name is a conflict, not a server error. The constraint
@@ -194,8 +213,8 @@ pub async fn rename(
     // stored when the references move, whatever another writer did first.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let fallback = AppState::default_category(&mut *tx).await?;
-    let row: Option<CategoryRow> = sqlx::query_as(
-        "SELECT id, name, description, name = ?, display_order, created_at, 0, 0
+    let row: Option<(String, String, Option<String>, bool, i64, String)> = sqlx::query_as(
+        "SELECT id, name, description, name = ?, display_order, created_at
          FROM categories WHERE id = ?",
     )
     .bind(&fallback)
@@ -282,7 +301,10 @@ pub async fn remove(
     // Read from the setting, not from a flag on the row: the guard has to
     // protect the category the engine actually falls back to.
     if name == AppState::default_category(&mut *tx).await? {
-        return Err(AppError::BadRequest("Cannot delete the default category".into()));
+        return Err(AppError::Conflict {
+            reason: "fallback_category",
+            message: localizer.translate("ErrorCategoryIsFallback", &[("name", &name)]),
+        });
     }
 
     // Categories are referenced by name with no foreign key, so deleting one in

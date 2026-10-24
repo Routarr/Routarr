@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# Whether the pinned API contract breaks a client of the last release.
+# Whether the pinned API contract breaks a client of the newest release tag, through oasdiff
+# and `contract-breaks.py`: something removed or renamed, a type changed, an input made
+# required, a value refused, or a response value a client may not know.
 #
 #   scripts/check-api-breaks.sh
 #
-# Compares backend/openapi/v1.json with the same file at the newest release tag,
-# through oasdiff: an operation, a parameter or a field removed or renamed, a
-# type changed, an input made required, a value no longer accepted. Anything
-# added passes. From 1.0 a break belongs in `/api/v2`, never in v1. Before it,
-# a minor release may break v1: each break it accepts is a line of
-# `scripts/api-breaks/since-<tag>.txt`, named in its release notes, and the
-# list goes once the next tag is pushed.
-#
-# It needs the tags and their history (`fetch-depth: 0` in CI). A release that
-# predates the pinned contract has nothing to compare with, and passes.
+# Before 1.0 a release may break v1, each break it accepts a line of
+# `scripts/api-breaks/since-<tag>.txt` named in its notes. From 1.0 a break belongs in `/api/v2`.
+# Needs the tags and their history (`fetch-depth: 0` in CI).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,11 +22,14 @@ if [ -z "$tag" ]; then
 fi
 
 base=$(mktemp)
-trap 'rm -f "$base"' EXIT
+routes=$(mktemp)
+trap 'rm -f "$base" "$routes"' EXIT
 if ! git -C "$ROOT" show "$tag:$CONTRACT" > "$base" 2>/dev/null; then
   echo "$tag has no pinned contract: nothing to compare with."
   exit 0
 fi
+# The release's route table, whose owner routes its contract leaves out.
+git -C "$ROOT" show "$tag:backend/src/main.rs" > "$routes" 2>/dev/null || true
 
 # A list kept past its release would wave through the next one's breaks
 # unread, and from 1.0 there is none to keep.
@@ -57,13 +55,13 @@ if [ -e "$accepted" ]; then
 fi
 
 echo "Comparing $CONTRACT with $tag"
-# What oasdiff does not read: the scope each operation is granted under, and
-# the notification payload no operation returns. Its verdict waits for
-# oasdiff's, so one run reports every break.
+# What oasdiff does not read: each operation's scope, the notification payload, a deprecated path
+# no release published. Its verdict waits for oasdiff's, so one run reports every break.
 extras=0
 accepting=()
 [ -e "$accepted" ] && accepting=("$accepted")
-python3 "$ROOT/scripts/contract-breaks.py" "$base" "$ROOT/$CONTRACT" "${accepting[@]}" || extras=1
+python3 "$ROOT/scripts/contract-breaks.py" --routes "$routes" "$base" "$ROOT/$CONTRACT" \
+  "${accepting[@]}" || extras=1
 # oasdiff grades a removed optional field as information, since a client may
 # not read it. The contract promises no documented field disappears, so
 # `oasdiff-levels.txt` raises that one to an error. A type whose fields another

@@ -229,7 +229,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "refId": "A",
-          "expr": "routarr_decisions_by_status{status=\"pending\"}",
+          "expr": "routarr_decisions{status=\"pending\"}",
           "legendFormat": "pending"
         }
       ],
@@ -260,7 +260,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "refId": "A",
-          "expr": "routarr_decisions_by_status{status=\"failed\"}",
+          "expr": "routarr_decisions{status=\"failed\"}",
           "legendFormat": "failed"
         }
       ],
@@ -472,7 +472,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "refId": "A",
-          "expr": "routarr_decisions_by_category",
+          "expr": "routarr_titles_routed",
           "legendFormat": "{{category}}"
         }
       ],

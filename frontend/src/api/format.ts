@@ -104,12 +104,6 @@ export const METADATA_FIELD_KEY: Record<string, string> = {
 export const mediaTypeKey = (type: MediaType): string => (type === 'movie' ? 'Movies' : 'Series');
 
 /**
- * What a failed sync or probe ran into, past the backend's `error: `. The text comes from the
- * network or the Arr, so a badge says it failed in the reader's language and its title holds this.
- */
-export const failureDetail = (status: string): string => status.replace(/^error: /, '');
-
-/**
  * A path placed in a sentence, in a first strong isolate: in a right-to-left message its leading
  * slash otherwise lands at the far end, and its segments read in the message's direction.
  */

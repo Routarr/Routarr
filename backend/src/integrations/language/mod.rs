@@ -111,6 +111,12 @@ const RETIRED_ALIASES: &[(&str, &str)] = &[
     ("ant", "AN"),
 ];
 
+/// Whether ISO 3166-1 assigns `code` to a country, or TMDB files a country gone under it.
+pub fn is_country_code(code: &str) -> bool {
+    let code = code.trim().to_uppercase();
+    COUNTRIES.iter().any(|(listed, _)| *listed == code) || RETIRED.contains(&code.as_str())
+}
+
 /// Split a comma-separated list of country names into ISO codes.
 pub fn country_codes(list: &str) -> Vec<String> {
     list.split(',').filter_map(country_by_name).collect()

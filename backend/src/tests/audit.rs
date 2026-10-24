@@ -133,6 +133,20 @@ async fn downloading_a_backup_is_logged() {
     let log = capture.contents();
     assert!(log.contains("event=\"backup\"") && log.contains(&name), "{log}");
     assert!(log.contains("client=192.168.1.41"), "{log}");
+
+    // A name of the right shape that no archive holds downloads nothing, and says nothing was.
+    let absent = Request::get("/api/v1/backups/routarr-backup-20990101-000000.zip");
+    let absent = app.send(absent.body(Body::empty()).unwrap()).await;
+    absent.assert_status(StatusCode::NOT_FOUND);
+    app.state.audit.flush().await;
+    let downloads: Vec<String> = sqlx::query_scalar(
+        "SELECT params FROM security_events WHERE message = 'AuditBackupDownloaded'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(downloads.len(), 1, "{downloads:?}");
+    assert!(downloads[0].contains(&name), "{downloads:?}");
 }
 
 /// An Arr's credentials, its webhook token and the archives are credentials like the keys:
@@ -312,6 +326,10 @@ async fn the_export_says_each_event_in_the_configured_language() {
     assert_ne!(french, english, "French falls back to English, which proves nothing here");
     assert!(csv.lines().nth(1).is_some_and(|line| line.contains(&french)), "{csv}");
     assert!(csv.contains("203.0.113.21"), "{csv}");
+    // Without the mark Excel reads the system code page, and without its zone a stamp as local.
+    assert!(csv.starts_with('\u{feff}'), "no byte order mark");
+    let at = csv.lines().nth(1).and_then(|line| line.split(',').next()).unwrap_or_default();
+    assert!(at.starts_with('"') && at.ends_with("Z\""), "{at}");
 }
 
 /// The name shows the owner which application still runs on the expired key.
