@@ -103,7 +103,6 @@ async fn simulate(
             media_type: req.media_type,
             persist: req.persist,
             persist_unchanged: req.persist_unchanged,
-            rules_override: None,
             // Returning 20 000 decisions in one response is a memory spike on
             // both ends. The counters still describe the whole library.
             max_returned: Some(req.max_returned.unwrap_or(1000).clamp(1, 5000)),

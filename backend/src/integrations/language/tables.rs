@@ -2,14 +2,9 @@
 //! every ISO 3166-1 country, from the Debian iso-codes data, with the spellings
 //! the sources write beside ISO's own names.
 
-/// Every language a rule can name, as (ISO 639-1 code, the spellings a source
-/// may use). The first spelling is the one shown, the rest are what
-/// `normalise` accepts.
-///
-/// One table read both ways. A rule is written against the code, which no user
-/// would guess from a library that happens to hold five languages, so the rule
-/// builder offers this rather than what has been synced. The languages Radarr
-/// names come first, in its order.
+/// Every language a rule can name, as (ISO 639-1 code, the spellings a source may use). The
+/// first spelling is the one shown, the rest are what `normalise` accepts. The rule builder
+/// offers the whole table, the languages Radarr names first, in its order.
 pub const LANGUAGES: &[(&str, &[&str])] = &[
     ("en", &["english"]),
     ("fr", &["french"]),

@@ -329,9 +329,8 @@ async fn a_template_suggests_the_category_the_library_already_has() {
     assert_eq!(preview.assert_ok()["creates"], json!([]));
 }
 
-/// Added again, a template offers what it was added with: offering the
-/// suggestions would orphan the category the user mapped, and drop every
-/// requester left unticked.
+/// The suggestions would orphan the category the user mapped and drop every requester left
+/// unticked.
 #[tokio::test]
 async fn the_gallery_offers_a_template_with_the_answers_it_was_added_with() {
     let app = library("en").await;
@@ -440,8 +439,7 @@ async fn each_template_sends_the_titles_it_claims_an_anime_for_all_ages_to_the_c
     assert_eq!(decided["asked"], "alice");
 }
 
-/// The interface's language and English, as TMDB writes them: Norwegian is
-/// `no`, whatever the interface calls it.
+/// Norwegian is `no`, as TMDB writes it, whatever the interface calls it.
 #[tokio::test]
 async fn the_languages_a_household_watches_in_default_to_the_interface_and_english() {
     for (interface, own) in [("fr", "amelie"), ("nb_NO", "kon-tiki")] {
@@ -584,8 +582,7 @@ async fn the_preview_names_the_rule_that_would_keep_titles_from_the_template() {
     assert_eq!(app.count("SELECT COUNT(*) FROM rules").await, 1, "a preview stores nothing");
 }
 
-/// What the preview counts is what adding it routes, and a category it
-/// creates has no folder, said once by the preview rather than by each rule.
+/// A category it creates has no folder, said once by the preview rather than by each rule.
 #[tokio::test]
 async fn the_preview_counts_the_titles_adding_the_template_routes() {
     let app = library("en").await;
@@ -667,18 +664,26 @@ async fn a_requester_tagged_in_several_forms_is_one_person_routed_by_each() {
 #[tokio::test]
 async fn a_rule_bundle_keeps_the_template_each_rule_came_from() {
     let app = library("en").await;
+    app.execute(&["UPDATE media SET quality_profile = 'Ultra-HD' WHERE id = 'amelie'"]).await;
     add(&app, "anime", json!({})).await;
+    add(&app, "4k", json!({ "quality_profiles": ["Ultra-HD"] })).await;
+    async fn marked(app: &TestApp) -> (i64, i64) {
+        let anime = app.count("SELECT COUNT(*) FROM rules WHERE template = 'anime@1'").await;
+        (anime, app.count("SELECT COUNT(*) FROM rules WHERE template = '4k@1'").await)
+    }
 
     let rules = app.get("/api/v1/rules/export").await.assert_ok().clone();
-    assert_eq!(rules["rules"][0]["template"], "anime@1");
+    let carried: Vec<&str> =
+        rules["rules"].as_array().unwrap().iter().filter_map(|r| r["template"].as_str()).collect();
+    assert_eq!(carried, ["4k@1", "anime@1", "anime@1"]);
     let replace = json!({ "bundle": rules, "replace": true });
     app.post("/api/v1/rules/import", replace).await.assert_ok();
-    assert_eq!(app.count("SELECT COUNT(*) FROM rules WHERE template = 'anime@1'").await, 2);
+    assert_eq!(marked(&app).await, (2, 1));
 
     let config = app.get("/api/v1/config/export").await.assert_ok().clone();
     let replace = json!({ "bundle": config, "replace_rules": true });
     app.post("/api/v1/config/import", replace).await.assert_ok();
-    assert_eq!(app.count("SELECT COUNT(*) FROM rules WHERE template = 'anime@1'").await, 2);
+    assert_eq!(marked(&app).await, (2, 1));
 
     let mut forged = rules.clone();
     forged["rules"][0]["template"] = json!("anime; DROP");
@@ -688,8 +693,7 @@ async fn a_rule_bundle_keeps_the_template_each_rule_came_from() {
     assert_eq!(app.count("SELECT COUNT(*) FROM rules WHERE template IS NULL").await, 1);
 }
 
-/// Refused halfway, an addition leaves the rules as they were, the earlier
-/// copy it was replacing included.
+/// The earlier copy the addition was replacing stays too.
 #[tokio::test]
 async fn an_addition_past_the_rule_limit_changes_nothing() {
     let app = library("en").await;

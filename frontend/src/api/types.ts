@@ -1084,11 +1084,14 @@ export interface RuleHealth {
   vetoed: number;
   /** Set only when the rule never wins: the rule taking most of what it matched. */
   shadowed_by: string | null;
+  shadowed_by_id: string | null;
   matched_nothing: boolean;
   /** Another rule with the same name *and* priority: the tie falls to the id. */
   ambiguous_with: string | null;
+  ambiguous_with_id: string | null;
   /** Another rule with identical conditions and target. */
   duplicate_of: string | null;
+  duplicate_of_id: string | null;
 }
 
 export interface RuleHealthReport {

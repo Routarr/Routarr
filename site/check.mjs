@@ -337,7 +337,7 @@ for (const { code } of LANGUAGES) {
     const from = text.indexOf(opening);
     return from < 0 ? '' : text.slice(from, text.indexOf('\n}', from));
   };
-  const conditions = (source('backend/src/api/conditions.rs').match(/const CONDITIONS: &\[Spec\] = &\[[\s\S]*?\n {4}\];/)?.[0]
+  const conditions = (source('backend/src/api/conditions.rs').match(/const CONDITIONS: &\[Spec\] = &\[[\s\S]*?\n *\];/)?.[0]
     .match(/^\s+kind: "/gm) ?? []).length;
   const languages = readdirSync(join(ROOT, '../backend/locales')).filter((file) => file.endsWith('.json')).length;
   const formats = [...block(source('backend/src/services/notify.rs'), 'pub enum Format {').matchAll(/^\s+([A-Z]\w*),$/gm)].map((m) => m[1]);

@@ -4,10 +4,11 @@
 
 use super::TestApp;
 
-/// A configured installation: two categories, a mapped folder, an override.
+/// A configured installation: two categories, a mapped folder, an override, a rule.
 async fn configured() -> TestApp {
     let app = TestApp::new().await;
     app.seed_library().await;
+    app.seed_anime_rule().await;
 
     sqlx::query("INSERT INTO categories (id, name, description) VALUES ('c-k', 'kids', 'Family')")
         .execute(&app.state.pool)
@@ -96,9 +97,8 @@ async fn an_export_leaves_the_notification_webhook_out() {
     assert!(!serialised.contains("hook-secret"), "the address travelled");
 }
 
-/// A bundle exported before a credential was sealed, or edited by hand, carries it in the
-/// clear: the notification address, or a source's key. The import leaves each out and says to
-/// set it again, rather than store a credential that arrived in a shared file.
+/// A bundle edited by hand, or exported before sealing, carries a credential in the clear, which
+/// is never stored from a shared file.
 #[tokio::test]
 async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     let app = TestApp::new().await;
@@ -127,9 +127,7 @@ async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 
-/// A setting this release does not read, from an older release or a later one, is reported
-/// and not stored, where it would sit for ever, unreachable through the API and impossible to
-/// remove. The rest of the bundle is restored.
+/// Stored, it would sit for ever, unreachable through the API and impossible to remove.
 #[tokio::test]
 async fn a_bundle_setting_this_release_does_not_read_is_reported_not_stored() {
     let app = TestApp::new().await;
@@ -285,6 +283,47 @@ async fn a_mapping_whose_folder_is_not_synced_yet_is_reported_not_dropped() {
     );
 }
 
+/// One rule tells two instance names apart, case beyond ASCII and spaces aside: a bundle
+/// naming the instance otherwise maps its folder, pins its title and scopes its rule there.
+#[tokio::test]
+async fn an_instance_name_in_another_case_names_the_same_instance_everywhere() {
+    let target = TestApp::new().await;
+    target.seed_library().await;
+    target.execute(&["UPDATE instances SET name = 'Émissions 4K' WHERE id = 'inst-1'"]).await;
+    let named = " émissions 4k";
+    let bundle = serde_json::json!({
+        "version": 1,
+        "root_folders": [{ "instance_name": named, "path": "/movies/standard", "category": "anime" }],
+        "overrides": [{
+            "media_title": "My Neighbor Totoro", "instance_name": named, "media_type": "movie",
+            "tmdb_id": 8392, "target_category": "anime"
+        }],
+        "rules": [{
+            "name": "Scoped", "media_type": "movie", "target_category": "anime",
+            "conditions": [{ "type": "genre_contains", "value": ["Animation"] }],
+            "instance_names": [named]
+        }]
+    });
+
+    let report = target
+        .post("/api/v1/config/import", serde_json::json!({ "bundle": bundle }))
+        .await
+        .assert_ok()
+        .clone();
+
+    assert_eq!(
+        (report["root_folders"].clone(), report["overrides"].clone(), report["rules"].clone()),
+        (1.into(), 1.into(), 1.into()),
+        "{report}"
+    );
+    let scope: Option<String> =
+        sqlx::query_scalar("SELECT instance_ids FROM rules WHERE name = 'Scoped'")
+            .fetch_one(&target.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(scope.as_deref(), Some(r#"["inst-1"]"#));
+}
+
 /// A rule scoped to the configured installation's instance.
 async fn with_a_scoped_rule(app: &TestApp) {
     let rule = serde_json::json!({
@@ -307,10 +346,9 @@ async fn the_configuration_brings_its_rules_back_scoped_to_the_same_instance() {
     let report =
         target.post("/api/v1/config/import", serde_json::json!({ "bundle": bundle })).await;
 
-    assert_eq!(report.assert_ok()["rules"], 1, "{:?}", report.json);
+    assert_eq!(report.assert_ok()["rules"], 2, "{:?}", report.json);
     let rules = target.get("/api/v1/rules").await.assert_ok().clone();
-    let rule = &rules[0];
-    assert_eq!(rule["name"], "Ghibli");
+    let rule = rules.as_array().unwrap().iter().find(|rule| rule["name"] == "Ghibli").unwrap();
     assert_eq!(rule["exclusions"][0]["value"][0], "Horror");
     let instance: String = sqlx::query_scalar("SELECT id FROM instances WHERE name = 'Radarr'")
         .fetch_one(&target.state.pool)
@@ -329,11 +367,13 @@ async fn the_configuration_rules_join_or_replace_the_rules_in_place() {
     let mut no_rules = bundle.clone();
     no_rules["rules"] = serde_json::json!([]);
 
-    for (sent, replace, expected) in [(&bundle, false, 2), (&bundle, true, 1), (&no_rules, true, 1)]
+    for (sent, replace, expected) in [(&bundle, false, 3), (&bundle, true, 2), (&no_rules, true, 1)]
     {
         let target = TestApp::new().await;
         target.seed_library().await;
         target.seed_anime_rule().await;
+        // Named apart from the bundle's own anime rule, which an append would take as present.
+        target.execute(&["UPDATE rules SET name = 'Anime here'"]).await;
         let request = serde_json::json!({ "bundle": sent, "replace_rules": replace });
         target.post("/api/v1/config/import", request).await.assert_ok();
         let rules = target.count("SELECT COUNT(*) FROM rules").await;
@@ -557,9 +597,9 @@ async fn importing_twice_changes_nothing_the_second_time() {
         .await
         .unwrap();
     assert_eq!(overrides, 1);
+    assert_eq!(second["rules"], 0, "{second}");
+    assert_eq!(target.count("SELECT COUNT(*) FROM rules").await, 1, "the rule was added twice");
 }
-
-// ------------------------------------------------- what a bundle may write
 
 /// A bundle is the settings table's second writer. Everything `PUT /settings`
 /// refuses, it has to refuse too, or the export becomes the way to store what
@@ -898,7 +938,6 @@ async fn a_bundle_cannot_create_a_category_the_api_would_refuse() {
     assert!(!written.iter().any(|n| n.contains(' ') || n.len() > 64), "got {written:?}");
 }
 
-/// And a refused name is not something `default_category` may then point at.
 #[tokio::test]
 async fn a_category_the_bundle_could_not_create_is_not_a_valid_default() {
     let app = configured().await;

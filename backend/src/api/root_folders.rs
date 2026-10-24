@@ -11,51 +11,18 @@ use crate::models::*;
 use crate::services::folder_suggestions::{self, Reason};
 use crate::state::AppState;
 
-type RootFolderRow = (
-    String,
-    String,
-    Option<i64>,
-    String,
-    Option<i64>,
-    bool,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    String,
-    String,
-    String,
-);
-
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<RootFolderWithInstance>>> {
-    let rows: Vec<RootFolderRow> = sqlx::query_as(
-        "SELECT rf.id, rf.instance_id, rf.arr_id, rf.path, rf.free_space, rf.accessible,
-         rf.category, rf.last_synced_at, rf.last_accessible_at, rf.origin, i.name, i.instance_type
-         FROM root_folders rf
-         JOIN instances i ON rf.instance_id = i.id
-         ORDER BY i.name, rf.path",
-    )
-    .fetch_all(&state.pool)
-    .await?;
-
     Ok(Json(
-        rows.into_iter()
-            .map(|r| RootFolderWithInstance {
-                root_folder: RootFolder {
-                    id: r.0,
-                    instance_id: r.1,
-                    arr_id: r.2,
-                    path: r.3,
-                    free_space: r.4,
-                    accessible: r.5,
-                    category: r.6,
-                    last_synced_at: r.7,
-                    last_accessible_at: r.8,
-                    origin: r.9,
-                },
-                instance_name: r.10,
-                instance_type: r.11,
-            })
-            .collect(),
+        sqlx::query_as(
+            "SELECT rf.id, rf.instance_id, rf.arr_id, rf.path, rf.free_space, rf.accessible,
+             rf.category, rf.last_synced_at, rf.last_accessible_at, rf.origin,
+             i.name AS instance_name, i.instance_type
+             FROM root_folders rf
+             JOIN instances i ON rf.instance_id = i.id
+             ORDER BY i.name, rf.path",
+        )
+        .fetch_all(&state.pool)
+        .await?,
     ))
 }
 
@@ -84,14 +51,8 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
     let localizer = state.localizer().await;
     let mut conflicts = Vec::new();
 
-    // Root folders the Arr did not reach on its last look.
-    //
-    // Stated as what it is and when, rather than as a mapping conflict: a NAS
-    // that spins down is reported inaccessible every night, and an error badge
-    // for a disk that is merely asleep is how a diagnostic gets ignored. No
-    // threshold decides which is which: "twenty minutes ago" reads as a nap
-    // and "three days ago" as a fault, and the operator is the one who knows
-    // their hardware.
+    // Root folders the Arr did not reach on its last look, said with when: a NAS that spins
+    // down is unreachable every night, and only the operator knows a nap from a fault.
     let unreachable: Vec<(String, String, Option<String>)> = sqlx::query_as(
         "SELECT i.name, rf.path, rf.last_accessible_at FROM root_folders rf
          JOIN instances i ON i.id = rf.instance_id
@@ -103,9 +64,7 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
     for (instance, path, last_seen) in unreachable {
         conflicts.push(MappingConflict {
             kind: "unreachable_root_folder".into(),
-            // A warning, not an error: the folder is still mapped and still
-            // routed to, and the only thing that will not happen is a write
-            // while it stays quiet.
+            // Still mapped and routed to: only a write waits while it sleeps.
             severity: "warning".into(),
             instance_name: Some(instance),
             category: None,
@@ -120,14 +79,8 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
         });
     }
 
-    // A rule targets a category that no root folder provides on some instance.
-    //
-    // Only instances the rule could actually reach: a `movie` rule can never
-    // route anything into a Sonarr, so telling the user that Sonarr lacks a
-    // folder for `concerts` is a warning they cannot act on. An ordinary setup
-    // (movie categories on Radarr, series categories on Sonarr) would otherwise
-    // fill this page with warnings that never clear, which is exactly how a
-    // warning stops being read.
+    // A rule's category no root folder provides, on the instances the rule can reach only: a
+    // `movie` rule never routes into a Sonarr, and a warning nobody can clear stops being read.
     let unmapped: Vec<(String, String)> = sqlx::query_as(
         "SELECT DISTINCT r.target_category, i.name FROM rules r
          CROSS JOIN instances i
@@ -135,6 +88,8 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
            AND (r.media_type = 'both'
                 OR (r.media_type = 'movie' AND i.instance_type = 'radarr')
                 OR (r.media_type = 'series' AND i.instance_type = 'sonarr'))
+           AND (r.instance_ids IS NULL
+                OR EXISTS (SELECT 1 FROM json_each(r.instance_ids) j WHERE j.value = i.id))
            AND NOT EXISTS (
              SELECT 1 FROM root_folders rf
              WHERE rf.instance_id = i.id AND rf.category = r.target_category
@@ -177,19 +132,10 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
     Ok(Json(conflicts))
 }
 
-/// Declare a destination the Arr does not report.
+/// Declare a destination the Arr does not report, such as a folder beneath one of its roots.
 ///
-/// Without it, a target has to be a root folder in Radarr or Sonarr already,
-/// and routing into `/media/movies/anime` means declaring it *there* first. What
-/// an operator wants is one root folder per Arr and the targets beneath it
-/// declared here.
-///
-/// The path is checked against the **Arr's** filesystem, not against Routarr's:
-/// the two run in different containers as often as not, and a path that exists
-/// here says nothing about the process that will do the writing. An Arr that
-/// cannot be asked does not block the save (refusing on an unavailable probe
-/// would lock the operator out of configuring at the worst moment), but the
-/// answer is reported.
+/// The path is checked against the Arr's filesystem, which may be another container's. An Arr
+/// that cannot be asked does not block the save, and `verified` says so.
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<DeclareRootFolder>,
@@ -216,10 +162,8 @@ pub async fn create(
 
     let instance = state.instance(&req.instance_id).await?;
 
-    // Read here only to answer well: the insert below is what decides, in one
-    // statement. Asked and then inserted, two declarations racing each other
-    // would both pass the question and both land, and no index on the path is
-    // there to catch the second.
+    // Only for a clear answer: the insert below decides in one statement, since no index on the
+    // path would catch two racing declarations.
     let taken: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM root_folders
           WHERE instance_id = ? AND path = ? COLLATE path)",
@@ -248,13 +192,8 @@ pub async fn create(
 
     crate::race::checked("root_folders::declare", &req.instance_id).await;
     let id = format!("rf-declared-{}", uuid::Uuid::new_v4());
-    // A declared folder shares `root_folders` with the ones the Arrs report,
-    // told apart by `origin`: a table of its own would put a `UNION` in
-    // `routing::load_context` and in every executor join.
-    //
-    // `/x` and `/x/` are one folder, as are `D:\X` and `d:/x/`, so the guard
-    // compares through the path collation and the statement is its own check:
-    // nothing between the two can slip in.
+    // `/x` and `/x/` are one folder, as are `D:\X` and `d:/x/`: the guard compares through the
+    // path collation, and the statement is its own check.
     let inserted = sqlx::query(
         "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, origin)
          SELECT ?, ?, NULL, ?, 1, 'declared'
@@ -277,10 +216,7 @@ pub async fn create(
         });
     }
 
-    // Straight away, not at the next pass: a destination that sits under a
-    // synced root already knows its free space and its reachability, and
-    // waiting for the sync would show a new row with no figures for as long as
-    // that instance's interval.
+    // Now rather than at the next sync, so the new row shows its free space and reachability.
     let mut connection = state.pool.acquire().await?;
     crate::services::sync::inherit_declared(&mut connection, &req.instance_id).await?;
 
@@ -350,8 +286,8 @@ pub async fn suggestions(State(state): State<AppState>) -> AppResult<Json<Vec<Fo
     )
     .fetch_all(&state.pool)
     .await?;
-    let folders: Vec<(String, String, String, String, bool)> = sqlx::query_as(
-        "SELECT rf.id, rf.instance_id, i.name, rf.path,
+    let folders: Vec<(String, String, String, String, String, bool)> = sqlx::query_as(
+        "SELECT rf.id, rf.instance_id, i.name, i.instance_type, rf.path,
                 EXISTS(SELECT 1 FROM folder_suggestion_dismissals d
                         WHERE d.instance_id = rf.instance_id AND d.path = rf.path COLLATE path)
            FROM root_folders rf JOIN instances i ON i.id = rf.instance_id
@@ -362,8 +298,10 @@ pub async fn suggestions(State(state): State<AppState>) -> AppResult<Json<Vec<Fo
     .await?;
 
     let mut found = Vec::new();
-    for (root_folder_id, instance_id, instance_name, path, dismissed) in folders {
-        let Some(mut suggestion) = folder_suggestions::suggest(&path, &known, &localizer, &default)
+    for (root_folder_id, instance_id, instance_name, kind, path, dismissed) in folders {
+        let media_type = if kind == "sonarr" { "series" } else { "movie" };
+        let Some(mut suggestion) =
+            folder_suggestions::suggest(&path, &known, &localizer, &default, media_type)
         else {
             continue;
         };
@@ -531,7 +469,8 @@ pub async fn update_category(
     Path(id): Path<String>,
     Json(req): Json<UpdateRootFolderCategory>,
 ) -> AppResult<Json<Mapped>> {
-    let category = req.category.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty());
+    let category =
+        req.category.map(|c| super::categories::stored_form(&c)).filter(|c| !c.is_empty());
 
     // The checks and the write under one write lock: a category removed, or
     // mapped on another folder of the instance, between a check and the write

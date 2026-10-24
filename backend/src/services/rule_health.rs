@@ -1,16 +1,8 @@
-//! Which rules are actually deciding anything, and which are unreachable.
+//! Which rules decide anything, and which are unreachable.
 //!
-//! A first-match-by-priority engine invites exactly one mistake: a rule placed
-//! below a broader one can never fire. Validation catches contradictions
-//! *within* a rule (an empty condition, one no source can answer, two that
-//! cannot both hold) and never looks between rules.
-//!
-//! The preview reports such a rule as "0 changes", which is the same thing it
-//! reports for a rule that correctly changes nothing. This says which rule took
-//! the items instead, which is the part a user can act on.
-//!
-//! Cheap, because the engine already computes it: `Evaluation.alternatives` is
-//! the list of rules that matched and lost, per item, and this only counts it.
+//! Validation looks inside one rule. This looks between rules: a rule below a broader one
+//! never fires, and the report names the rule that took its items, counted off
+//! `Evaluation.alternatives`, the rules that matched an item and lost.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -38,19 +30,22 @@ pub struct RuleHealth {
     /// The rule that took the most of what this one matched, when it never won.
     /// Of two that took as many, the one tried first.
     pub shadowed_by: Option<String>,
-    /// It matched nothing at all. That is a different problem from being
-    /// shadowed, and usually a condition that is too narrow rather than a
-    /// priority that is too low. Never said of a disabled rule, which no run
-    /// reads.
+    /// The id of the rule `shadowed_by` names, since two rules may share a name.
+    pub shadowed_by_id: Option<String>,
+    /// It matched nothing at all, usually a condition too narrow. Never said of a disabled rule,
+    /// which no run reads.
     pub matched_nothing: bool,
     /// Another rule with the same priority and the same name, so that which
     /// of the two wins is no decision anybody made.
-    // The engine breaks ties on priority, then name, then id, and an id is
-    // random: the order holds, and nobody chose it.
+    // The engine breaks a tie on priority and name by the id, which is random.
     pub ambiguous_with: Option<String>,
+    /// The id of the rule `ambiguous_with` names, which shares its name.
+    pub ambiguous_with_id: Option<String>,
     /// Another rule with the same conditions and the same target. One of the
     /// two decides nothing whatever the priorities are.
     pub duplicate_of: Option<String>,
+    /// The id of the rule `duplicate_of` names.
+    pub duplicate_of_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -64,8 +59,6 @@ pub async fn report(
     pool: &SqlitePool,
     passes: &routing::LibraryPasses,
 ) -> AppResult<RuleHealthReport> {
-    // One pass over the library, evaluating exactly what the simulation would
-    // and persisting nothing.
     let outcomes = routing::evaluate_library(pool, passes).await?;
 
     let mut won: HashMap<String, usize> = HashMap::new();
@@ -96,6 +89,24 @@ pub async fn report(
             let won_count = won.get(&rule.id).copied().unwrap_or(0);
             let shadowed_count = shadowed.get(&rule.id).copied().unwrap_or(0);
             let vetoed_count = vetoed.get(&rule.id).copied().unwrap_or(0);
+            // Named only when the rule never won: one that wins some items is doing its job.
+            let shadowed_by = (won_count == 0 && shadowed_count > 0)
+                .then(|| culprit(&rules, beaten_by.get(&rule.id)?))
+                .flatten();
+            let ambiguous_with = rules.iter().find(|other| {
+                other.id != rule.id && other.name == rule.name && other.priority == rule.priority
+            });
+            let duplicate_of = rules.iter().find(|other| {
+                other.id != rule.id
+                    && other.target_category == rule.target_category
+                    && same_set(&other.conditions, &rule.conditions)
+                    && same_set(&other.exclusions, &rule.exclusions)
+                    && other.match_mode == rule.match_mode
+                    && other.media_type == rule.media_type
+                    && same_scope(&other.instance_ids, &rule.instance_ids)
+            });
+            let name = |other: Option<&Rule>| other.map(|other| other.name.clone());
+            let id = |other: Option<&Rule>| other.map(|other| other.id.clone());
             RuleHealth {
                 rule_id: rule.id.clone(),
                 rule_name: rule.name.clone(),
@@ -104,35 +115,16 @@ pub async fn report(
                 won: won_count,
                 shadowed: shadowed_count,
                 vetoed: vetoed_count,
-                // Named only when the rule never won: a rule that decides some
-                // items and loses others is doing its job, not being smothered.
-                shadowed_by: (won_count == 0 && shadowed_count > 0)
-                    .then(|| culprit(&rules, beaten_by.get(&rule.id)?))
-                    .flatten(),
+                shadowed_by: name(shadowed_by),
+                shadowed_by_id: id(shadowed_by),
                 matched_nothing: rule.enabled
                     && won_count == 0
                     && shadowed_count == 0
                     && vetoed_count == 0,
-                ambiguous_with: rules
-                    .iter()
-                    .find(|other| {
-                        other.id != rule.id
-                            && other.name == rule.name
-                            && other.priority == rule.priority
-                    })
-                    .map(|other| other.name.clone()),
-                duplicate_of: rules
-                    .iter()
-                    .find(|other| {
-                        other.id != rule.id
-                            && other.target_category == rule.target_category
-                            && same_set(&other.conditions, &rule.conditions)
-                            && same_set(&other.exclusions, &rule.exclusions)
-                            && other.match_mode == rule.match_mode
-                            && other.media_type == rule.media_type
-                            && same_scope(&other.instance_ids, &rule.instance_ids)
-                    })
-                    .map(|other| other.name.clone()),
+                ambiguous_with: name(ambiguous_with),
+                ambiguous_with_id: id(ambiguous_with),
+                duplicate_of: name(duplicate_of),
+                duplicate_of_id: id(duplicate_of),
             }
         })
         .collect();
@@ -142,21 +134,17 @@ pub async fn report(
     Ok(RuleHealthReport { total_media: outcomes.len(), rules: report })
 }
 
-/// The name of the rule that took the most items from a loser, out of how
-/// often each of `rules` beat it. A tie goes to the rule tried first, `rules`
-/// being in the engine's order: read off the `HashMap`, the name would change
-/// from one report to the next.
-fn culprit(rules: &[Rule], beaten_by: &HashMap<String, usize>) -> Option<String> {
+/// The rule that beat a loser most often. A tie goes to the first of `rules`, in the engine's
+/// order: read off the `HashMap`, the name would change from one report to the next.
+fn culprit<'a>(rules: &'a [Rule], beaten_by: &HashMap<String, usize>) -> Option<&'a Rule> {
     rules
         .iter()
         .filter_map(|winner| Some((Reverse(*beaten_by.get(&winner.id)?), winner)))
         .min_by_key(|(count, _)| *count)
-        .map(|(_, winner)| winner.name.clone())
+        .map(|(_, winner)| winner)
 }
 
-/// Order-insensitive equality of two condition lists: the same conditions
-/// decide the same thing whatever order they were typed in, and compared as
-/// lists a reordered twin goes unreported.
+/// Order-insensitive equality of two condition lists, so a reordered twin is still a duplicate.
 fn same_set<T: serde::Serialize>(a: &[T], b: &[T]) -> bool {
     let key = |items: &[T]| -> Vec<String> {
         let mut keys: Vec<String> =
@@ -167,9 +155,7 @@ fn same_set<T: serde::Serialize>(a: &[T], b: &[T]) -> bool {
     a.len() == b.len() && key(a) == key(b)
 }
 
-/// Two rules restricted to different instances decide different things, and
-/// so do a restricted rule and an unrestricted one. Compared without the
-/// scope, twins limited to two different instances pass for duplicates.
+/// The same instance scope, whatever the order of its ids.
 fn same_scope(a: &Option<Vec<String>>, b: &Option<Vec<String>>) -> bool {
     match (a, b) {
         (None, None) => true,

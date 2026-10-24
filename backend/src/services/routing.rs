@@ -14,7 +14,7 @@ use crate::error::AppResult;
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::metadata::{self, ProviderInfo};
-use crate::services::rule_engine::{self, EvalContext, OVERRIDE_RULE_ID};
+use crate::services::rule_engine::{self, EvalContext, OVERRIDE_RULE_ID, Prepared};
 
 /// How often a simulation followed by a job says how far it has gone.
 const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
@@ -40,8 +40,6 @@ pub struct SimulationOptions {
     /// Also persist decisions for media already in the right place, off by
     /// default since a large library would store thousands such per run.
     pub persist_unchanged: bool,
-    /// Evaluate this rule set instead of the stored one (impact preview).
-    pub rules_override: Option<Vec<Rule>>,
     /// Cap the number of decisions returned in the response payload.
     pub max_returned: Option<usize>,
     /// Language the stored explanations are written in.
@@ -63,7 +61,6 @@ impl Default for SimulationOptions {
             media_type: None,
             persist: false,
             persist_unchanged: false,
-            rules_override: None,
             max_returned: None,
             language: String::new(),
             progress: None,
@@ -95,7 +92,7 @@ struct RoutingContext {
     providers: Vec<&'static ProviderInfo>,
     /// (source, external id, media type) -> that source's answer.
     metadata: HashMap<(String, String, String), ProviderMetadata>,
-    /// What the searching sources resolved each item to, loaded once, never per item.
+    /// What the searching sources resolved each item to.
     identifiers: metadata::Identifiers,
     default_category: String,
 }
@@ -114,16 +111,31 @@ pub struct LoadedLibrary {
     media: Vec<Media>,
 }
 
-/// A number larger than any load took before, so that two runs storing one
-/// title tell which of them read the library last. Taken from the clock, in
-/// microseconds, so the order holds across a restart.
+/// The largest order this process handed out, which every later load exceeds.
+static LAST_ORDER: AtomicI64 = AtomicI64::new(0);
+
+/// A number larger than any load of this process took before, so that two runs storing one
+/// title tell which of them read the library last. Taken from the clock, in microseconds:
+/// [`above_stored`] holds it above what a clock set back or a restored archive left.
 fn load_order() -> i64 {
-    static LAST: AtomicI64 = AtomicI64::new(0);
     let now = Utc::now().timestamp_micros();
     let next = |last: i64| now.max(last + 1);
-    match LAST.try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
+    match LAST_ORDER.try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
         Ok(last) | Err(last) => next(last),
     }
+}
+
+/// `order`, or a new one above every order `media_routing` holds, read in the load's
+/// snapshot: a row stored above it would never be updated, and the run would store nothing.
+async fn above_stored(snapshot: &mut sqlx::SqliteConnection, order: i64) -> AppResult<i64> {
+    let floor: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(load_order), 0) FROM media_routing")
+        .fetch_one(&mut *snapshot)
+        .await?;
+    if floor < order {
+        return Ok(order);
+    }
+    LAST_ORDER.fetch_max(floor, Ordering::SeqCst);
+    Ok(load_order())
 }
 
 /// Load the context and the media a pass with these options evaluates.
@@ -133,7 +145,7 @@ pub async fn load_library(
     options: &SimulationOptions,
 ) -> AppResult<Arc<LoadedLibrary>> {
     let started = std::time::Instant::now();
-    let order = load_order();
+    let mut order = load_order();
 
     // A filter one statement cannot bind is refused as a bad request.
     let media_filter_len = options.media_ids.as_ref().map_or(0, Vec::len);
@@ -160,6 +172,7 @@ pub async fn load_library(
         let ctx = if media.is_empty() {
             RoutingContext::default()
         } else {
+            order = above_stored(&mut snapshot, order).await?;
             load_context(&mut snapshot, Scope::Items(&media)).await?
         };
         snapshot.commit().await?;
@@ -169,6 +182,7 @@ pub async fn load_library(
 
     let pass = passes.take().await;
     let mut snapshot = pool.begin().await?;
+    order = above_stored(&mut snapshot, order).await?;
     let ctx = load_context(&mut snapshot, Scope::Library).await?;
     let media =
         load_media(&mut *snapshot, &options.instance_ids, None, options.media_type.as_deref())
@@ -194,32 +208,29 @@ pub async fn run_simulation(
 pub async fn simulate_loaded(
     pool: &SqlitePool,
     library: &Arc<LoadedLibrary>,
-    mut options: SimulationOptions,
+    options: SimulationOptions,
 ) -> AppResult<SimulationResult> {
     let started = std::time::Instant::now();
     let simulation_id = Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    // Every move and skip is worded, and as many unchanged titles as the run keeps.
+    // Every move and skip is kept, and as many unchanged titles as the run returns.
     let unchanged = if options.persist_unchanged {
         usize::MAX
     } else {
         options.max_returned.unwrap_or(usize::MAX)
     };
     let wording = Wording {
-        localizer: Localizer::new(&options.language),
         trigger: options.trigger.clone(),
         subject: options.subject.clone(),
         subject_key: options.subject_key.clone(),
         simulation_id: simulation_id.clone(),
         unchanged,
     };
-    let rules = options.rules_override.take();
     let loaded = Arc::clone(library);
     let Pass { verdicts, mut decisions, counters, capacity } =
         off_the_workers(options.progress.as_ref(), library.media.len(), move |evaluated| {
-            let rules = rules.as_deref().unwrap_or(&loaded.ctx.rules);
-            evaluate_pass(&loaded, rules, now, Some(&wording), evaluated)
+            evaluate_pass(&loaded, &loaded.ctx.rules, now, Some(&wording), evaluated)
         })
         .await?;
 
@@ -252,6 +263,10 @@ pub async fn simulate_loaded(
             DecisionAction::None => 2,
         });
         decisions.truncate(max);
+    }
+    let localizer = Localizer::new(&options.language);
+    for decision in &mut decisions {
+        word(decision, &localizer);
     }
 
     Ok(SimulationResult {
@@ -302,9 +317,8 @@ fn pass_failed(e: tokio::task::JoinError) -> crate::error::AppError {
     crate::error::AppError::Internal(format!("A pass over the library stopped: {e}"))
 }
 
-/// How a pass words the decisions it keeps.
+/// What a pass writes on the decisions it keeps.
 struct Wording {
-    localizer: Localizer,
     trigger: String,
     subject: Option<String>,
     subject_key: Option<String>,
@@ -355,10 +369,11 @@ fn evaluate_pass(
     }
     let mut incoming: HashMap<(String, String), Incoming> = HashMap::new();
     let mut planned = Planned::new();
+    let rules = Prepared::new(rules);
 
     for (index, media) in library.media.iter().enumerate() {
         evaluated.store(index, Ordering::Relaxed);
-        let route = route(ctx, media, rules, now, &planned);
+        let route = route(ctx, media, &rules, now, &planned);
 
         match &route.evaluation.winner {
             Some(winner) if winner.rule_id == OVERRIDE_RULE_ID => counters.overrides_applied += 1,
@@ -447,7 +462,8 @@ fn evaluate_pass(
     Pass { verdicts, decisions, counters, capacity }
 }
 
-/// One title's route as the decision a run stores and returns, in words.
+/// One title's route as the decision a run stores, without words: [`word`] gives them to
+/// the decisions an answer carries, and a run stores only the reasons' keys.
 fn decide(
     ctx: &RoutingContext,
     media: &Media,
@@ -455,7 +471,6 @@ fn decide(
     wording: &Wording,
     now: chrono::DateTime<Utc>,
 ) -> Decision {
-    let localizer = &wording.localizer;
     let Route { evaluation, category, target, action, .. } = route;
     let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
     let (matched_rule_id, matched_rule_name, told, confidence) = match &evaluation.winner {
@@ -487,14 +502,8 @@ fn decide(
             confidence: m.confidence,
         })
         .collect();
-    let reason_lines: Vec<ReasonLine> = told.iter().map(|reason| reason.line(localizer)).collect();
-    let alternatives = told_alternatives.iter().map(|told| told.said(localizer)).collect();
     let stored_reasons = serde_json::to_string(&told).unwrap_or_default();
     let stored_alternatives = serde_json::to_string(&told_alternatives).unwrap_or_default();
-    let matched_rule_name = match is_override {
-        true => Some(localizer.translate("ManualOverrideRuleName", &[])),
-        false => matched_rule_name,
-    };
 
     Decision {
         actor: Some(wording.trigger.clone()),
@@ -517,9 +526,9 @@ fn decide(
         matched_rule_id,
         matched_rule_name,
         is_override,
-        reasons: reason_lines.iter().map(|line| line.text.clone()).collect(),
-        reason_lines,
-        alternatives,
+        reasons: Vec::new(),
+        reason_lines: Vec::new(),
+        alternatives: Vec::new(),
         stored_reasons,
         stored_alternatives,
         action,
@@ -532,6 +541,37 @@ fn decide(
         applied_at: None,
         reverted_at: None,
     }
+}
+
+#[cfg(test)]
+static WORDED: std::sync::LazyLock<std::sync::Mutex<HashMap<String, usize>>> =
+    std::sync::LazyLock::new(Default::default);
+
+#[cfg(test)]
+fn count_worded(simulation_id: &str, lines: usize) {
+    *WORDED.lock().unwrap().entry(simulation_id.to_string()).or_default() += lines;
+}
+
+/// How many reason and alternative lines the run `simulation_id` worded.
+#[cfg(test)]
+pub(crate) fn lines_worded(simulation_id: &str) -> usize {
+    WORDED.lock().unwrap().get(simulation_id).copied().unwrap_or(0)
+}
+
+/// Give a decision [`decide`] made the words of its reasons and alternatives, and an
+/// exception its name, in `localizer`'s language.
+fn word(decision: &mut Decision, localizer: &Localizer) {
+    decision.reason_lines = stored_reasons(&decision.stored_reasons, localizer);
+    decision.reasons = decision.reason_lines.iter().map(|line| line.text.clone()).collect();
+    decision.alternatives = stored_alternatives(&decision.stored_alternatives, localizer);
+    if decision.is_override {
+        decision.matched_rule_name = Some(localizer.translate("ManualOverrideRuleName", &[]));
+    }
+    #[cfg(test)]
+    count_worded(
+        decision.simulation_id.as_deref().unwrap_or_default(),
+        decision.reason_lines.len() + decision.alternatives.len(),
+    );
 }
 
 /// Where one item goes under a rule set, and why.
@@ -557,7 +597,7 @@ type Planned = HashMap<(String, String), i64>;
 fn route(
     ctx: &RoutingContext,
     media: &Media,
-    rules: &[Rule],
+    rules: &Prepared<'_>,
     now: chrono::DateTime<Utc>,
     planned: &Planned,
 ) -> Route {
@@ -569,7 +609,7 @@ fn route(
         &ctx.regions,
         ctx.instance_countries.get(&media.instance_id).map(String::as_str),
     );
-    let evaluation = rule_engine::evaluate_rules(
+    let evaluation = rule_engine::evaluate_prepared(
         EvalContext { media, metadata: metadata.as_ref(), now },
         rules,
         ctx.overrides.get(&media.id).map(String::as_str),
@@ -661,7 +701,7 @@ pub async fn route_one_with(
     for (key, external) in fresh.identifiers {
         ctx.identifiers.entry(key).or_insert(external);
     }
-    let route = route(&ctx, media, &ctx.rules, now, &Planned::new());
+    let route = route(&ctx, media, &Prepared::new(&ctx.rules), now, &Planned::new());
     let override_category = ctx.overrides.get(&media.id).cloned();
     Ok(ItemRoute { rules: ctx.rules, override_category, route })
 }
@@ -684,10 +724,11 @@ pub async fn revalidated_targets(
     let ctx = load_context(&mut snapshot, Scope::Items(&media)).await?;
     snapshot.commit().await?;
     let now = Utc::now();
+    let rules = Prepared::new(&ctx.rules);
     Ok(media
         .into_iter()
         .map(|item| {
-            let Route { target, .. } = route(&ctx, &item, &ctx.rules, now, &Planned::new());
+            let Route { target, .. } = route(&ctx, &item, &rules, now, &Planned::new());
             (item.id, target)
         })
         .collect())
@@ -814,13 +855,13 @@ pub async fn compare(
 ) -> AppResult<Comparison> {
     let now = Utc::now();
     let wording = Wording {
-        localizer: Localizer::new(language),
         trigger: String::new(),
         subject: None,
         subject_key: None,
         simulation_id: String::new(),
         unchanged: 0,
     };
+    let localizer = Localizer::new(language);
     let loaded = Arc::clone(library);
     off_the_workers(None, 0, move |evaluated| {
         let first = evaluate_pass(&loaded, &before, now, None, evaluated);
@@ -828,16 +869,16 @@ pub async fn compare(
         let differing: Vec<usize> = (0..loaded.media.len())
             .filter(|&index| first.verdicts[index].category != second.verdicts[index].category)
             .collect();
+        let after = Prepared::new(&after);
         let changed = differing
             .iter()
             .take(sample)
             .map(|&index| {
                 let media = &loaded.media[index];
                 let route = route(&loaded.ctx, media, &after, now, &Planned::new());
-                (
-                    first.verdicts[index].category.clone(),
-                    decide(&loaded.ctx, media, route, &wording, now),
-                )
+                let mut decision = decide(&loaded.ctx, media, route, &wording, now);
+                word(&mut decision, &localizer);
+                (first.verdicts[index].category.clone(), decision)
             })
             .collect();
         Comparison {
@@ -877,19 +918,20 @@ pub async fn reach(
 ) -> AppResult<Reach> {
     let now = Utc::now();
     let wording = Wording {
-        localizer: Localizer::new(language),
         trigger: String::new(),
         subject: None,
         subject_key: None,
         simulation_id: String::new(),
         unchanged: 0,
     };
+    let localizer = Localizer::new(language);
     let loaded = Arc::clone(library);
     off_the_workers(None, 0, move |_| {
         let mut reach = Reach::default();
         let mut taken: HashMap<String, usize> = HashMap::new();
         // By what becomes of them, so the sample shows moves first.
         let mut kept: [Vec<(&Media, Route)>; 3] = Default::default();
+        let rules = Prepared::new(&rules);
         for media in &loaded.media {
             let route = route(&loaded.ctx, media, &rules, now, &Planned::new());
             let Some(winner) = &route.evaluation.winner else { continue };
@@ -925,7 +967,11 @@ pub async fn reach(
             .into_iter()
             .flatten()
             .take(sample)
-            .map(|(media, route)| decide(&loaded.ctx, media, route, &wording, now))
+            .map(|(media, route)| {
+                let mut decision = decide(&loaded.ctx, media, route, &wording, now);
+                word(&mut decision, &localizer);
+                decision
+            })
             .collect();
         reach.taken = taken.into_iter().collect();
         reach.taken.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
@@ -954,12 +1000,13 @@ pub async fn evaluate_library(
     let library = load_library(pool, passes, &SimulationOptions::default()).await?;
     off_the_workers(None, 0, move |_| {
         let ctx = &library.ctx;
+        let rules = Prepared::new(&ctx.rules);
         library
             .media
             .iter()
             .map(|media| {
                 // Through `route`, so a pinned item counts against no rule it never consulted.
-                let evaluation = route(ctx, media, &ctx.rules, now, &Planned::new()).evaluation;
+                let evaluation = route(ctx, media, &rules, now, &Planned::new()).evaluation;
                 LibraryOutcome {
                     winner: evaluation.winner.map(|m| m.rule_id),
                     alternatives: evaluation.alternatives.into_iter().map(|m| m.rule_id).collect(),
@@ -1260,6 +1307,12 @@ pub struct RuleRecord {
 
 /// The gap a reorder leaves between two rules, and a new rule after the last.
 pub const PRIORITY_STEP: i64 = 10;
+
+/// The priority of a rule placed after one at `priority`, held at the bound the validator
+/// sets, so a rule after one at the top ties with it rather than being refused at its next edit.
+pub fn priority_after(priority: i64) -> i64 {
+    priority.saturating_add(PRIORITY_STEP).min(rule_engine::MAX_PRIORITY)
+}
 
 pub const RULE_COLUMNS: &str = "id, name, description, priority, enabled, media_type, conditions,
      target_category, instance_ids, created_at, updated_at, match_mode, exclusions, template";

@@ -1,6 +1,6 @@
 //! Pinned expectations for the rule engine, and the runner that replays them. A pinned case
 //! guards a routing nobody is watching, since a new rule rebalances every rule below it. The
-//! engine is pure, so replaying a hundred cases costs one query and no request.
+//! engine is pure, so replaying a hundred cases costs a few queries and no request.
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -18,8 +18,8 @@ pub struct RuleTest {
     pub id: String,
     pub name: String,
     pub media_type: String,
-    /// The pinned `EvalContext`: the serialised `Media` and the merged metadata. Read when a
-    /// case runs and never sent, skipped here so the struct alone decides what a case is.
+    /// The pinned `EvalContext`: the serialised `Media` and the merged metadata, read when a
+    /// case runs and never sent.
     #[serde(skip_serializing)]
     pub media_json: String,
     #[serde(skip_serializing)]
@@ -84,6 +84,7 @@ pub async fn run_all(pool: &SqlitePool, localizer: &Localizer) -> AppResult<Rule
     let rules = routing::load_rules(pool).await?;
     let default_category = crate::state::AppState::default_category(pool).await?;
 
+    let rules = rule_engine::Prepared::new(&rules);
     let results: Vec<RuleTestResult> =
         cases.iter().map(|case| run_one(case, &rules, &default_category, localizer)).collect();
 
@@ -95,9 +96,11 @@ pub async fn run_all(pool: &SqlitePool, localizer: &Localizer) -> AppResult<Rule
 /// goes through here: Run, a pin, the pass after a sync and the auto-apply check.
 pub async fn check(state: &crate::state::AppState) -> AppResult<RuleTestRun> {
     let run = run_all(&state.pool, &state.localizer().await).await?;
-    let (was_failing, _) = failing(&state.pool).await?;
     let checked_at = routing::format_timestamp(chrono::Utc::now());
-    let mut tx = state.pool.begin().await?;
+    // Read under the lock the verdicts are written with, or two runs both find the suite passing.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    let (was_failing, _) = failing(&mut *tx).await?;
+    crate::race::checked("rule_tests::check", "").await;
     for result in &run.results {
         sqlx::query("UPDATE rule_tests SET last_passed = ?, last_checked_at = ? WHERE id = ?")
             .bind(result.passed)
@@ -120,9 +123,12 @@ pub async fn check(state: &crate::state::AppState) -> AppResult<RuleTestRun> {
 }
 
 /// The cases the last runs found failing, and every case.
-pub async fn failing(pool: &SqlitePool) -> AppResult<(i64, i64)> {
+pub async fn failing<'e, E>(executor: E) -> AppResult<(i64, i64)>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     Ok(sqlx::query_as("SELECT COALESCE(SUM(last_passed = 0), 0), COUNT(*) FROM rule_tests")
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await?)
 }
 
@@ -130,10 +136,10 @@ pub async fn failing(pool: &SqlitePool) -> AppResult<(i64, i64)> {
 /// a pinned exception would mask a broken rule.
 pub fn decided_by_rules(
     ctx: EvalContext,
-    rules: &[crate::models::rule::Rule],
+    rules: &rule_engine::Prepared<'_>,
     default_category: &str,
 ) -> (String, Option<String>) {
-    match rule_engine::evaluate_rules(ctx, rules, None).winner {
+    match rule_engine::evaluate_prepared(ctx, rules, None).winner {
         Some(winner) => (winner.category, Some(winner.rule_name)),
         None => (default_category.to_string(), None),
     }
@@ -141,7 +147,7 @@ pub fn decided_by_rules(
 
 fn run_one(
     case: &RuleTest,
-    rules: &[crate::models::rule::Rule],
+    rules: &rule_engine::Prepared<'_>,
     default_category: &str,
     localizer: &Localizer,
 ) -> RuleTestResult {
@@ -196,16 +202,13 @@ fn run_one(
 #[serde(deny_unknown_fields)]
 pub struct NewRuleTest {
     pub name: String,
-    /// The library item to snapshot. Resolved once, here, and never referenced
-    /// again: a case keeps its own copy of the item, so it outlives it.
+    /// The library item to snapshot. The case keeps its own copy, so it outlives the item.
     pub media_id: String,
     /// Defaults to what the engine decides for that item today.
     pub expected_category: Option<String>,
 }
 
-/// Whether a case can be stored. The name is typed on the Tests screen, so its
-/// refusal speaks the interface's language. The item is the one the screen
-/// pinned, never typed, so its refusal stays English.
+/// Whether a case can be stored. Only the name is typed, so only its refusals are translated.
 pub fn validate(new: &NewRuleTest, localizer: &crate::localization::Localizer) -> AppResult<()> {
     if new.name.trim().is_empty() {
         return Err(AppError::BadRequest(localizer.translate("RuleTestNameRequired", &[])));

@@ -3,18 +3,14 @@
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
-/// The form two spellings of one value must share to be treated as equal.
-///
-/// Sources disagree on case, accents and punctuation for what is the same
-/// value: `Science-Fiction` against `Science Fiction`, `Comédie` against
-/// `Comedie`. It normalises and never guesses: distinct values stay distinct
-/// and no synonym is invented, so `Sci-Fi` is still not `Science Fiction`.
-///
-/// A Latin letter loses its accents, however a source wrote them: `Shōgun` is
-/// `shogun`, and an `é` written as `e` and a combining accent is `e`. Other
-/// scripts keep theirs, which tell letters apart: `ガ` is not `カ`, nor `й`
-/// `и`. A mark stays inside its word rather than splitting it.
+/// The form two spellings of one value share to compare equal. Case, punctuation and a Latin
+/// letter's accents fold away, however a source wrote them (`Science-Fiction` is `Science
+/// Fiction`, `Shōgun` is `shogun`). Other scripts keep their marks, which tell letters apart
+/// (`ガ` is not `カ`) and stay inside their word. No synonym is invented: `Sci-Fi` is not
+/// `Science Fiction`.
 pub fn normalise_value(raw: &str) -> String {
+    #[cfg(test)]
+    FOLDED.with(|folded| folded.set(folded.get() + 1));
     let mut latin = false;
     let unaccented = raw.nfkd().filter(|&c| {
         if is_latin_accent(c) {
@@ -37,6 +33,19 @@ pub fn normalise_value(raw: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+thread_local! {
+    static FOLDED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// What `run` returns, and how many values it folded on this thread.
+#[cfg(test)]
+pub(crate) fn folds_in<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let before = FOLDED.with(std::cell::Cell::get);
+    let done = run();
+    (done, FOLDED.with(std::cell::Cell::get) - before)
 }
 
 /// The accents a decomposed Latin letter carries, the block of combining
@@ -87,38 +96,24 @@ pub fn certification_key(raw: &str) -> String {
         .collect()
 }
 
-/// True when any needle equals any straw, compared through [`normalise_value`].
-///
-/// The `any` quantifier: the values of a condition are alternatives.
-pub(super) fn contains_any(haystack: &[String], needles: &[String]) -> bool {
-    if needles.is_empty() {
-        return false;
-    }
-    let straw: Vec<String> = haystack.iter().map(|h| normalise_value(h)).collect();
-    needles.iter().map(|n| normalise_value(n)).filter(|n| !n.is_empty()).any(|n| straw.contains(&n))
+/// True when any wanted value is among the title's, both folded through [`normalise_value`]
+/// and the blanks left out of `wanted`.
+pub(super) fn contains_any(straw: &[String], wanted: &[String]) -> bool {
+    wanted.iter().any(|value| straw.contains(value))
 }
 
-/// True when every needle is among the straw.
-///
-/// The `all` quantifier, and the reason a rule needs no second condition to
-/// require two genres at once. An empty list matches nothing rather than
-/// everything: a condition with no operand is a condition nobody finished
-/// writing, and `Condition::is_empty` refuses it before it can be stored.
-pub(super) fn contains_all(haystack: &[String], needles: &[String]) -> bool {
-    let straw: Vec<String> = haystack.iter().map(|h| normalise_value(h)).collect();
-    let wanted: Vec<String> =
-        needles.iter().map(|n| normalise_value(n)).filter(|n| !n.is_empty()).collect();
-    !wanted.is_empty() && wanted.iter().all(|n| straw.contains(n))
+/// True when every wanted value is among the title's, folded as for [`contains_any`], and false
+/// for none at all: a condition with no value is unfinished, and `Condition::is_empty` refuses it.
+pub(super) fn contains_all(straw: &[String], wanted: &[String]) -> bool {
+    !wanted.is_empty() && wanted.iter().all(|value| straw.contains(value))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The rule editor folds with its own copy (`canonicalKey` in
-    /// `frontend/src/api/conditions.ts`) to refuse a value given twice, and
-    /// reads this same table: a pair one side joins and the other keeps apart
-    /// is a value the editor drops or a rule the engine refuses.
+    /// The rule editor's copy (`canonicalKey` in `frontend/src/api/conditions.ts`) reads this same
+    /// table: a pair the two fold apart is a value the editor drops or a rule the engine refuses.
     #[test]
     fn the_folding_the_rule_editor_shares_is_the_one_matching_uses() {
         let cases: Vec<(String, String)> =
@@ -128,8 +123,6 @@ mod tests {
         }
     }
 
-    /// Folded once is folded for good, and a source writing an accent apart
-    /// from its letter names the value one writing them together does.
     #[test]
     fn folding_is_stable_and_blind_to_how_an_accent_is_written() {
         let cases: Vec<(String, String)> =

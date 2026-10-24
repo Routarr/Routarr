@@ -10,8 +10,7 @@ use super::fake_arr::FakeArr;
 
 const SUGGESTIONS: &str = "/api/v1/root-folders/suggestions";
 
-/// The suggestions, by path.
-async fn offered(app: &TestApp) -> std::collections::BTreeMap<String, Value> {
+async fn suggestions_by_path(app: &TestApp) -> std::collections::BTreeMap<String, Value> {
     let answer = app.get(SUGGESTIONS).await.assert_ok().clone();
     let list = answer.as_array().expect("a list").clone();
     list.into_iter().map(|each| (each["path"].as_str().unwrap().to_owned(), each)).collect()
@@ -41,7 +40,7 @@ async fn each_unmapped_folder_is_offered_the_category_its_name_says() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
 
-    let offered = offered(&app).await;
+    let offered = suggestions_by_path(&app).await;
     assert_eq!(offered.len(), 3, "{offered:?}");
     let standard = &offered["/movies/standard"];
     assert_eq!(standard["category"], "standard");
@@ -57,10 +56,22 @@ async fn each_unmapped_folder_is_offered_the_category_its_name_says() {
     assert_eq!(kids["template"]["id"], "children");
     assert_eq!(kids["dismissed"], false);
     assert_eq!(kids["instance_id"], "inst-1");
+
+    // The foreign films template routes films alone, which a Sonarr never holds.
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+         VALUES ('inst-2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'k', 1)",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible)
+         VALUES ('rf-vo-tv', 'inst-2', 7, '/tv/VOSTFR', 1),
+                ('rf-vo-movies', 'inst-1', 8, '/movies/VOSTFR', 1)",
+    ])
+    .await;
+    let now = suggestions_by_path(&app).await;
+    assert!(!now.contains_key("/tv/VOSTFR"), "{now:?}");
+    assert_eq!(now["/movies/VOSTFR"]["template"]["id"], "foreign-films");
 }
 
-/// A mapped folder, and every folder of a disabled instance, is offered nothing: the person
-/// already said, or the instance routes nothing.
+/// The person already chose for a mapped folder, and a disabled instance routes nothing.
 #[tokio::test]
 async fn a_mapped_folder_or_a_disabled_instance_is_offered_nothing() {
     let arr = FakeArr::start().await;
@@ -71,7 +82,7 @@ async fn a_mapped_folder_or_a_disabled_instance_is_offered_nothing() {
         .await
         .assert_ok();
 
-    let offered = offered(&app).await;
+    let offered = suggestions_by_path(&app).await;
     assert!(!offered.contains_key("/movies/kids"), "{offered:?}");
     assert!(offered.contains_key("/movies/anime"), "the control: an unmapped folder is offered");
 
@@ -79,8 +90,7 @@ async fn a_mapped_folder_or_a_disabled_instance_is_offered_nothing() {
     assert_eq!(app.get(SUGGESTIONS).await.assert_ok(), &json!([]));
 }
 
-/// A category the instance already leads to is never offered again: mapped, a second folder
-/// would be refused. Two unmapped folders saying one category leave the choice to the person.
+/// A second folder mapped to a category the instance already leads to would be refused.
 #[tokio::test]
 async fn a_category_is_offered_to_one_folder_of_an_instance_at_most() {
     let arr = FakeArr::start().await;
@@ -97,7 +107,7 @@ async fn a_category_is_offered_to_one_folder_of_an_instance_at_most() {
         .await
         .assert_ok();
 
-    let offered = offered(&app).await;
+    let offered = suggestions_by_path(&app).await;
     assert!(!offered.contains_key("/movies/animes"), "{offered:?}");
     for path in ["/movies/kids", "/movies/KIDS 2"] {
         let shared = &offered[path];
@@ -120,13 +130,12 @@ async fn a_template_is_offered_until_the_library_holds_its_rules() {
     ])
     .await;
 
-    let offered = offered(&app).await;
+    let offered = suggestions_by_path(&app).await;
     assert_eq!(offered["/movies/anime"]["template"], Value::Null);
     assert_eq!(offered["/movies/kids"]["template"]["id"], "children", "the control");
 }
 
-/// Dismissed, a suggestion is still listed, marked, so the screen can show it again on demand,
-/// and it stays dismissed through a sync. A folder the Arr stops reporting takes it along.
+/// A dismissed suggestion stays listed, marked, so the screen can show it again on demand.
 #[tokio::test]
 async fn a_dismissal_holds_through_a_sync_and_goes_with_its_folder() {
     let arr = FakeArr::start().await;
@@ -139,7 +148,7 @@ async fn a_dismissal_holds_through_a_sync_and_goes_with_its_folder() {
 
     assert_eq!(app.post(&dismissal, json!({})).await.assert_ok(), &json!({ "dismissed": true }));
     sync(&app).await;
-    let offered = offered(&app).await;
+    let offered = suggestions_by_path(&app).await;
     assert_eq!(offered["/movies/docs"]["dismissed"], true);
     assert_eq!(offered["/movies/kids"]["dismissed"], false, "the control");
 
@@ -159,5 +168,5 @@ async fn a_dismissal_holds_through_a_sync_and_goes_with_its_folder() {
 }
 
 async fn dismissed(app: &TestApp, path: &str) -> bool {
-    offered(app).await[path]["dismissed"].as_bool().unwrap()
+    suggestions_by_path(app).await[path]["dismissed"].as_bool().unwrap()
 }

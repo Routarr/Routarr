@@ -39,7 +39,7 @@ mod localization;
 mod metadata_sources;
 mod metrics;
 mod move_confirmation;
-mod notify;
+pub(crate) mod notify;
 mod oidc;
 mod onboarding;
 mod outbound_http;
@@ -266,6 +266,8 @@ impl TestApp {
     /// first, and TMDB's cached answer for it, TMDB listed.
     pub async fn seed_library(&self) {
         sqlx::query(AN_INSTANCE).execute(&self.state.pool).await.unwrap();
+        // Keyed as each start keys a row written without its `name_key`.
+        crate::api::instances::converge_names(&self.state.pool).await.unwrap();
 
         sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
             .execute(&self.state.pool)

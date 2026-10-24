@@ -61,8 +61,7 @@ pub struct Instance {
     /// named in the report's `needs_key`.
     #[serde(default)]
     pub has_api_key: bool,
-    /// Whether automatic application may write to the instance. Absent from an older bundle,
-    /// which leaves it on, as the upgrade does.
+    /// Whether automatic application may write to the instance. On when the bundle omits it.
     #[serde(default = "on")]
     pub auto_apply: bool,
 }
@@ -362,6 +361,8 @@ pub async fn import(
         report.categories += 1;
     }
 
+    // By `instances::name_key`, the bundle's own instances added as they are inserted.
+    let mut ids = super::instances::ids_by_name(&mut *tx).await?;
     // Disabled, since an instance without its key fails on every scheduler tick.
     for instance in &bundle.instances {
         // The check `POST /instances` applies, or the edit screen could never save the row.
@@ -383,27 +384,24 @@ pub async fn import(
             }
         };
 
-        // Stored as `POST /instances` stores it, and matched as the unique index compares names.
+        // Stored as `POST /instances` stores it.
         let name = instance.name.trim();
-        let existing: Option<String> =
-            sqlx::query_scalar("SELECT id FROM instances WHERE lower(trim(name)) = lower(?)")
-                .bind(name)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-        if existing.is_some() {
+        let key = super::instances::name_key(name);
+        if ids.contains_key(&key) {
             report.skipped.push(skip("ImportSkippedInstanceExists", &[("name", &instance.name)]));
             continue;
         }
 
         // Sealed though empty, so the instance reads as waiting for its key.
+        let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled,
+            "INSERT INTO instances (id, name, name_key, instance_type, base_url, api_key, enabled,
              sync_interval_minutes, webhook_token, auto_apply)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
         )
-        .bind(Uuid::new_v4().to_string())
+        .bind(&id)
         .bind(name)
+        .bind(&key)
         .bind(instance.instance_type.to_lowercase())
         .bind(&base_url)
         .bind(state.secrets.seal("")?)
@@ -412,14 +410,15 @@ pub async fn import(
         .bind(instance.auto_apply)
         .execute(&mut *tx)
         .await?;
+        ids.insert(key, id);
         report.instances += 1;
         report.needs_key.push(name.to_string());
     }
 
     // Matched on instance name and path, which mean the same on another machine.
     for mapping in &bundle.root_folders {
-        // Lowercased as the category loop writes it, or `Anime` names a row nobody holds.
-        let category = mapping.category.trim().to_lowercase();
+        // In the form the category loop writes, or `Anime` names a row nobody holds.
+        let category = crate::api::categories::stored_form(&mapping.category);
 
         // No foreign key guards a category, so a mapping naming a missing one routes nowhere.
         let mapped = [
@@ -432,14 +431,13 @@ pub async fn import(
             continue;
         }
 
+        let instance_id = ids.get(&super::instances::name_key(&mapping.instance_name));
         let affected = sqlx::query(
-            "UPDATE root_folders SET category = ?
-              WHERE path = ? COLLATE path
-                AND instance_id = (SELECT id FROM instances WHERE lower(name) = lower(trim(?)))",
+            "UPDATE root_folders SET category = ? WHERE path = ? COLLATE path AND instance_id = ?",
         )
         .bind(&category)
         .bind(&mapping.path)
-        .bind(&mapping.instance_name)
+        .bind(instance_id)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -454,19 +452,24 @@ pub async fn import(
 
     // Matched on external id within the named instance, or on every copy when none is named.
     for over in &bundle.overrides {
+        // A name no instance holds names no copy.
+        let instance_id = over
+            .instance_name
+            .as_deref()
+            .map(|name| ids.get(&super::instances::name_key(name)).map_or("", String::as_str));
         let media_ids: Vec<String> = sqlx::query_scalar(
-            "SELECT m.id FROM media m JOIN instances i ON i.id = m.instance_id
+            "SELECT m.id FROM media m
               WHERE m.media_type = ?
                 AND ((m.tmdb_id IS NOT NULL AND m.tmdb_id = ?)
                      OR (m.tvdb_id IS NOT NULL AND m.tvdb_id = ?))
-                AND (? IS NULL OR lower(i.name) = lower(trim(?)))
+                AND (? IS NULL OR m.instance_id = ?)
               ORDER BY m.id",
         )
         .bind(&over.media_type)
         .bind(over.tmdb_id)
         .bind(over.tvdb_id)
-        .bind(&over.instance_name)
-        .bind(&over.instance_name)
+        .bind(instance_id)
+        .bind(instance_id)
         .fetch_all(&mut *tx)
         .await?;
 
@@ -485,7 +488,7 @@ pub async fn import(
         }
 
         // An override skips the engine, so one on a missing category would route nowhere unseen.
-        let category = over.target_category.trim().to_lowercase();
+        let category = crate::api::categories::stored_form(&over.target_category);
         if !categories.contains(&category) {
             report.skipped.push(skip("ImportSkippedExceptionNoCategory", &pinned));
             continue;
@@ -514,15 +517,9 @@ pub async fn import(
     }
 
     // Rules last, once the instances they are scoped to exist under their bundled names.
-    let ids: std::collections::HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>("SELECT name, id FROM instances")
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .collect();
     let mut restored = Vec::new();
     for bundled in importable {
-        let target = bundled.rule.target_category.trim().to_lowercase();
+        let target = crate::api::categories::stored_form(&bundled.rule.target_category);
         if !categories.contains(&target) {
             report.skipped.push(skip(
                 "ImportSkippedRuleCategoryRemoved",
@@ -542,8 +539,13 @@ pub async fn import(
     // A replace with no surviving rule would send the whole library to the fallback category.
     if req.replace_rules && !restored.is_empty() {
         sqlx::query("DELETE FROM rules").execute(&mut *tx).await?;
-    } else if req.replace_rules && !bundle.rules.is_empty() {
-        report.skipped.push(skip("ImportRulesKept", &[]));
+    } else {
+        if req.replace_rules && !bundle.rules.is_empty() {
+            report.skipped.push(skip("ImportRulesKept", &[]));
+        }
+        let present;
+        (restored, present) = super::rules::appended(&mut tx, restored, &localizer).await?;
+        report.adjusted.extend(present);
     }
     for (rule, marker) in &restored {
         let id = Uuid::new_v4().to_string();

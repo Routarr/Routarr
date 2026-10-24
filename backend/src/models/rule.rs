@@ -371,6 +371,7 @@ pub struct Rule {
     pub name: String,
     pub description: Option<String>,
     /// Lower is tried first. Equal priorities go by name, then by id.
+    #[schema(minimum = -1000000, maximum = 1000000)]
     pub priority: i64,
     pub enabled: bool,
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["movie", "series", "both"]))))]
@@ -424,7 +425,9 @@ pub struct CreateRuleRequest {
     /// Lower is tried first. Equal priorities go by name, then by id. Left
     /// out, a new rule goes after every other, and an edited one keeps its
     /// place.
+    // The bounds are `rule_engine::MIN_PRIORITY` and `MAX_PRIORITY`.
     #[serde(default)]
+    #[schema(minimum = -1000000, maximum = 1000000)]
     pub priority: Option<i64>,
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -489,7 +492,8 @@ impl BundledRule {
     pub fn marker(&self) -> Option<&str> {
         let marker = self.template.as_deref()?;
         let (id, version) = marker.split_once('@')?;
-        let id_ok = !id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase() || c == '-');
+        let id_ok = !id.is_empty()
+            && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
         let version_ok = !version.is_empty() && version.chars().all(|c| c.is_ascii_digit());
         (id_ok && version_ok).then_some(marker)
     }
@@ -500,7 +504,9 @@ impl BundledRule {
 #[serde(deny_unknown_fields)]
 pub struct ImportRulesRequest {
     pub bundle: RuleBundle,
-    /// Delete every existing rule first instead of appending.
+    /// Delete every existing rule first instead of appending. Appended, the bundle's rules go
+    /// after every rule in place, in the bundle's order, and one a rule in place already routes
+    /// as is left out.
     #[serde(default)]
     pub replace: bool,
     /// Create any missing category referenced by the bundle.

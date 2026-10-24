@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A root folder synchronized from an Arr instance.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct RootFolder {
     pub id: String,
     pub instance_id: String,
@@ -51,9 +51,10 @@ pub struct UpdateRootFolderCategory {
 }
 
 /// Root folder with instance info for display.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct RootFolderWithInstance {
     #[serde(flatten)]
+    #[sqlx(flatten)]
     pub root_folder: RootFolder,
     pub instance_name: String,
     pub instance_type: String,

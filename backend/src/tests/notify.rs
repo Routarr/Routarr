@@ -11,6 +11,7 @@ use axum::{Json, Router};
 
 use crate::localization::Localizer;
 use crate::services::auto_apply::AutoApplyOutcome;
+use crate::services::notify::{self, Event};
 use crate::services::sync;
 
 use super::TestApp;
@@ -19,23 +20,23 @@ use super::fake_arr::FakeArr;
 /// One POST the receiver took: the Standard Webhooks headers and the body as
 /// sent, byte for byte, which is what a signature covers.
 #[derive(Debug, Clone)]
-struct Delivery {
+pub(crate) struct Delivery {
     id: String,
     timestamp: String,
     signature: Option<String>,
-    body: String,
+    pub(crate) body: String,
     headers: HeaderMap,
 }
 
-struct Receiver {
-    url: String,
+pub(crate) struct Receiver {
+    pub(crate) url: String,
     received: Arc<Mutex<Vec<Delivery>>>,
     /// Serving until it is dropped.
     _server: super::Served,
 }
 
 impl Receiver {
-    async fn start() -> Self {
+    pub(crate) async fn start() -> Self {
         Self::answering(&[]).await
     }
 
@@ -102,13 +103,13 @@ impl Receiver {
             .collect()
     }
 
-    fn deliveries(&self) -> Vec<Delivery> {
+    pub(crate) fn deliveries(&self) -> Vec<Delivery> {
         self.received.lock().expect("lock").clone()
     }
 
     /// The deliveries once `count` have arrived, for what is sent from a task
     /// of its own.
-    async fn awaiting(&self, count: usize) -> Vec<Delivery> {
+    pub(crate) async fn awaiting(&self, count: usize) -> Vec<Delivery> {
         for _ in 0..300 {
             let deliveries = self.deliveries();
             if deliveries.len() >= count {
@@ -128,8 +129,6 @@ impl Receiver {
     }
 }
 
-/// An address the startup pass sealed, after a database held it in the
-/// clear, still delivers.
 #[tokio::test]
 async fn a_webhook_url_sealed_at_startup_still_delivers() {
     let receiver = Receiver::start().await;
@@ -143,9 +142,7 @@ async fn a_webhook_url_sealed_at_startup_still_delivers() {
     assert_eq!(receiver.messages().len(), 1, "the sealed address no longer delivers");
 }
 
-/// The signing secrets go through the same startup pass: one in the clear
-/// comes back sealed and opens to the same text, and one no key can open is
-/// the only copy, left byte for byte.
+/// One no key can open is the only copy, left byte for byte.
 #[tokio::test]
 async fn the_signing_secrets_are_sealed_at_startup_and_an_unreadable_one_is_kept() {
     let app = TestApp::new().await;
@@ -178,9 +175,7 @@ async fn the_signing_secrets_are_sealed_at_startup_and_an_unreadable_one_is_kept
     assert_eq!(stored[1], foreign, "the only copy of a signing secret was overwritten");
 }
 
-/// A sync's notifications go out on their own task: a receiver slow to answer
-/// holds neither the sync's answer nor its lock, which a second sync then
-/// finds held.
+/// A slow receiver would otherwise hold the sync's answer, and the second sync find its lock held.
 #[tokio::test]
 async fn a_slow_receiver_holds_neither_the_sync_nor_its_lock() {
     let app = super::waiting_on_a_silent_webhook().await;
@@ -338,9 +333,7 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
     assert_eq!(message["source"], "routarr");
 }
 
-/// Delivering a notification never fails the work that produced it. The
-/// recovery this sync announces reaches a webhook that fails every time, and
-/// the sync still succeeds.
+/// The recovery this sync announces reaches a webhook that fails every time.
 #[tokio::test]
 async fn a_failing_webhook_does_not_break_the_sync() {
     let arr = FakeArr::start().await;
@@ -386,9 +379,8 @@ async fn an_unattended_move(app: &TestApp, arr: &FakeArr) -> String {
     app.simulate().await
 }
 
-/// An unattended apply the Arr refused is the failure nobody is watching for,
-/// and the message says how many moves failed and the first reason, both in
-/// the language of the interface.
+/// The failure nobody is watching for: the message gives how many moves failed and the first
+/// reason, in the interface's language.
 #[tokio::test]
 async fn an_unattended_apply_the_arr_refuses_is_notified() {
     let receiver = Receiver::start().await;
@@ -577,10 +569,6 @@ async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
     assert!(accepted.status.is_success(), "empty means 'off', not 'invalid'");
 }
 
-// ------------------------------------------------------ signed deliveries
-
-use crate::services::notify::{self, Event};
-
 async fn listening(app: &TestApp, receiver: &Receiver) {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 }
@@ -728,8 +716,6 @@ async fn a_secret_that_cannot_be_opened_sends_nothing_and_says_so() {
     assert_eq!(app.get("/api/v1/notifications/webhook-secret").await.json["readable"], true);
 }
 
-/// Secrets the database fails to read sign nothing: sent unsigned, a message
-/// would pass a receiver that checks a signature only when one is there.
 #[tokio::test]
 async fn secrets_that_cannot_be_read_send_nothing() {
     let app = TestApp::new().await;
@@ -770,7 +756,6 @@ async fn a_retry_follows_the_secret_and_the_address_of_its_own_time() {
     assert_eq!(cleared.deliveries().len(), 1, "a cleared address was tried again");
 }
 
-/// What finished well reaches the webhook only when it asked for it.
 #[tokio::test]
 async fn a_completion_is_sent_only_to_a_webhook_that_asked_for_it() {
     let arr = FakeArr::start().await;
@@ -792,8 +777,6 @@ async fn a_completion_is_sent_only_to_a_webhook_that_asked_for_it() {
     assert_eq!(message["data"]["moves"], 1);
 }
 
-/// An apply and a revert each announce themselves under their own name, with
-/// their counts, and only to a webhook that asked for completions.
 #[tokio::test]
 async fn an_apply_and_a_revert_are_announced_apart_once_asked_for() {
     use crate::services::executor::{self, Confirmed};
@@ -888,7 +871,7 @@ async fn a_move_still_moving_is_announced_again_once_settled() {
     let arr = FakeArr::start().await;
     arr.moving_for(std::time::Duration::from_millis(800));
     let (app, decision_id) = super::one_move_ready(&arr).await;
-    // Past 360 times the wait the run stops following the move, and a sync settles it.
+    // Past `CEILING_ROUNDS` times the wait the run stops following the move, and a sync settles it.
     let app = app.with_move_wait(std::time::Duration::from_millis(1));
     let receiver = Receiver::start().await;
     listening(&app, &receiver).await;
@@ -1001,9 +984,8 @@ async fn a_refused_delivery_is_tried_four_times_each_signed_for_itself() {
     assert!(started.elapsed() >= std::time::Duration::from_secs(1), "{:?}", started.elapsed());
 }
 
-/// Deliveries wait their turn up to a bound: past thirty-two pending, an event
-/// is dropped rather than queued without end, and once the queue has drained
-/// the places are given back.
+/// Past the bound an event is dropped rather than queued without end, and the places come back
+/// once the queue drains.
 #[tokio::test]
 async fn deliveries_queue_up_to_a_bound_and_give_their_places_back() {
     let app = TestApp::new().await.with_http_budget(std::time::Duration::from_secs(5));
@@ -1072,8 +1054,6 @@ async fn an_ntfy_address_with_its_templates_is_saved_and_posted_to() {
     assert_eq!(delivered["title"], "Routarr");
     assert!(delivered["message"].as_str().is_some_and(|m| !m.is_empty()), "{delivered}");
 }
-
-// ------------------------------------------------------ formats and tests
 
 /// The format is read at each delivery, and the signature covers the body
 /// as sent, whatever its shape.

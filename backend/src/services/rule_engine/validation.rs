@@ -26,6 +26,8 @@ fn repeated_value(condition: &Condition) -> Option<String> {
 pub struct RuleDraft<'a> {
     pub name: &'a str,
     pub description: Option<&'a str>,
+    /// `None` places the rule, and every place is within the bounds.
+    pub priority: Option<i64>,
     pub media_type: &'a str,
     pub match_mode: MatchMode,
     pub conditions: &'a [Condition],
@@ -43,6 +45,8 @@ pub struct ValidationEnv<'a> {
     /// Metadata fields at least one enabled source can answer, by field, since the
     /// Arr alone answers genres and no keyword.
     pub covered_fields: &'a [MetadataField],
+    /// The score scales at least one enabled source gives, which a score range reads.
+    pub covered_scales: &'a [&'static str],
     /// The year the caller considers current, injected so a test can pin it.
     pub current_year: i64,
 }
@@ -71,19 +75,33 @@ pub const MAX_CONDITIONS: usize = 50;
 /// Most values one condition holds.
 pub const MAX_VALUES: usize = 200;
 
+/// The lowest priority a rule may take, far beyond what `MAX_RULES` rules need at any step.
+pub const MIN_PRIORITY: i64 = -1_000_000;
+
+/// The highest priority a rule may take. A rule placed after the last stops here, so no sum
+/// leaves the integers SQLite stores nor those a browser's number holds exactly.
+pub const MAX_PRIORITY: i64 = 1_000_000;
+
 /// Validate a rule before it is stored or enabled. Errors block the write, and
 /// warnings do not.
 pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<ValidationIssue> {
     let RuleDraft {
         name,
         description,
+        priority,
         media_type,
         match_mode,
         conditions,
         exclusions,
         target_category,
     } = draft;
-    let ValidationEnv { known_categories, mapped_categories, covered_fields, current_year } = env;
+    let ValidationEnv {
+        known_categories,
+        mapped_categories,
+        covered_fields,
+        covered_scales,
+        current_year,
+    } = env;
 
     let mut issues = Vec::new();
 
@@ -115,6 +133,13 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
             "name",
             "ValidationNameTooLong",
             &[("max", MAX_NAME_LENGTH.to_string())],
+        ));
+    }
+    if priority.is_some_and(|priority| !(MIN_PRIORITY..=MAX_PRIORITY).contains(&priority)) {
+        issues.push(ValidationIssue::error(
+            "priority",
+            "ValidationPriorityRange",
+            &[("min", MIN_PRIORITY.to_string()), ("max", MAX_PRIORITY.to_string())],
         ));
     }
     if media_type.parse::<crate::models::RuleMediaType>().is_err() {
@@ -155,8 +180,18 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
             params
         };
         // An error, since a rule that never matches reads on screen as a sound one.
-        if condition.is_empty() {
+        if condition.is_empty()
+            || (value_count(condition) > 0 && folded_values(condition).is_empty())
+        {
             issues.push(ValidationIssue::error(section, "ValidationConditionEmpty", &at(&[])));
+        }
+        // A warning, since a name no table knows is kept as a source wrote it.
+        for (value, code) in uncoded_values(condition) {
+            issues.push(ValidationIssue::warning(
+                section,
+                "ValidationValueNotCode",
+                &at(&[("value", value), ("code", code)]),
+            ));
         }
         if value_count(condition) > MAX_VALUES {
             issues.push(ValidationIssue::error(
@@ -181,7 +216,6 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 &at(&[("min", min.to_string()), ("max", max.to_string())]),
             ));
         }
-        // A year outside these bounds is a typing mistake.
         if let Condition::YearRange { min, max } = condition {
             let ceiling = current_year + MAX_YEARS_AHEAD;
             for year in [min, max].into_iter().flatten() {
@@ -235,9 +269,11 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 &at(&[("value", count.to_string())]),
             ));
         }
-        if let Some(field) = condition.metadata_field()
-            && !covered_fields.contains(&field)
-        {
+        let answered = match condition {
+            Condition::ScoreRange { scale, .. } => covered_scales.contains(&scale.as_str()),
+            _ => condition.metadata_field().is_none_or(|field| covered_fields.contains(&field)),
+        };
+        if !answered {
             issues.push(ValidationIssue::warning(section, "ValidationConditionNoSource", &at(&[])));
         }
     }
@@ -257,17 +293,78 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
         }
     }
 
-    for exclusion in exclusions {
-        if conditions.iter().any(|condition| folded(condition) == folded(exclusion)) {
-            issues.push(ValidationIssue::error(
-                "exclusions",
-                "ValidationExclusionConflict",
-                &[("kind", exclusion.kind().to_string())],
-            ));
+    // In `any` mode another condition admits titles one exclusion may leave alone.
+    if match_mode == MatchMode::All || conditions.len() == 1 {
+        for exclusion in exclusions {
+            if conditions.iter().any(|condition| vetoes_all(exclusion, condition)) {
+                issues.push(ValidationIssue::error(
+                    "exclusions",
+                    "ValidationExclusionConflict",
+                    &[("kind", exclusion.kind().to_string())],
+                ));
+            }
         }
     }
 
     issues
+}
+
+/// Whether `exclusion` holds for every title `condition` admits, so the rule never fires.
+fn vetoes_all(exclusion: &Condition, condition: &Condition) -> bool {
+    use Condition::*;
+    match (condition, exclusion) {
+        (CurrentRootFolder(folder), CurrentRootFolder(vetoed)) => {
+            crate::paths::same(folder, vetoed)
+        }
+        (
+            CurrentRootFolder(folder) | CurrentRootFolderStartsWith(folder),
+            CurrentRootFolderStartsWith(vetoed),
+        ) => crate::paths::within(folder, vetoed),
+        _ => match (quantified(condition), quantified(exclusion)) {
+            (Some((field, every)), Some((vetoed_field, vetoes_every))) if field == vetoed_field => {
+                let wanted = folded_values(condition);
+                let vetoed = folded_values(exclusion);
+                match (every, vetoes_every) {
+                    (false, false) => !wanted.is_empty() && wanted.is_subset(&vetoed),
+                    (true, false) => !wanted.is_disjoint(&vetoed),
+                    (true, true) => !vetoed.is_empty() && vetoed.is_subset(&wanted),
+                    (false, true) => wanted.len() == 1 && wanted == vetoed,
+                }
+            }
+            _ => folded(condition) == folded(exclusion),
+        },
+    }
+}
+
+/// The field a condition whose values are alternatives, or all required, reads, and whether
+/// it requires all: `genre_contains` and `genre_contains_all` read one field.
+fn quantified(condition: &Condition) -> Option<(&'static str, bool)> {
+    use Condition::*;
+    let any = |condition: &Condition| Some((condition.kind(), false));
+    match condition {
+        GenreContainsAll(_) => Some(("genre_contains", true)),
+        KeywordContainsAll(_) => Some(("keyword_contains", true)),
+        OriginCountryAll(_) => Some(("origin_country", true)),
+        TagInAll(_) => Some(("tag_in", true)),
+        GenreContains(_) | KeywordContains(_) | OriginCountry(_) | TagIn(_)
+        | OriginalLanguage(_) | SeriesTypeIs(_) | QualityProfileIn(_) | StudioIn(_)
+        | NetworkIn(_) | CollectionIn(_) | CertificationIn(_) | StatusIs(_) | TitleContains(_)
+        | TmdbIdIn(_) | TvdbIdIn(_) | ImdbIdIn(_) => any(condition),
+        _ => None,
+    }
+}
+
+/// The values of a list condition, each folded as its kind compares them, blanks dropped.
+fn folded_values(condition: &Condition) -> std::collections::HashSet<String> {
+    let key = key_of(condition);
+    serde_json::to_value(condition)
+        .ok()
+        .and_then(|stored| stored.get("value")?.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .map(|value| value.as_str().map_or_else(|| value.to_string(), key))
+        .filter(|key| !key.is_empty())
+        .collect()
 }
 
 /// Detect the pairs of conditions that are mutually exclusive by construction.
@@ -281,6 +378,7 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         // A listed language is a known one.
         (OriginalLanguage(_), OriginalLanguageKnown(false))
         | (OriginalLanguageKnown(false), OriginalLanguage(_)) => true,
+        (HasMetadata(false), other) | (other, HasMetadata(false)) => needs_metadata(other),
         // Any of a list, with values forbidden: impossible only when every value is.
         (GenreContains(x), GenreNotContains(y))
         | (GenreNotContains(y), GenreContains(x))
@@ -313,6 +411,43 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         (CurrentRootFolder(x), CurrentRootFolder(y)) => !crate::paths::same(x, y),
         _ => false,
     }
+}
+
+/// Whether a condition matches only a title some source answered for: a negative one also
+/// matches a title nothing is known of.
+fn needs_metadata(condition: &Condition) -> bool {
+    use Condition::*;
+    let negative = matches!(
+        condition,
+        GenreNotContains(_)
+            | KeywordNotContains(_)
+            | OriginalLanguageNot(_)
+            | OriginalLanguageKnown(false)
+    );
+    condition.metadata_field().is_some() && !negative
+}
+
+/// Each value of a language or country condition that names a code it is not, with that
+/// code: the engine compares codes, so `Japanese` reaches no title where `ja` would.
+fn uncoded_values(condition: &Condition) -> Vec<(String, String)> {
+    use crate::services::templates::{country_code, language_code};
+    type CodeOf = fn(&str) -> Option<String>;
+    let (values, code_of): (&[String], CodeOf) = match condition {
+        Condition::OriginalLanguage(values) | Condition::OriginalLanguageNot(values) => {
+            (values, language_code)
+        }
+        Condition::OriginCountry(values) | Condition::OriginCountryAll(values) => {
+            (values, country_code)
+        }
+        _ => return Vec::new(),
+    };
+    values
+        .iter()
+        .filter_map(|value| {
+            let code = code_of(value)?;
+            (!code.eq_ignore_ascii_case(value.trim())).then(|| (value.clone(), code))
+        })
+        .collect()
 }
 
 /// A dictionary key and the values its sentence names.
@@ -425,6 +560,7 @@ mod tests {
         RuleDraft {
             name: "Anime",
             description: None,
+            priority: None,
             media_type,
             match_mode: mode,
             conditions,
@@ -442,6 +578,7 @@ mod tests {
             known_categories: known,
             mapped_categories: mapped,
             covered_fields: covered,
+            covered_scales: &["imdb", "tmdb", "metacritic", "rotten_tomatoes", "mal", "anilist"],
             // Pinned, like `now()`, so the bounds do not move with the real year.
             current_year: 2026,
         }
@@ -483,8 +620,6 @@ mod tests {
         assert!(issues.iter().any(|i| !i.is_error() && i.key == "ValidationCategoryUnmapped"));
     }
 
-    /// Each field of a draft is refused when it cannot make a rule: an empty
-    /// name, a media type that is none, no condition at all, no category.
     #[test]
     fn a_draft_missing_what_a_rule_needs_is_refused_field_by_field() {
         let known = ["anime".to_string()];
@@ -493,6 +628,7 @@ mod tests {
             let draft = RuleDraft {
                 name,
                 description: None,
+                priority: None,
                 media_type,
                 match_mode: MatchMode::All,
                 conditions,
@@ -580,8 +716,6 @@ mod tests {
         assert!(issues.iter().any(|i| i.is_error()));
     }
 
-    /// The `all` quantifier forbids nothing the `any` one does not, so pairing
-    /// it with a negation of the same value is the same impossibility.
     #[test]
     fn requiring_all_of_a_genre_that_is_also_forbidden_contradicts() {
         let issues = validate(
@@ -594,8 +728,6 @@ mod tests {
         assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationContradiction"));
     }
 
-    /// Two spellings the engine folds into one value are one value here too:
-    /// a rule the validator lets through must be one the engine can satisfy.
     #[test]
     fn spellings_the_engine_folds_contradict_too() {
         let issues = validate(
@@ -620,8 +752,7 @@ mod tests {
         assert!(issues.iter().any(|i| i.is_error()));
     }
 
-    /// Compared as the engine compares: an exclusion spelled otherwise than its
-    /// condition vetoes every title the condition lets in all the same.
+    /// A respelled exclusion vetoes every title its condition lets in all the same.
     #[test]
     fn a_condition_that_is_also_an_exclusion_is_rejected() {
         let condition = Condition::GenreContains(vec!["Animation".into(), "Family".into()]);
@@ -638,8 +769,60 @@ mod tests {
         assert!(!issues.iter().any(|i| i.key == "ValidationExclusionConflict"), "{issues:?}");
     }
 
-    /// An empty condition is an error: the stored rule would never match, yet
-    /// read on screen as a sound one.
+    /// In `any` mode another condition still admits titles the exclusion lets through.
+    #[test]
+    fn an_exclusion_repeating_one_of_several_any_conditions_is_no_conflict() {
+        let known = ["anime".to_string()];
+        let conditions = [
+            Condition::GenreContains(vec!["Music".into()]),
+            Condition::KeywordContains(vec!["concert film".into()]),
+        ];
+        let exclusions = [Condition::GenreContains(vec!["Music".into()])];
+        let issues = validate_rule(
+            draft("both", MatchMode::Any, &conditions, &exclusions, "anime"),
+            env(&known, &known, &MetadataField::ALL),
+        );
+        assert!(!issues.iter().any(|i| i.key == "ValidationExclusionConflict"), "{issues:?}");
+    }
+
+    /// An exclusion wider than its condition vetoes every title the condition admits, though
+    /// the two differ.
+    #[test]
+    fn an_exclusion_covering_every_title_its_condition_admits_is_a_conflict() {
+        let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        let conflicting = [
+            (
+                Condition::GenreContains(list(&["Animation"])),
+                Condition::GenreContains(list(&["Animation", "Horror"])),
+            ),
+            (
+                Condition::GenreContainsAll(list(&["Animation", "Family"])),
+                Condition::GenreContains(list(&["family"])),
+            ),
+            (Condition::TagInAll(list(&["kids", "anime"])), Condition::TagInAll(list(&["anime"]))),
+            (
+                Condition::OriginalLanguage(list(&["ja"])),
+                Condition::OriginalLanguage(list(&["ko", "ja"])),
+            ),
+            (
+                Condition::CurrentRootFolder("/movies/anime/kids".into()),
+                Condition::CurrentRootFolderStartsWith("/movies/anime".into()),
+            ),
+        ];
+        for (condition, exclusion) in conflicting {
+            let issues = validate(vec![condition.clone()], vec![exclusion.clone()]);
+            assert!(
+                issues.iter().any(|i| i.is_error() && i.key == "ValidationExclusionConflict"),
+                "{condition:?} under {exclusion:?}: {issues:?}"
+            );
+        }
+        let apart = validate(
+            vec![Condition::GenreContains(list(&["Animation", "Drama"]))],
+            vec![Condition::GenreContainsAll(list(&["Animation", "Drama"]))],
+        );
+        assert!(!apart.iter().any(|i| i.key == "ValidationExclusionConflict"), "{apart:?}");
+    }
+
     #[test]
     fn an_empty_condition_value_is_an_error() {
         let issues = validate(vec![Condition::GenreContains(vec![])], vec![]);
@@ -649,9 +832,80 @@ mod tests {
         assert!(blank.iter().any(|i| i.is_error() && i.key == "ValidationConditionEmpty"));
     }
 
-    /// The values of a condition are alternatives compared once folded, so a
-    /// repeat adds nothing, and a client drawing each value under its own key
-    /// cannot draw it twice.
+    /// A value made only of signs folds to nothing, so a condition holding no other value
+    /// matches no title.
+    #[test]
+    fn a_condition_whose_values_all_fold_to_nothing_is_empty() {
+        let empty = |issues: &[ValidationIssue]| {
+            issues.iter().any(|i| i.is_error() && i.key == "ValidationConditionEmpty")
+        };
+        for nothing in [
+            Condition::GenreContains(vec!["?!".into()]),
+            Condition::TagIn(vec!["-".into(), "...".into()]),
+        ] {
+            assert!(empty(&validate(vec![nothing.clone()], vec![])), "{nothing:?}");
+        }
+        let kept =
+            validate(vec![Condition::GenreContains(vec!["?!".into(), "Drama".into()])], vec![]);
+        assert!(!empty(&kept), "{kept:?}");
+    }
+
+    /// The engine compares codes, so a language or a country written as its name matches no
+    /// title: the warning names the code, and the value stays as written.
+    #[test]
+    fn a_language_or_country_written_as_a_name_is_warned_of_with_its_code() {
+        let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        let named = |condition: Condition| {
+            validate(vec![condition], vec![])
+                .into_iter()
+                .filter(|i| i.key == "ValidationValueNotCode")
+                .map(|i| {
+                    assert!(!i.is_error(), "{i:?}");
+                    (i.params["value"].clone(), i.params["code"].clone())
+                })
+                .collect::<Vec<_>>()
+        };
+        let pair = |value: &str, code: &str| vec![(value.to_string(), code.to_string())];
+        assert_eq!(named(Condition::OriginalLanguage(list(&["Japanese"]))), pair("Japanese", "ja"));
+        assert_eq!(named(Condition::OriginalLanguageNot(list(&["jpn"]))), pair("jpn", "ja"));
+        assert_eq!(named(Condition::OriginalLanguage(list(&["nb"]))), pair("nb", "no"));
+        assert_eq!(named(Condition::OriginCountry(list(&["Japan"]))), pair("Japan", "JP"));
+        assert_eq!(named(Condition::OriginCountryAll(list(&["kor"]))), pair("kor", "KR"));
+        for coded in [
+            Condition::OriginalLanguage(list(&["ja", "KO"])),
+            Condition::OriginCountry(list(&["JP", "kr"])),
+            Condition::OriginalLanguage(list(&["klingon"])),
+        ] {
+            assert!(named(coded.clone()).is_empty(), "{coded:?}");
+        }
+    }
+
+    /// With no metadata, a condition reading it never matches, and a negative one always does.
+    #[test]
+    fn no_metadata_beside_a_condition_reading_it_contradicts() {
+        use Condition::*;
+        let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        for reading in [
+            GenreContains(list(&["Animation"])),
+            OriginalLanguageKnown(true),
+            ScoreRange { scale: "imdb".into(), min: Some(7.0), max: None, min_votes: None },
+        ] {
+            assert!(contradicts(&HasMetadata(false), &reading), "{reading:?}");
+            assert!(contradicts(&reading, &HasMetadata(false)), "{reading:?}");
+            assert!(!contradicts(&HasMetadata(true), &reading), "{reading:?}");
+        }
+        for negative in [
+            GenreNotContains(list(&["Horror"])),
+            KeywordNotContains(list(&["gore"])),
+            OriginalLanguageNot(list(&["en"])),
+            OriginalLanguageKnown(false),
+            HasFiles(true),
+        ] {
+            assert!(!contradicts(&HasMetadata(false), &negative), "{negative:?}");
+        }
+    }
+
+    /// A client drawing each value under its own key cannot draw one twice.
     #[test]
     fn a_value_listed_twice_in_one_condition_is_an_error() {
         let folded = validate(
@@ -764,7 +1018,6 @@ mod tests {
         assert!(!fine.iter().any(|i| i.key == "ValidationYearRangeInverted"));
     }
 
-    /// A year such as 12 or 200000 is an error, and the first film's year is not.
     #[test]
     fn an_implausible_year_is_an_error_and_the_first_film_year_is_not() {
         let first = validate(vec![Condition::YearRange { min: Some(MIN_YEAR), max: None }], vec![]);
@@ -784,17 +1037,13 @@ mod tests {
         }
     }
 
-    /// Radarr indexes announcements long before release, so a rule about a film
-    /// still to come is a rule somebody means, up to the ceiling itself.
     #[test]
     fn a_year_a_few_ahead_is_accepted() {
         let issues = validate(vec![Condition::YearRange { min: Some(2031), max: None }], vec![]);
         assert!(!issues.iter().any(|i| i.key == "ValidationYearImplausible"), "{issues:?}");
     }
 
-    /// A count of days, of gigabytes or of seasons below one is refused for
-    /// what it is: no day is the last zero, and "over 0" holds for nearly
-    /// every title. A count that is not empty is not called empty.
+    /// One key alone: a count that is not empty is not called empty.
     #[test]
     fn a_count_below_one_is_refused_as_too_low() {
         for low in [
@@ -817,9 +1066,6 @@ mod tests {
         }
     }
 
-    /// What a rule may hold is bounded, at the bound included: every pass
-    /// reads every condition of every rule for every title, and every rule
-    /// list sends every description.
     #[test]
     fn a_rule_holds_what_its_limits_allow_and_no_more() {
         let known = ["anime".to_string()];
@@ -884,8 +1130,6 @@ mod tests {
         assert!(issues.iter().any(|i| i.key == "ValidationConditionNoSource"));
     }
 
-    /// A warning phrased as "no TMDB key" would be wrong: the Arr is a source
-    /// too, and it answers genres without any key at all.
     #[test]
     fn a_condition_a_keyless_source_can_answer_is_not_flagged() {
         let known = ["anime".to_string()];

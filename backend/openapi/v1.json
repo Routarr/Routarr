@@ -1707,6 +1707,8 @@
           "priority": {
             "description": "Lower is tried first. Equal priorities go by name, then by id. Left\nout, a new rule goes after every other, and an edited one keeps its\nplace.",
             "format": "int64",
+            "maximum": 1000000,
+            "minimum": -1000000,
             "type": [
               "integer",
               "null"
@@ -2232,7 +2234,7 @@
             "type": "boolean"
           },
           "replace": {
-            "description": "Delete every existing rule first instead of appending.",
+            "description": "Delete every existing rule first instead of appending. Appended, the bundle's rules go\nafter every rule in place, in the bundle's order, and one a rule in place already routes\nas is left out.",
             "type": "boolean"
           }
         },
@@ -3301,7 +3303,7 @@
             "type": "array"
           },
           "status": {
-            "description": "Where the title stands, in the words Radarr and Sonarr use: `tba`,\n`announced`, `inCinemas` or `released` for a film, `upcoming`,\n`continuing` or `ended` for a series.",
+            "description": "The status the first source in the order gives, in its own words (TMDB `Released`,\nAniList `FINISHED`). The Arr's status is `Media.status`.",
             "type": [
               "string",
               "null"
@@ -3433,7 +3435,7 @@
             ]
           },
           "media_id": {
-            "description": "The library item to snapshot. Resolved once, here, and never referenced\nagain: a case keeps its own copy of the item, so it outlives it.",
+            "description": "The library item to snapshot. The case keeps its own copy, so it outlives the item.",
             "type": "string"
           },
           "name": {
@@ -4543,6 +4545,8 @@
           "priority": {
             "description": "Lower is tried first. Equal priorities go by name, then by id.",
             "format": "int64",
+            "maximum": 1000000,
+            "minimum": -1000000,
             "type": "integer"
           },
           "target_category": {
@@ -4621,8 +4625,22 @@
               "null"
             ]
           },
+          "ambiguous_with_id": {
+            "description": "The id of the rule `ambiguous_with` names, which shares its name.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "duplicate_of": {
             "description": "Another rule with the same conditions and the same target. One of the\ntwo decides nothing whatever the priorities are.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duplicate_of_id": {
+            "description": "The id of the rule `duplicate_of` names.",
             "type": [
               "string",
               "null"
@@ -4632,7 +4650,7 @@
             "type": "boolean"
           },
           "matched_nothing": {
-            "description": "It matched nothing at all. That is a different problem from being\nshadowed, and usually a condition that is too narrow rather than a\npriority that is too low. Never said of a disabled rule, which no run\nreads.",
+            "description": "It matched nothing at all, usually a condition too narrow. Never said of a disabled rule,\nwhich no run reads.",
             "type": "boolean"
           },
           "priority": {
@@ -4652,6 +4670,13 @@
           },
           "shadowed_by": {
             "description": "The rule that took the most of what this one matched, when it never won.\nOf two that took as many, the one tried first.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shadowed_by_id": {
+            "description": "The id of the rule `shadowed_by` names, since two rules may share a name.",
             "type": [
               "string",
               "null"
@@ -4703,7 +4728,7 @@
         "description": "What an import did.",
         "properties": {
           "adjusted": {
-            "description": "Each rule imported otherwise than the bundle has it, with how: limited\nto fewer instances, or switched off until its scope is checked.",
+            "description": "Each rule imported otherwise than the bundle has it, with how: limited\nto fewer instances, switched off until its scope is checked, or left\nout as a rule already in place.",
             "items": {
               "type": "string"
             },

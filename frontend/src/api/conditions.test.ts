@@ -15,6 +15,7 @@ import {
   withoutRepeats,
   conditionAppliesTo,
   localFacets,
+  MAX_PRIORITY,
   nextPriority,
   statusKey,
 } from './conditions';
@@ -237,6 +238,7 @@ describe('nextPriority', () => {
   it('places a new rule after every other, as the server does', () => {
     expect(nextPriority([30, 10])).toBe(40);
     expect(nextPriority([])).toBe(10);
+    expect(nextPriority([MAX_PRIORITY - 5])).toBe(MAX_PRIORITY);
   });
 });
 

@@ -123,9 +123,8 @@ pub struct MediaMetadata {
     /// or `MAL` for MyAnimeList's. Absent when the source did not say.
     #[serde(default)]
     pub certification_scale: Option<String>,
-    /// Where the title stands, in the words Radarr and Sonarr use: `tba`,
-    /// `announced`, `inCinemas` or `released` for a film, `upcoming`,
-    /// `continuing` or `ended` for a series.
+    /// The status the first source in the order gives, in its own words (TMDB `Released`,
+    /// AniList `FINISHED`). The Arr's status is `Media.status`.
     pub status: Option<String>,
     /// The synopsis of the first source in the order that gives one.
     pub overview: Option<String>,

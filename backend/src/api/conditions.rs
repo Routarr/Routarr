@@ -83,368 +83,374 @@ pub struct ConditionSpec {
     pub counterpart: &'static str,
 }
 
+// Radarr sends no tvdbId, series type, seasons or network, Sonarr no studio or collection.
+const ANY: &[&str] = &["movie", "series"];
+const SERIES_ONLY: &[&str] = &["series"];
+const MOVIES_ONLY: &[&str] = &["movie"];
+
+// Each label is the dictionary key `ConditionLabel` and the kind in PascalCase.
+const CONDITIONS: &[Spec] = &[
+    Spec {
+        kind: "genre_contains",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Genres),
+        media_types: ANY,
+        suggestions: "genres",
+        quantifier: "any",
+        counterpart: "genre_contains_all",
+    },
+    Spec {
+        kind: "genre_contains_all",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Genres),
+        media_types: ANY,
+        suggestions: "genres",
+        quantifier: "all",
+        counterpart: "genre_contains",
+    },
+    Spec {
+        kind: "genre_not_contains",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Genres),
+        media_types: ANY,
+        suggestions: "genres",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "keyword_contains",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Keywords),
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "any",
+        counterpart: "keyword_contains_all",
+    },
+    Spec {
+        kind: "keyword_contains_all",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Keywords),
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "all",
+        counterpart: "keyword_contains",
+    },
+    Spec {
+        kind: "keyword_not_contains",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Keywords),
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "original_language",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::OriginalLanguage),
+        media_types: ANY,
+        suggestions: "original_languages",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "original_language_not",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::OriginalLanguage),
+        media_types: ANY,
+        suggestions: "original_languages",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "original_language_known",
+        value_type: "boolean",
+        group: "metadata",
+        field: Some(MetadataField::OriginalLanguage),
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "origin_country",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::OriginCountries),
+        media_types: ANY,
+        suggestions: "origin_countries",
+        quantifier: "any",
+        counterpart: "origin_country_all",
+    },
+    Spec {
+        kind: "origin_country_all",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::OriginCountries),
+        media_types: ANY,
+        suggestions: "origin_countries",
+        quantifier: "all",
+        counterpart: "origin_country",
+    },
+    Spec {
+        kind: "certification_in",
+        value_type: "string_list",
+        group: "metadata",
+        field: Some(MetadataField::Certification),
+        media_types: ANY,
+        suggestions: "certifications",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "score_range",
+        value_type: "score_range",
+        group: "metadata",
+        field: Some(MetadataField::Ratings),
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "year_range",
+        value_type: "year_range",
+        group: "title",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "status_is",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "statuses",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "current_root_folder",
+        value_type: "string",
+        group: "folder",
+        field: None,
+        media_types: ANY,
+        suggestions: "root_folders",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "current_root_folder_starts_with",
+        value_type: "string",
+        group: "folder",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "has_files",
+        value_type: "boolean",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "monitored",
+        value_type: "boolean",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "has_metadata",
+        value_type: "boolean",
+        group: "metadata",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "title_contains",
+        value_type: "string_list",
+        group: "title",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "tmdb_id_in",
+        value_type: "number_list",
+        group: "title",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "tvdb_id_in",
+        value_type: "number_list",
+        group: "title",
+        field: None,
+        media_types: SERIES_ONLY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "imdb_id_in",
+        value_type: "string_list",
+        group: "title",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "added_within_days",
+        value_type: "number",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "tag_in",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "tags",
+        quantifier: "any",
+        counterpart: "tag_in_all",
+    },
+    Spec {
+        kind: "tag_in_all",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "tags",
+        quantifier: "all",
+        counterpart: "tag_in",
+    },
+    Spec {
+        kind: "series_type_is",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: SERIES_ONLY,
+        suggestions: "series_types",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "quality_profile_in",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "quality_profiles",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "runtime_range",
+        value_type: "number_range",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "studio_in",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: MOVIES_ONLY,
+        suggestions: "studios",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "network_in",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: SERIES_ONLY,
+        suggestions: "networks",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "collection_in",
+        value_type: "string_list",
+        group: "arr",
+        field: None,
+        media_types: MOVIES_ONLY,
+        suggestions: "collections",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "size_on_disk_over_gb",
+        value_type: "number",
+        group: "arr",
+        field: None,
+        media_types: ANY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+    Spec {
+        kind: "season_count_over",
+        value_type: "number",
+        group: "arr",
+        field: None,
+        media_types: SERIES_ONLY,
+        suggestions: "",
+        quantifier: "",
+        counterpart: "",
+    },
+];
+
+/// Where a condition of this kind can ever match, `movie`, `series` or both, as the catalogue
+/// lists it: every kind the validator reads is in it, and an unknown one matches neither.
+pub(crate) fn media_types(kind: &str) -> &'static [&'static str] {
+    CONDITIONS.iter().find(|spec| spec.kind == kind).map_or(&[], |spec| spec.media_types)
+}
+
 /// The catalogue of condition types, so the rule builder hard-codes none.
 pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionCatalog> {
     let localizer = state.localizer().await;
-
-    // Radarr sends no tvdbId, series type, seasons or network, Sonarr no studio or collection.
-    const ANY: &[&str] = &["movie", "series"];
-    const SERIES_ONLY: &[&str] = &["series"];
-    const MOVIES_ONLY: &[&str] = &["movie"];
-
-    // Each label is the dictionary key `ConditionLabel` and the kind in PascalCase.
-    const CONDITIONS: &[Spec] = &[
-        Spec {
-            kind: "genre_contains",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Genres),
-            media_types: ANY,
-            suggestions: "genres",
-            quantifier: "any",
-            counterpart: "genre_contains_all",
-        },
-        Spec {
-            kind: "genre_contains_all",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Genres),
-            media_types: ANY,
-            suggestions: "genres",
-            quantifier: "all",
-            counterpart: "genre_contains",
-        },
-        Spec {
-            kind: "genre_not_contains",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Genres),
-            media_types: ANY,
-            suggestions: "genres",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "keyword_contains",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Keywords),
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "any",
-            counterpart: "keyword_contains_all",
-        },
-        Spec {
-            kind: "keyword_contains_all",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Keywords),
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "all",
-            counterpart: "keyword_contains",
-        },
-        Spec {
-            kind: "keyword_not_contains",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Keywords),
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "original_language",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::OriginalLanguage),
-            media_types: ANY,
-            suggestions: "original_languages",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "original_language_not",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::OriginalLanguage),
-            media_types: ANY,
-            suggestions: "original_languages",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "original_language_known",
-            value_type: "boolean",
-            group: "metadata",
-            field: Some(MetadataField::OriginalLanguage),
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "origin_country",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::OriginCountries),
-            media_types: ANY,
-            suggestions: "origin_countries",
-            quantifier: "any",
-            counterpart: "origin_country_all",
-        },
-        Spec {
-            kind: "origin_country_all",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::OriginCountries),
-            media_types: ANY,
-            suggestions: "origin_countries",
-            quantifier: "all",
-            counterpart: "origin_country",
-        },
-        Spec {
-            kind: "certification_in",
-            value_type: "string_list",
-            group: "metadata",
-            field: Some(MetadataField::Certification),
-            media_types: ANY,
-            suggestions: "certifications",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "score_range",
-            value_type: "score_range",
-            group: "metadata",
-            field: Some(MetadataField::Ratings),
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "year_range",
-            value_type: "year_range",
-            group: "title",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "status_is",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "statuses",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "current_root_folder",
-            value_type: "string",
-            group: "folder",
-            field: None,
-            media_types: ANY,
-            suggestions: "root_folders",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "current_root_folder_starts_with",
-            value_type: "string",
-            group: "folder",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "has_files",
-            value_type: "boolean",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "monitored",
-            value_type: "boolean",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "has_metadata",
-            value_type: "boolean",
-            group: "metadata",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "title_contains",
-            value_type: "string_list",
-            group: "title",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "tmdb_id_in",
-            value_type: "number_list",
-            group: "title",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "tvdb_id_in",
-            value_type: "number_list",
-            group: "title",
-            field: None,
-            media_types: SERIES_ONLY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "imdb_id_in",
-            value_type: "string_list",
-            group: "title",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "added_within_days",
-            value_type: "number",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "tag_in",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "tags",
-            quantifier: "any",
-            counterpart: "tag_in_all",
-        },
-        Spec {
-            kind: "tag_in_all",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "tags",
-            quantifier: "all",
-            counterpart: "tag_in",
-        },
-        Spec {
-            kind: "series_type_is",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: SERIES_ONLY,
-            suggestions: "series_types",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "quality_profile_in",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "quality_profiles",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "runtime_range",
-            value_type: "number_range",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "studio_in",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: MOVIES_ONLY,
-            suggestions: "studios",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "network_in",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: SERIES_ONLY,
-            suggestions: "networks",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "collection_in",
-            value_type: "string_list",
-            group: "arr",
-            field: None,
-            media_types: MOVIES_ONLY,
-            suggestions: "collections",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "size_on_disk_over_gb",
-            value_type: "number",
-            group: "arr",
-            field: None,
-            media_types: ANY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-        Spec {
-            kind: "season_count_over",
-            value_type: "number",
-            group: "arr",
-            field: None,
-            media_types: SERIES_ONLY,
-            suggestions: "",
-            quantifier: "",
-            counterpart: "",
-        },
-    ];
 
     // Whether a condition can match follows the sources enabled at this moment.
     let covered = metadata::covered_fields(&state.metadata_providers().await);
@@ -504,25 +510,15 @@ fn pascal_case(kind: &str) -> String {
 mod tests {
     use crate::models::Condition;
 
-    /// The catalogue, read out of this file's source, since `CONDITIONS` is a
-    /// `const` inside a handler that no test can reach.
+    /// Each entry's kind, value shape and the metadata field it declares.
     fn catalogue() -> Vec<(String, String, Option<String>)> {
-        let source = include_str!("conditions.rs");
-        let mut found = Vec::new();
-        for spec in source.split("Spec {").skip(1) {
-            let Some(body) = spec.split("\n        }").next() else { continue };
-            let Some(kind) = between(body, "kind: \"", "\"") else { continue };
-            let Some(value_type) = between(body, "value_type: \"", "\"") else { continue };
-            let field = between(body, "field: Some(MetadataField::", ")");
-            found.push((kind, value_type, field));
-        }
-        found
-    }
-
-    fn between(haystack: &str, open: &str, close: &str) -> Option<String> {
-        let start = haystack.find(open)? + open.len();
-        let rest = &haystack[start..];
-        Some(rest[..rest.find(close)?].to_string())
+        super::CONDITIONS
+            .iter()
+            .map(|spec| {
+                let field = spec.field.map(|field| format!("{field:?}"));
+                (spec.kind.to_string(), spec.value_type.to_string(), field)
+            })
+            .collect()
     }
 
     /// A value of the shape the catalogue declares, so the kind can be
@@ -541,9 +537,8 @@ mod tests {
         }
     }
 
-    /// Every condition the engine understands is offered by the builder. The
-    /// compiler joins the catalogue to the enum nowhere, so a variant missing
-    /// here evaluates correctly and is offered by nothing.
+    /// The compiler joins the catalogue to the enum nowhere, so a missing variant would be offered
+    /// by nothing.
     #[test]
     fn every_condition_the_engine_knows_is_in_the_catalogue() {
         let wire = wire_names();
@@ -585,8 +580,7 @@ mod tests {
         names
     }
 
-    /// Every axis a `Spec` names is one `/library/facets` answers. The interface
-    /// reads it through a cast that turns a miss into an empty list, and
+    /// The interface reads the axis through a cast that turns a miss into an empty list, and
     /// `check-api-types.py` compares names only, so nothing else sees a rename.
     #[test]
     fn every_axis_a_spec_names_is_one_the_facets_payload_answers() {
@@ -602,21 +596,14 @@ mod tests {
             payload.lines().filter_map(|line| line.trim().strip_suffix(": Facet[];")).collect();
         assert!(axes.len() >= 5, "only {} axes parsed out of types.ts: {axes:?}", axes.len());
 
-        let source = include_str!("conditions.rs");
-        let table = source.split("Spec {").skip(1);
         let mut missing = Vec::new();
         let mut checked = 0;
-        for spec in table {
-            let Some(body) = spec.split("\n        }").next() else { continue };
-            let Some(kind) = between(body, "kind: \"", "\"") else { continue };
-            let Some(axis) = between(body, "suggestions: \"", "\"") else { continue };
-            if axis.is_empty() {
-                continue;
-            }
+        for spec in super::CONDITIONS.iter().filter(|spec| !spec.suggestions.is_empty()) {
             checked += 1;
-            if !axes.contains(&axis.as_str()) {
+            if !axes.contains(&spec.suggestions) {
                 missing.push(format!(
-                    "{kind} draws from '{axis}', which /media/facets does not answer"
+                    "{} draws from '{}', which /media/facets does not answer",
+                    spec.kind, spec.suggestions
                 ));
             }
         }
@@ -624,27 +611,16 @@ mod tests {
         assert!(missing.is_empty(), "{missing:?}");
     }
 
-    /// Every entry falls in a family the builder knows: one it does not would list the
-    /// condition under no heading, out of reach in a long list.
+    /// A condition in an unknown family would be listed under no heading.
     #[test]
     fn every_condition_is_in_a_family_the_builder_lists() {
-        let source = include_str!("conditions.rs");
-        let groups: Vec<&str> = source
-            .split("Spec {")
-            .skip(1)
-            .filter_map(|body| {
-                body.split_once("group: \"")?.1.split_once('"').map(|(group, _)| group)
-            })
-            .collect();
-        assert!(groups.len() >= 30, "only {} famil(ies) read", groups.len());
-        for group in &groups {
-            assert!(["metadata", "arr", "title", "folder"].contains(group), "{group}");
+        for spec in super::CONDITIONS {
+            assert!(["metadata", "arr", "title", "folder"].contains(&spec.group), "{}", spec.kind);
         }
     }
 
-    /// Every catalogue entry is a condition the engine accepts, reading the
-    /// field the engine reads. The builder emits rules straight from this table,
-    /// so a mismatch offers a condition the backend refuses or calls unanswerable.
+    /// The builder emits rules straight from this table, so a mismatch offers a condition the
+    /// backend refuses or calls unanswerable.
     #[test]
     fn the_catalogue_names_the_field_the_engine_reads() {
         for (kind, value_type, declared) in catalogue() {

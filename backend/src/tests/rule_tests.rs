@@ -16,8 +16,7 @@ async fn run(app: &TestApp) -> serde_json::Value {
     app.post("/api/v1/rule-tests/run", serde_json::json!({})).await.assert_ok().clone()
 }
 
-/// Pinning takes the engine's current answer, so the button that creates a case
-/// from an explanation needs no input beyond a name.
+/// The button that creates a case from an explanation needs no input beyond a name.
 #[tokio::test]
 async fn a_pinned_decision_defaults_to_what_the_engine_says_today() {
     let app = TestApp::new().await;
@@ -52,9 +51,7 @@ async fn deleting_the_rule_a_case_depends_on_fails_that_case() {
     assert_ne!(result["actual_category"], "anime");
 }
 
-/// A case is judged at the instant it was pinned, or an `added_within_days` case read
-/// against the wall clock would fail alone one morning. Here the case is moved back to the
-/// day after the film arrived, when the rule held.
+/// Read against the wall clock, an `added_within_days` case would fail alone one morning.
 #[tokio::test]
 async fn a_case_is_judged_at_the_instant_it_was_pinned() {
     let app = TestApp::new().await;
@@ -85,9 +82,8 @@ async fn a_case_is_judged_at_the_instant_it_was_pinned() {
     assert_eq!(outcome["passed"], 1, "the case was judged at another instant: {outcome}");
 }
 
-/// A case survives the library. `sync` deletes rows the Arr stops returning and
-/// that cascades to overrides, so a case referencing `media_id` would vanish
-/// with the film it was written to protect.
+/// A sync deletes the rows the Arr stops returning, so a case tied to its `media_id` would
+/// vanish with the film it protects.
 #[tokio::test]
 async fn a_case_still_runs_after_its_media_row_is_gone() {
     let app = TestApp::new().await;
@@ -102,8 +98,6 @@ async fn a_case_still_runs_after_its_media_row_is_gone() {
     assert_eq!(outcome["passed"], 1, "the snapshot stopped being enough: {outcome}");
 }
 
-/// A case is kept across upgrades, so a snapshot written by the first release,
-/// in the shape its media and metadata had then, still reads and still runs.
 #[tokio::test]
 async fn a_case_written_by_the_first_release_still_runs() {
     let app = TestApp::new().await;
@@ -162,7 +156,7 @@ async fn an_override_does_not_mask_what_the_rules_decide() {
     );
 }
 
-/// The cases are listed a page at a time, by name, as long as the suite grows.
+/// The cases come a page at a time, by name, however long the suite grows.
 #[tokio::test]
 async fn a_case_can_be_listed_and_deleted() {
     let app = TestApp::new().await;
@@ -207,9 +201,8 @@ async fn a_case_needs_a_name_and_a_media_item() {
     );
 }
 
-/// A pinned category is a category name, stored the way every writer of one
-/// stores it: `"Anime "` would never equal the `anime` the engine answers, and
-/// the case would fail for ever against the very decision it pinned.
+/// Stored as typed, `"Anime "` would never equal the engine's `anime`, and the case would fail
+/// for ever against the decision it pinned.
 #[tokio::test]
 async fn a_pinned_category_is_stored_as_a_category_name() {
     let app = TestApp::new().await;
@@ -239,8 +232,7 @@ async fn a_case_cannot_expect_a_category_that_does_not_exist() {
     response.assert_status(axum::http::StatusCode::BAD_REQUEST);
 }
 
-/// A category a case expects is in use: deleted, it leaves the case unable to
-/// pass, as a deleted category leaves a rule unable to route.
+/// Deleted, the category would leave the case unable ever to pass.
 #[tokio::test]
 async fn a_category_a_case_expects_is_not_deleted() {
     let app = TestApp::new().await;
@@ -257,8 +249,7 @@ async fn a_category_a_case_expects_is_not_deleted() {
     assert!(refused.message().contains("rule tests: 1"), "{}", refused.message());
 }
 
-/// A pin is judged at once and each run keeps its verdicts, which the warning and the gauges
-/// read: a failing case shows without anyone pressing Run.
+/// A pin is judged at once, so a failing case shows without anyone pressing Run.
 #[tokio::test]
 async fn a_failing_case_is_kept_failing_warned_of_and_counted() {
     let app = TestApp::new().await;
@@ -288,8 +279,7 @@ async fn a_failing_case_is_kept_failing_warned_of_and_counted() {
     assert_eq!(listed.assert_ok()["data"][0]["last_passed"], true);
 }
 
-/// A failing case says it holds automatic application only while an instance is armed for it: on
-/// a library whose every instance is kept to proposals, nothing is waiting.
+/// With every instance kept to proposals, nothing is waiting.
 #[tokio::test]
 async fn a_failing_case_says_it_holds_auto_apply_only_while_an_instance_is_armed() {
     let app = TestApp::new().await;

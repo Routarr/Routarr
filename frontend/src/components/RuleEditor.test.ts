@@ -116,10 +116,6 @@ describe('RuleEditor', () => {
     expect(screen.getByText('Lower numbers are evaluated first')).toBeInTheDocument();
   });
 
-  /**
-   * Sent to the server, `1.5` is refused in English inside a 422 the live check swallows, and
-   * Save would stay lit on a rule that cannot be saved.
-   */
   it('holds Save on a fractional priority and says why', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     render();
@@ -158,6 +154,57 @@ describe('RuleEditor', () => {
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeEnabled();
   });
 
+  /**
+   * The server names the code a language written as its name stands for, and the reader chooses:
+   * the value is saved as written, never rewritten behind them.
+   */
+  it('names the code of a language written as a name, and saves the value as written', async () => {
+    const message =
+      "Condition 1 (Original language): 'Japanese' is not the code the sources write. Use 'ja' instead.";
+    vi.spyOn(api, 'validateRule').mockResolvedValue({
+      valid: true,
+      issues: [
+        {
+          severity: 'warning',
+          field: 'conditions',
+          key: 'ValidationValueNotCode',
+          params: { value: 'Japanese', code: 'ja' },
+          message,
+        },
+      ],
+    });
+    const update = vi.spyOn(api, 'updateRule').mockResolvedValue(undefined as never);
+    const language = { type: 'original_language', value: ['Japanese'] };
+    render('r1', {
+      draft: { ...DRAFT, conditions: [language] },
+      catalog: {
+        conditions: [
+          {
+            type: 'original_language',
+            label: 'Original language',
+            value_type: 'string_list',
+            needs_metadata: true,
+            suggestions: '',
+            quantifier: '',
+            counterpart: '',
+            media_types: ['movie', 'series'],
+            metadata_field: 'original_language',
+            available: true,
+          },
+        ],
+      },
+    });
+
+    const warning = await screen.findByText(message);
+    expect(warning).toHaveClass('banner-warning');
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(nthCall(update)[1]).toMatchObject({ conditions: [language] });
+  });
+
   it('asks the server once the draft settles, not on every keystroke', async () => {
     const validate = vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     render();
@@ -170,11 +217,6 @@ describe('RuleEditor', () => {
     expect(validate.mock.lastCall?.[0]).toMatchObject({ name: 'Anime' + 'four' });
   });
 
-  /**
-   * The latch does not open again. Compared against the opening draft, a condition added then
-   * removed would make the form untouched again: the verdict vanishes and Save lights up on a
-   * rule with no name and no condition.
-   */
   it('keeps speaking once an edit has been undone', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -201,10 +243,6 @@ describe('RuleEditor', () => {
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
   });
 
-  /**
-   * A form nobody has touched is not wrong yet: both complaints a new rule draws are about a form
-   * that is merely empty, and the empty fields say so already.
-   */
   it('says nothing about a new rule until it is touched', async () => {
     const validate = vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -223,17 +261,12 @@ describe('RuleEditor', () => {
     // The question is still asked, and the answer is simply not thrown at anyone.
     await waitFor(() => expect(validate).toHaveBeenCalled());
     expect(screen.queryByText('A rule needs a name')).toBeNull();
-    // Nor is Save dead: disabled for a reason nobody is shown is worse than the complaint.
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeEnabled();
 
     await touch();
     await waitFor(() => expect(screen.getByText('A rule needs a name')).toBeInTheDocument());
   });
 
-  /**
-   * An existing rule was saved once, so an issue on it is news about something that changed
-   * underneath (a category deleted since, say), and it is said on open.
-   */
   it('speaks immediately about a rule that already exists', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -252,11 +285,6 @@ describe('RuleEditor', () => {
     await waitFor(() => expect(screen.getByText('anime no longer exists')).toBeInTheDocument());
   });
 
-  /**
-   * The form is `novalidate` (every form is, `layout.test.ts` holds it), so
-   * the browser's bubble never speaks over the translated verdict. `required`
-   * stays: it is what says the field is mandatory to anything reading the form.
-   */
   it('keeps the name marked required', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     // Through the helper, which stubs `getLibraryFacets`: rendering directly sends a real request.
@@ -265,11 +293,6 @@ describe('RuleEditor', () => {
     expect(document.querySelector('#rules-rule-name')?.hasAttribute('required')).toBe(true);
   });
 
-  /**
-   * A condition just added has no value yet. Flagged before the reader had a
-   * chance to pick one, it reads as a mistake they did not make, and it holds
-   * Save for a reason that is only the order of their clicks.
-   */
   it('keeps quiet about a condition with no value until Save is pressed', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -355,10 +378,6 @@ describe('RuleEditor', () => {
     });
   });
 
-  /**
-   * Pressing Save on an untouched form is also asking: the answer appears
-   * there rather than through a round trip the server would only refuse.
-   */
   it('answers the first Save press instead of sending a draft it knows is refused', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -402,7 +421,6 @@ describe('RuleEditor', () => {
   });
 });
 
-/** No instance ticked is every instance, which is what a rule covers unless told otherwise. */
 describe('the instances a rule is kept to', () => {
   it('sends the instances ticked, and none once every box is cleared', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
@@ -430,10 +448,6 @@ describe('the instances a rule is kept to', () => {
   });
 });
 
-/**
- * `Rules` already holds the facets for its panel, and the editor asking again would aggregate the
- * whole library a second time every time it opens.
- */
 describe('the facets the parent already holds', () => {
   it('are used as they are, without a second request', async () => {
     render(undefined, {
@@ -490,10 +504,6 @@ describe('the impact preview', () => {
     render(ruleId);
   }
 
-  /**
-   * A rule is understood by what it moves. The draft is asked about as it
-   * stands, and nothing is saved by asking: the panel says so in its title.
-   */
   it('shows what the draft would move, and saves nothing', async () => {
     const preview = vi.spyOn(api, 'previewRule').mockResolvedValue({
       issues: [],
@@ -574,10 +584,6 @@ describe('the impact preview', () => {
   });
 });
 
-/**
- * Escape, the close button and Cancel all close the editor, and a rule half
- * written goes with it: asked first once anything was typed.
- */
 describe('closing the editor', () => {
   it('closes at once when nothing was changed', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
@@ -669,10 +675,6 @@ describe('an id list with an entry that is not an id', () => {
   });
 });
 
-/**
- * The draft keeps only what a condition field could read, so a field holding
- * more holds Save, each value type for its own reason, and only those.
- */
 describe('a condition field holding what it cannot read', () => {
   const condition = (type: string, valueType: string, label: string) => ({
     type,
@@ -767,7 +769,6 @@ describe('a condition field holding what it cannot read', () => {
   });
 });
 
-/** Both ask what the server keeps to whoever edits a rule, which a reader is refused. */
 describe('for a reader', () => {
   it('offers the preview and the save to the owner, and neither to a reader', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });

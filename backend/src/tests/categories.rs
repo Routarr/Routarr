@@ -404,3 +404,59 @@ async fn a_name_stored_with_its_accent_apart_takes_the_stored_form() {
     .unwrap();
     assert_eq!(names, ["série", "série"]);
 }
+
+/// A reference to a category is folded as the category is stored, so a name pasted with its
+/// accent apart names the category written with it, wherever a reference is written.
+#[tokio::test]
+async fn a_decomposed_accent_names_the_same_category_everywhere() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.post("/api/v1/categories", serde_json::json!({ "name": "animé" })).await.assert_ok();
+    let decomposed = "anime\u{301}";
+    let rule = |name: &str| {
+        serde_json::json!({
+            "name": name, "media_type": "both", "target_category": decomposed,
+            "conditions": [{ "type": "genre_contains", "value": ["Animation"] }]
+        })
+    };
+
+    let created = app.post("/api/v1/rules", rule("By hand")).await.assert_ok().clone();
+    assert_eq!(created["target_category"], "animé");
+    let id = created["id"].as_str().unwrap().to_string();
+    app.put(&format!("/api/v1/rules/{id}"), rule("By hand, edited")).await.assert_ok();
+    let mapping = serde_json::json!({ "category": decomposed, "add_to_set": true });
+    app.put("/api/v1/root-folders/rf-1/category", mapping).await.assert_ok();
+
+    let bundle = serde_json::json!({ "version": 2, "rules": [rule("From a bundle")] });
+    let report = app.post("/api/v1/rules/import", serde_json::json!({ "bundle": bundle })).await;
+    assert_eq!(report.assert_ok()["imported"], 1, "{}", report.json);
+
+    app.execute(&["UPDATE root_folders SET category = NULL WHERE id = 'rf-1'"]).await;
+    let configuration = serde_json::json!({
+        "version": 1,
+        "root_folders": [{ "instance_name": "Radarr", "path": "/movies/standard", "category": decomposed }],
+        "overrides": [{
+            "media_title": "My Neighbor Totoro", "media_type": "movie", "tmdb_id": 8392,
+            "target_category": decomposed
+        }],
+        "rules": [rule("From a configuration")]
+    });
+    let report =
+        app.post("/api/v1/config/import", serde_json::json!({ "bundle": configuration })).await;
+    let report = report.assert_ok().clone();
+    assert_eq!(
+        (report["root_folders"].clone(), report["overrides"].clone(), report["rules"].clone()),
+        (1.into(), 1.into(), 1.into()),
+        "{report}"
+    );
+
+    let stored: Vec<String> = sqlx::query_scalar(
+        "SELECT target_category FROM rules UNION ALL SELECT category FROM root_folders
+          WHERE id = 'rf-1' UNION ALL SELECT target_category FROM overrides",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, ["animé"; 5]);
+    assert_eq!(app.count("SELECT COUNT(*) FROM categories WHERE name LIKE 'anim%'").await, 2);
+}

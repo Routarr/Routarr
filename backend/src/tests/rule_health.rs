@@ -1,8 +1,5 @@
-//! Which rules are unreachable, the collisions between rules and what the
-//! library holds per axis a condition reads.
-//!
-//! Each answers a question nothing else does: validation looks inside one
-//! rule, and the guardrails weigh a move without ever weighing the plan.
+//! Unreachable rules, collisions between rules, and what the library holds per axis a condition
+//! reads: validation looks inside one rule, and the guardrails weigh a move, never the plan.
 
 use super::TestApp;
 
@@ -53,14 +50,15 @@ async fn a_rule_that_never_wins_names_the_rule_taking_its_items() {
         "a bare zero is not actionable; the report has to name the culprit: {smothered}"
     );
 
+    assert_eq!(smothered["shadowed_by_id"], "r-wide");
+
     let winner = rule(body, "Everything");
     assert!(winner["won"].as_u64().unwrap() > 0);
     assert!(winner["shadowed_by"].is_null(), "the rule that wins is nobody's victim");
 }
 
-/// The culprit is the rule taking the most of a shadowed rule's items, and of
-/// rules taking as many the one tried first, on every report. Named in the
-/// order the counts happen to come in, it changes from one call to the next.
+/// The culprit takes the most of its items, ties going to the rule tried first: named in the
+/// order the counts come in, it would change from one call to the next.
 #[tokio::test]
 async fn a_shadowed_rule_names_the_same_culprit_on_every_report() {
     let app = TestApp::new().await;
@@ -121,10 +119,8 @@ async fn a_rule_that_wins_sometimes_is_not_reported_as_shadowed() {
     assert!(totoro["shadowed_by"].is_null(), "{totoro}");
 }
 
-/// Matching nothing is a different fault from being shadowed (a condition too
-/// narrow rather than a priority too low), and the two want different fixes.
-/// A switched-off rule is read by no run, which says nothing of its
-/// conditions.
+/// A condition too narrow wants another fix than a priority too low. A switched-off rule is read
+/// by no run, which says nothing of its conditions.
 #[tokio::test]
 async fn a_rule_matching_nothing_is_reported_apart_from_a_shadowed_one() {
     let app = TestApp::new().await;
@@ -140,8 +136,6 @@ async fn a_rule_matching_nothing_is_reported_apart_from_a_shadowed_one() {
     assert!(orphan["shadowed_by"].is_null());
     assert_eq!(rule(response.assert_ok(), "Switched off")["matched_nothing"], false);
 }
-
-// ----------------------------------------------------------------- collisions
 
 /// Two rules with one name and one priority leave the winner to their ids,
 /// which are random: the engine breaks ties on priority, then name, then id,
@@ -159,6 +153,12 @@ async fn two_rules_sharing_a_name_and_a_priority_are_reported() {
         entries.iter().all(|r| r["ambiguous_with"] == "Anime"),
         "both sides of the ambiguity have to say so: {entries:?}"
     );
+    // The name the two share says nothing of which other rule is meant.
+    let other: std::collections::BTreeMap<&str, &str> = entries
+        .iter()
+        .map(|r| (r["rule_id"].as_str().unwrap(), r["ambiguous_with_id"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(other, [("r-a", "r-b"), ("r-b", "r-a")].into_iter().collect());
 }
 
 /// Identical conditions and target: one of the two decides nothing whatever
@@ -174,10 +174,10 @@ async fn a_rule_duplicated_in_every_respect_is_reported() {
     let body = response.assert_ok();
     assert_eq!(rule(body, "First")["duplicate_of"], "Second");
     assert_eq!(rule(body, "Second")["duplicate_of"], "First");
+    assert_eq!(rule(body, "First")["duplicate_of_id"], "r-2");
+    assert_eq!(rule(body, "Second")["duplicate_of_id"], "r-1");
 }
 
-/// And rules that merely resemble each other are left alone, or the report
-/// becomes a page of warnings about a working rule set.
 #[tokio::test]
 async fn rules_differing_in_target_or_conditions_are_not_called_duplicates() {
     let app = TestApp::new().await;
@@ -232,9 +232,7 @@ async fn twins_on_different_instances_are_not_duplicates_and_reordered_condition
     assert_eq!(rule(body, "Swapped")["duplicate_of"], "Everywhere");
 }
 
-/// Rules alike but for their exclusions, their match mode or their media type
-/// decide different things, and are not called duplicates. A name shared at
-/// two priorities is no ambiguity: the priority settles the order.
+/// A name shared at two priorities is no ambiguity: the priority settles the order.
 #[tokio::test]
 async fn rules_differing_in_any_one_respect_are_not_duplicates() {
     let app = TestApp::new().await;
@@ -273,8 +271,7 @@ async fn rules_differing_in_any_one_respect_are_not_duplicates() {
     }
 }
 
-/// A rule its exclusion sets aside counts its vetoes, and is not reported as
-/// one that matches nothing.
+/// It is not reported as a rule matching nothing.
 #[tokio::test]
 async fn a_rule_its_exclusion_sets_aside_counts_the_vetoes() {
     let app = TestApp::new().await;
@@ -292,16 +289,9 @@ async fn a_rule_its_exclusion_sets_aside_counts_the_vetoes() {
     assert_eq!(vetoed["matched_nothing"], false, "{vetoed}");
 }
 
-// -------------------------------------------------------------------- facets// -------------------------------------------------------------------- facets
-
-/// `U` and `TV-PG` say nothing to most readers, and this panel exists to show
-/// what the library holds.
-///
-/// The code stays the value, since it is what a rule matches on, and the
-/// meaning is added beside it. Only where the systems agree: `12` is
-/// twelve-and-over for the BBFC, the FSK and the CNC alike, while `M` is
-/// fifteen-and-over in Australia and something else in the United States, so
-/// `M` is left bare. A wrong name on a right value is worse than no name.
+/// `U` and `TV-PG` say nothing to most readers. The code stays the value a rule matches, its
+/// meaning beside it where the systems agree: `12` is twelve and over for the BBFC, the FSK and
+/// the CNC, while `M` differs between Australia and the United States and stays bare.
 #[tokio::test]
 async fn a_certification_is_shown_with_what_it_means() {
     let app = TestApp::new().await;
@@ -335,9 +325,8 @@ async fn a_certification_is_shown_with_what_it_means() {
     assert!(bare.get("label").is_none(), "a guessed name reached the screen: {bare}");
 }
 
-/// Codes of several countries mean the same thing, and a rule wants every one
-/// of them: the list gathers the codes by what they mean, the youngest audience
-/// first, and leaves the codes nobody can name at the end, ungrouped.
+/// A rule wants every code that means one thing. The codes nobody can name come last,
+/// ungrouped.
 #[tokio::test]
 async fn certifications_are_grouped_by_meaning_youngest_first() {
     let app = TestApp::new().await;
@@ -405,8 +394,7 @@ async fn certifications_are_grouped_by_meaning_youngest_first() {
     assert_eq!(listed.last().unwrap().0, "M");
 }
 
-/// What the library holds, per axis a condition reads. Without it, a rule is
-/// written by guessing what the library carries.
+/// Without it, a rule is written by guessing what the library carries.
 #[tokio::test]
 async fn the_facets_count_what_the_library_actually_carries() {
     let app = TestApp::new().await;
@@ -436,9 +424,7 @@ async fn the_facets_count_what_the_library_actually_carries() {
         "got {genres:?}"
     );
     assert!(values("original_languages").iter().any(|l| l == "ja"));
-    // Both sources answer, and both answers are offered: `PG` is the Arr's,
-    // `G` the cached TMDB one. A list holding only the first would not contain
-    // every value the engine can match.
+    // `PG` is the Arr's and `G` the cached TMDB one: both are values the engine can match.
     let certifications = values("certifications");
     assert!(
         certifications.iter().any(|c| c == "PG") && certifications.iter().any(|c| c == "G"),
@@ -450,9 +436,7 @@ async fn the_facets_count_what_the_library_actually_carries() {
     assert_eq!(body["statuses"][0]["label"], "In cinemas");
 }
 
-/// A language rule is written against an ISO code, and the library holds five
-/// of them at most. Offering only those would hide the rest of the table, and
-/// leave the code, which nobody guesses from a name, to be typed blind.
+/// The library holds a few of the ISO codes at most, and nobody guesses a code from a name.
 #[tokio::test]
 async fn a_coded_axis_offers_its_whole_vocabulary_not_the_synced_part() {
     let app = TestApp::new().await;
@@ -493,9 +477,7 @@ async fn an_open_axis_carries_no_vocabulary() {
     assert!(genres.iter().all(|facet| facet.get("label").is_none()));
 }
 
-/// A source the user switched off answers nothing, so it offers nothing either:
-/// a value in the list that the engine cannot match is a rule that silently
-/// never fires.
+/// A value in the list the engine cannot match is a rule that silently never fires.
 #[tokio::test]
 async fn a_disabled_source_contributes_nothing_to_the_lists() {
     let app = TestApp::new().await;

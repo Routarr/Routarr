@@ -150,12 +150,14 @@ fn says(said: &[String], words: &[String]) -> bool {
 }
 
 /// What the name of the folder at `path` suggests, given the categories the library holds and
-/// the reader's language, or `None` when it says nothing a person could accept unread.
+/// the reader's language, or `None` when it says nothing a person could accept unread. A family
+/// whose template routes no title of `media_type`, the folder's instance's, says nothing.
 pub fn suggest(
     path: &str,
     known: &[String],
     localizer: &Localizer,
     default: &str,
+    media_type: &str,
 ) -> Option<Suggestion> {
     let said = tokens(leaf(path));
     if said.is_empty() {
@@ -173,7 +175,7 @@ pub fn suggest(
     }
 
     let mut found: Vec<(String, Reason, Option<&'static str>)> = Vec::new();
-    for family in FAMILIES.iter() {
+    for family in FAMILIES.iter().filter(|family| family.template.routes(media_type)) {
         let Some(word) = family.words.iter().find(|words| says(&said, words)) else { continue };
         // A category of this family the library already holds, in any language, before a new one.
         let category = known
@@ -244,7 +246,7 @@ mod tests {
 
     fn english(path: &str, known: &[&str]) -> Option<Suggestion> {
         let known: Vec<String> = known.iter().map(|k| k.to_string()).collect();
-        suggest(path, &known, &Localizer::new("en"), "standard")
+        suggest(path, &known, &Localizer::new("en"), "standard", "movie")
     }
 
     fn category(path: &str) -> Option<String> {
@@ -284,8 +286,6 @@ mod tests {
         assert_eq!(suggestion.choices, ["kids", "anime"]);
     }
 
-    /// The person's own category comes first, then the family's category they already hold in
-    /// another language, so no second category for one family appears.
     #[test]
     fn a_category_the_library_holds_is_suggested_before_a_new_one() {
         let horror = english("/movies/horror", &["horror"]).unwrap();
@@ -299,7 +299,8 @@ mod tests {
 
     #[test]
     fn a_new_category_takes_the_readers_language() {
-        let french = suggest("/films/kids", &[], &Localizer::new("fr"), "standard").unwrap();
+        let french =
+            suggest("/films/kids", &[], &Localizer::new("fr"), "standard", "movie").unwrap();
         assert_eq!(french.category.as_deref(), Some("enfants"));
         assert_eq!(french.reason, Reason::Named("kids".into()));
         assert_eq!(french.template, Some("children"));
