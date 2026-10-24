@@ -421,6 +421,14 @@ a {
   padding: 0 var(--space-6);
 }
 
+/* The page under the top bar, growing as the column `.main-content` holds both. */
+.page-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .page-container {
   padding: var(--space-6);
   flex: 1;
@@ -703,8 +711,6 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* Same reasoning as `.mode-dot`, applied to the glyph: a triangle carries
-     its mass low, so centred on its own box it sits high against a digit. */
   line-height: 1;
   height: 28px;
   padding: 0 9px;
@@ -719,8 +725,7 @@ a {
   padding-block: 1px 0;
 }
 
-/* A triangle hangs lower than a digit, so the glyph is lifted onto the digit and the pair
-   pushed back to the box's middle. Both offsets come from a magnified capture. */
+/* A triangle hangs lower than a digit, so the glyph is lifted onto the digit's line. */
 .attention > svg {
   transform: translateY(-0.3px);
 }
@@ -1423,7 +1428,7 @@ a {
   margin-inline-start: 0;
 }
 
-/* Focusable, so a keyboard can scroll a table wider than its window. */
+/* A table wider than its window scrolls here, in the box `TableRegion` makes focusable. */
 .table-container {
   overflow-x: auto;
   /* Positioned, or an absolute descendant escapes the scroll and widens a phone's page. */
@@ -1934,7 +1939,7 @@ td * {
   background-color: var(--status-danger);
 }
 
-/* The guide's bar again: one colour for every value claims no good or bad. */
+/* The guide's bar, reused: one colour for every value claims no good or bad. */
 .confidence-track {
   flex: 1;
   min-width: 28px;
@@ -2516,7 +2521,7 @@ td * {
   outline: none;
 }
 
-/* Named here so no screen writes them as an inline `style`, which the CSP keeps for data. */
+/* Named here so no screen writes them as an inline `style`. */
 .text-xs {
   font-size: 11px;
 }
@@ -2830,7 +2835,7 @@ td * {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-/* The one thing a dashboard is for. What sits under it reads as one line of facts. */
+/* The dashboard's headline, with one line of facts under it. */
 .headline {
   display: flex;
   align-items: center;
@@ -3473,7 +3478,7 @@ select.form-select {
   min-width: 5.5em;
   justify-content: center;
 }
-/* The longest path of the contract is 27 characters, so 28 hold every one. */
+/* One width for every path, so the columns after it line up. A longer path wraps. */
 .api-path {
   grid-area: path;
   width: 28ch;

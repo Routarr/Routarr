@@ -53,6 +53,10 @@ describe('LoginGate', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent('The username or the password is wrong.'),
     );
+    // The field a reader types the next attempt into is marked refused and carries why.
+    const field = screen.getByLabelText('Password');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('The username or the password is wrong.');
   });
 
   /** Sign in turns disabled while it asks, which drops its focus. */

@@ -1,8 +1,5 @@
-//! Serves the translation dictionary to the frontend.
-//!
-//! The frontend never ships its own copy: it asks for the dictionary of the
-//! configured language and gets it already merged over English, so a key that
-//! is not translated yet still renders as readable text.
+//! Serves the translation dictionary to the frontend, merged over English so an untranslated
+//! key still reads.
 
 use super::Json;
 use axum::extract::State;
@@ -21,19 +18,13 @@ pub struct LocalizationResponse {
     /// The placeholders that hold a count, grouped as the language groups
     /// digits.
     pub counts: &'static [&'static str],
-    /// The placeholders that hold a machine format, isolated in a sentence
-    /// written right to left.
-    pub isolated: &'static [&'static str],
     /// `ui_theme`, so the shell paints in it from its first frame, the sign-in screen and a
     /// reader's screens included, who cannot read the settings.
     pub theme: String,
 }
 
-/// The dictionary for the configured language.
-///
-/// The language is read back from the resolved `Localizer`, so the frontend is
-/// told which language it actually got: English, if the stored value is one this
-/// build does not ship.
+/// The dictionary for the configured language, naming the language it holds: English when
+/// the stored one is not shipped.
 pub async fn dictionary(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -47,11 +38,9 @@ pub async fn answer(state: &AppState) -> LocalizationResponse {
     let language = state.localizer().await.language().to_string();
     LocalizationResponse {
         strings: localization::dictionary(&language),
-        // Sent with the strings so the shell turns around in the same paint it
-        // switches language, rather than a frame later.
+        // With the strings, so the direction flips in the same paint as the language.
         direction: localization::direction(&language),
         counts: localization::COUNTS,
-        isolated: localization::ISOLATED,
         theme: state.setting::<String>("ui_theme").await,
         language,
     }

@@ -151,6 +151,53 @@ export interface RuleDraft {
   instance_ids?: string[] | null;
 }
 
+/** A rule as an export bundle carries it, with what it was limited to and added from. */
+export interface BundledRule extends RuleDraft {
+  /** The instances the rule is limited to, by name. Absent for every instance. */
+  instance_names?: string[] | null;
+  /** The template and version the rule was added from, as `children@1`. */
+  template?: string | null;
+}
+
+/** The rules as `GET /rules/export` writes them, and `POST /rules/import` reads them. */
+export interface RuleBundle {
+  version: number;
+  exported_at?: string | null;
+  rules: BundledRule[];
+  categories: string[];
+}
+
+/** What the server makes of a draft rule. */
+export interface RuleVerdict {
+  valid: boolean;
+  issues: ValidationIssue[];
+}
+
+/** What a rule import did. */
+export interface RuleImportReport {
+  imported: number;
+  replaced: boolean;
+  skipped: string[];
+  adjusted: string[];
+}
+
+/** A destination as declared. */
+export interface DeclaredRootFolder {
+  id: string;
+  path: string;
+  verified: boolean;
+}
+
+/** What a removal answers. */
+export interface Deleted {
+  deleted: boolean;
+}
+
+/** A new webhook signing secret, answered this once. */
+export interface SigningSecret {
+  secret: string;
+}
+
 export interface ConditionSpec {
   type: string;
   /** The family the builder lists it under. */
@@ -191,8 +238,6 @@ export interface Localization {
   strings: Record<string, string>;
   /** The placeholders that hold a count, grouped as the language groups digits. */
   counts: string[];
-  /** The placeholders that hold a machine format, isolated in a right-to-left sentence. */
-  isolated: string[];
   /** The `ui_theme` setting, applied with the strings. */
   theme: string;
 }

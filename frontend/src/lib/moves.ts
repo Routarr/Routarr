@@ -31,7 +31,9 @@ export function reportMoves(
     ...(report.stopped ? [t(STOPPED[report.stopped])] : []),
     ...(report.moving > 0 ? [t('ApplyStillMoving', { count: report.moving })] : []),
     ...(report.superseded > 0 ? [t('ApplyReplaced', { count: report.superseded })] : []),
-    ...report.errors.map((failure) => `${failure.media_title}: ${failure.message}`),
+    ...report.errors.map((failure) =>
+      t('FilterTerm', { label: failure.media_title, value: failure.message }),
+    ),
   ];
   const made = report.applied + report.moving;
   if (!unfinished && said.length === 0) outcome.succeed(message);

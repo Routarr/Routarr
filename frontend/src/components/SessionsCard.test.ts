@@ -8,11 +8,6 @@ import type { Session } from '../api/types';
 import { createOutcome } from '../lib/outcome.svelte';
 import SessionsCard from './SessionsCard.svelte';
 
-/**
- * The live sessions. Ending the one this browser holds signs it out, so the
- * page reloads onto the sign-in rather than failing every request after.
- */
-
 const session = (handle: string, overrides: Partial<Session> = {}): Session => ({
   handle,
   subject: 'admin',
@@ -58,7 +53,6 @@ describe('SessionsCard', () => {
     expect(row(here).getByText('This browser')).toBeInTheDocument();
     expect(row(there).getByText('API key')).toBeInTheDocument();
     expect(row(there).queryByText('This browser')).toBeNull();
-    // A key names nobody: its source says all there is.
     expect(row(here).getByText('admin')).toBeInTheDocument();
     expect(row(there).queryByText('apikey')).toBeNull();
   });
@@ -73,11 +67,6 @@ describe('SessionsCard', () => {
     expect(row(here).queryByText('Read only')).toBeNull();
   });
 
-  /**
-   * Every browser that signs in opens a session, so the list grows with them:
-   * five show, this browser's first, and the rest when asked for, or the list
-   * pushes the settings below it out of reach.
-   */
   it('shows five sessions, this browser first, and the rest when asked', async () => {
     const others = Array.from({ length: 7 }, (_, n) => session(`s${n}`));
     mount([...others, HERE]);

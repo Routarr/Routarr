@@ -277,7 +277,7 @@ pub fn render(
     localizer: &Localizer,
 ) -> Vec<CreateRuleRequest> {
     let origin = localizer
-        .translate("TemplateRuleOrigin", &[("template", &localizer.translate(template.name, &[]))]);
+        .stored("TemplateRuleOrigin", &[("template", &localizer.stored(template.name, &[]))]);
     let rule =
         |name: String, media_type: &str, match_mode, conditions, exclusions, category: &str| {
             CreateRuleRequest {
@@ -299,7 +299,7 @@ pub fn render(
             .iter()
             .map(|requester| {
                 rule(
-                    localizer.translate("TemplateRuleRequester", &[("name", &requester.name)]),
+                    localizer.stored("TemplateRuleRequester", &[("name", &requester.name)]),
                     "both",
                     MatchMode::All,
                     vec![Condition::TagIn(requester.tags.clone())],
@@ -314,7 +314,7 @@ pub fn render(
         .iter()
         .map(|shape| {
             rule(
-                localizer.translate(shape.name, &[]),
+                localizer.stored(shape.name, &[]),
                 shape.media_type,
                 shape.match_mode,
                 (shape.conditions)(answers),

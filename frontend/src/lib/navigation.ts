@@ -66,12 +66,7 @@ export function iconFor(route: Route): Component<LucideProps> {
   return icon;
 }
 
-/**
- * The route table, dressed for the sidebar and the palette. Here rather than
- * inside the sidebar because two things read it: the navigation draws it and
- * the command palette searches it, and two copies of a route table is how a
- * destination ends up reachable from one and not the other.
- */
+/** The route table with its icons, which the sidebar draws and the palette searches. */
 const GROUPS: NavGroup[] = ROUTE_GROUPS.map((group) => ({
   key: group.key,
   items: group.items.map((route) => ({ ...route, icon: iconFor(route) })),

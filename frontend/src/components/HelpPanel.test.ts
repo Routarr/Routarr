@@ -7,13 +7,6 @@ import { CARD_HELP, HELP, TERMS } from '../lib/help';
 import { screenKey } from '../lib/routes';
 import HelpPanel from './HelpPanel.svelte';
 
-/**
- * The help opens on the screen on display: what it is for, its terms, the
- * problems met there with a way to the screen that fixes each, and its cards.
- * A search runs through every screen's help, and the glossary lists every
- * term with the screens that use it.
- */
-
 const RULES = HELP['/rules']!;
 const PROBLEM =
   HELP['/rules']!.problems.find((problem) => problem.to) ?? HELP['/rules']!.problems[0]!;

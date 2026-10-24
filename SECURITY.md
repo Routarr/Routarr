@@ -405,11 +405,6 @@ proxy's.
 
 Not vulnerabilities to report, but decisions, with reasons.
 
-- **`style-src` keeps `'unsafe-inline'`.** A few elements take a size or a
-  colour mix computed from data as an inline style (`Confidence`, `LibraryFacets`,
-  `ProgressBar`, `TableSkeleton`, and the size a screen hands `Modal`), and CSP does not
-  distinguish a style attribute from an injected `<style>` block. A style runs
-  no code, and `script-src 'self'` allows no inline script.
 - **The API key is a full-access credential.** Whoever holds it can download a
   backup, which carries the master key, remove the passphrase that seals it,
   and point a connection test or the outbound notification at any `http(s)`

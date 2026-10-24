@@ -5,12 +5,13 @@
   import type { Explanation } from '../api/types';
   import { DECISION_ACTION_KEY, formatCount, formatDecimal, localName } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
-  import { i18n, t } from '../lib/i18n.svelte';
+  import { cut, i18n, stored, t } from '../lib/i18n.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { href } from '../lib/router.svelte';
   import { access } from '../lib/access.svelte';
+  import { handFocus } from '../lib/focus';
   import NoValue from './NoValue.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
@@ -35,7 +36,7 @@
   const view = $derived(refreshed ?? data);
 
   // Cut where the sources go, so the arrows drawn between them mirror.
-  const sourcesLine = $derived(t('MetadataSourcesLine', { sources: '\u0000' }).split('\u0000'));
+  const sourcesLine = $derived(cut('MetadataSourcesLine', ['sources']));
   /** How a source that finds a work by search found this title, by `identified_by`'s values. */
   const IDENTIFIED: Record<string, string> = {
     mapping: 'IdentifiedByMapping',
@@ -53,8 +54,7 @@
   const providerOf = (id: string) => catalogue.data?.providers.find((p) => p.id === id);
 
   /** A sentence cut where its source goes, so the source is drawn as a link. */
-  const around = (key: string, params: Record<string, string> = {}) =>
-    t(key, { ...params, source: '\u0000' }).split('\u0000');
+  const around = (key: string, params: Record<string, string> = {}) => cut(key, ['source'], params);
 
   /**
    * The dictionary key naming a title's status, in the words Radarr and Sonarr
@@ -81,10 +81,7 @@
   );
   const synopsisLine = $derived(around('SynopsisFrom'));
 
-  /**
-   * One click pins a case: the panel already holds the item, its merged metadata and the
-   * category the engine chose, and a form asking for them again would go unused.
-   */
+  /** One click pins a case: the panel already holds the item, its metadata and the category. */
   let pinning = $state(false);
   let pinned = $state(false);
   let pinError = $state<string | null>(null);
@@ -114,7 +111,7 @@
           shown:
             rating.votes === null
               ? value
-              : `${value} (${formatCount(rating.votes, i18n.language)})`,
+              : t('WithNote', { text: value, note: formatCount(rating.votes, i18n.language) }),
         };
       });
   });
@@ -137,11 +134,23 @@
     categories.data?.map((category) => category.name) ?? [view.rules_category],
   );
 
+  /** Stops following, not what the sources were asked, which runs on once the panel closes. */
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
+  /**
+   * Back to the pressed button once it is enabled again, else to the heading: Keep here and Pin
+   * as test stay disabled once done.
+   */
+  const settleFocus = (pressed: Element | null) =>
+    void handFocus(pressed as HTMLElement | null, 'explain-title');
+
   async function pin() {
+    const pressed = document.activeElement;
     pinning = true;
     pinError = null;
     try {
-      const name = t(expectsOther ? 'PinnedCaseNameExpected' : 'PinnedCaseName', {
+      const name = stored(expectsOther ? 'PinnedCaseNameExpected' : 'PinnedCaseName', {
         title: view.media.title,
         category: expected,
       });
@@ -152,6 +161,7 @@
       pinError = describeError(err);
     } finally {
       pinning = false;
+      settleFocus(pressed);
     }
   }
 
@@ -171,17 +181,19 @@
     ) {
       return;
     }
+    const pressed = document.activeElement;
     keeping = true;
     try {
       await api.keepTitle(view.media.id);
-      refreshed = await api.explainTitle(view.media.id);
+      refreshed = await api.explainTitle(view.media.id, leaving.signal);
       invalidateStatus();
       onChanged?.();
       outcome.succeed(t('KeptHereOutcome', { category }));
     } catch (err) {
-      outcome.fail(err);
+      if (!leaving.signal.aborted) outcome.fail(err);
     } finally {
       keeping = false;
+      settleFocus(pressed);
     }
   }
 
@@ -193,10 +205,13 @@
    * matches forgotten, then reads the explanation again from what they said.
    */
   async function refresh() {
+    const pressed = document.activeElement;
     refreshing = true;
     try {
-      const { answered } = await api.refreshTitleMetadata(view.media.id);
-      refreshed = await api.explainTitle(view.media.id);
+      const { answered } = await api.refreshTitleMetadata(view.media.id, {
+        signal: leaving.signal,
+      });
+      refreshed = await api.explainTitle(view.media.id, leaving.signal);
       invalidateStatus();
       if (answered > 0) {
         outcome.succeed(t('TitleRefreshed', { count: formatCount(answered, i18n.language) }));
@@ -204,9 +219,10 @@
         outcome.warn(t('TitleRefreshedByNone'));
       }
     } catch (err) {
-      outcome.fail(err);
+      if (!leaving.signal.aborted) outcome.fail(err);
     } finally {
       refreshing = false;
+      settleFocus(pressed);
     }
   }
 
@@ -483,15 +499,24 @@
           <div class="mt-2">
             {#each trace.conditions as condition, index (index)}
               <div class="explain-row">
-                <span class={condition.matched ? 'explain-match' : 'explain-miss'}>
+                <!-- The glyph and its colour for the eye, the word for a screen reader. -->
+                <span
+                  class={condition.matched ? 'explain-match' : 'explain-miss'}
+                  aria-hidden="true"
+                >
                   {condition.matched ? '✓' : '✗'}
+                </span>
+                <span class="visually-hidden">
+                  {t(condition.matched ? 'ConditionHeld' : 'ConditionNotHeld')}
                 </span>
                 <span class="flex-1">{condition.expected}</span>
                 <span class="explain-observed">
                   {condition.observed || t('Unknown')}
                   {#if condition.source}
                     <span class="text-muted text-xs ms-1">
-                      {t('MetadataFromSource', { source: condition.source })}
+                      {t('MetadataFromSource', {
+                        source: providerOf(condition.source)?.display_name ?? condition.source,
+                      })}
                     </span>
                   {/if}
                 </span>

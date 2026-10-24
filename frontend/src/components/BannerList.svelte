@@ -1,12 +1,11 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { AlertTriangle } from '../lib/icons';
+  import { cut } from '../lib/i18n.svelte';
 
   /**
-   * Findings of one severity as one banner: the count leads, the list follows,
-   * and an action, where there is one, sits once beside the count. One banner
-   * per finding would say the severity once per line, each with its own stripe.
-   * Without a title, the list stands under a headline said elsewhere.
+   * Findings of one severity as one banner: the count, the list, and an action once beside the
+   * count. Without a title, the list stands under a headline said elsewhere.
    */
   let {
     tone,
@@ -20,6 +19,9 @@
     items: { lead?: string | null; text: string }[];
     action?: Snippet;
   } = $props();
+
+  // The colon as the language writes it, the lead in bold before it.
+  const [before, between, after] = $derived(cut('FilterTerm', ['label', 'value']));
 </script>
 
 {#if items.length > 0}
@@ -35,7 +37,8 @@
       <ul class="banner-list">
         {#each items as item, index (index)}
           <li>
-            {#if item.lead}<strong>{item.lead}: </strong>{/if}{item.text}
+            {#if item.lead}{before}<strong>{item.lead}{between}</strong
+              >{item.text}{after}{:else}{item.text}{/if}
           </li>
         {/each}
       </ul>

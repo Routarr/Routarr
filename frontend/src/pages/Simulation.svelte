@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Count from '../components/Count.svelte';
   import CardTitle from '../components/CardTitle.svelte';
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes, setFields } from '../api/format';
@@ -432,7 +433,7 @@
                       <span class="text-muted ms-2">{folder.instance_name}</span>
                     {/if}
                   </td>
-                  <td>{folder.items}</td>
+                  <td><Count value={folder.items} /></td>
                   <td>
                     {formatBytes(folder.incoming_bytes, i18n.language)}
                     <!-- A same-volume move is a free rename, shown so the figure checks out. -->

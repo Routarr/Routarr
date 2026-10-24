@@ -91,10 +91,6 @@ describe('withProof', () => {
     await expect(withProof(() => Promise.reject(refused))).rejects.toBe(refused);
   });
 
-  /**
-   * An OpenID Connect sign-in older than the server accepts: the provider signs
-   * the person in again and brings them back to the screen they were on.
-   */
   it('sends a stale OpenID Connect session to the provider once agreed', async () => {
     inMode('oidc');
     const assign = vi.fn();

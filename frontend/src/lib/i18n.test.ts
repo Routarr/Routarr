@@ -4,7 +4,7 @@ import { api } from '../api/client';
 
 import { formatCount } from '../api/format';
 import { SERVER_COUNTS } from '../test/counts';
-import { loadDictionary, seedDictionary, startDictionary, t } from './i18n.svelte';
+import { loadDictionary, seedDictionary, startDictionary, stored, t } from './i18n.svelte';
 import { readBackend } from '../test/backend';
 
 describe('t', () => {
@@ -30,7 +30,6 @@ describe('loadDictionary', () => {
       direction: 'ltr',
       strings: {},
       counts: [],
-      isolated: [],
       theme: 'dark',
     });
 
@@ -50,8 +49,8 @@ describe('the theme the dictionary carries', () => {
   it('is applied with the strings, and auto leaves the system to decide', async () => {
     const dictionary = { language: 'en', direction: 'ltr' as const, strings: {}, counts: [] };
     vi.spyOn(api, 'getLocalization')
-      .mockResolvedValueOnce({ ...dictionary, isolated: [], theme: 'light' })
-      .mockResolvedValueOnce({ ...dictionary, isolated: [], theme: 'auto' });
+      .mockResolvedValueOnce({ ...dictionary, theme: 'light' })
+      .mockResolvedValueOnce({ ...dictionary, theme: 'auto' });
 
     await loadDictionary();
     expect(document.documentElement.dataset.theme).toBe('light');
@@ -75,7 +74,6 @@ describe('a count in a sentence', () => {
       direction: 'ltr',
       strings: { Moved: 'Moved: {applied} of {requested}' },
       counts: ['applied'],
-      isolated: [],
       theme: 'dark',
     });
     await loadDictionary();
@@ -122,13 +120,36 @@ describe('a path in a sentence', () => {
         direction,
         strings: { Declared: 'أضيفت {path}' },
         counts: [],
-        isolated: ['path'],
         theme: 'dark',
       });
       await loadDictionary();
 
       expect(t('Declared', { path: '/movies/anime' })).toBe(expected);
     }
+  });
+
+  /** Left bare in Arabic, "2001: A Space Odyssey" reads "A Space Odyssey :2001". */
+  it('isolates every value in a right-to-left sentence but a count', () => {
+    seedDictionary(
+      { ConfirmRevert: '{title} {path}', Counted: '{count} {name}' },
+      'ar',
+      ['count'],
+      'rtl',
+    );
+
+    expect(t('ConfirmRevert', { title: '2001: A Space Odyssey', path: '/a' })).toBe(
+      '⁨2001: A Space Odyssey⁩ ⁨/a⁩',
+    );
+    expect(t('Counted', { count: 3, name: 'Radarr' })).toBe('3 ⁨Radarr⁩');
+  });
+
+  /** A text a row keeps is compared and shown in either direction later: no mark goes in it. */
+  it('substitutes a text to store without an isolate, a count still grouped', () => {
+    seedDictionary({ Counted: '{count} {name}' }, 'ar', ['count'], 'rtl');
+
+    expect(stored('Counted', { count: 12345, name: 'Radarr' })).toBe(
+      `${formatCount(12345, 'ar')} Radarr`,
+    );
   });
 });
 
@@ -139,7 +160,6 @@ describe('the dictionary the page carries', () => {
     seedDictionary({});
   });
 
-  /** Served with the page, the strings need no request, and a slow backend no blank page. */
   it('is read before anything is fetched', async () => {
     const fetched = vi.spyOn(api, 'getLocalization');
     const carried = document.createElement('script');
@@ -150,7 +170,6 @@ describe('the dictionary the page carries', () => {
       direction: 'ltr',
       strings: { Dashboard: 'Tableau de bord' },
       counts: [],
-      isolated: [],
       theme: 'dark',
     });
     document.head.append(carried);
@@ -162,14 +181,12 @@ describe('the dictionary the page carries', () => {
     expect(fetched).not.toHaveBeenCalled();
   });
 
-  /** The dev server serves the page as built, with no strings in it. */
   it('is fetched when the page carries none', async () => {
     vi.spyOn(api, 'getLocalization').mockResolvedValue({
       language: 'de',
       direction: 'ltr',
       strings: { Dashboard: 'Übersicht' },
       counts: [],
-      isolated: [],
       theme: 'dark',
     });
 

@@ -12,13 +12,6 @@ import { withBase } from '../test/base';
 import Dashboard from './Dashboard.svelte';
 import { publishAccess } from '../lib/access.svelte';
 
-/**
- * The dashboard answers one question (is there anything waiting for me?), and
- * everything else on it is context. Cards of equal weight, some with a
- * coloured icon tile and some colouring their *number* by sentiment, would be
- * two encoding systems on one row with nothing saying where to look.
- */
-
 const show = () => renderWithI18n(Dashboard);
 
 /** Both calls answer the same thing unless a test says otherwise. */
@@ -34,7 +27,6 @@ afterEach(() => {
 });
 
 describe('Dashboard', () => {
-  /** After a blip the reader asks again from the banner, as on every other screen. */
   it('offers Retry when the dashboard could not be read', async () => {
     const getHealth = vi
       .spyOn(api, 'getHealth')
@@ -76,7 +68,6 @@ describe('Dashboard', () => {
     expect(refresh).toHaveAttribute('aria-busy', 'true');
   });
 
-  /** Its "4 minutes ago" and its counts follow on their own while it is open. */
   it('reads itself again every minute', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
@@ -100,7 +91,6 @@ describe('Dashboard', () => {
     expect(container.querySelector('.headline-value')?.textContent).toBe('12');
   });
 
-  /** Grouped as the language groups digits, as every figure beside it is. */
   it('groups the headline figure the way the language does', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ stats: { ...health().stats, pending_decisions: 12345 } }),
@@ -112,11 +102,6 @@ describe('Dashboard', () => {
     expect(formatCount(12345, 'fr')).not.toBe('12345');
   });
 
-  /**
-   * One number on the row changes colour, because a failure is the only one of
-   * these that asks the user for something. If everything could go red the
-   * colour would say nothing.
-   */
   it('marks the failure count and only the failure count', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ stats: { ...health().stats, failed_decisions: 3, total_movies: 900 } }),
@@ -139,11 +124,7 @@ describe('Dashboard', () => {
     expect(container.querySelectorAll('.metric.is-danger')).toHaveLength(0);
   });
 
-  /**
-   * Warnings are capped at three. The page is a summary: a diagnostics run that
-   * finds nine problems must not push the numbers off the screen, and the link
-   * to the full list is what makes the cap honest.
-   */
+  /** The page is a summary: nine warnings must not push the numbers off the screen. */
   it('shows at most three warnings, and links to the rest', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ warnings: ['one', 'two', 'three', 'four', 'five'].map((each) => warning(each)) }),
@@ -151,8 +132,6 @@ describe('Dashboard', () => {
     const { container } = show();
 
     await screen.findByText('one');
-    // One block, not one banner each: stacked bars would say the same thing
-    // once per warning, each with its own copy of the same button.
     expect(container.querySelectorAll('.banner-warning')).toHaveLength(1);
     expect(container.querySelectorAll('.banner-list li')).toHaveLength(3);
     expect(screen.queryByText('four')).toBeNull();
@@ -168,13 +147,6 @@ describe('Dashboard', () => {
     expect(await screen.findByText('Never')).toBeTruthy();
   });
 
-  /**
-   * Two requests: one that answers from the database in milliseconds, one that
-   * probes every Arr over the network. Probing an unreachable Arr costs the
-   * full connect timeout, up to five seconds, on the screen somebody opens
-   * *because* an Arr is unreachable. The page renders on the first and upgrades
-   * on the second.
-   */
   describe('the two-phase load', () => {
     it('asks for the cheap answer and the probed one', async () => {
       const getHealth = bothReturn(health());
@@ -230,7 +202,6 @@ describe('Dashboard', () => {
     });
   });
 
-  /** A warning that restates an open step is the step's, and the guide says it. */
   it('puts the guide first and leaves it the warnings of its open steps', async () => {
     publishOnboarding(onboardingStatus());
     bothReturn(
@@ -245,7 +216,6 @@ describe('Dashboard', () => {
     expect(screen.queryByText('No enabled Arr instance')).toBeNull();
   });
 
-  /** Where the guide lives, a guide that could not be read is said, with a way to try again. */
   it('says the guide could not be read, and reads it again on request', async () => {
     publishOnboardingFailure('database is locked');
     bothReturn(health());
@@ -262,7 +232,6 @@ describe('Dashboard', () => {
 });
 
 describe('for a reader', () => {
-  /** Each of the guide's choices writes, which a reader is refused. */
   it('shows the owner the guide, and a reader the dashboard without it', async () => {
     publishOnboarding(onboardingStatus());
     bothReturn(health());
@@ -278,7 +247,6 @@ describe('for a reader', () => {
     expect(screen.queryByRole('button', { name: 'Skip the guide' })).toBeNull();
   });
 
-  /** The server answers a reader without a probe, so no answer from the Arr is on its way. */
   it('says an unprobed instance is unknown to a reader, and still being checked to the owner', async () => {
     bothReturn(health({ instances: [healthInstance({ status: 'unchecked' })] }));
     const { unmount } = show();

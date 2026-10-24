@@ -9,6 +9,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import WarningBanner from './WarningBanner.svelte';
+  import { handFocus } from '../lib/focus';
 
   /**
    * The secret the notification webhook is signed with.
@@ -44,6 +45,8 @@
       minted = null;
       outcome.succeed(t('SigningStopped'));
       await signing.reload();
+      // Stop signing goes once nothing is signed: the button that makes a secret takes the focus.
+      void handFocus('signing-generate');
     } catch (cause) {
       outcome.fail(cause);
     }
@@ -92,7 +95,12 @@
         : t('WebhookUnsigned')}
     </p>
     <div class="flex gap-2">
-      <button type="button" class="btn btn-secondary" onclick={() => void rotate()}>
+      <button
+        id="signing-generate"
+        type="button"
+        class="btn btn-secondary"
+        onclick={() => void rotate()}
+      >
         {t(signing.data.signed ? 'ReplaceSigningSecret' : 'GenerateSigningSecret')}
       </button>
       {#if signing.data.signed}

@@ -74,7 +74,11 @@
   function chooseScale(id: string) {
     const scale = scales.find((each) => each.id === id);
     // A vote count means nothing on a scale that counts none, and the server refuses it.
-    onChange({ ...range, scale: id, min_votes: scale?.votes ? range.min_votes : null }, false);
+    if (!scale?.votes) scoreUnreadable.votes = false;
+    onChange(
+      { ...range, scale: id, min_votes: scale?.votes ? range.min_votes : null },
+      Object.values(scoreUnreadable).some(Boolean),
+    );
   }
   const list = $derived(Array.isArray(value) ? (value as string[]) : []);
 
@@ -251,7 +255,7 @@
         <p id={errorId} class="field-error">{t('EnterNumber')}</p>
       {/if}
       {#if chosenScale?.votes}
-        <!-- Labelled in sight: a filled count no longer shows the placeholder that named it. -->
+        <!-- Labelled in sight: a filled count hides the placeholder that would name it. -->
         <div class="flex flex-col gap-1">
           <label class="text-muted text-sm" for="{errorId}-votes-field"
             >{t('ScoreMinimumVotes')}</label

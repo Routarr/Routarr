@@ -5,9 +5,8 @@ import { renderWithI18n } from '../test/render';
 import PagerHarness from '../test/PagerHarness.svelte';
 
 /**
- * The pages of a list the server pages, under its table. The screen asks for
- * the page the pager binds, so a press that moves nothing, or moves past an
- * end, is a request for a page that is not there.
+ * The screen asks for the page the pager binds, so a press past an end asks for a page that is
+ * not there.
  */
 
 const pages = (page: number, total_pages: number) => ({
@@ -21,7 +20,6 @@ const show = (pagination: ReturnType<typeof pages> | undefined) =>
   renderWithI18n(PagerHarness, { props: { pagination } });
 
 describe('Pager', () => {
-  /** Two buttons that can do nothing are noise under a table that fits on one page. */
   it('draws nothing for a list that fits on one page, or before it loads', () => {
     show(pages(1, 1));
     expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
@@ -51,10 +49,6 @@ describe('Pager', () => {
     expect(screen.getByTestId('page')).toHaveTextContent('1');
   });
 
-  /**
-   * At the last page the pressed Next turns disabled, which drops the focus
-   * to the page's start: it goes to Previous, where the reader can go on.
-   */
   it('hands the focus to the other button when the pressed one reaches an end', async () => {
     show(pages(1, 2));
     const previous = screen.getByRole('button', { name: 'Previous' });

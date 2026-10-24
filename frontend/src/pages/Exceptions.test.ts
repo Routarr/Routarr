@@ -12,12 +12,6 @@ import { publishAccess } from '../lib/access.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 
-/**
- * An override short-circuits the whole rule engine for one item, so the screen
- * that creates them is the one place a user pins a decision by hand. What it
- * must not do is create one against nothing, or delete one without asking.
- */
-
 const categories = [
   {
     id: 'c1',
@@ -94,11 +88,6 @@ describe('Exceptions', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  /**
-   * The banner stays until something replaces it. Left standing, the first
-   * removal reads as the outcome of the second, printed above the reason that
-   * one was refused.
-   */
   it('takes the previous success off screen when the next removal is refused', async () => {
     vi.spyOn(api, 'deleteException')
       .mockResolvedValueOnce(undefined as never)
@@ -127,11 +116,7 @@ describe('Exceptions', () => {
     expect(await screen.findByText('Exception removed')).toBeTruthy();
   });
 
-  /**
-   * The pin button is disabled until an item is chosen. Without that, saving
-   * sends `media_id: undefined` and the backend answers with a validation error
-   * for something the user never filled in: they searched and forgot to click.
-   */
+  /** Sent without a title, a pin comes back refused for a field the reader never saw. */
   it('will not pin until an item has actually been chosen', async () => {
     const create = vi.spyOn(api, 'createException');
     show([]);
@@ -144,11 +129,6 @@ describe('Exceptions', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  /**
-   * A result row as a `<tr onclick>` has no tab stop, no role and no key, so an
-   * exception could not be created from the keyboard or a screen reader, and
-   * Svelte warns about that on a `<div>`, not on a `<tr>`.
-   */
   it('lets the keyboard pick an item, through a control that says what it picks', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
     vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([picked]));
@@ -190,11 +170,6 @@ describe('Exceptions', () => {
     ).toBeTruthy();
   });
 
-  /**
-   * The search answers fifteen titles at most: said, so the reader refines it
-   * rather than concludes the title is missing, and announced, since a screen
-   * reader hears nothing of a table drawn under the field.
-   */
   it('says how many it shows of how many matched, under named columns', async () => {
     const found = Array.from({ length: 15 }, (_, i) => media({ id: `m${i}`, title: `Star ${i}` }));
     vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated(found, { total: 40 }));
@@ -305,7 +280,6 @@ describe('Exceptions', () => {
     expect(nthCall(create)[0]).toMatchObject({ media_id: 'm7', target_category: 'kids' });
   });
 
-  /** Opened on its close button, a search is one reflex Enter from thrown away. */
   it('opens the pin dialog on its search field', async () => {
     show([]);
 
@@ -317,7 +291,6 @@ describe('Exceptions', () => {
   });
 });
 
-/** A removed exception takes its row and the pressed Delete: the next one's takes the focus. */
 it('hands the focus to the exception that took the place of the removed one', async () => {
   const next = override({ id: 'o2', media_title: 'Perfect Blue' });
   show([override(), next]);
@@ -350,7 +323,6 @@ describe('more exceptions than a page holds', () => {
     );
   });
 
-  /** The last one of the last page gone, the page before it is the one left to show. */
   it('steps back a page once the last exception of the last one is removed', async () => {
     const list = vi
       .spyOn(api, 'getExceptions')

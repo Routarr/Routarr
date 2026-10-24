@@ -5,11 +5,6 @@ import { renderWithI18n } from '../test/render';
 import { api } from '../api/client';
 import AboutDialog from './AboutDialog.svelte';
 
-/**
- * What Routarr is: its version, its licence and where its source lives, the
- * licences of what it is built with, and its sources' credits.
- */
-
 afterEach(() => vi.restoreAllMocks());
 
 describe('AboutDialog', () => {

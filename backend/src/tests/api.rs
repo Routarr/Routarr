@@ -4,7 +4,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
 use super::fake_arr::FakeArr;
-use super::{TestApp, warning_messages};
+use super::{TestApp, isolated, warning_messages};
 use tower::ServiceExt;
 
 /// Every response names its request, so a line in the server log and the
@@ -1194,6 +1194,25 @@ async fn a_copy_is_named_in_the_readers_words_within_the_limit() {
     let name = copy.assert_ok()["name"].as_str().unwrap().to_string();
     assert_eq!(name.chars().count(), limit, "{name}");
     assert!(name.ends_with(" (copie)"), "{name}");
+}
+
+/// A name compared, exported and shown in either direction later: an invisible mark would make
+/// "Anime" and its copy's source two names.
+#[tokio::test]
+async fn a_copy_named_in_arabic_carries_no_isolate_mark() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let id = app.post("/api/v1/rules", anime_rule_body()).await.assert_ok()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    app.store_setting("ui_language", "ar").await;
+
+    let copy = app.post(&format!("/api/v1/rules/{id}/duplicate"), serde_json::json!({})).await;
+
+    let name = copy.assert_ok()["name"].as_str().unwrap().to_string();
+    assert!(name.starts_with("Anime "), "{name}");
+    assert!(!isolated(&name), "{name:?}");
 }
 
 /// A replace whose every rule is refused would delete the rules in place and
@@ -3360,10 +3379,10 @@ async fn the_condition_catalogue_says_which_media_types_each_condition_applies_t
     );
 }
 
-/// The Settings screen sends every field, so one stale stored value refuses the whole save until a
-/// start converges it.
+/// A caller sending back every value it read has its whole save refused by one stale stored value,
+/// until a start converges it.
 #[tokio::test]
-async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_value() {
+async fn a_save_sending_a_stale_value_back_is_refused_until_a_start_converges_it() {
     let app = TestApp::new().await;
 
     // A value below today's bound, as an older database holds it.
@@ -3388,7 +3407,7 @@ async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_va
 
     crate::services::maintenance::converge_setting_bounds(&app.state).await.unwrap();
 
-    // And the screen can save again, sending every field as it always does.
+    // And the same whole map saves once converged.
     app.put(
         "/api/v1/settings",
         serde_json::json!({ "settings": {

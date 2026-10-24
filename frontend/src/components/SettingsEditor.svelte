@@ -67,9 +67,7 @@
       api.getSources(signal),
     ]);
     const { values, sealed } = splitStored(answer);
-    // An unstored list is the server's default: a copy kept here would be stored by the first
-    // save of anything, as a save sends every field. A repeat keeps its first place: the server
-    // refuses a list that repeats a source, so a stored one would hold back every save.
+    // Unstored, the order the server resolved. A repeat is dropped, since the server refuses one.
     const stored = values.metadata_providers;
     const listed = stored?.split(',').map((id) => id.trim()) ?? metadata.order;
     const settings: SettingsMap = {
@@ -140,6 +138,8 @@
       minted = null;
       outcome.succeed(t('ApiKeyRemoved'));
       await auth.reload();
+      // Remove the key goes with the key: the button that makes one takes the focus.
+      void handFocus('api-key-create');
     } catch (cause) {
       outcome.fail(cause);
     }
@@ -284,11 +284,11 @@
     if (saving) return;
     saving = true;
     try {
-      // A blank credential is left out, or every unrelated save would delete it. One the reader
-      // asked to remove is sent empty, which is how the backend removes it.
+      // Only what changed, so a stale screen cannot undo a save made since it read.
       const payload: SettingsMap = Object.fromEntries(
-        fields.flatMap((field) => {
+        changed.flatMap((field) => {
           const value = draft[field.key] ?? field.fallback;
+          // Blank deletes a credential, so a blank one goes only when the reader removes it.
           if (!CREDENTIALS.has(field.key) || value.trim() !== '') return [[field.key, value]];
           return removing.has(field.key) ? [[field.key, '']] : [];
         }),
@@ -317,11 +317,15 @@
     }
   }
 
+  /** Stops following, not the purge, which runs on whatever the screen does. */
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
   async function purge() {
     // Not undoable, and its button sits beside two that are harmless.
     if (!(await askConfirmation(t('ConfirmPurge'), 'PurgeNow'))) return;
     try {
-      const report = await api.purge();
+      const report = await api.purge({ signal: leaving.signal });
       // Pending decisions past retention go too, and the Simulation count in
       // the navigation would keep them until its next idle poll.
       invalidateStatus();
@@ -333,7 +337,7 @@
         }),
       );
     } catch (err) {
-      outcome.fail(err);
+      if (!leaving.signal.aborted) outcome.fail(err);
     }
   }
 
@@ -394,21 +398,29 @@
         report.rules +
         report.overrides +
         report.rule_tests;
-      const waiting = report.needs_key.length
-        ? ` ${t('ConfigImportNeedsKey', { names: report.needs_key.join(t('ListSeparator')) })}`
-        : '';
-      const summary =
-        t('ConfigImportResult', {
-          settings: report.settings,
-          categories: report.categories,
-          instances: report.instances,
-          folders: report.root_folders,
-          rules: report.rules,
-          overrides: report.overrides,
-          tests: report.rule_tests,
-        }) + waiting;
+      const waiting = report.needs_key.length > 0;
+      const result = t('ConfigImportResult', {
+        settings: report.settings,
+        categories: report.categories,
+        instances: report.instances,
+        folders: report.root_folders,
+        rules: report.rules,
+        overrides: report.overrides,
+        tests: report.rule_tests,
+      });
+      const summary = waiting
+        ? t('SideBySide', {
+            first: result,
+            second: t('ConfigImportNeedsKey', {
+              names: report.needs_key.join(t('ListSeparator')),
+            }),
+          })
+        : result;
       // Never swallowed: a partial restore lists what it skipped.
-      const partial = `${summary} ${t('ConfigImportSkipped', { count: report.skipped.length })}`;
+      const partial = t('SideBySide', {
+        first: summary,
+        second: t('ConfigImportSkipped', { count: report.skipped.length }),
+      });
       if (report.skipped.length > 0 && restored === 0) outcome.fail(partial, report.skipped);
       else if (report.skipped.length > 0)
         outcome.warn(partial, [...report.skipped, ...report.adjusted]);
@@ -537,7 +549,12 @@
             <p class="text-muted text-sm">{t('ApiKeyPinned')}</p>
           {:else}
             <div class="flex gap-2">
-              <button type="button" class="btn btn-secondary" onclick={rotateKey}>
+              <button
+                id="api-key-create"
+                type="button"
+                class="btn btn-secondary"
+                onclick={rotateKey}
+              >
                 {t(keyCard.api_key_configured ? 'RegenerateKey' : 'CreateKey')}
               </button>
               {#if keyCard.api_key_configured && keyCard.mode !== 'apikey'}
@@ -652,7 +669,10 @@
                     <option value={language.code} lang={bcp47(language.code)}>
                       {language.completion >= 100
                         ? language.name
-                        : `${language.name} (${formatPercent(language.completion / 100, i18n.language)})`}
+                        : t('WithNote', {
+                            text: language.name,
+                            note: formatPercent(language.completion / 100, i18n.language),
+                          })}
                     </option>
                   {/each}
                 </select>

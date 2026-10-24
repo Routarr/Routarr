@@ -77,24 +77,26 @@ export function canonicalKey(value: string): string {
 /**
  * The form two spellings of one rating code share: `certification_key` in the
  * rule engine. Case and the separator aside, every character counts, so `R+`
- * stays apart from `R`.
+ * stays apart from `R`. Exported for the tests, which hold it to the engine's cases.
  */
-export function certificationKey(value: string): string {
+export function foldCertification(value: string): string {
   return value
     .trim()
     .replace(/[-_]/g, ' ')
     .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
-/** An Arr's status as one word, folded: `status_key` in the rule engine. */
-export function statusKey(value: string): string {
+/**
+ * An Arr's status as one word, folded: `status_key` in the rule engine. Exported for the tests.
+ */
+export function foldStatus(value: string): string {
   return canonicalKey(value).replaceAll(' ', '');
 }
 
 /** How the values of a condition of this kind are told apart. */
 export function keyOfKind(kind: string): (value: string) => string {
-  if (kind === 'certification_in') return certificationKey;
-  if (kind === 'status_is') return statusKey;
+  if (kind === 'certification_in') return foldCertification;
+  if (kind === 'status_is') return foldStatus;
   return canonicalKey;
 }
 

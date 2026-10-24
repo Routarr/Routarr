@@ -4,11 +4,9 @@ import { tick } from 'svelte';
 export type FocusTarget = HTMLElement | string | null | undefined;
 
 /**
- * Once the screen has redrawn, hands the focus to the first target still on the page and
- * enabled, when the control that held it is gone or disabled.
- *
- * A control that goes or turns disabled drops the focus to `<body>`, where a screen reader
- * loses its place. A focus held elsewhere, as in the field a save by Enter came from, stays.
+ * Once the screen redraws, hands the focus to the first target still on the page and enabled
+ * when the control that held it went or turned disabled, dropping it to `<body>`, where a screen
+ * reader loses its place. Never to `<body>` itself: Safari leaves the focus there on a click.
  */
 export async function handFocus(...targets: FocusTarget[]): Promise<void> {
   await tick();
@@ -16,7 +14,7 @@ export async function handFocus(...targets: FocusTarget[]): Promise<void> {
   if (active && active !== document.body && !active.matches(':disabled')) return;
   for (const target of targets) {
     const element = typeof target === 'string' ? document.getElementById(target) : target;
-    if (element?.isConnected && !element.matches(':disabled')) {
+    if (element?.isConnected && element !== document.body && !element.matches(':disabled')) {
       element.focus();
       return;
     }

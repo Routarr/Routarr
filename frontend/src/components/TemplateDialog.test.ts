@@ -3,6 +3,7 @@ import { cleanup, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 import { template, templatePreview } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import { publishAccess } from '../lib/access.svelte';
@@ -288,15 +289,24 @@ describe('TemplateDialog', () => {
 
   it('keeps the dialog open with the refusal when adding fails', async () => {
     vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
-    vi.spyOn(api, 'importTemplate').mockRejectedValue(
-      new ApiError('The category name is refused.', 400, 'bad_request'),
+    let refuse: () => void = () => {};
+    vi.spyOn(api, 'importTemplate').mockReturnValue(
+      new Promise((_, reject) => {
+        refuse = () => reject(new ApiError('The category name is refused.', 400, 'bad_request'));
+      }),
     );
     const { onAdded } = open(template());
 
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    dropFocus();
+    refuse();
 
     expect(await screen.findByText('The category name is refused.')).toBeTruthy();
     expect(onAdded).not.toHaveBeenCalled();
+    // Add turned disabled while it asked, and is the way to try again.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add' })),
+    );
   });
 });
 

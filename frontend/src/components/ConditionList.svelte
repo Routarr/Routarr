@@ -180,7 +180,9 @@
           {#each family.specs as spec (spec.type)}
             <!-- Flagged only when no enabled source, the Arr included, can answer it. -->
             <option value={spec.type}>
-              {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
+              {spec.available
+                ? spec.label
+                : t('SideBySide', { first: spec.label, second: t('NeedsMetadataSuffix') })}
             </option>
           {/each}
         </optgroup>

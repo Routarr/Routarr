@@ -287,6 +287,10 @@ test('the first tab stop skips to the content', async ({ page }) => {
 
   await page.keyboard.press('Enter');
   await expect(page.locator('main:focus, main:focus-within')).toHaveCount(1);
+  // Past the top bar, which is the page's banner beside `main`, not inside it.
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.page-container :focus')).toHaveCount(1);
+  await expect(page.getByRole('banner')).toHaveCount(1);
 });
 
 /**
@@ -635,6 +639,23 @@ const MODALS: {
         .getByRole('button', { name: /^Revert – / })
         .first()
         .click(),
+  },
+  // Last: the draft it leaves holds a condition, which a navigation would ask about.
+  {
+    // A value picker whose query matches nothing left to add: the note beside the list.
+    path: '/rules',
+    covers: 'components/RuleEditor.svelte',
+    open: async (p) => {
+      await p.getByRole('button', { name: 'New Rule' }).click();
+      const list = 'Conditions (all of)';
+      await p.getByRole('combobox', { name: list, exact: true }).selectOption('genre_contains');
+      await p.getByRole('button', { name: `Add – ${list}` }).click();
+      const picker = p.getByRole('combobox', { name: 'Genre contains', exact: true });
+      await picker.click();
+      await p.getByRole('option', { name: 'Animation' }).click();
+      await picker.fill('animation');
+      await p.getByRole('status').filter({ hasText: 'No value matches' }).waitFor();
+    },
   },
 ];
 

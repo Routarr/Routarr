@@ -9,7 +9,7 @@ import {
   parseScoreBound,
   parseWholeBound,
   canonicalKey,
-  certificationKey,
+  foldCertification,
   addValue,
   removeValue,
   withoutRepeats,
@@ -17,9 +17,9 @@ import {
   localFacets,
   MAX_PRIORITY,
   nextPriority,
-  statusKey,
+  foldStatus,
 } from './conditions';
-import { readBackend } from '../test/backend';
+import { backendConstant, readBackend } from '../test/backend';
 
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
   type: 'x',
@@ -68,9 +68,9 @@ const RATINGS: [string, string][] = JSON.parse(
   readBackend('backend/src/services/rule_engine/certification_key_cases.json'),
 ) as [string, string][];
 
-describe('certificationKey', () => {
+describe('foldCertification', () => {
   it.each(RATINGS)('keys %j as the rule engine does', (raw, key) => {
-    expect(certificationKey(raw)).toBe(key);
+    expect(foldCertification(raw)).toBe(key);
   });
 
   it('keeps R+ apart from R in a rating condition, and only there', () => {
@@ -78,17 +78,17 @@ describe('certificationKey', () => {
       'R',
       'R+',
     ]);
-    expect(addValue(['R'], 'R+', certificationKey)).toEqual(['R', 'R+']);
-    expect(addValue(['PG-13'], 'pg 13', certificationKey)).toEqual(['PG-13']);
+    expect(addValue(['R'], 'R+', foldCertification)).toEqual(['R', 'R+']);
+    expect(addValue(['PG-13'], 'pg 13', foldCertification)).toEqual(['PG-13']);
     expect(withoutRepeats({ type: 'genre_contains', value: ['Sci-Fi', 'sci fi'] }).value).toEqual([
       'Sci-Fi',
     ]);
   });
 });
 
-describe('statusKey', () => {
+describe('foldStatus', () => {
   it('reads a status as one word, as the rule engine does', () => {
-    expect(statusKey('In Cinemas')).toBe(statusKey('inCinemas'));
+    expect(foldStatus('In Cinemas')).toBe(foldStatus('inCinemas'));
     expect(withoutRepeats({ type: 'status_is', value: ['inCinemas', 'In Cinemas'] }).value).toEqual(
       ['inCinemas'],
     );
@@ -239,6 +239,12 @@ describe('nextPriority', () => {
     expect(nextPriority([30, 10])).toBe(40);
     expect(nextPriority([])).toBe(10);
     expect(nextPriority([MAX_PRIORITY - 5])).toBe(MAX_PRIORITY);
+  });
+
+  it('holds a priority to the ceiling the rule engine refuses past', () => {
+    expect(MAX_PRIORITY).toBe(
+      backendConstant('backend/src/services/rule_engine/validation.rs', 'MAX_PRIORITY'),
+    );
   });
 });
 

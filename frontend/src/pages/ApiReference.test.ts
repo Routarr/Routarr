@@ -8,11 +8,6 @@ import type { OpenApiDocument } from '../api/openapi';
 import ApiReference from './ApiReference.svelte';
 import { publishAccess } from '../lib/access.svelte';
 
-/**
- * The reference reads the contract the running version serves, groups it by
- * what an application wants to do, and says which scope each operation asks.
- */
-
 const DOC: OpenApiDocument = {
   info: { title: 'Routarr API', version: '1', description: 'A long `introduction`.' },
   servers: [{ url: '/api/v1' }],
@@ -94,11 +89,6 @@ describe('ApiReference', () => {
     expect(code.closest('[lang="en"]')).not.toBeNull();
   });
 
-  /**
-   * The contract's introduction is a page of English before the first
-   * operation: it stays in the downloaded document, and the screen says only
-   * where the key comes from.
-   */
   it('leaves the introduction to the document and points to where keys are made', async () => {
     show();
     await screen.findByText('/ping');
@@ -111,7 +101,6 @@ describe('ApiReference', () => {
     );
   });
 
-  /** `lang` sets no direction, and in Arabic English prose inherits right to left. */
   it('lays the English prose out left to right whatever the page direction', async () => {
     const { container } = show();
     await screen.findByText('respond-async');
@@ -121,7 +110,6 @@ describe('ApiReference', () => {
     for (const element of english) expect(element.getAttribute('dir')).toBe('ltr');
   });
 
-  /** A field, a parameter and an answer name code as the operation text does. */
   it('marks code in every description, not only in the operation text', async () => {
     const { container } = show();
     await screen.findByText('respond-async');
@@ -155,10 +143,6 @@ describe('ApiReference', () => {
     expect(document.body.textContent).toContain('X-Api-Key: $ROUTARR_KEY');
   });
 
-  /**
-   * The example scrolls sideways, and Safari makes no scroller focusable on its
-   * own: a named region in the tab order is how a keyboard reaches its end.
-   */
   it('lets a keyboard reach the end of an example', async () => {
     show();
     await fireEvent.click(await screen.findByText('/decisions/apply'));
@@ -170,7 +154,6 @@ describe('ApiReference', () => {
 });
 
 describe('for a reader', () => {
-  /** Keys are made on a screen a reader is refused, so it is named and not linked. */
   it('links the owner to the screen that makes keys, and names it to a reader', async () => {
     const { unmount } = show();
     expect(await screen.findByRole('link', { name: 'Applications' })).toBeInTheDocument();

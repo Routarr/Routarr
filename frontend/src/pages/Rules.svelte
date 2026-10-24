@@ -11,7 +11,7 @@
     Plus,
     Trash2,
   } from '../lib/icons';
-  import { api, type RuleBundle } from '../api/client';
+  import { api } from '../api/client';
   import { describeCondition, formatDecimal, swapped } from '../api/format';
   import {
     canonicalKey,
@@ -28,6 +28,7 @@
     TemplateAdded,
     TemplateSummary,
     Rule,
+    RuleBundle,
     RuleDraft,
     RuleMediaType,
   } from '../api/types';
@@ -76,11 +77,8 @@
     instance_ids: null,
   });
 
-  // Without a word for a failed diagnostic, the list reads as a healthy rule set.
-  let analysisFailed = $state(false);
-
   const bundle = createAsync(async (signal) => {
-    analysisFailed = false;
+    let healthFailed = false;
     const [rules, categories, instances, catalog, health] = await Promise.all([
       api.getRules(signal),
       api.getCategories(signal),
@@ -88,20 +86,23 @@
       api.getConditionCatalog(signal),
       // Tolerated: when the analysis fails, a list without badges beats no list at all.
       api.getRuleHealth(signal).catch(() => {
-        analysisFailed = true;
+        healthFailed = true;
         return null;
       }),
     ]);
-    return { rules, categories, instances, catalog, health };
+    return { rules, categories, instances, catalog, health, healthFailed };
   });
 
   // Read once, since no action on a rule changes the library. Tolerated like the health report.
-  const library = createAsync((signal) =>
-    api.getLibraryFacets(signal).catch(() => {
-      analysisFailed = true;
-      return null;
-    }),
-  );
+  const library = createAsync((signal) => api.getLibraryFacets(signal));
+
+  // Unsaid, a failed diagnostic reads as a healthy rule set. Either read can fail on its own.
+  const analysisFailed = $derived(bundle.data?.healthFailed === true || library.error !== null);
+
+  function retryAnalysis() {
+    if (bundle.data?.healthFailed) void bundle.reload();
+    if (library.error) void library.reload();
+  }
 
   const templates = createAsync((signal) => api.getTemplates(signal));
   let choosing = $state<TemplateSummary | null>(null);
@@ -324,10 +325,7 @@
   />
   <OutcomeBanner {outcome} />
   {#if analysisFailed}
-    <WarningBanner
-      message={t('RuleAnalysisUnavailable')}
-      onRetry={() => void Promise.all([bundle.reload(), library.reload()])}
-    />
+    <WarningBanner message={t('RuleAnalysisUnavailable')} onRetry={retryAnalysis} />
   {/if}
   <GuideStepBanner step="rule" />
 

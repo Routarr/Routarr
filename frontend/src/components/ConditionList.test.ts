@@ -87,10 +87,6 @@ describe('ConditionList', () => {
     ]);
   });
 
-  /**
-   * On Windows and Linux an arrow key on a closed select fires `change`, so adding on `change`
-   * would add a condition at every arrow.
-   */
   it('adds the condition chosen only when Add is pressed', async () => {
     const onAdd = vi.fn();
     render([], [GENRE, SEASONS], () => {}, undefined, 'en', onAdd);
@@ -109,10 +105,6 @@ describe('ConditionList', () => {
     expect(screen.getByText('Season count over')).toBeTruthy();
   });
 
-  /**
-   * OR and AND are one selector on the condition, not two conditions. Both halves of a pair are
-   * the same question, so only one of them is offered when adding.
-   */
   it('offers each quantified condition once', () => {
     render([], [GENRE, GENRE_ALL]);
 
@@ -121,7 +113,6 @@ describe('ConditionList', () => {
     expect(offered).toEqual(['+ Add a condition…', 'Genre contains']);
   });
 
-  /** A pair is one question asked two ways: the selector holds both sentences. */
   it('offers the two sentences of a pair in its selector, the values left as a gap', () => {
     render([{ type: 'genre_contains_all', value: ['Animation'] }], [GENRE]);
 
@@ -148,11 +139,7 @@ describe('ConditionList', () => {
     expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
   });
 
-  /**
-   * A title has one original language, so several values can only be alternatives: the sentence
-   * says so, heard with the field. Unsaid, the search box after the first value reads as an
-   * invitation to give a title a second language.
-   */
+  /** Unsaid, the search box after the first value reads as an invitation to a second one. */
   it('says in a sentence tied to the field that a single-valued axis takes alternatives', () => {
     render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
 
@@ -179,10 +166,6 @@ describe('ConditionList', () => {
     expect(row?.querySelector('.condition-caption')?.textContent).toBe(SEASONS.label);
     expect(row?.textContent).not.toContain('…');
   });
-  /**
-   * Appended rather than merged, the synced codes would be the only ones shown bare (`en` above
-   * `Afrikaans (af)`), which reads as the known languages being the ones nobody bothered to name.
-   */
   it('names a value the library holds from the vocabulary that defines it', async () => {
     render([{ type: 'original_language', value: [] } as unknown as Condition], [], () => {}, {
       vocabularies: {

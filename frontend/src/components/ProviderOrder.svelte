@@ -22,20 +22,11 @@
     value: string;
     onChange: (value: string) => void;
     /**
-     * The stored credentials, read so the field shows what the draft holds.
-     *
-     * Read and not written: the row reports an edit through `onKeyChange`, the
-     * way it reports a reordering through `onChange`. Writing into the record
-     * instead is an ownership violation Svelte flags in development, and it
-     * works only when the caller passes a `$state` proxy: handed an ordinary
-     * object, it writes into nothing, silently.
+     * The stored credentials, read only: an edit goes out through `onKeyChange`, since a write
+     * into the record reaches the caller only when it passed a `$state` proxy.
      */
     keys?: Record<string, string>;
-    /**
-     * Given with `keys` or not at all: the field is rendered only where both
-     * are, since one without the other is a field that takes a key and drops
-     * it.
-     */
+    /** Given with `keys` or not at all: without both, the field would take a key and drop it. */
     onKeyChange?: (setting: string, value: string) => void;
     /**
      * The credentials stored in the settings, which Remove clears, and those
@@ -93,14 +84,8 @@
 </script>
 
 {#snippet credential(provider: MetadataProvider, setting: string)}
-  <!-- The credential, in the row of the source it unlocks. Paste and enable
-       without leaving the line, and one save covers both.
-
-       Rendered whether or not the source is switched on, and whether or not a
-       key is already stored: this is the only field for it anywhere, so
-       hiding it once the source works leaves a leaked key impossible to
-       rotate and a stored one impossible to replace. The placeholder is what
-       says which of the two situations the reader is in. -->
+  <!-- The credential, in the row of the source it unlocks, drawn whether or not the source is on
+       or a key stored: it is the only field for it, and the placeholder says which case. -->
   <label class="visually-hidden" for="setting-{setting}">
     {provider.display_name}
   </label>
@@ -175,9 +160,7 @@
 {/snippet}
 
 <div {id}>
-  <!-- Two named groups. Run together as one list, nothing says where "active,
-       in priority order" ends and "available" begins, and the available rows
-       carry no number, which breaks the column. -->
+  <!-- Two named groups, so the active order and the rest are told apart. -->
   <p class="source-group">{t('SourcesActive')}</p>
   <div class="source-list">
     {#each enabled as providerId, index (providerId)}
@@ -192,9 +175,7 @@
                  name and nothing else, so reading it gives the name. -->
             <div class="source-heading">
               <span class="source-name">{provider.display_name}</span>
-              <!-- Stated in words, not only by a tint: a source listed without
-                   its key answers nothing, and that is a warning rather than a
-                   shade of grey. -->
+              <!-- In words, not a tint alone: a source listed without its key answers nothing. -->
               {#if inactive}
                 <span class="badge badge-warning">{t('ProviderInactive')}</span>
               {/if}
@@ -247,9 +228,6 @@
     {/each}
   </div>
 
-  <!-- Not captioned "Available", which would name exactly the sources that are
-       not: a keyless one can do nothing at all. What the group holds is
-       everything switched off, some of it waiting for a credential. -->
   <p class="source-group">{t('SourcesInactive')}</p>
   <div class="source-list">
     {#each disabled as provider (provider.id)}
@@ -275,11 +253,8 @@
             id={control(provider.id, 'toggle')}
             type="button"
             class="btn btn-secondary btn-sm"
-            /* The affordance is refused rather than the mistake explained
-               afterwards: enabling it would change nothing at all. */
-            /* A key typed but not yet saved still counts: refusing the click
-               then would send the reader back for a save they cannot see the
-               need for. */
+            /* Refused where enabling changes nothing, unless a key is typed and not saved yet,
+               which the save then stores. */
             disabled={unusable && !(setting && keys?.[setting]?.trim())}
             aria-label="{t('EnableSource')} – {provider.display_name}"
             onclick={() => enable(provider.id)}

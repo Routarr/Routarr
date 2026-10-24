@@ -104,5 +104,28 @@ class TypeScriptSide(unittest.TestCase):
         self.assertNotIn("Axis", found)
 
 
+class ClientSide(unittest.TestCase):
+    def client(self, source: str):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "client.ts"
+            path.write_text(source)
+            return check_api_types.client_payloads(path)
+
+    def test_an_answer_typed_inline_is_named_by_the_path_it_asks(self):
+        inline, _ = self.client(
+            "const api = {\n"
+            "  login: () => request<{ username: string }>('/auth/login', { method: 'POST' }),\n"
+            "  restore: (id: string) =>\n"
+            "    request<{\n      deleted: boolean;\n    }>(`/root-folders/${id}/dismissal`, {}),\n"
+            "  status: () => request<Status>('/status'),\n"
+            "};\n"
+        )
+        self.assertEqual(inline, ["/auth/login", "/root-folders/{}/dismissal"])
+
+    def test_an_interface_exported_by_the_client_is_found(self):
+        _, exported = self.client("export interface Following {\n  signal?: AbortSignal;\n}\n")
+        self.assertEqual(exported, ["Following"])
+
+
 if __name__ == "__main__":
     unittest.main()

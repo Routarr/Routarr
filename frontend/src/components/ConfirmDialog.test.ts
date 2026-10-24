@@ -6,20 +6,13 @@ import { ask, askConfirmation } from '../lib/confirm.svelte';
 import ConfirmDialog from './ConfirmDialog.svelte';
 
 /**
- * The question in front of every deletion, move and replace.
- *
- * Cancel is the answer that matters: wired to anything but `null`, every
- * guarded action would go ahead on the button meant to stop it, and every page
- * test answers through the store, never through these buttons.
+ * Cancel must settle `null`: the page tests answer through the store, so only these press the
+ * dialog's buttons.
  */
 
 const show = () => renderWithI18n(ConfirmDialog);
 
 describe('ConfirmDialog', () => {
-  /**
-   * An alert dialog, named by what it would do and described by its question:
-   * named by the question, it read the question twice.
-   */
   it('is an alert dialog named by its action and described by its question', async () => {
     show();
     void askConfirmation('Delete "Anime"?', 'Delete');

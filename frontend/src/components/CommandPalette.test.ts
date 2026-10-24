@@ -13,15 +13,6 @@ import { router } from '../lib/router.svelte';
 import { publishAccess } from '../lib/access.svelte';
 import CommandPalette from './CommandPalette.svelte';
 
-/**
- * One field, from anywhere, for the question this product exists to answer.
- *
- * "Why did Routarr put this film there?" otherwise takes four steps from any
- * screen: open the library, type, search, then find the row and press its
- * button. What is asserted here is that it takes one, and that the palette
- * carries nothing that writes to a library.
- */
-
 const media = (over: Partial<MediaListItem> = {}) =>
   film({ id: 'm-1', title: 'Spirited Away', year: 2001, ...over });
 
@@ -88,10 +79,18 @@ describe('CommandPalette', () => {
     expect(destinations.getByRole('option')).toHaveTextContent('Diagnostics');
   });
 
-  /**
-   * The library is asked once the typing stops, never on the keystroke: the
-   * request goes to somebody's own host, over their own network.
-   */
+  it('finds a destination typed without its accents', async () => {
+    renderWithI18n(CommandPalette, {
+      props: { onClose: () => {}, onHelp: vi.fn() },
+      strings: { Settings: 'Réglages' },
+    });
+    await screen.findAllByRole('option');
+
+    await userEvent.type(screen.getByRole('combobox'), 'reglages');
+    const destinations = within(screen.getByRole('group', { name: 'Go to' }));
+    expect(destinations.getByRole('option', { name: /Réglages/ })).toBeTruthy();
+  });
+
   it('asks the library once, after the typing stops', async () => {
     const getLibrary = vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
@@ -113,7 +112,6 @@ describe('CommandPalette', () => {
     expect(row.nextElementSibling).toHaveTextContent('2001 · Radarr · anime');
   });
 
-  /** A search the typing has moved past is abandoned, not left to run on the server. */
   it('abandons the search a new term replaces', async () => {
     const getLibrary = vi.spyOn(api, 'getLibrary').mockReturnValue(new Promise(() => {}));
     show();
@@ -141,7 +139,6 @@ describe('CommandPalette', () => {
     expect(await screen.findByText(/Nothing for/)).toHaveTextContent('Nothing for "zzzz".');
   });
 
-  /** "Nothing for" before the library answered is a claim it has not made yet. */
   it('says it is searching until the library answers, not that nothing matched', async () => {
     let answer = () => {};
     vi.spyOn(api, 'getLibrary').mockReturnValue(
@@ -161,11 +158,6 @@ describe('CommandPalette', () => {
     expect(await screen.findByText(/Nothing for/)).toBeInTheDocument();
   });
 
-  /**
-   * The combobox pattern: the focus stays in the field so typing can continue
-   * while the arrows walk the list, and `aria-activedescendant` is the only
-   * thing telling a screen reader where they are.
-   */
   it('walks the list without taking the focus out of the field', async () => {
     show();
     const field = await screen.findByRole('combobox');
@@ -181,9 +173,7 @@ describe('CommandPalette', () => {
     await fireEvent.keyDown(field, { key: 'ArrowUp' });
     expect(field.getAttribute('aria-activedescendant')).toBe(options[options.length - 1]?.id);
 
-    // And nothing in the list is a tab stop, or it would take the focus the
-    // field has to keep. An `option` must not hold interactive content
-    // either, which is why the row carries its own click.
+    // No row is a tab stop, or it would take the focus the field keeps.
     for (const option of options) {
       expect(option.querySelector('a, button, input, select, [tabindex]')).toBeNull();
     }
@@ -201,11 +191,25 @@ describe('CommandPalette', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  /**
-   * The answer arrives here rather than at the end of a navigation: neither
-   * the explanation nor the rule editor is addressable by URL, so sending
-   * someone to `/library` would be step one of the four steps this replaces.
-   */
+  /** The Enter that ends an input method's composition belongs to the input method. */
+  it.each([
+    ['during a composition', { isComposing: true }],
+    ['as Safari sends it once the composition ended', { keyCode: 229 }],
+  ])('opens nothing on an Enter %s', async (_, init) => {
+    const onClose = vi.fn();
+    const explain = vi.spyOn(api, 'explainTitle');
+    show(onClose);
+    const field = await screen.findByRole('combobox');
+    const start = router.path;
+
+    await userEvent.type(field, 'diag');
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, ...init }));
+
+    expect(router.path).toBe(start);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(explain).not.toHaveBeenCalled();
+  });
+
   it('answers "why is this here" without leaving the page', async () => {
     vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
@@ -240,11 +244,9 @@ describe('CommandPalette', () => {
     await fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
 
     await vi.waitFor(() => expect(explain).toHaveBeenCalledWith('m-1', expect.any(AbortSignal)));
-    // The router never moved: the question was answered where it was asked.
     expect(router.path).not.toBe('/library');
   });
 
-  /** The panel arrives a moment later, and the title asked about says so meanwhile. */
   it('marks the title being explained as busy', async () => {
     vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
@@ -263,12 +265,6 @@ describe('CommandPalette', () => {
     );
   });
 
-  /**
-   * Only the library needs the network. Rendered in place of the list, the
-   * failure would take the destinations with it, and an error never cleared
-   * would leave the field able to do nothing at all until it is closed and
-   * reopened.
-   */
   it('keeps the destinations when the library cannot be reached', async () => {
     vi.spyOn(api, 'getLibrary').mockRejectedValue(new Error('unreachable'));
     show();
@@ -308,13 +304,6 @@ describe('CommandPalette', () => {
     expect(document.getElementById('palette-results')).toBeNull();
   });
 
-  /**
-   * A palette exists to be fast, which is the opposite of what a write to
-   * somebody's library wants. Applying, reverting and deleting all have
-   * guardrails that live on the screen owning them. The explanation it opens is
-   * the library screen's own panel, and its one write, pinning the case as a
-   * rule test, stays inside Routarr.
-   */
   it('offers nothing that writes to a library, in its list or in the explanation it opens', async () => {
     const WRITES = /apply|revert|delete|remove|sync|move|override/i;
     const actions = (scope: HTMLElement) =>
@@ -354,7 +343,6 @@ describe('CommandPalette', () => {
     expect(actions(panel).filter((name) => WRITES.test(name))).toEqual([]);
   });
 
-  /** The help answers too, and opens on the screen it found. */
   it('offers what the help says, and opens it on that screen', async () => {
     vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [],

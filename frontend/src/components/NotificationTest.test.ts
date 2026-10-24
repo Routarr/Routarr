@@ -8,11 +8,6 @@ import { createOutcome } from '../lib/outcome.svelte';
 import { dropFocus } from '../test/focus';
 import NotificationTest from './NotificationTest.svelte';
 
-/**
- * The test message reports through the screen's outcome: delivered, or the
- * server's sentence saying why not.
- */
-
 afterEach(() => vi.restoreAllMocks());
 
 describe('NotificationTest', () => {

@@ -1882,6 +1882,8 @@ async fn every_response_carries_a_content_security_policy() {
         .to_string();
 
     assert!(csp.contains("script-src 'self'"), "scripts are not locked to the origin: {csp}");
+    // The interface sets its computed styles through the CSSOM, which the policy does not govern.
+    assert!(!csp.contains("'unsafe-inline'"), "markup may carry its own styles: {csp}");
     // No framing, no plugin objects, no form posting elsewhere.
     assert!(csp.contains("frame-ancestors 'none'"));
     assert!(csp.contains("object-src 'none'"));

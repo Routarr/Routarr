@@ -9,12 +9,6 @@ import { click } from '../test/links';
 import { publishAccess } from '../lib/access.svelte';
 import Sidebar from './Sidebar.svelte';
 
-/**
- * Below the rail breakpoint the labels are hidden. The name has to reach a
- * screen reader, and a pointer, some other way, or the navigation becomes a
- * column of unnamed icons.
- */
-
 const show = (props: Record<string, unknown> = {}) => renderWithI18n(Sidebar, { props });
 
 afterEach(() => {
@@ -23,7 +17,6 @@ afterEach(() => {
 });
 
 describe('Sidebar', () => {
-  /** The version opens what Routarr is, its licence and its sources' credits. */
   it('opens the About dialog from the version', async () => {
     const onAbout = vi.fn();
     show({ version: '0.2.0', onAbout });
@@ -47,10 +40,6 @@ describe('Sidebar', () => {
     }
   });
 
-  /**
-   * Marking the active entry by colour alone says nothing to a screen reader
-   * and disappears for anyone who cannot separate the two greys.
-   */
   it('announces which entry is current, rather than only colouring it', async () => {
     navigate('/rules');
     show();
@@ -80,11 +69,6 @@ describe('Sidebar', () => {
     expect(onNavigate).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * The order is the argument: what decides where a title goes comes first,
-   * the exceptions beside the rules they outrank, then what is configured once
-   * at install, and what serves other applications last.
-   */
   it('opens on routing and ends on the integrations', () => {
     show();
 
@@ -100,10 +84,6 @@ describe('Sidebar', () => {
     ]);
   });
 
-  /**
-   * A group of two or three is read at a glance where a long list is scanned
-   * every time, but only if a reader is told the groups exist.
-   */
   it('names every group, and the navigation itself', () => {
     show();
 
@@ -113,11 +93,6 @@ describe('Sidebar', () => {
     }
   });
 
-  /**
-   * A `<base href>` applies to relative URLs only. Left root-absolute without
-   * the mount point, a link sends a click, a middle-click, a ctrl-click or a
-   * copied link to the proxy's root.
-   */
   it('prefixes every destination with the mount point a reverse proxy adds', () => {
     withBase('/routarr/');
     show({ counts: { jobs: 1, decisions: 0, failed: 0, warnings: 0 } });
@@ -129,17 +104,11 @@ describe('Sidebar', () => {
     expect(links).toContain('/routarr/');
   });
 
-  /**
-   * In the rail the badge is the only thing that says something is waiting,
-   * and a zero must not draw the eye to nothing.
-   */
   it('carries each count onto the entry that answers it, and nothing when there is none', () => {
     const { unmount } = show({
       counts: { jobs: 2, decisions: 5, failed: 1, warnings: 3 },
     });
 
-    // The sentence is part of the link's name: an `aria-label` on a generic
-    // span reaches nobody reliably.
     const entry = (sentence: string) => screen.getByText(sentence).closest('a');
     const badge = (sentence: string) => entry(sentence)?.querySelector('.nav-badge');
     expect(screen.getByRole('link', { name: /Diagnostics Warnings: 3/ })).toBeTruthy();
@@ -150,8 +119,6 @@ describe('Sidebar', () => {
     expect(entry('Decisions awaiting review: 5')?.getAttribute('href')).toBe(href('/simulation'));
     expect(entry('Failed moves: 1')?.getAttribute('href')).toBe(href('/move-log'));
 
-    // Amber asks for something, red says something broke, the rest is just a
-    // number: four amber badges would say everything is urgent.
     expect(badge('Warnings: 3')?.className).toContain('is-warning');
     expect(badge('Failed moves: 1')?.className).toContain('is-critical');
     expect(badge('Running tasks: 2')?.className).not.toContain('is-');

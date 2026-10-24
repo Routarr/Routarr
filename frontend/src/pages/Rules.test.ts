@@ -126,6 +126,22 @@ describe('Rules', () => {
     expect(report).toHaveBeenCalledTimes(2);
   });
 
+  /** The library is read once, the rules after every write: each warning follows its own read. */
+  it('keeps saying the library could not be read after a write reloads the rules', async () => {
+    vi.spyOn(api, 'getLibraryFacets').mockRejectedValue(new Error('timed out'));
+    const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
+    show([rule({ id: 'r1', name: 'First' }), rule({ id: 'r2', name: 'Last' })]);
+    const warning =
+      'The rule analysis could not be read, so no badge says which rules decide nothing and the library panel is empty.';
+    expect(await screen.findByText(warning)).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Raise priority – Last' }));
+    await waitFor(() => expect(reorder).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.getRules).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByText(warning)).toBeTruthy();
+  });
+
   it('says nothing of the kind when the analysis answers', async () => {
     show([rule({ id: 'r1', name: 'Anime' })]);
     await screen.findByRole('button', { name: 'Actions – Anime' });
@@ -480,7 +496,9 @@ describe('Rules', () => {
     result: { imported: number; skipped: string[]; adjusted?: string[] },
     answer: 'append' | 'replace' = 'append',
   ) {
-    const importRules = vi.spyOn(api, 'importRules').mockResolvedValue({ adjusted: [], ...result });
+    const importRules = vi
+      .spyOn(api, 'importRules')
+      .mockResolvedValue({ adjusted: [], replaced: false, ...result });
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
     await screen.findByRole('button', { name: 'Actions – Anime' });
 

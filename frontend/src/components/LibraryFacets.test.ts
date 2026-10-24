@@ -4,11 +4,6 @@ import { fireEvent, screen } from '@testing-library/svelte';
 import { renderWithI18n } from '../test/render';
 import LibraryFacets from './LibraryFacets.svelte';
 
-/**
- * Reference data on a screen whose subject is something else. Open above the rule table, the
- * panel takes most of a laptop screen and more than a phone's, hiding the rules themselves.
- */
-
 const facets = {
   total_media: 38,
   vocabularies: {
@@ -62,9 +57,7 @@ describe('LibraryFacets', () => {
 
     expect(container.querySelector('details')?.hasAttribute('open')).toBe(true);
     expect(screen.getByText('Genres')).toBeInTheDocument();
-    // Named from the vocabulary: the counts say `ja`, and only the vocabulary knows Japanese.
     expect(screen.getByText('Japanese (ja)')).toBeInTheDocument();
-    // Only the axes carrying something: an empty card teaches nothing.
     expect(screen.queryByText('Certifications')).toBeNull();
     // Nor a count of titles without metadata when every title has some.
     expect(screen.queryByText(/^Items with neither a genre/)).toBeNull();
@@ -83,10 +76,6 @@ describe('LibraryFacets', () => {
     ).toBeInTheDocument();
   });
 
-  /**
-   * The preference is per viewer and survives the navigation, or the panel
-   * folds itself again on every visit to the screen it belongs to.
-   */
   it('remembers that it was opened', async () => {
     const first = show();
     await disclose(first);

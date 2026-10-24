@@ -46,7 +46,6 @@ const OTHER_CASE: RuleTest = { ...CASE, id: 't3', name: 'Paprika stays anime' };
 afterEach(() => vi.restoreAllMocks());
 
 describe('RuleTests', () => {
-  /** A case run after a sync or at its pin shows that verdict before anyone presses Run. */
   it('shows the verdict the last run kept, and when it ran', async () => {
     const failing = { ...CASE, last_passed: false, last_checked_at: '2026-10-18 09:00:00' };
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([failing, OTHER_CASE]));
@@ -71,10 +70,6 @@ describe('RuleTests', () => {
     expect((running as HTMLButtonElement).disabled).toBe(true);
   });
 
-  /**
-   * A run that fails leaves nothing of the run before it. Kept, the earlier
-   * summary and verdicts read as the answer to the run that was just refused.
-   */
   it('takes the previous run off screen when the next one fails', async () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE]));
     vi.spyOn(api, 'runRuleTests')
@@ -97,7 +92,6 @@ describe('RuleTests', () => {
     expect(screen.queryByText('Passes')).toBeNull();
   });
 
-  /** A case that moved is a failure, stated before the table that shows which one. */
   it('reports a run in which a case moved as a failure', async () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE]));
     vi.spyOn(api, 'runRuleTests').mockResolvedValue({
@@ -154,7 +148,6 @@ describe('a suite longer than a page', () => {
     );
   });
 
-  /** The last case of the last page gone, the page before it is the one left to show. */
   it('steps back a page once the last case of the last one is deleted', async () => {
     const list = vi
       .spyOn(api, 'getRuleTests')
@@ -178,10 +171,6 @@ describe('a suite longer than a page', () => {
   });
 });
 
-/**
- * The list stays on screen while it reloads, since a skeleton would take the focus with the
- * rows, and the case in the deleted one's place takes the focus.
- */
 describe('deleting a case', () => {
   const OTHER: RuleTest = { ...CASE, id: 't2', name: 'Perfect Blue stays anime' };
 

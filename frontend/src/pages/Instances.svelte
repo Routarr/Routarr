@@ -338,7 +338,9 @@
     try {
       const all = await api.syncAll({ signal: leaving.signal });
       // One line per failure: an error is free text, commas included.
-      const failed = all.filter((r) => r.error).map((r) => `${r.instance_name}: ${r.error}`);
+      const failed = all
+        .filter((r) => r.error)
+        .map((r) => t('FilterTerm', { label: r.instance_name, value: r.error ?? '' }));
       const message = t('SyncAllResult', { count: all.length - failed.length });
       if (failed.length === 0) outcome.succeed(message);
       else if (failed.length === all.length) outcome.fail(message, failed);
@@ -719,8 +721,8 @@
                 form.instance_type = event.currentTarget.value as 'radarr' | 'sonarr';
               }}
             >
-              <option value="radarr">Radarr ({t('Movies')})</option>
-              <option value="sonarr">Sonarr ({t('Series')})</option>
+              <option value="radarr">{t('WithNote', { text: 'Radarr', note: t('Movies') })}</option>
+              <option value="sonarr">{t('WithNote', { text: 'Sonarr', note: t('Series') })}</option>
             </select>
           </div>
           <div class="form-group flex-fit">
@@ -831,9 +833,11 @@
               aria-describedby="instances-webhook-path-help"
             />
             <p id="instances-webhook-path-help" class="text-muted text-sm mt-1">
-              {t('WebhookUrlHelp', { service: SERVICE[form.instance_type] })}
-              {t('WebhookTriggers', {
-                triggers: editing.webhook.webhook_triggers.join(t('ListSeparator')),
+              {t('SideBySide', {
+                first: t('WebhookUrlHelp', { service: SERVICE[form.instance_type] }),
+                second: t('WebhookTriggers', {
+                  triggers: editing.webhook.webhook_triggers.join(t('ListSeparator')),
+                }),
               })}
             </p>
           </div>

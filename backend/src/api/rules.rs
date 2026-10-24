@@ -128,10 +128,10 @@ pub async fn duplicate(
 /// A copy's name in the reader's words, its source's name cut short enough
 /// for the whole to stay a name a rule may carry.
 fn copy_name(localizer: &crate::localization::Localizer, name: &str) -> String {
-    let suffix = localizer.translate("RuleCopyName", &[("name", "")]).chars().count();
+    let suffix = localizer.stored("RuleCopyName", &[("name", "")]).chars().count();
     let kept: String =
         name.chars().take(rule_engine::MAX_NAME_LENGTH.saturating_sub(suffix)).collect();
-    localizer.translate("RuleCopyName", &[("name", kept.trim_end())])
+    localizer.stored("RuleCopyName", &[("name", kept.trim_end())])
 }
 
 pub async fn reorder(
@@ -522,7 +522,7 @@ pub async fn import(
         ));
     }
 
-    let description = localizer.translate("RuleImportCategoryCreated", &[]);
+    let description = localizer.stored("RuleImportCategoryCreated", &[]);
     let mut tx = crate::db::write_transaction(&state.pool).await?;
 
     for name in &created {

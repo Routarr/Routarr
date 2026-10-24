@@ -7,6 +7,7 @@
   import type { AnimeIdsLoaded } from '../api/types';
   import { formatCount, formatRelative } from '../api/format';
   import { access } from '../lib/access.svelte';
+  import { handFocus } from '../lib/focus';
   import { createAsync } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { Download } from '../lib/icons';
@@ -20,7 +21,13 @@
   const outcome = createOutcome();
   let loading = $state(false);
 
+  /** Stops following, not the load, which runs on whatever the card does. */
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+  const following = { signal: leaving.signal };
+
   async function load(how: () => Promise<AnimeIdsLoaded>) {
+    const pressed = document.activeElement as HTMLElement | null;
     loading = true;
     try {
       const loaded = await how();
@@ -31,10 +38,13 @@
         }),
       );
     } catch (err) {
-      outcome.fail(err);
+      if (!leaving.signal.aborted) outcome.fail(err);
     } finally {
       loading = false;
-      await table.reload();
+      if (!leaving.signal.aborted) {
+        await table.reload();
+        void handFocus(pressed);
+      }
     }
   }
 </script>
@@ -68,7 +78,7 @@
         type="button"
         class="btn btn-secondary"
         disabled={loading}
-        onclick={() => void load(() => api.downloadAnimeIds())}
+        onclick={() => void load(() => api.downloadAnimeIds(following))}
       >
         <Download size={16} />
         {t('AnimeIdsDownload')}
@@ -76,7 +86,7 @@
       <FileButton
         label={t('AnimeIdsImport')}
         accept="application/json,.json"
-        onFile={(file) => void load(() => api.importAnimeIds(file))}
+        onFile={(file) => void load(() => api.importAnimeIds(file, following))}
       />
     </div>
     <p class="text-muted text-sm mt-1">

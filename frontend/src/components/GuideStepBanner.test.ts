@@ -27,7 +27,6 @@ describe('GuideStepBanner', () => {
     expect(screen.queryByRole('link', { name: 'Back to the guide' })).toBeNull();
   });
 
-  /** The moment a step ticks is the moment the reader asks what comes next. */
   it('offers the next step on the screen of a step just done', () => {
     publishOnboarding(onboardingStatus(['instance']));
     renderWithI18n(GuideStepBanner, { props: { step: 'instance' } });
@@ -37,7 +36,6 @@ describe('GuideStepBanner', () => {
     ).toBeTruthy();
     const next = screen.getByRole('link', { name: 'Open categories and folders' });
     expect(next.getAttribute('href')).toBe('/categories');
-    // A banner's action, secondary: the screen keeps its one primary button.
     expect(next.classList.contains('btn-secondary')).toBe(true);
     expect(screen.getByRole('link', { name: 'Back to the guide' })).toBeTruthy();
   });
@@ -51,7 +49,6 @@ describe('GuideStepBanner', () => {
     expect(screen.getByRole('link', { name: 'Back to the guide' })).toBeTruthy();
   });
 
-  /** An optional step is offered in its turn, with a way past it. */
   it('offers an optional step next, and a way past it', () => {
     publishOnboarding(onboardingStatus(['instance', 'categories']));
     renderWithI18n(GuideStepBanner, { props: { step: 'categories' } });
@@ -105,10 +102,6 @@ describe('GuideStepBanner', () => {
     expect(screen.queryByRole('link', { name: 'Back to the guide' })).toBeNull();
   });
 
-  /**
-   * A live region announces nothing when it arrives with its text, so the sentence goes into
-   * the region the banner already held.
-   */
   it('says a step turning done in the region its banner already held', () => {
     publishOnboarding(onboardingStatus());
     renderWithI18n(GuideStepBanner, { props: { step: 'instance' } });

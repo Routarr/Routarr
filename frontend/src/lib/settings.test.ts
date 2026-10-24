@@ -3,9 +3,8 @@ import { FIELDS, SECTIONS } from './settings';
 import { readBackend } from '../test/backend';
 
 /**
- * The tab strip is the only way to reach a setting, and the payload is built
- * from *all* of `FIELDS`, so a field in no section would be unreachable and
- * saved with its fallback, silently, on every save anyone ever made.
+ * The payload is built from all of `FIELDS`, so a field in no section would be saved with its
+ * fallback on every save, out of reach of the screen.
  */
 describe('the settings grouping', () => {
   it('covers every field exactly once', () => {
@@ -20,11 +19,7 @@ describe('the settings grouping', () => {
     expect(new Set(grouped).size).toBe(grouped.length);
   });
 
-  /**
-   * `global_dry_run` and `auto_apply_enabled` are the pair that arms unattended
-   * writing, and they live in different sections. That is what makes the save
-   * bar's "every section is saved together" load-bearing rather than decorative.
-   */
+  /** Together they arm unattended writing, so the save bar saves every section at once. */
   it('keeps the two switches that arm unattended writing in different sections', () => {
     const sectionOf = (key: string) =>
       SECTIONS.find((section) => (section.keys as readonly string[]).includes(key))?.id;
@@ -120,10 +115,8 @@ function backendDefaults(): Map<string, string> {
 }
 
 /**
- * A field shows the backend's own default while nothing is stored, since a
- * setting never saved is left out of `GET /settings`. Written twice, the two
- * copies would part the day one of them changed, and the screen would show a
- * value the server does not apply.
+ * A setting never saved is left out of `GET /settings`, so its field shows the fallback, which
+ * has to be the default the server applies.
  */
 describe('each fallback', () => {
   it("is the backend's default", () => {

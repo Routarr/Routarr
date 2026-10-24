@@ -6,11 +6,6 @@ import { navigate } from '../lib/router.svelte';
 import { withBase } from '../test/base';
 import NotFound from './NotFound.svelte';
 
-/**
- * The screen a typed address or an old bookmark lands on. Its whole job is to
- * say where you are, which the dashboard shown in its place would not.
- */
-
 afterEach(() => withBase(null));
 
 describe('NotFound', () => {
@@ -24,10 +19,6 @@ describe('NotFound', () => {
     expect(screen.getByText('Routarr serves nothing at /typo.')).toBeInTheDocument();
   });
 
-  /**
-   * A real anchor, so middle-click and the status bar work and the delegated
-   * listener in the router intercepts it like every other internal link.
-   */
   it('offers a way out that is a link', () => {
     renderWithI18n(NotFound);
 

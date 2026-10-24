@@ -3,15 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { renderWithI18n } from '../test/render';
 import Confidence from './Confidence.svelte';
 
-/**
- * The figure is beside the meter, never on it.
- *
- * Centred over the bar, the value would sit on the fill on one side of itself
- * and on the track on the other, and its contrast would change with the value.
- * Outside, the background is the card, whose contrast the palette test
- * measures, so these assertions are about *where* the number is, which is what
- * makes that measurement true.
- */
 const show = (value: number, meter = false) =>
   renderWithI18n(Confidence, { props: { value, meter } });
 
@@ -27,12 +18,6 @@ describe('Confidence', () => {
     expect(value?.contains(track as Node)).toBe(false);
   });
 
-  /**
-   * A ramp, not bands. `confidence_for` scales differently per match mode (an
-   * `all` rule with one condition is 60%, an `any` rule with two is 53%), so no
-   * percentage threshold can order them, and a band would paint an ordinary
-   * rule as a warning.
-   */
   it('places each value on a continuous ramp rather than in a band', () => {
     const mix = (value: number) =>
       Number(
@@ -57,7 +42,6 @@ describe('Confidence', () => {
     expect(mix(0.1)).toBe(0);
   });
 
-  /** Nothing agreed. The bar is empty, so it cannot say it and the figure does. */
   it('flags the one value an empty bar cannot show', () => {
     expect(show(0).container.querySelector('.confidence-value')?.className).toContain('is-none');
     expect(show(0.45).container.querySelector('.confidence-value')?.className).not.toContain(
@@ -65,7 +49,6 @@ describe('Confidence', () => {
     );
   });
 
-  /** The mark repeats the figure in a form a screen reader has no use for. */
   it('leaves the mark out of the accessibility tree', () => {
     expect(show(0.7).container.querySelector('.confidence-dot')?.getAttribute('aria-hidden')).toBe(
       'true',
@@ -75,7 +58,6 @@ describe('Confidence', () => {
     ).toBe('true');
   });
 
-  /** The guide's bar: the length is the value, in one colour for every value. */
   it('draws the meter as a length alone', () => {
     const fill = show(0.7, true).container.querySelector('.confidence-fill') as HTMLElement;
 
@@ -83,11 +65,6 @@ describe('Confidence', () => {
     expect(fill.style.getPropertyValue('--mix')).toBe('');
   });
 
-  /**
-   * The meter is for the explanation panel, where it has room to be read in.
-   * A table column leaves it a stub after the figure that measures nothing, so
-   * there the same ramp is carried by a dot instead.
-   */
   it('carries a meter only where there is room to read one', () => {
     const table = show(0.7).container;
     expect(table.querySelector('.confidence-track')).toBeNull();

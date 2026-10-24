@@ -395,6 +395,24 @@ describe('expiresWithinAWeek', () => {
     expect(expiresWithinAWeek('2026-10-19T11:59:59Z', now)).toBe(false);
     expect(expiresWithinAWeek(null, now)).toBe(false);
   });
+
+  /** Read without its zone, a stored stamp would be the browser's local time. */
+  it('reads a stamp without a zone as UTC, wherever the browser is', () => {
+    const zone = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    onTestFinished(() => {
+      process.env.TZ = zone;
+    });
+    expect(expiresWithinAWeek('2026-10-26 12:00:00', now)).toBe(true);
+    expect(expiresWithinAWeek('2026-10-26 12:00:01', now)).toBe(false);
+    expect(idleFor90Days(null, '2026-07-21 12:00:00', now)).toBe(true);
+    expect(idleFor90Days(null, '2026-07-21 12:00:01', now)).toBe(false);
+  });
+
+  it('shows no badge for a stamp it cannot read', () => {
+    expect(expiresWithinAWeek('soon', now)).toBe(false);
+    expect(idleFor90Days('never', '2026-01-01T00:00:00Z', now)).toBe(false);
+  });
 });
 
 describe('idleFor90Days', () => {

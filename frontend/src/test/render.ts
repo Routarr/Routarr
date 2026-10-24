@@ -11,17 +11,9 @@ export const ENGLISH: Readonly<Record<string, string>> = JSON.parse(
 ) as Record<string, string>;
 
 /**
- * Render with the dictionary the server would serve.
- *
- * The dictionary is a module-level rune, so seeding is a call rather than a
- * wrapper around every component under test, but it has to happen *before* the
- * component renders, since `t()` is read synchronously during the first pass.
- *
- * Every key of `backend/locales/en.json` is seeded, so a test asserts the
- * English a reader sees, and a placeholder a screen stops filling shows as
- * `{name}`. The `strings` are merged over it, as the server merges a language
- * over English: the sentences of another `language`, or a word or a sign no
- * English text holds, where a test has to tell which text a screen drew.
+ * Render with the dictionary the server would serve, seeded before the first pass since `t()`
+ * reads it then. Every key of `backend/locales/en.json` is seeded, and `strings` merge over
+ * it, as the server merges a language over English.
  */
 export function renderWithI18n(
   component: Parameters<Render>[0],

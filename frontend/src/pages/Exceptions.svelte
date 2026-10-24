@@ -321,7 +321,7 @@
 
         <div class="form-group">
           <label class="form-label" for="overrides-reason">
-            {t('Reason')} ({t('Optional')})
+            {t('WithNote', { text: t('Reason'), note: t('Optional') })}
           </label>
           <input
             id="overrides-reason"

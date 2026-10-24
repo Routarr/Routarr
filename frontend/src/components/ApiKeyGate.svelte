@@ -6,38 +6,20 @@
   import ErrorBanner from './ErrorBanner.svelte';
 
   /**
-   * Shown instead of the application when the server demands a key this browser
-   * has not got.
-   *
-   * Routarr generates an API key at first start, so this is the *normal* first
-   * visit, not an error state. Mounting the pages behind it instead reads as a
-   * broken install: a failing request per page, every page empty, and a small
-   * "Unauthorized" badge whose remedy (open Settings, paste the key) the user
-   * would have to already know.
-   *
-   * It says where the key is, because "enter your API key" is useless to someone
-   * who has never seen one. The file, not the log: the log line is printed once
-   * and goes with the container the first time an image update recreates it,
-   * while the file is on the volume.
-   *
-   * The key is sent once and exchanged for a session cookie the page's scripts
-   * cannot read: kept in the browser's storage instead, any script that ever
-   * ran on the page could take a key that opens everything.
+   * Shown in place of the application when the server wants a key this browser lacks, the
+   * ordinary first visit. It names the key's file, which is on the volume, where the log line
+   * goes with the container. The key is traded once for a session cookie no script can read.
    */
   let key = $state('');
   let error = $state<string | null>(null);
   let busy = $state(false);
 
-  // The container name the README and docker-compose.yml give it, and the data
-  // directory the image sets. `scripts/smoke-image.sh` reads this line and runs
-  // it against the built image, so an instruction that stopped working fails
-  // the image build rather than a first visit.
+  // The container name of the README and docker-compose.yml, and the image's data directory.
+  // `scripts/smoke-image.sh` runs this line against the built image.
   const READ_KEY_COMMAND = 'docker exec routarr cat /config/routarr.api_key';
 
-  // The theme is a server setting, and the server will not answer until there
-  // is a key, so this one screen follows the operating system instead. It is
-  // the only honest option: guessing dark would look wrong on a light desktop,
-  // and the preference this reads is the user's own.
+  // The theme is a server setting the server tells nobody without a key, so this screen
+  // follows the system's.
   $effect(() => {
     delete document.documentElement.dataset.theme;
   });

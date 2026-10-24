@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -16,6 +16,8 @@ import { ENGLISH } from '../test/render';
 
 const SRC = path.resolve(__dirname, '..');
 const english = ENGLISH;
+
+afterEach(() => vi.restoreAllMocks());
 
 /** Every `.svelte` file of the interface, as text. */
 function sources(): string[] {
@@ -131,6 +133,24 @@ describe('searchHelp', () => {
   it('answers nothing to an empty query', () => {
     expect(searchHelp('   ', translate)).toEqual([]);
   });
+
+  /** A browser set to Turkish lowers `I` to a dotless `ı` in its locale's own case mapping. */
+  it('folds case the same way whatever the browser locale', () => {
+    vi.spyOn(String.prototype, 'toLocaleLowerCase').mockImplementation(function (this: string) {
+      return this.replace(/I/g, 'ı').toLowerCase();
+    });
+    const said = { [TERMS[Object.keys(TERMS)[0]!]!.name]: 'Iguana' };
+    const hits = searchHelp('iguana', (key) => said[key] ?? key);
+    expect(hits.map((hit) => hit.title)).toContain('Iguana');
+  });
+
+  it('finds a Turkish word typed with or without its dotless i', () => {
+    const said = { [TERMS[Object.keys(TERMS)[0]!]!.name]: 'Işık' };
+    for (const query of ['ışık', 'isik', 'IŞIK']) {
+      const hits = searchHelp(query, (key) => said[key] ?? key);
+      expect(hits.map((hit) => hit.title)).toContain('Işık');
+    }
+  });
 });
 
 describe('glossary', () => {
@@ -145,5 +165,23 @@ describe('glossary', () => {
       expect(entry.screens.length).toBeGreaterThan(0);
       expect(entry.screens.every((screen) => HELP[screen]!.terms.includes(entry.id))).toBe(true);
     }
+  });
+
+  it.each(['nb_NO', 'zh_CN', 'zh_TW'])(
+    'lists every term in %s, whose code Intl reads only with a hyphen',
+    (language) => {
+      expect(glossary((key) => key, language)).toHaveLength(Object.keys(TERMS).length);
+    },
+  );
+
+  it('sorts in the collation of the language its code names', () => {
+    const [first, second] = Object.values(TERMS);
+    const said: Record<string, string> = { [first!.name]: 'Ål', [second!.name]: 'Zebra' };
+    const names = glossary((key) => said[key] ?? key, 'nb_NO').map((entry) => entry.name);
+    expect(names.slice(-2)).toEqual(['Zebra', 'Ål']);
+  });
+
+  it('sorts in the default collation for a code Intl refuses', () => {
+    expect(glossary((key) => key, 'not a language')).toHaveLength(Object.keys(TERMS).length);
   });
 });

@@ -6,16 +6,13 @@ import { router } from './router.svelte';
 import { t } from './i18n.svelte';
 
 /**
- * The proof a session gives before it makes or withdraws a key: the current
- * password in `forms`, the API key in `apikey`. An OpenID Connect session
- * proves nothing here, the server asking the provider instead when the sign-in
- * is too old (`reauthentication_required`).
- *
- * One dialog, mounted once by `Layout`, as the confirmation is.
+ * The proof a session gives before it makes or withdraws a key: the password in `forms`, the
+ * API key in `apikey`. An OpenID Connect session proves nothing here, the server asking the
+ * provider when the sign-in is too old. One dialog, mounted once by `Layout`.
  */
 
 /** What the dialog asks for. */
-export type Asked = 'password' | 'key' | 'passphrase';
+type Asked = 'password' | 'key' | 'passphrase';
 
 /** What the proof is for, which the dialog's help says: a key to make or withdraw, or an archive. */
 export type Purpose = 'key' | 'archive';
@@ -58,7 +55,9 @@ export function askPassphrase(note?: string): Promise<string | null> {
   return ask('passphrase', note);
 }
 
-/** Where the provider signs the person in again and sends them back here. */
+/**
+ * Where the provider signs the person in again and sends them back here. Exported for the tests.
+ */
 export function signInAgainUrl(screen: string): string {
   return `${basePath()}/api/v1/auth/oidc/start?max_age=0&return=${encodeURIComponent(screen)}`;
 }

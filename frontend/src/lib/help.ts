@@ -1,15 +1,12 @@
+import { bcp47 } from '../api/format';
 import { CARD_HELP, HELP, TERMS } from './help-content';
 import { SCREENS, screenKey } from './routes';
 
 export { CARD_HELP, HELP, TERMS };
 
 /**
- * The help Routarr gives about itself: for each screen, what it is for, the
- * terms it uses and the problems met there with their fix, a few sentences
- * for each card, and the glossary every term belongs to. Every value is a
- * dictionary key, so the help is in the reader's language and needs no
- * network. `help-content.ts` holds the entries, and `help.test.ts` refuses a
- * screen, a card or a term left without one.
+ * The help Routarr gives about itself, every value a dictionary key: per screen its purpose,
+ * terms, problems and cards, and the glossary. `help-content.ts` holds the entries.
  */
 export interface Problem {
   problem: string;
@@ -46,12 +43,15 @@ export function helpScreen(path: string): string {
   return SCREENS.includes(path) ? path : '/';
 }
 
-/** Lower case, with the marks a reader may leave out removed: "écran" is found by "ecran". */
-function folded(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
+/**
+ * Lower case whatever the browser's locale, with the marks a reader may leave out removed:
+ * "écran" is found by "ecran", and Turkish "ışık" by "isik".
+ */
+export function folded(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replaceAll('ı', 'i');
 }
 
-export interface Hit {
+interface Hit {
   screen: string;
   kind: 'purpose' | 'term' | 'problem' | 'card';
   /** What the hit is about: the screen, the term, the symptom or the card's title. */
@@ -108,7 +108,7 @@ export function searchHelp(query: string, translate: (key: string) => string): H
   return [...titled, ...texted];
 }
 
-export interface GlossaryEntry {
+interface GlossaryEntry {
   id: string;
   name: string;
   text: string;
@@ -116,9 +116,17 @@ export interface GlossaryEntry {
   screens: string[];
 }
 
+function collatorFor(language: string): Intl.Collator {
+  try {
+    return new Intl.Collator(bcp47(language), { sensitivity: 'base' });
+  } catch {
+    return new Intl.Collator(undefined, { sensitivity: 'base' });
+  }
+}
+
 /** Every term, in the reader's alphabetical order, with the screens that use it. */
 export function glossary(translate: (key: string) => string, language: string): GlossaryEntry[] {
-  const collator = new Intl.Collator(language, { sensitivity: 'base' });
+  const collator = collatorFor(language);
   return Object.entries(TERMS)
     .map(([id, term]) => ({
       id,

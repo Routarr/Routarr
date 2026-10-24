@@ -10,13 +10,6 @@ import Tasks from './Tasks.svelte';
 import { publishAccess } from '../lib/access.svelte';
 import { answerConfirmation } from '../test/confirm';
 
-/**
- * Tasks is the window onto the only code that writes without anyone asking.
- * What it must get right is small: it refreshes while work is in flight and
- * stops when it is not, and it names a job by what it did rather than by the
- * identifier the database stores.
- */
-
 const show = () => renderWithI18n(Tasks);
 
 afterEach(() => {
@@ -25,7 +18,6 @@ afterEach(() => {
 });
 
 describe('Tasks', () => {
-  /** A running apply can be stopped from here, after a question, and nothing else can. */
   it('stops a running apply once asked, and reads a stopped task as stopped', async () => {
     vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([
@@ -49,7 +41,6 @@ describe('Tasks', () => {
     ).toBeTruthy();
   });
 
-  /** A kind of two words reads its own label, not its raw name. */
   it('names a task whose kind has two words', async () => {
     vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job({ kind: 'sync_all' })]));
     show();
@@ -57,7 +48,6 @@ describe('Tasks', () => {
     expect(await screen.findByText('Sync of every instance')).toBeTruthy();
   });
 
-  /** Fifty tasks are half a day of syncs, and last night's failure sits on a later page. */
   it('reaches the tasks past the first page, and goes back to it on a filter', async () => {
     const getTasks = vi
       .spyOn(api, 'getTasks')
@@ -85,7 +75,6 @@ describe('Tasks', () => {
     expect(within(row).getByText('Success')).toBeTruthy();
   });
 
-  /** An application's key names it, and the task says which one asked. */
   it('names the application that started a task beside its trigger', async () => {
     vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([job({ trigger: 'api', subject: 'n8n' })]),
@@ -97,7 +86,6 @@ describe('Tasks', () => {
     expect(within(row).getByText('n8n')).toBeTruthy();
   });
 
-  /** Every move of an apply refused is a failure the task counts itself. */
   it('marks the detail of a task that failed on its own count as a failure', async () => {
     vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([
@@ -126,11 +114,6 @@ describe('Tasks', () => {
     expect(screen.queryByText('Auto-refreshing')).toBeNull();
   });
 
-  /**
-   * Fast while a task runs, slow once nothing does: the scheduler starts a
-   * sync on its own, and a screen read only while something already ran would
-   * never show it.
-   */
   it('polls fast while a task runs, then at an idle pace', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const getTasks = vi

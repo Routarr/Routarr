@@ -11,6 +11,7 @@ from _scripts import SCRIPTS
 
 FILES = [
     "backend/src/main.rs",
+    "backend/src/api/auth.rs",
     "backend/locales/en.json",
     "backend/rust-toolchain.toml",
     "frontend/src/App.svelte",
@@ -61,6 +62,9 @@ class ChangedAreas(unittest.TestCase):
 
     def test_the_route_table_wakes_the_frontend_whose_tests_read_it(self):
         self.assertEqual(self.woken("backend/src/main.rs"), ["backend", "frontend", "image"])
+
+    def test_a_bound_the_frontend_repeats_wakes_the_frontend_whose_tests_read_it(self):
+        self.assertEqual(self.woken("backend/src/api/auth.rs"), ["backend", "frontend", "image"])
 
     def test_the_english_dictionary_wakes_every_job_that_reads_it(self):
         self.assertEqual(

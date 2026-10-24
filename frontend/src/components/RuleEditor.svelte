@@ -50,23 +50,20 @@
     returnFocus?: string;
   } = $props();
 
-  // Fetched here, once for both condition lists, and only when the parent hands none over:
-  // `Rules` holds them already, and asking again aggregates the whole library a second time.
-  // svelte-ignore state_referenced_locally
-  let facets = $state<LibraryFacets | null>(knownFacets);
-  // svelte-ignore state_referenced_locally
-  let facetsLoading = $state(knownFacets === null);
+  // Once for both lists, and only if `Rules` holds none: each read aggregates the whole library.
+  let fetched = $state<LibraryFacets | null>(null);
   let facetsError = $state<string | null>(null);
+  const facets = $derived(knownFacets ?? fetched);
+  const facetsLoading = $derived(facets === null && facetsError === null);
   $effect(() => {
     if (knownFacets !== null) return;
     const closing = new AbortController();
     api
       .getLibraryFacets(closing.signal)
-      .then((loaded) => (facets = loaded))
+      .then((loaded) => (fetched = loaded))
       .catch((cause) => {
         if (!closing.signal.aborted) facetsError = describeError(cause);
-      })
-      .finally(() => (facetsLoading = false));
+      });
     return () => closing.abort();
   });
 
@@ -296,7 +293,7 @@
 
     <div class="form-group">
       <label class="form-label" for="rules-description">
-        {t('Description')} ({t('Optional')})
+        {t('WithNote', { text: t('Description'), note: t('Optional') })}
       </label>
       <input
         id="rules-description"
@@ -321,9 +318,9 @@
         >
           {#each categories as category (category.id)}
             <option value={category.name}>
-              {category.name}{category.root_folder_count === 0
-                ? ` ${t('NoRootFolderMappedSuffix')}`
-                : ''}
+              {category.root_folder_count === 0
+                ? t('SideBySide', { first: category.name, second: t('NoRootFolderMappedSuffix') })
+                : category.name}
             </option>
           {/each}
         </select>

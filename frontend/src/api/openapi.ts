@@ -1,10 +1,6 @@
 /**
- * Reading the API contract, `/api/v1/openapi.json`, for the reference screen.
- *
- * The document is generated from the backend's own types, so the screen reads
- * it rather than restating it: a route added to the contract appears here
- * with no change to the interface. Types are written in a notation every
- * language reads the same way (`Decision[]`, `string | null`).
+ * Reading the API contract, `/api/v1/openapi.json`, for the reference screen: a route the
+ * contract adds appears there with no change here.
  */
 
 export interface OpenApiSchema {
@@ -68,7 +64,7 @@ export interface Operation {
   description: string;
   /** `read`, `operate` or `write`, `null` for the one operation needing no key. */
   scope: string | null;
-  /** An old path still answered, documented again under the one that replaced it. */
+  /** A deprecated path, documented again under the one that replaces it. */
   deprecated: boolean;
   parameters: OpenApiParameter[];
   body: OpenApiSchema | null;
@@ -134,8 +130,8 @@ export function byTag(doc: OpenApiDocument): Group[] {
     .filter((group) => group.operations.length > 0);
 }
 
-/** An old path beside the one that replaced it, for one method. */
-export interface Renamed {
+/** A deprecated path beside the one that replaces it, for one method. */
+interface Renamed {
   method: string;
   old: string;
   current: string;
@@ -164,7 +160,7 @@ function refName(schema: OpenApiSchema): string | null {
  * The schema a reference points at, the schema itself otherwise. Exported for
  * the tests, which read the backend's own contract through it.
  */
-export function resolve(schema: OpenApiSchema, doc: OpenApiDocument): OpenApiSchema {
+function resolve(schema: OpenApiSchema, doc: OpenApiDocument): OpenApiSchema {
   const name = refName(schema);
   return name ? (doc.components?.schemas?.[name] ?? {}) : schema;
 }

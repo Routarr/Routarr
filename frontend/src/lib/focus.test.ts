@@ -23,6 +23,15 @@ describe('handFocus', () => {
     expect(document.activeElement).toBe(next);
   });
 
+  /** Safari focuses no button it clicks, so what a handler reads as pressed may be the page. */
+  it('passes over the page itself, as no place to land', async () => {
+    const next = button('next');
+
+    await handFocus(document.body, next);
+
+    expect(document.activeElement).toBe(next);
+  });
+
   /** A browser drops the focus of a control that turns disabled, but jsdom may keep it. */
   it('takes the focus back from a control left disabled', async () => {
     const pressed = button('pressed');
@@ -47,7 +56,6 @@ describe('focusHeadingOf', () => {
     expect(document.activeElement?.textContent).toBe('Rules');
   });
 
-  /** A screen renders once its chunk loads, after the navigation. */
   it('waits for a heading that renders later', async () => {
     const container = document.createElement('div');
     document.body.append(container);

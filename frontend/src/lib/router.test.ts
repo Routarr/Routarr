@@ -4,12 +4,6 @@ import { guardLeaving, href, interceptLinks, isCurrent, navigate, router } from 
 import { withBase } from '../test/base';
 import { click } from '../test/links';
 
-/**
- * Flat routes, written rather than installed, because the mount point is
- * discovered at runtime from the `<base href>` the backend injects, and every
- * SPA router worth taking wants its base at build time.
- */
-
 beforeEach(() => {
   withBase(null);
   window.history.replaceState({}, '', '/');
@@ -56,11 +50,6 @@ describe('navigation', () => {
     expect(router.path).toBe('/rules');
   });
 
-  /**
-   * A sub-path is the case that only ever breaks behind a reverse proxy, where
-   * it is hardest to diagnose. The router has to strip it, or every route
-   * misses and the dashboard is shown for everything.
-   */
   it('strips the mount point a reverse proxy adds', () => {
     withBase('/routarr/');
     navigate('/rules');
@@ -76,10 +65,6 @@ describe('navigation', () => {
     expect(router.path).toBe('/');
   });
 
-  /**
-   * A bookmark or a proxy may add a slash: `/rules/` is the Rules screen, not
-   * a page that is not found under a menu marking Rules current.
-   */
   it('takes a path with a trailing slash for the screen without it', () => {
     const stop = interceptLinks();
     try {
@@ -122,12 +107,6 @@ describe('navigation', () => {
 });
 
 describe('the href of a route', () => {
-  /**
-   * A `<base href>` applies to relative URLs only, and every anchor here is
-   * root-absolute. Without the mount point, every way of following a link (a
-   * click, middle-click, ctrl-click, the status bar, copy link) reaches the
-   * proxy's root and a 404.
-   */
   it('carries the mount point, so every affordance of a link lands here', () => {
     withBase('/routarr/');
     expect(href('/rules')).toBe('/routarr/rules');
@@ -171,11 +150,6 @@ describe('intercepting links', () => {
     onTestFinished(interceptLinks());
   }
 
-  /**
-   * One delegated listener rather than a `<Link>` component: the markup stays a
-   * plain `<a href>`, which is what makes middle-click open a tab and a screen
-   * reader announce a link with a destination.
-   */
   it('follows an internal link without leaving the document', () => {
     listening();
 
@@ -200,11 +174,6 @@ describe('intercepting links', () => {
     expect(click(link('/radarr/'))).toBe(false);
   });
 
-  /**
-   * No screen lives under `/api`: a link there is the server's to answer. The
-   * sign-in with an identity provider is one, and, taken by the router, it
-   * changes the address and leaves the screen where it was.
-   */
   it.each([
     ['without a mount point', null, '/api/v1/auth/oidc/start'],
     ['under a mount point', '/routarr/', '/routarr/api/v1/auth/oidc/start'],
@@ -263,10 +232,6 @@ describe('intercepting links', () => {
   });
 });
 
-/**
- * A screen holding unsaved work is asked before it goes: by a link, by a
- * screen's own navigation, by Back. A move within the screen asks nothing.
- */
 describe('a screen that guards its work', () => {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 

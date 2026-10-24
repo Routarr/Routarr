@@ -16,12 +16,7 @@ const withProviders = (list: Health['metadata']['providers']) =>
 
 afterEach(() => vi.restoreAllMocks());
 
-/**
- * Diagnostics is where a homelab operator finds out why nothing is moving. It
- * has one job: report what is wrong without inventing a verdict of its own.
- */
 describe('Diagnostics', () => {
-  /** A re-check waits out every Arr that does not answer, and says it is running. */
   it('says the re-check is running until it ends', async () => {
     vi.spyOn(api, 'getHealth')
       .mockResolvedValueOnce(health())
@@ -35,7 +30,6 @@ describe('Diagnostics', () => {
     expect(recheck).toHaveAttribute('aria-busy', 'true');
   });
 
-  /** Opening the screen reads a probe of the last moments again, a recheck asks anew. */
   it('asks for a fresh probe on a recheck alone', async () => {
     const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();
@@ -56,12 +50,6 @@ describe('Diagnostics', () => {
     expect(await screen.findByText('Everything checks out.')).toBeTruthy();
   });
 
-  /**
-   * A probe records what it found, and the shell counts that among its
-   * warnings. Unannounced, the badge leaves out an unreachable Arr this screen
-   * lists, until the next poll a minute later. A probe moves no step of the guide, so the
-   * guide's own answer, often still on its way as the screen opens, is left alone.
-   */
   it('has the shell count again what a probe found, and leaves the guide alone', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     const [warnings, guide] = [warningsRevision(), statusRevision()];
@@ -72,7 +60,6 @@ describe('Diagnostics', () => {
     expect(statusRevision()).toBe(guide);
   });
 
-  /** One banner, as the dashboard draws it: the count leads, the list follows. */
   it('lists every warning it was given in one banner, not a sample of them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ warnings: ['one', 'two', 'three', 'four', 'five'].map((each) => warning(each)) }),
@@ -87,10 +74,6 @@ describe('Diagnostics', () => {
     expect(screen.queryByText('Everything checks out.')).toBeNull();
   });
 
-  /**
-   * A source waiting for a key is not a broken source, and a source that failed
-   * its probe is not one waiting for a key. They must not read the same.
-   */
   it('tells a source waiting for a key apart from one that answered badly', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       withProviders([
@@ -250,7 +233,6 @@ describe('Diagnostics', () => {
 });
 
 describe('for a reader', () => {
-  /** The server answers a reader without a probe, so no answer from the Arr is on its way. */
   it('says an unprobed instance is unknown to a reader, and still being checked to the owner', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ instances: [healthInstance({ status: 'unchecked' })] }),

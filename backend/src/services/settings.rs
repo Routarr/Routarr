@@ -171,8 +171,8 @@ fn label(key: &str) -> &str {
 }
 
 /// The range a ranged key is converged into at startup, a `Retention` count answering no
-/// ceiling. Left out of range, one value would block every save of the Settings screen, which
-/// sends every field.
+/// ceiling. Left out of range, one value would refuse every save that sends it back, as a caller
+/// resending every value it read does.
 pub fn bounds(key: &str) -> Option<(i64, i64)> {
     KNOWN.iter().find(|(k, _, _)| *k == key).and_then(|(_, kind, _)| {
         let (min, max) = kind.range()?;

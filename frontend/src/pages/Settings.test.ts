@@ -8,7 +8,6 @@ import { SERVER_COUNTS } from '../test/counts';
 import { statusRevision } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
 import type { AuthMode, MetadataProviders } from '../api/types';
-import { FIELDS, SECTIONS } from '../lib/settings';
 import Settings from './Settings.svelte';
 import Sources from './Sources.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
@@ -112,12 +111,6 @@ const mountSources = (
   provider: ProviderOverride = {},
 ) => mount(settings, APIKEY_MODE, provider, Sources);
 
-/** The keys of the fields a screen edits. */
-const fieldsOf = (page: string) =>
-  SECTIONS.filter((section) => section.page === page).flatMap(
-    (section) => section.keys as readonly string[],
-  );
-
 /** Open a settings section, the way a user reaches it. */
 const openSection = async (name: string) =>
   fireEvent.click(await screen.findByRole('tab', { name }));
@@ -130,7 +123,6 @@ async function save(): Promise<Record<string, string>> {
     direction: 'ltr',
     strings: { ...ENGLISH },
     counts: [...SERVER_COUNTS],
-    isolated: [],
     theme: 'dark',
   });
   await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
@@ -196,20 +188,13 @@ describe('the save bar', () => {
     expect(screen.getByText('Every section is saved together')).toBeTruthy();
   });
 
-  it('sends every field of the screen, and none of the other screen', async () => {
+  /** A field sent unchanged would write back what this screen read, over a save made since. */
+  it('sends the fields changed, and only those', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
-    const payload = await save();
-    // Every field except the credentials, which are blank here and are left
-    // out rather than sent: see the metadata sources below for why.
-    const credentials = new Set(FIELDS.filter((f) => f.kind === 'secret').map((f) => f.key));
-    expect(Object.keys(payload).sort()).toEqual(
-      fieldsOf('settings')
-        .filter((key) => !credentials.has(key))
-        .sort(),
-    );
+    expect(await save()).toEqual({ global_dry_run: 'false' });
   });
 
   it('saves the sources alone, from a screen with no section strip', async () => {
@@ -220,12 +205,7 @@ describe('the save bar', () => {
     });
     expect(screen.queryByRole('tab')).toBeNull();
     expect(screen.queryByText('Every section is saved together')).toBeNull();
-    const credentials = new Set(FIELDS.filter((f) => f.kind === 'secret').map((f) => f.key));
-    expect(Object.keys(await save()).sort()).toEqual(
-      fieldsOf('sources')
-        .filter((key) => !credentials.has(key))
-        .sort(),
-    );
+    expect(await save()).toEqual({ metadata_cache_ttl_days: '14' });
   });
 
   it('tells the shell its counters are out of date', async () => {
@@ -328,7 +308,6 @@ describe('the save bar', () => {
       direction: 'ltr',
       strings: { ...ENGLISH },
       counts: [...SERVER_COUNTS],
-      isolated: [],
       theme: 'dark',
     });
     mount({ batch_limit: '50' });
@@ -409,16 +388,18 @@ describe('the metadata sources', () => {
     expect(payload.metadata_providers).toBe('');
   });
 
-  it('shows and saves the order the server resolved when none is stored', async () => {
+  /** Stored by a save of anything, the order would no longer follow the server's default. */
+  it('leaves the order the server resolved unstored when none is stored', async () => {
     mountSources({ metadata_cache_ttl_days: '30' }, { configured: true, order: ['tmdb', 'arr'] });
 
     await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
       target: { value: '14' },
     });
-    expect((await save()).metadata_providers).toBe('tmdb,arr');
+    expect(await save()).toEqual({ metadata_cache_ttl_days: '14' });
   });
 
-  it('reads a stored list without its repeated source, and saves it that way', async () => {
+  /** The server refuses a list that repeats a source, so sent back it would hold back the save. */
+  it('reads a stored list without its repeated source, and an unrelated save leaves it', async () => {
     mountSources(
       { metadata_cache_ttl_days: '30', metadata_providers: 'tmdb,arr,tmdb' },
       { configured: true, order: ['tmdb', 'arr'] },
@@ -428,7 +409,7 @@ describe('the metadata sources', () => {
     await fireEvent.input(screen.getByLabelText('Metadata cache TTL (days)'), {
       target: { value: '14' },
     });
-    expect((await save()).metadata_providers).toBe('tmdb,arr');
+    expect(await save()).toEqual({ metadata_cache_ttl_days: '14' });
   });
 
   it('separates what is active from what is switched off', async () => {
@@ -612,6 +593,20 @@ describe('housekeeping', () => {
 
     await waitFor(() => expect(purge).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
+  });
+
+  /** A purge of a long history runs long, and the screen gone has nobody to tell. */
+  it('stops following the purge once the screen is gone', async () => {
+    const purge = vi.spyOn(api, 'purge').mockReturnValue(new Promise(() => {}));
+    const { unmount } = mount({});
+    await openSection('Maintenance');
+    await fireEvent.click(await screen.findByRole('button', { name: /purge/i }));
+    await answerConfirmation();
+    await waitFor(() => expect(purge).toHaveBeenCalledTimes(1));
+
+    unmount();
+
+    expect(nthCall(purge)[0]?.signal?.aborted).toBe(true);
   });
 });
 
@@ -1052,11 +1047,20 @@ describe('the API key card', () => {
   it('removes the key once confirmed, with the proof sent', async () => {
     const remove = vi.spyOn(api, 'deleteApiKey').mockResolvedValue(undefined as never);
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+    vi.mocked(api.authMode).mockResolvedValue({
+      mode: 'forms',
+      api_key_configured: false,
+      api_key_pinned: false,
+    });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));
     await answerConfirmation();
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith({ current_key: 'the-key-proven' }));
+    // Its button goes with the key, and the one that makes a key takes the focus.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Create a key' })),
+    );
   });
 });
 
@@ -1192,9 +1196,7 @@ describe('a refused save', () => {
     await waitFor(() => expect(screen.queryByText('The settings could not be read')).toBeNull());
 
     expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('false');
-    const payload = await save();
-    expect(payload.global_dry_run).toBe('false');
-    expect(payload.batch_limit).toBe('25');
+    expect(await save()).toEqual({ global_dry_run: 'false' });
   });
 });
 

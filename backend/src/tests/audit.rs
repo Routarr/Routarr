@@ -319,6 +319,7 @@ async fn the_export_says_each_event_in_the_configured_language() {
     let request = Request::get("/api/v1/security-log/export").header("x-api-key", MASTER);
     let response = app.send_raw(request.body(Body::empty()).unwrap()).await;
     assert_eq!(response.status(), StatusCode::OK);
+    assert!(!response.headers().contains_key("x-routarr-truncated"));
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let csv = String::from_utf8(body.to_vec()).unwrap();
     let french = crate::localization::Localizer::new("fr").translate("AuditApiKeyRefused", &[]);
@@ -330,6 +331,27 @@ async fn the_export_says_each_event_in_the_configured_language() {
     assert!(csv.starts_with('\u{feff}'), "no byte order mark");
     let at = csv.lines().nth(1).and_then(|line| line.split(',').next()).unwrap_or_default();
     assert!(at.starts_with('"') && at.ends_with("Z\""), "{at}");
+}
+
+/// An export past its row cap says so, as the move log's does, rather than read as the whole log.
+#[tokio::test]
+async fn a_security_log_export_says_when_it_leaves_rows_out() {
+    let app = TestApp::new().await;
+    app.execute(&["INSERT INTO security_events (at, kind, outcome, subject, message)
+                   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 50001)
+                   SELECT datetime('2026-01-01', '+' || i || ' seconds'), 'api_key', 'refused',
+                          'guess-' || i, 'AuditApiKeyRefused'
+                     FROM n"])
+        .await;
+
+    let response = app.raw("/api/v1/security-log/export").await;
+    assert_eq!(response.headers()["x-routarr-truncated"], "true");
+    let csv = app.text("/api/v1/security-log/export").await;
+    assert_eq!(csv.lines().count(), 50_001, "the header and 50 000 rows");
+    assert!(!csv.contains("\"guess-1\""), "the oldest is the one left out");
+
+    let filtered = app.raw("/api/v1/security-log/export?search=guess-50001").await;
+    assert!(!filtered.headers().contains_key("x-routarr-truncated"));
 }
 
 /// The name shows the owner which application still runs on the expired key.

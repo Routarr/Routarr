@@ -1,21 +1,9 @@
 import { ApiError } from '../api/client';
 
 /**
- * The one confirmation dialog.
- *
- * `window.confirm()` costs three things here. Its buttons are browser chrome,
- * so they render in the *browser's* language however carefully the question is
- * translated, in an application whose language is a setting with a catalogue
- * per language behind it. It cannot be asserted on: jsdom's `confirm` asks
- * nothing and answers nothing, so a unit test can only assert against a
- * stand-in of its own making, and a Playwright journey needs a blanket
- * `page.on('dialog')` handler that accepts whatever is asked. And a browser told to suppress further dialogs returns
- * `false` without asking, which on the apply guardrail means the action
- * silently does not happen.
- *
- * A module-level rune rather than a context, for the reason the dictionary is
- * one: there is exactly one dialog, and every caller wants the same one.
- * `Layout` mounts the component once, and callers only await.
+ * The one confirmation dialog, in place of `window.confirm()`, whose buttons speak the browser's
+ * language, which no test can answer, and which a browser told to suppress dialogs answers
+ * `false` unasked. A module-level rune: `Layout` mounts the dialog once, and callers await.
  */
 
 /** One button. `label` is a dictionary key, not a rendered string. */
@@ -36,13 +24,8 @@ export const confirmation = {
 };
 
 /**
- * Ask, and resolve with the chosen value, or `null` for Cancel and Escape.
- *
- * Several choices are supported because some of these questions are not yes or
- * no. Squeezed into one, the rule import would ask "replace everything?" and
- * append on Cancel, so a user who presses Escape imports the file anyway with no
- * way to abort. `confirm()` cannot express three outcomes. This can, and Cancel
- * means cancel.
+ * Ask, and resolve with the chosen value, or `null` for Cancel and Escape. Several choices,
+ * since a question such as the rule import's has three outcomes and Cancel must mean cancel.
  */
 export function ask(message: string, choices: Choice[]): Promise<string | null> {
   // A second question while one is open would strand the first promise for
@@ -66,15 +49,10 @@ export function settle(value: string | null): void {
 }
 
 /**
- * Send a write, and ask the reader each question the backend raises, in the
- * backend's words followed by `after`, under a button reading `label`.
- *
- * Several guardrails can refuse the same write, and each asks under its own
- * name: a blanket yes would answer all of them at once, so confirming "there
- * is not enough room" would also lift the batch threshold without showing it.
- * The list grows by the names each question asked or stated in its text, so
- * nothing is lifted that was not read.
- * `null` is a question declined, and nothing was written.
+ * Send a write, and ask each question the backend raises, in its words followed by `after`,
+ * under a button reading `label`. Each guardrail is answered by name, never by a blanket yes,
+ * and the list grows only by what a question asked or stated. `null` is a question declined,
+ * and nothing was written.
  */
 export async function answering<T>(
   send: (answered: string[]) => Promise<T>,

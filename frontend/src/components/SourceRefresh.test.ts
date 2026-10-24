@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
+import { dropFocus } from '../test/focus';
+import { nthCall } from '../test/spy';
 import { ApiError, api } from '../api/client';
 import type { EnrichmentReport, MetadataProvider, MetadataProviders } from '../api/types';
 import SourceRefresh from './SourceRefresh.svelte';
@@ -43,10 +45,6 @@ function show(catalogue: MetadataProviders = CATALOGUE) {
 
 afterEach(() => vi.restoreAllMocks());
 
-/**
- * A source's answers read again on demand: offered for each source a pass
- * asks, and only those, since a pass reads the saved order and nothing else.
- */
 describe('SourceRefresh', () => {
   it('offers each source a pass asks, and no other', async () => {
     show();
@@ -65,7 +63,7 @@ describe('SourceRefresh', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Read again – TMDB' }));
 
     expect(await screen.findByText('TMDB: answers read again: 3, failed: 0')).toBeTruthy();
-    expect(asked).toHaveBeenCalledWith('tmdb');
+    expect(asked).toHaveBeenCalledWith('tmdb', expect.anything());
   });
 
   it('says what was read when part of it failed', async () => {
@@ -77,6 +75,32 @@ describe('SourceRefresh', () => {
     // A warning, not a success: part of what was asked was not done.
     const said = await screen.findByText('TMDB: answers read again: 2, failed: 1');
     expect(said.closest('.banner-warning')).toBeTruthy();
+  });
+
+  /** A pass over a whole library runs long, and the card gone has nobody to tell. */
+  it('stops following the pass once the card is gone', async () => {
+    const asked = vi.spyOn(api, 'refreshSource').mockReturnValue(new Promise(() => {}));
+    const { unmount } = show();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Read again – TMDB' }));
+
+    unmount();
+
+    expect(nthCall(asked)[1]?.signal?.aborted).toBe(true);
+  });
+
+  /** Every Read again turns disabled while a pass runs, the pressed one with them. */
+  it('hands the focus back to the pressed button once the pass ends', async () => {
+    let finish: (done: EnrichmentReport) => void = () => {};
+    vi.spyOn(api, 'refreshSource').mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    show();
+    const pressed = await screen.findByRole('button', { name: 'Read again – TMDB' });
+    pressed.focus();
+    await fireEvent.click(pressed);
+    dropFocus();
+
+    finish(report());
+
+    await waitFor(() => expect(document.activeElement).toBe(pressed));
   });
 
   it('announces a refresh that was refused', async () => {

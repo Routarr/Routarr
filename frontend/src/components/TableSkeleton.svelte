@@ -2,12 +2,8 @@
   import { t } from '../lib/i18n.svelte';
 
   /**
-   * Placeholder rows while a table loads.
-   *
-   * A spinner in the middle of an empty card says "wait", but not what is
-   * coming or how tall it will be, so the page jumps when the data lands.
-   * These hold the shape. `aria-hidden` because a screen reader is told the
-   * table is busy, not shown grey rectangles.
+   * Placeholder rows while a table loads, holding its shape so the page does not jump. Hidden
+   * from a screen reader, which is told the table is busy.
    */
   let { columns }: { columns: number } = $props();
 

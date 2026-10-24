@@ -3,6 +3,7 @@
   import { ApiError, api } from '../api/client';
   import type { Category, FolderSuggestion, TemplateOffer } from '../api/types';
   import { describeError } from '../lib/async.svelte';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import type { Outcome } from '../lib/outcome.svelte';
   import { href } from '../lib/router.svelte';
@@ -10,7 +11,8 @@
 
   /**
    * The categories the folders' names suggest, mapped on a click and undone on another. Nothing
-   * is written before a click, and a category a map created goes with its undo.
+   * is written before a click, and a category a map created goes with the last undo of the rows
+   * mapped to it.
    */
   let {
     suggestions,
@@ -30,7 +32,7 @@
     path: string;
     instance: string;
     category: string;
-    /** The category's id when this map created it, for the undo to remove. */
+    /** The category's id when this map or one before it created it, for an undo to remove. */
     created: string | null;
     template: TemplateOffer | null;
   }
@@ -49,33 +51,49 @@
   /** Creates the category when the library has none by that name, then maps the folder. */
   async function mapOne(each: FolderSuggestion): Promise<Mapped> {
     const category = choiceOf(each);
-    let created: string | null = null;
+    let made: string | null = null;
+    let shared: string | null = null;
     if (!categories.some((known) => known.name === category)) {
       try {
-        created = (await api.createCategory({ name: category })).id;
+        made = (await api.createCategory({ name: category })).id;
       } catch (cause) {
-        // Made meanwhile, by a row mapped just before on another instance: it is used as is.
+        // Made meanwhile, as by a row mapped just before on another instance, whose undo it shares.
         if (!(cause instanceof ApiError && cause.status === 409)) throw cause;
+        shared = mapped.find((row) => row.category === category)?.created ?? null;
       }
     }
     try {
       await api.updateRootFolderCategory(each.root_folder_id, category);
     } catch (cause) {
       // The refusal said is the mapping's: a category left behind would name itself in a warning.
-      if (created) await api.deleteCategory(created).catch(() => undefined);
+      if (made) await api.deleteCategory(made).catch(() => undefined);
       throw cause;
     }
     const { root_folder_id: folder, path, instance_name: instance, template } = each;
-    return { folder, path, instance, category, created, template };
+    return { folder, path, instance, category, created: made ?? shared, template };
   }
 
-  async function settle() {
+  /** A row's button by its action and place, so the focus can land on the row now in its place. */
+  const actionId = (action: string, index: number) => `suggestion-${action}-${index}`;
+
+  /**
+   * Once the list is read again, the focus goes back to the pressed button, else to the same
+   * action on the row now in its place or the one before, else to the card's title.
+   */
+  async function settle(pressed: Element | null, ...fallbacks: string[]) {
     invalidateStatus();
     await onChanged();
     busy = false;
+    void handFocus(pressed as HTMLElement | null, ...fallbacks, 'folder-suggestions-title');
   }
 
-  async function map(each: FolderSuggestion) {
+  const near = (action: string, index: number) => [
+    actionId(action, index),
+    actionId(action, index - 1),
+  ];
+
+  async function map(each: FolderSuggestion, index: number) {
+    const pressed = document.activeElement;
     busy = true;
     try {
       const row = await mapOne(each);
@@ -84,10 +102,11 @@
     } catch (cause) {
       outcome.fail(cause);
     }
-    await settle();
+    await settle(pressed, ...near('map', index));
   }
 
   async function mapAll() {
+    const pressed = document.activeElement;
     busy = true;
     const failed: string[] = [];
     let count = 0;
@@ -96,28 +115,40 @@
         mapped = [...mapped, await mapOne(each)];
         count += 1;
       } catch (cause) {
-        failed.push(`${each.path}: ${describeError(cause)}`);
+        failed.push(t('FilterTerm', { label: each.path, value: describeError(cause) }));
       }
     }
     if (failed.length > 0) outcome.warn(t('FolderSuggestionsPartly', { count }), failed);
     else outcome.succeed(t('FolderSuggestionsMapped', { count }));
-    await settle();
+    await settle(pressed);
   }
 
-  async function undo(row: Mapped) {
+  /** Removes the category the map created unless another mapped folder still uses it. */
+  async function release(row: Mapped) {
+    if (!row.created) return;
+    try {
+      await api.deleteCategory(row.created);
+    } catch (cause) {
+      if (!(cause instanceof ApiError && cause.reason === 'in_use')) throw cause;
+    }
+  }
+
+  async function undo(row: Mapped, index: number) {
+    const pressed = document.activeElement;
     busy = true;
     try {
       await api.updateRootFolderCategory(row.folder, null);
-      if (row.created) await api.deleteCategory(row.created);
+      await release(row);
       mapped = mapped.filter((other) => other !== row);
       outcome.succeed(t('FolderSuggestionUndone', { path: row.path }));
     } catch (cause) {
       outcome.fail(cause);
     }
-    await settle();
+    await settle(pressed, ...near('undo', index));
   }
 
-  async function setDismissed(each: FolderSuggestion, dismissed: boolean) {
+  async function setDismissed(each: FolderSuggestion, dismissed: boolean, index: number) {
+    const pressed = document.activeElement;
     busy = true;
     try {
       if (dismissed) await api.dismissFolderSuggestion(each.root_folder_id);
@@ -125,7 +156,13 @@
     } catch (cause) {
       outcome.fail(cause);
     }
-    await settle();
+    // The row's other toggle first: shown dismissed, a dismissed row keeps its place.
+    const other = dismissed ? 'restore' : 'dismiss';
+    await settle(
+      pressed,
+      actionId(other, index),
+      ...near(dismissed ? 'dismiss' : 'restore', index),
+    );
   }
 
   const rulesOf = (row: Mapped, offer: TemplateOffer) =>
@@ -135,7 +172,7 @@
 {#if shown.length > 0 || mapped.length > 0 || dismissedCount > 0}
   <section class="card" aria-labelledby="folder-suggestions-title">
     <div class="card-header">
-      <CardTitle card="FolderSuggestions" id="folder-suggestions-title">
+      <CardTitle card="FolderSuggestions" id="folder-suggestions-title" tabindex={-1}>
         {t('FolderSuggestions')}
       </CardTitle>
       {#if ready.length > 1}
@@ -146,7 +183,7 @@
     </div>
     <p class="text-muted text-base">{t('FolderSuggestionsLead')}</p>
     <ul class="suggestion-list">
-      {#each mapped as row (row.folder)}
+      {#each mapped as row, index (row.folder)}
         <li class="suggestion-row is-mapped">
           <div class="suggestion-what">
             <span class="mono">{row.path}</span>
@@ -168,17 +205,18 @@
               </a>
             {/if}
             <button
+              id={actionId('undo', index)}
               class="btn btn-ghost btn-sm"
               disabled={busy}
               aria-label="{t('FolderSuggestionUndo')} – {row.path}"
-              onclick={() => void undo(row)}
+              onclick={() => void undo(row, index)}
             >
               {t('FolderSuggestionUndo')}
             </button>
           </div>
         </li>
       {/each}
-      {#each shown as each (each.root_folder_id)}
+      {#each shown as each, index (each.root_folder_id)}
         <li class="suggestion-row" class:is-dismissed={each.dismissed}>
           <div class="suggestion-what">
             <span class="mono">{each.path}</span>
@@ -202,27 +240,30 @@
             </select>
             {#if each.dismissed}
               <button
+                id={actionId('restore', index)}
                 class="btn btn-ghost btn-sm"
                 disabled={busy}
                 aria-label="{t('FolderSuggestionRestore')} – {each.path}"
-                onclick={() => void setDismissed(each, false)}
+                onclick={() => void setDismissed(each, false, index)}
               >
                 {t('FolderSuggestionRestore')}
               </button>
             {:else}
               <button
+                id={actionId('map', index)}
                 class="btn btn-secondary btn-sm"
                 disabled={busy || choiceOf(each) === ''}
                 aria-label="{t('FolderSuggestionMap')} – {each.path}"
-                onclick={() => void map(each)}
+                onclick={() => void map(each, index)}
               >
                 {t('FolderSuggestionMap')}
               </button>
               <button
+                id={actionId('dismiss', index)}
                 class="btn btn-ghost btn-sm"
                 disabled={busy}
                 aria-label="{t('FolderSuggestionDismiss')} – {each.path}"
-                onclick={() => void setDismissed(each, true)}
+                onclick={() => void setDismissed(each, true, index)}
               >
                 {t('FolderSuggestionDismiss')}
               </button>

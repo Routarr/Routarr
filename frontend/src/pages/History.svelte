@@ -121,6 +121,8 @@
 
   /** Undo every move the filters match, asked by the server, which alone counts them. */
   async function revertAll() {
+    // Read before the button turns disabled, which drops the focus the question would give back.
+    const pressed = document.activeElement as HTMLElement | null;
     revertingAll = true;
     try {
       const report = await answering(
@@ -151,6 +153,7 @@
     } finally {
       revertingAll = false;
       task = null;
+      void handFocus(pressed, 'history-table');
     }
   }
 

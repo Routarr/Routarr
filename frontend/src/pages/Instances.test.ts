@@ -14,7 +14,7 @@ import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
 import { publishAccess } from '../lib/access.svelte';
-import { readBackend } from '../test/backend';
+import { backendConstant } from '../test/backend';
 
 const readOf = (over: Partial<WebhookCheck> = {}): WebhookCheck => ({
   state: 'ok',
@@ -327,9 +327,7 @@ describe('Instances', () => {
 
   /** The ceiling is the scheduler's, read where `backend/src/jobs/mod.rs` writes it. */
   it('says why an interval outside its bounds holds Save', async () => {
-    const jobs = readBackend('backend/src/jobs/mod.rs');
-    const written = /pub const MAX_SYNC_INTERVAL_MINUTES: i64 = ([\d_ *]+);/.exec(jobs)?.[1] ?? '';
-    const ceiling = written.split('*').reduce((product, factor) => product * Number(factor), 1);
+    const ceiling = backendConstant('backend/src/jobs/mod.rs', 'MAX_SYNC_INTERVAL_MINUTES');
     expect(ceiling).toBeGreaterThan(1);
     const bounds = `Enter a whole number from 1 to ${ceiling}.`;
     show([instance()]);

@@ -5,6 +5,7 @@
   import { canonicalKey, addValue, removeValue } from '../api/conditions';
   import { formatCount, runsOf } from '../api/format';
   import { handFocus } from '../lib/focus';
+  import { composing } from '../lib/keys';
 
   /**
    * Several values for one condition, picked from what the library holds. A combo box over a
@@ -83,6 +84,17 @@
   );
   /** Every value the list offers, in its order: the matches, then the typed text. */
   const choices = $derived([...matches.map((option) => option.value), ...(custom ? [custom] : [])]);
+  /** What is said in place of the list, which then holds nothing to choose. */
+  const note = $derived(
+    loading
+      ? t('Loading')
+      : error
+        ? error
+        : choices.length === 0
+          ? t(options.length ? 'NoMatchingValue' : 'NoValueInLibrary')
+          : null,
+  );
+  const listed = $derived(open && note === null);
 
   function add(value: string) {
     onChange(addValue(values, value, keyOf));
@@ -103,6 +115,7 @@
 
   // Combobox pattern: the focus stays in the field and aria-activedescendant follows the arrows.
   function onKey(event: KeyboardEvent) {
+    if (composing(event)) return;
     if (event.key === 'Escape') {
       // Claimed only while open: an unclaimed Escape closes the rule editor's dialog.
       if (open) {
@@ -195,10 +208,10 @@
     aria-label={label}
     class="form-input"
     role="combobox"
-    aria-expanded={open}
+    aria-expanded={listed}
     aria-autocomplete="list"
     aria-controls={listId}
-    aria-activedescendant={open && cursor >= 0 ? optionId(cursor) : undefined}
+    aria-activedescendant={listed && cursor >= 0 ? optionId(cursor) : undefined}
     aria-describedby={describedBy}
     autocomplete="off"
     placeholder={t('PlaceholderPickValues')}
@@ -212,7 +225,7 @@
     onkeydown={onKey}
   />
 
-  {#if open}
+  {#if listed}
     <!-- Unnamed: aria-controls ties it to the combobox, which carries the name. A press
          on it keeps the focus in the field. -->
     <div
@@ -222,46 +235,46 @@
       tabindex="-1"
       onmousedown={(event) => event.preventDefault()}
     >
-      {#if loading}
-        <p class="picker-note">{t('Loading')}</p>
-      {:else if error}
-        <p class="picker-note">{error}</p>
-      {:else}
-        {#if counted}
-          <!-- What the figures count, said once above them. -->
-          <p class="picker-head" aria-hidden="true">{t('PickerCountCaption')}</p>
-        {/if}
-        {#each blocks as block, index (index)}
-          {#if block.key}
-            <div role="group" aria-label={block.key}>
-              <p class="picker-group-title" aria-hidden="true">{block.key}</p>
-              {#each block.entries as entry (entry.item.value)}
-                {@render row(entry.item, entry.index, true)}
-              {/each}
-            </div>
-          {:else}
+      {#if counted}
+        <!-- What the figures count, said once above them. -->
+        <p class="picker-head" aria-hidden="true">{t('PickerCountCaption')}</p>
+      {/if}
+      {#each blocks as block, index (index)}
+        {#if block.key}
+          <div role="group" aria-label={block.key}>
+            <p class="picker-group-title" aria-hidden="true">{block.key}</p>
             {#each block.entries as entry (entry.item.value)}
-              {@render row(entry.item, entry.index, false)}
+              {@render row(entry.item, entry.index, true)}
             {/each}
-          {/if}
-        {/each}
-        {#if custom}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            id={optionId(matches.length)}
-            class="picker-option"
-            role="option"
-            tabindex="-1"
-            aria-selected={cursor === matches.length}
-            onclick={() => add(custom)}
-          >
-            {t('AddValue', { value: custom })}
           </div>
+        {:else}
+          {#each block.entries as entry (entry.item.value)}
+            {@render row(entry.item, entry.index, false)}
+          {/each}
         {/if}
-        {#if !matches.length && !custom}
-          <p class="picker-note">{options.length ? t('NoMatchingValue') : t('NoValueInLibrary')}</p>
-        {/if}
+      {/each}
+      {#if custom}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div
+          id={optionId(matches.length)}
+          class="picker-option"
+          role="option"
+          tabindex="-1"
+          aria-selected={cursor === matches.length}
+          onclick={() => add(custom)}
+        >
+          {t('AddValue', { value: custom })}
+        </div>
       {/if}
     </div>
   {/if}
+  <!-- Beside the list, which owns options alone, and mounted with the field so its note is
+       heard where the focus stays. Drawn where the list would be. -->
+  <div role="status">
+    {#if open && note !== null}
+      <div class="picker-list">
+        <p class="picker-note">{note}</p>
+      </div>
+    {/if}
+  </div>
 </div>

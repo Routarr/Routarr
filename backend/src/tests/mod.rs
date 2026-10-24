@@ -935,6 +935,12 @@ pub async fn probe_verdicts(app: &TestApp) -> Vec<String> {
         .collect()
 }
 
+/// Whether `text` holds a bidirectional isolate mark (U+2066 to U+2069), which a right-to-left
+/// sentence sets around its values and a stored text must not carry.
+pub fn isolated(text: &str) -> bool {
+    text.chars().any(|c| ('\u{2066}'..='\u{2069}').contains(&c))
+}
+
 /// The warnings of a `/status` or `/health` answer, as the reader sees them.
 #[track_caller]
 pub fn warning_messages(body: &serde_json::Value) -> Vec<String> {

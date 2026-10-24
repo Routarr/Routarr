@@ -11,12 +11,8 @@ function read(file: string): string {
 }
 
 /**
- * Every screen and every shared component, by extension.
- *
- * The glob is load-bearing: a pattern matching no file leaves every sweep in
- * this file iterating over an empty list and passing without reading anything,
- * which the first check below refuses. Components are included because half
- * the forms live in them.
+ * Every screen and shared component. A glob matching nothing would leave each sweep passing on
+ * an empty list, which the first check below refuses.
  */
 function pages(): string[] {
   return ['pages', 'components'].flatMap((dir) =>
@@ -28,10 +24,8 @@ function pages(): string[] {
 }
 
 /**
- * A translated label is routinely twice the length of its English original:
- * `Type` stays on one line while `Synchroniser toutes les (min)` wraps onto two,
- * and a row that top-aligns its children then puts the two inputs at different
- * heights. `.form-row` bottom-aligns them, so the wrapping is invisible.
+ * A translated label can wrap where English does not, and a row that top-aligns its fields
+ * then puts the inputs at different heights. `.form-row` bottom-aligns them.
  */
 describe('a row of fields survives labels of different lengths', () => {
   it('reads every screen and every shared component', () => {
@@ -70,14 +64,8 @@ describe('a row of fields survives labels of different lengths', () => {
   });
 
   /**
-   * Split each `<button>` into its attributes and its body.
-   *
-   * Not a regular expression: `onclick={() => run()}` carries a `>` inside a
-   * brace, and `<button\b([^>]*?)>` stops there, so the arrow lands in the
-   * captured body and satisfies the "has visible text" test below. Every
-   * icon-only button with an arrow handler, which is all of them, would be
-   * exempt from the check that names them. Tracking brace depth is what tells a
-   * `>` closing the tag from a `>` inside an expression.
+   * Split each `<button>` into its attributes and its body, tracking brace depth: the `>` of
+   * `onclick={() => run()}` would end a regular expression's match inside the tag.
    */
   function buttons(source: string): { attributes: string; body: string }[] {
     const found: { attributes: string; body: string }[] = [];
@@ -200,12 +188,8 @@ describe('a row of fields survives labels of different lengths', () => {
   });
 
   /**
-   * The form controls are drawn here, not by the browser.
-   *
-   * Removing the shared base rule merges its selectors into the focus rule
-   * below, so every input falls back to the user agent (the platform's own
-   * chrome) while wearing the accent border permanently. Nothing else asserts
-   * that a text field has a background.
+   * The form controls are drawn here: without the shared base rule, every field falls back to
+   * the browser's chrome and keeps the accent border for good.
    */
   it('every field is drawn by this stylesheet rather than by the browser', () => {
     const css = read('index.css');
@@ -260,14 +244,8 @@ describe('a row of fields survives labels of different lengths', () => {
 });
 
 /**
- * The application's own voice, not the browser's.
- *
- * A native constraint bubble renders in the *browser's* language whatever
- * `ui_language` says, and fires before the submit handler, so it speaks over
- * whatever the form was going to say. Every form carrying one is `novalidate`
- * and holds its submit until the field is filled, which enforces the constraint
- * before the press instead of complaining about it after. jsdom runs no
- * constraint validation at all, so nothing but a read of the source sees this.
+ * A native constraint bubble speaks the browser's language and fires before the submit
+ * handler, so every form is `novalidate`. jsdom validates nothing, so the source is read.
  */
 describe('no form leaves the browser to do the talking', () => {
   const forms = () =>
@@ -290,12 +268,8 @@ describe('no form leaves the browser to do the talking', () => {
 });
 
 /**
- * One search box, wherever a screen filters by typing.
- *
- * A magnifier at a different size on each screen, or none, and a width anchored
- * on one only, so that revealing a button beside the box shifts the row: written
- * out at each call site, that divergence is invisible to every other check here,
- * each screen being correct on its own.
+ * One search box wherever a screen filters by typing: written out at each call site, a
+ * different magnifier or width passes every other check, each screen being right alone.
  */
 describe('every screen searches through the same box', () => {
   const searching = () =>
@@ -328,20 +302,13 @@ describe('every screen searches through the same box', () => {
 });
 
 /**
- * The navigation and the route table, read as source and compared.
- *
- * Nothing else joins them: a route added to `App.svelte` with no entry in the
- * sidebar is a screen only a typed URL reaches, and an entry pointing at no
- * route leads from the menu to the not-found screen. Both have to be deliberate, and
- * this is what makes them so.
+ * The navigation against the route table: a route without an entry is reached only by a typed
+ * address, and an entry without a route leads to the not-found screen.
  */
 describe('the navigation covers the route table', () => {
   const routes = () =>
     [...read('App.svelte').matchAll(/^\s*'(\/[^']*)':/gm)].map((match) => match[1] as string);
 
-  // The list lives in `lib/routes.ts` because three readers share it: the
-  // navigation draws it, the command palette searches the same destinations,
-  // and the e2e sweeps read it as data.
   const navigable = () =>
     [...read('lib/routes.ts').matchAll(/to: '(\/[^']*)'/g)].map((match) => match[1] as string);
 
@@ -358,34 +325,16 @@ describe('the navigation covers the route table', () => {
 });
 
 /**
- * A class named in markup and defined nowhere.
- *
- * It is silent in every other check: the markup is valid, the component
- * renders, `svelte-check` types it and no test asserts a colour. What the
- * reader gets is the element with none of the styling it was written for: a
- * caption whose block is deleted is set at body weight beside the value it
- * names.
- *
- * jsdom applies no stylesheet, so nothing rendered can see this. Only the
- * source can. Composed names (`is-{tone}`, `{active ? ' waiting' : ''}`) sit
- * inside an expression and are skipped, since the fragments they build are
- * static strings in the same file, and a scoped `<style>` block counts as a
- * definition.
- *
- * A class defined only chained to another (`.badge-value.muted`) styles
- * nothing on an element without that other class, so it counts only where
- * the same attribute carries every class of the compound.
+ * A class named in markup and defined nowhere renders unstyled, which jsdom cannot show.
+ * Composed names (`is-{tone}`) are skipped, a scoped `<style>` counts as a definition, and a
+ * class defined only chained to another (`.badge-value.muted`) counts only where the same
+ * attribute carries every class of the compound.
  */
 const CLASS = /\.(-?[_a-zA-Z][\w-]*)/g;
 
 /**
- * The compound selectors a stylesheet defines, each as its set of classes,
- * read from selector position alone.
- *
- * Not from the whole text: `.source-name` is named in a comment in the
- * component that uses it, and a scan of everything would count that mention
- * as a definition, so deleting the rule from `index.css` would leave the check
- * below green, which is the one thing it exists to refuse.
+ * The compound selectors a stylesheet defines, each as its set of classes, read from selector
+ * position alone: a class named in a comment is no definition.
  */
 function compounds(stylesheet: string): string[][] {
   const withoutComments = stylesheet.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -435,11 +384,8 @@ describe('every class in the markup is a class that exists', () => {
 });
 
 /**
- * A rule nothing names styles nothing, and every visit downloads it. A class
- * is named when a source file writes it as a word: a component, a module or
- * the page. Two prefixes are composed from a value at run time
- * (`kind-{instance.instance_type}`, `is-{tone}`), so the classes under them
- * count as named.
+ * A rule nothing names styles nothing, and every visit downloads it. Two prefixes are composed
+ * at run time (`kind-{instance.instance_type}`, `is-{tone}`), so the classes under them count.
  */
 describe('every class the stylesheet defines is named somewhere', () => {
   const COMPOSED = ['kind-', 'is-'];
@@ -470,15 +416,9 @@ describe('every class the stylesheet defines is named somewhere', () => {
 });
 
 /**
- * A screen shows how an action went through `OutcomeBanner`, and nowhere else.
- *
- * `lib/outcome.svelte.ts` holds one success or one error per screen, apart
- * from the page's load, and `OutcomeBanner` renders it with no Retry. A success
- * drawn anywhere else is a second piece of state that can stand beside a
- * refusal, whatever it is named. An action's error written into a load's is a
- * refusal that the next reload wipes and whose Retry reloads instead of
- * replaying. Checked over the whole source, so an inline handler or a callback
- * handed to a child is seen as surely as a named action.
+ * A screen shows how an action went through `OutcomeBanner` alone: a success drawn elsewhere
+ * can stand beside a refusal, and an action's error written into a load's is wiped by the next
+ * reload and retried as one. The whole source is read, inline handlers included.
  */
 describe('a screen shows how an action went through its outcome', () => {
   /** The success banner, imported under any name, or its class, literal or computed. */
@@ -532,14 +472,9 @@ describe('a screen shows how an action went through its outcome', () => {
 });
 
 /**
- * The elements of a component's markup, each with the chain of elements around
- * it, outermost first.
- *
- * Svelte blocks and expressions are not elements, so an element inside
- * `{#if}` has the element around the block as its parent, as it does in the
- * DOM. The script, the style and the comments are left out. Attributes are read
- * with brace depth, as `buttons` reads them, since `onclick={() => run()}`
- * carries a `>`.
+ * The elements of a component's markup, each with its chain of parents, outermost first.
+ * Svelte blocks are not elements, as in the DOM, and attributes are read with brace depth, as
+ * `buttons` reads them.
  */
 interface Markup {
   tag: string;
@@ -813,6 +748,30 @@ describe('every value a screen shows is written for its reader', () => {
       );
     });
     expect(raw).toEqual([]);
+  });
+
+  /**
+   * A colon or a bracket between two values is punctuation each language writes its own way,
+   * which `FilterTerm` and `WithNote` hold: French spaces its colon, Chinese widens both.
+   */
+  const JOINED_MARKUP = /\}(?:: | \()\{/g;
+  const JOINED_LITERAL = /\}(?:: | \()\$\{/g;
+
+  it('finds punctuation written between two values', () => {
+    expect('{a}: {b} {c} ({d})'.match(JOINED_MARKUP)).toEqual(['}: {', '} ({']);
+    expect('`${a}: ${b} ${c} (${d})`'.match(JOINED_LITERAL)).toEqual(['}: ${', '} (${']);
+  });
+
+  it('leaves the punctuation between two values to the dictionary', () => {
+    const joined = pages().flatMap((file) => {
+      const source = read(file);
+      const at = (index: number) => `${file}:${source.slice(0, index).split('\n').length}`;
+      return [
+        ...[...content(source).matchAll(JOINED_MARKUP)].map((m) => `${at(m.index)} ${m[0]}`),
+        ...[...source.matchAll(JOINED_LITERAL)].map((m) => `${at(m.index)} ${m[0]}`),
+      ];
+    });
+    expect(joined).toEqual([]);
   });
 
   /** A row that spans the table, empty or loading, spans every column of it. */

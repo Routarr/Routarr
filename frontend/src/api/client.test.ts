@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, api, onRefused } from './client';
+import { ApiError, EXPORTED_AT_MOST, api, onRefused } from './client';
 import { withBase } from '../test/base';
-import { readBackend } from '../test/backend';
+import { backendConstant, readBackend } from '../test/backend';
 
 interface FakeResponse {
   ok?: boolean;
@@ -491,18 +491,17 @@ describe('a server that never answers', () => {
    * would lose its bound the moment it became cancellable.
    */
   it('keeps the timeout when the caller passes a signal of its own', async () => {
-    stubPendingFetch();
-    const timer = new AbortController();
-    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timer.signal);
+    vi.useFakeTimers();
     try {
-      const pending = api.getStatus(new AbortController().signal);
-      timer.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+      stubPendingFetch();
+      const pending = api.getStatus(new AbortController().signal).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(30_000);
 
-      const failure = await pending.catch((e: unknown) => e);
+      const failure = await pending;
       expect(failure).toBeInstanceOf(ApiError);
       expect((failure as ApiError).kind).toBe('timeout');
     } finally {
-      timeout.mockRestore();
+      vi.useRealTimers();
     }
   });
 
@@ -516,6 +515,145 @@ describe('a server that never answers', () => {
     const failure = await api.getStatus().catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).kind).toBe('unreachable');
+  });
+});
+
+describe('a file the API serves', () => {
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * A file's headers at once, then a chunk every `every` ms, `count` of them, then the end or a
+   * stall. Aborted, it errors with the signal's reason, as a browser's body does.
+   */
+  function stubFile(
+    count: number,
+    every: number,
+    end: 'close' | 'stall',
+    headers: Record<string, string> = {},
+  ) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        let over = false;
+        const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
+          start(stream) {
+            init?.signal?.addEventListener('abort', () => {
+              if (!over) ((over = true), stream.error(init.signal?.reason));
+            });
+            const send = (left: number) => {
+              if (left === 0) {
+                if (end === 'close') ((over = true), stream.close());
+                return;
+              }
+              setTimeout(() => {
+                if (over) return;
+                stream.enqueue(new Uint8Array(1024));
+                send(left - 1);
+              }, every);
+            };
+            send(count);
+          },
+        });
+        const blob = async () => {
+          const chunks: Uint8Array<ArrayBuffer>[] = [];
+          for await (const chunk of body) chunks.push(chunk);
+          return new Blob(chunks);
+        };
+        return { ok: true, status: 200, headers: new Headers(headers), body, blob } as Response;
+      }),
+    );
+  }
+
+  /** A large archive over a slow link takes as long as it takes, as long as it keeps arriving. */
+  it('downloads a file that keeps arriving past the bound of one request', async () => {
+    vi.useFakeTimers();
+    stubFile(4, 10_000, 'close');
+
+    const archive = api.downloadBackup('x.zip', {}).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(((await archive) as Blob).size).toBe(4 * 1024);
+  });
+
+  it('gives up on a file that stops arriving, once the bound passes', async () => {
+    vi.useFakeTimers();
+    stubFile(1, 1_000, 'stall');
+
+    let settled = false;
+    const archive = api
+      .downloadBackup('x.zip', {})
+      .catch((e: unknown) => e)
+      .finally(() => (settled = true));
+    // Thirty seconds after the last chunk, not after the request.
+    await vi.advanceTimersByTimeAsync(30_500);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(await archive).toMatchObject({ kind: 'timeout' });
+  });
+
+  /** The bound restarts for a file's chunks only: a slow page of JSON is still cut. */
+  it('keeps the bound of the whole request for a JSON body', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () =>
+          new Promise((_resolve, reject) =>
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+          ),
+      })),
+    );
+
+    const status = api.getStatus().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(30_500);
+
+    expect(await status).toMatchObject({ kind: 'timeout' });
+  });
+
+  /** An upload shows no progress to restart the bound on, and the identifier table is large. */
+  it('gives a file sent as the body the time a slow uplink needs', async () => {
+    vi.useFakeTimers();
+    let settled = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) =>
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+          ),
+      ),
+    );
+
+    const sent = api
+      .importAnimeIds(new File(['[]'], 'anime-ids.json'))
+      .catch((e: unknown) => e)
+      .finally(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    expect(await sent).toMatchObject({ kind: 'timeout' });
+  });
+
+  it('names the ceiling the server cuts a log export at', () => {
+    expect(EXPORTED_AT_MOST).toBe(
+      backendConstant('backend/src/api/move_log.rs', 'EXPORTED_AT_MOST'),
+    );
+  });
+
+  it.each([
+    ['exportMoveLog', () => api.exportMoveLog()],
+    ['exportSecurityLog', () => api.exportSecurityLog()],
+  ])('%s says when the server cut the file short', async (_name, exported) => {
+    stubFile(1, 0, 'close', { 'x-routarr-truncated': 'true' });
+    expect(await exported()).toMatchObject({ truncated: true });
+
+    stubFile(1, 0, 'close');
+    expect(await exported()).toMatchObject({ truncated: false });
   });
 });
 
@@ -666,6 +804,33 @@ describe('a write followed through its job', () => {
 
     expect(spy.mock.calls.length).toBe(looks);
     expect(await run).toMatchObject({ name: 'AbortError' });
+  });
+
+  /** A screen's signal lives as long as the screen, and a long task looks once a second. */
+  it('takes back each wait it hung on the caller signal', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { task_id: 'j1' }))
+        .mockResolvedValueOnce(job('running'))
+        .mockResolvedValueOnce(job('running'))
+        .mockResolvedValueOnce(job('running'))
+        .mockResolvedValueOnce(job('success', { result: report })),
+    );
+    const leaving = new AbortController();
+    const added = vi.spyOn(leaving.signal, 'addEventListener');
+    const removed = vi.spyOn(leaving.signal, 'removeEventListener');
+    const waits = () => added.mock.calls.filter(([type]) => type === 'abort').map(([, f]) => f);
+
+    const applied = api.applyDecisions(['d1'], false, [], { signal: leaving.signal });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(applied).resolves.toEqual(report);
+    expect(waits().length).toBeGreaterThan(3);
+    const taken = removed.mock.calls.map(([, f]) => f);
+    expect(waits().filter((listener) => !taken.includes(listener))).toEqual([]);
   });
 
   /** A proxy's hiccup during a long apply is not the apply failing. */

@@ -11,12 +11,9 @@
   import { t } from '../lib/i18n.svelte';
 
   /**
-   * The getting-started guide, on the dashboard of an installation not set up yet.
-   *
-   * A list rather than a wizard: nothing is blocked, each step opens the screen
-   * that does it, and every step ticks itself from the data, so leaving halfway
-   * and coming back resumes where the installation is. Skipped, it shrinks to one
-   * line that offers it back until the required steps are done.
+   * The getting-started guide on the dashboard. Each step opens the screen that does it and
+   * ticks itself from the data. Skipped, it shrinks to one line that offers it back until the
+   * required steps are done.
    */
   let { status, outcome }: { status: OnboardingStatus; outcome: Outcome } = $props();
 
@@ -24,12 +21,9 @@
   let busy = false;
 
   /**
-   * Each choice replaces the block that holds the pressed button, and the
-   * focus with it, to the page, where a screen reader loses its place. It goes
-   * to what takes the block's place: Resume, the guide's heading, or the
-   * page's content once the guide is gone. No button is disabled while the
-   * choice is sent, since a focused button that turns disabled drops the focus
-   * as well: a second press is ignored instead.
+   * Where the focus goes once a choice replaces the block that held the pressed button. No
+   * button turns disabled while the choice is sent, since that drops the focus too: a second
+   * press is ignored instead.
    */
   const LANDING: Record<OnboardingState, string> = {
     dismissed: 'guide-resume',

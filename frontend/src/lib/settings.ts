@@ -1,19 +1,10 @@
 import type { Settings, StoredSettings } from '../api/types';
 
 /**
- * What the Settings screen shows, as data.
- *
- * `FIELDS` is every setting the screen edits, with the dictionary keys for its
- * caption and its help text and the fallback used when the server has no
- * value. The server accepts settings no field shows, such as `onboarding`,
- * which the guide writes. `SECTIONS` groups the fields into the tab strip. Kept
- * apart from the markup because a test asserts the grouping covers `FIELDS`
- * exactly once: a field in no section would be unreachable and saved with its
- * fallback, silently.
- *
- * A new setting needs its `KNOWN` entry in `backend/src/services/settings.rs`,
- * which refuses an unknown key, and a `FIELDS` entry listed in exactly one
- * `SECTIONS` group.
+ * What the settings screens show, as data: `FIELDS`, each with its caption, help and fallback,
+ * and `SECTIONS`, which groups them into tabs, each field exactly once. The server accepts
+ * settings no field shows, such as `onboarding`. A new setting needs its `KNOWN` entry in
+ * `backend/src/services/settings.rs` and a `FIELDS` entry in one `SECTIONS` group.
  */
 export interface Field {
   key: string;
@@ -49,16 +40,9 @@ export interface Field {
 export type Choice = { value: string } & ({ labelKey: string } | { name: string });
 
 /**
- * Which setting holds a metadata source's credential.
- *
- * Stated here because two screens need the same answer: the source list
- * renders the field inside the row it unlocks, and the settings form skips
- * those three keys in its own loop so they are not asked for twice. Written
- * once in each place instead, adding a source removes its field from one and
- * adds it to neither.
- *
- * Not derived from `kind === 'secret'`: the notification webhook is sealed
- * too, and it belongs to the automation section.
+ * Which setting holds a metadata source's credential, which the source list draws in the row it
+ * unlocks and the settings form skips. Not derived from `kind === 'secret'`: the notification
+ * webhook's secret is sealed too, and belongs to automation.
  */
 export const SOURCE_KEY_SETTING: Record<string, string> = {
   tmdb: 'tmdb_api_key',
@@ -200,11 +184,8 @@ export const FIELDS: Field[] = [
       { value: 'all', labelKey: 'AnimeSearchAll' },
     ],
   },
-  // The metadata credentials. Sealed by the backend on the way in and
-  // never returned, so the field always renders empty and a companion
-  // `<key>_configured` boolean says whether one is set. Settable here as well as
-  // from the environment: the screen that names a missing key is the screen that
-  // should be able to supply it.
+  // The metadata credentials, settable here as well as from the environment: the screen that
+  // names a missing key can take it.
   {
     key: 'tmdb_api_key',
     labelKey: 'SettingTmdbKey',
@@ -357,20 +338,9 @@ export const FIELDS: Field[] = [
 ];
 
 /**
- * The settings, grouped.
- *
- * Every setting in one column means scrolling past automation to reach a
- * retention count. The grouping follows what a person is *doing* (setting the
- * thing up, deciding where media goes, letting it run unattended, hearing about
- * it, choosing what describes it, keeping it healthy) rather than the order the
- * fields are declared in.
- *
- * `page` says which screen edits the section: the metadata sources have their
- * own, since the guide sends a fresh install there and their warnings name it.
- * Each screen saves its own sections and no other.
- *
- * `keys` is the source of truth for what appears where. A field missing from
- * every section is caught by a test rather than silently unreachable.
+ * The settings, grouped by what a person is doing. `page` says which screen edits a section:
+ * the metadata sources have their own, where the guide and their warnings send a reader. Each
+ * screen saves its own sections, and a field in no section fails a test.
  */
 export const SECTIONS = [
   {
