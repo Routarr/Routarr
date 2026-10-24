@@ -17,7 +17,7 @@ use crate::jobs::{Detail, JobKind};
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::audit::Kind;
-use crate::services::connection::{self, Cause};
+use crate::services::connection;
 use crate::services::{sync, webhook_check};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
@@ -548,13 +548,9 @@ pub async fn sync_now(
     }
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move {
-        match sync::sync_instance(&task_state, &id, &by).await {
-            Ok(report) => {
-                crate::jobs::scheduler::follow_sync(&task_state, &by).await;
-                Ok(report)
-            }
-            Err(error) => Err(explained(&task_state, &id, error).await),
-        }
+        let report = sync::sync_instance_explained(&task_state, &id, &by).await?;
+        crate::jobs::scheduler::follow_sync(&task_state, &by).await;
+        Ok(report)
     };
     answer(&state, prefers_async(&headers), work).await
 }
@@ -577,67 +573,11 @@ pub async fn remove_missing(
     }
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move {
-        match sync::sync_removing_missing(&task_state, &id, &by).await {
-            Ok(report) => {
-                crate::jobs::scheduler::follow_sync(&task_state, &by).await;
-                Ok(report)
-            }
-            Err(error) => Err(explained(&task_state, &id, error).await),
-        }
+        let report = sync::sync_removing_missing(&task_state, &id, &by).await?;
+        crate::jobs::scheduler::follow_sync(&task_state, &by).await;
+        Ok(report)
     };
     answer(&state, prefers_async(&headers), work).await
-}
-
-/// A failed sync, in the words of what answers at the instance's address,
-/// written on its task too: a caller that did not wait reads it there.
-async fn explained(state: &AppState, id: &str, error: AppError) -> AppError {
-    let Some(cause) = connection::cause_of(&error) else {
-        return error;
-    };
-    let explained = match explain_sync_failure(state, id, cause).await {
-        Ok(explained) | Err(explained) => explained,
-    };
-    if let Some(task) = crate::jobs::registry::announced() {
-        let _ = sqlx::query(
-            "UPDATE jobs SET error_message = ?, error_code = ? WHERE id = ? AND status = 'failed'",
-        )
-        .bind(explained.public_message())
-        .bind(explained.code())
-        .bind(task)
-        .execute(&state.pool)
-        .await;
-    }
-    explained
-}
-
-async fn explain_sync_failure(state: &AppState, id: &str, cause: Cause) -> AppResult<AppError> {
-    // A probe of the address tells a wrong type from a wrong port, which the sync's own
-    // failure, a 404 on the library, cannot.
-    let instance = state.instance(id).await?;
-    let localizer = state.localizer().await;
-    let adapter = state.adapter(&instance)?;
-    let kind = instance.instance_type.as_str();
-    check(&adapter, kind, &instance.base_url, &localizer).await?;
-    // The probe passed, so the address is right and blaming it misleads: what failed is the
-    // library listing, the one call large enough to outlast its timeout or outgrow its cap.
-    let service = [("service", connection::service_name(kind))];
-    Ok(match cause {
-        Cause::TimedOut => {
-            let named = [service[0], ("variable", "ROUTARR_LIBRARY_TIMEOUT_SECS")];
-            AppError::UpstreamDown(localizer.translate("InstanceSyncTimedOut", &named))
-        }
-        Cause::TooLarge => {
-            let named = [service[0], ("variable", "ROUTARR_MAX_LIBRARY_MIB")];
-            AppError::UpstreamDown(localizer.translate("InstanceSyncTooLarge", &named))
-        }
-        Cause::NotTheApi => {
-            AppError::UpstreamDown(localizer.translate("InstanceSyncUnreadable", &service))
-        }
-        other => {
-            let sentence = connection::explain(&other, kind, &instance.base_url, &localizer);
-            connection::refusal(&other, sentence)
-        }
-    })
 }
 
 /// Refuse to send a stored secret anywhere but the origin it was saved with: the form shows

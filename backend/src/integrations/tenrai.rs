@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use super::send_json;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "Tenrai";
 pub const DEFAULT_BASE_URL: &str = "https://api.tenrai.org/v1";
@@ -54,7 +54,8 @@ struct RawAnime {
     titles: Vec<RawTitle>,
     #[serde(default)]
     genres: Vec<Named>,
-    /// Ecchi, Hentai and Erotica, genres an adult category is routed on.
+    /// Empty on Tenrai, which lists Ecchi, Hentai and Erotica under `genres`, and read for a
+    /// Jikan mirror that fills it.
     #[serde(default)]
     explicit_genres: Vec<Named>,
     #[serde(default)]
@@ -121,7 +122,7 @@ impl TenraiClient {
 
     pub async fn test_connection(&self) -> AppResult<bool> {
         let probe = self.client.get(format!("{}/anime/1", self.base_url));
-        send_json::<serde_json::Value>(SERVICE, probe).await.map(|_| true)
+        send_json::<serde_json::Value>(SERVICE, probe).await.map(|_| true).map_err(refusal)
     }
 
     pub async fn search(&self, title: &str, media_type: &str) -> AppResult<Vec<TenraiCandidate>> {
@@ -134,16 +135,34 @@ impl TenraiClient {
             request = request.query(&[("type", "movie")]);
         }
 
-        let response: Envelope<Vec<RawAnime>> = send_json(SERVICE, request).await?;
+        let response: Envelope<Vec<RawAnime>> =
+            send_json(SERVICE, request).await.map_err(refusal)?;
         Ok(response.data.into_iter().map(candidate).collect())
     }
 
     pub async fn get_details(&self, id: i64) -> AppResult<TenraiDetails> {
         debug!("Fetching Tenrai {id}");
-        let response: Envelope<RawAnime> =
-            send_json(SERVICE, self.client.get(format!("{}/anime/{id}/full", self.base_url)))
-                .await?;
+        let request = self.client.get(format!("{}/anime/{id}/full", self.base_url));
+        let response: Envelope<RawAnime> = send_json(SERVICE, request).await.map_err(refusal)?;
         Ok(details(response.data))
+    }
+}
+
+/// A 403 is Tenrai's anti-abuse system blocking the address, which "normally clears within 24
+/// hours": read as a pace (429) that closes the day ([`crate::integrations::is_quota_spent`]), as
+/// asking again before then only renews the block.
+fn refusal(error: AppError) -> AppError {
+    match error {
+        AppError::ExternalApi { service, status: 403, message, retry_after, .. } => {
+            AppError::ExternalApi {
+                service,
+                status: 429,
+                kind: crate::error::Upstream::QuotaSpent,
+                message,
+                retry_after,
+            }
+        }
+        other => other,
     }
 }
 
@@ -236,8 +255,8 @@ mod tests {
         assert_eq!((mal.value, mal.votes), (8.24, Some(400_000)));
     }
 
-    /// An explicit genre is a genre, as the official API files it, so an adult category routes
-    /// on either source.
+    /// An explicit genre is a genre, as Jikan files it apart and Tenrai and the official API
+    /// among the others, so an adult category routes on any of them.
     #[test]
     fn an_explicit_genre_is_a_genre_beside_the_others() {
         let json = r#"{ "data": { "mal_id": 1, "genres": [{ "name": "Comedy" }],
@@ -315,5 +334,26 @@ mod tests {
         ] {
             assert_eq!(shorten_rating(written), code, "{written}");
         }
+    }
+
+    #[test]
+    fn a_block_of_the_address_reads_as_a_pace_closed_for_the_day() {
+        let refused = |status: u16| AppError::ExternalApi {
+            service: SERVICE.into(),
+            status,
+            kind: crate::error::Upstream::Http,
+            message: String::new(),
+            retry_after: None,
+        };
+        let status = |error: &AppError| match error {
+            AppError::ExternalApi { status, .. } => *status,
+            other => panic!("{other:?}"),
+        };
+        let blocked = refusal(refused(403));
+        assert_eq!(status(&blocked), 429);
+        assert!(crate::integrations::is_quota_spent(&blocked), "{blocked:?}");
+        assert_eq!(status(&refusal(refused(404))), 404);
+        assert_eq!(status(&refusal(refused(429))), 429);
+        assert!(!crate::integrations::is_quota_spent(&refusal(refused(429))), "a pace is no day");
     }
 }

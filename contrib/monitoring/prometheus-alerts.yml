@@ -60,8 +60,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "The metadata source {{ $labels.source }} does not answer"
-          description: "The sources below it in the order answer meanwhile."
+          summary: "The metadata source {{ $labels.source }} did not answer its last probe"
+          description: "The sources below it in the order answer meanwhile. A probe's verdict counts a day, as routarr_metadata_source_checked_timestamp_seconds says, and Diagnostics probes again."
       - alert: RoutarrMetadataQuotaNearlySpent
         expr: routarr_metadata_quota_spent / routarr_metadata_quota_limit > 0.9
         labels:
@@ -111,7 +111,7 @@ groups:
           severity: critical
         annotations:
           summary: "Routarr reports an error: {{ $labels.code }}"
-          description: "Diagnostics says what stopped working and what to change."
+          description: "Diagnostics says what stopped working and what to change. A metadata source's probe counts a day."
       - alert: RoutarrDecisionsFailed
         expr: routarr_decisions_by_status{status="failed"} > 0
         for: 1h

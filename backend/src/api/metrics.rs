@@ -243,19 +243,35 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // A source never probed has no sample: not asked is not down.
-    let probed: Vec<(String, bool)> = sqlx::query_as(
-        "SELECT subject, reachable FROM probe_results WHERE subject GLOB 'source:*'",
-    )
+    // A source never probed, or not for a day, has no sample: not asked is not down.
+    let probed: Vec<(String, bool, String, bool)> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT subject, reachable, checked_at, {} FROM probe_results
+          WHERE subject GLOB 'source:*'",
+        crate::api::health::FRESH_SOURCE_VERDICT
+    )))
     .fetch_all(pool)
     .await?;
+    let sources = probed.iter().filter_map(|(subject, up, at, fresh)| {
+        Some((subject.strip_prefix("source:")?, up, at, fresh))
+    });
     families.push(Family {
         name: "routarr_metadata_source_up",
-        help: "1 when the last probe of this metadata source found it answering, 0 otherwise.",
-        samples: probed
-            .iter()
-            .filter_map(|(subject, up)| Some((subject.strip_prefix("source:")?, up)))
-            .map(|(source, up)| (source_label(source), if *up { 1.0 } else { 0.0 }))
+        help: "1 when the last probe of this metadata source, a day old at most, found it \
+               answering, 0 otherwise.",
+        samples: sources
+            .clone()
+            .filter(|(.., fresh)| **fresh)
+            .map(|(source, up, ..)| (source_label(source), if *up { 1.0 } else { 0.0 }))
+            .collect(),
+    });
+    families.push(Family {
+        name: "routarr_metadata_source_checked_timestamp_seconds",
+        help: "When this metadata source was last probed, as a Unix timestamp.",
+        samples: sources
+            .filter_map(|(source, _, at, _)| {
+                let at = crate::services::routing::parse_timestamp(at)?;
+                Some((source_label(source), at.timestamp() as f64))
+            })
             .collect(),
     });
 

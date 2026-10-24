@@ -1,21 +1,10 @@
 //! What a certification code means, where that is not in dispute.
 //!
-//! `U`, `TP` and `TV-PG` say nothing to most readers, and the panel that shows
-//! what the library holds would list them bare. It sits beside `language`
-//! because it answers the same kind of question (what a code stands for) and
-//! for the same reason: the rule is written against the code, and the name is
-//! only ever what is shown.
-//!
-//! Only codes whose meaning agrees across the systems that use them are named.
-//! `12` is twelve-and-over for the BBFC, the FSK and the CNC alike, so it is
-//! safe. `M` is fifteen-and-over in Australia and something else in the United
-//! States, so it is left bare. A wrong name on a right value is worse than no
-//! name: the value is what the engine matches, and the reader would trust the
-//! name.
-//!
-//! Where the system that issued a rating is known, its scale (a country code,
-//! or MAL for MyAnimeList's), a code it settles is named too: `R` is
-//! seventeen and over for the MPA and for MyAnimeList, eighteen in Canada.
+//! The rule is written against the code, the name is only shown. A code is named only where
+//! every system using it agrees (`12` is twelve and over for the BBFC, the FSK and the CNC),
+//! since a reader trusts a wrong name. A rating whose scale is known (a country code, or MAL)
+//! is named in that system: `R` is seventeen and over for the MPA and MyAnimeList, eighteen
+//! in Canada.
 
 /// What a code stands for, as a dictionary key and its parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,9 +61,8 @@ pub fn meaning(code: &str, scale: Option<&str>) -> Option<Meaning> {
         "TV-Y7" => Meaning::From(7),
         "PG-13" => Meaning::From(13),
         "TV-14" => Meaning::From(14),
-        // "An adult must be present under 17" in the American television
-        // system, the only one issuing it. `R` is left bare: the MPA's
-        // seventeen is Canada's eighteen.
+        // "An adult must be present under 17" in the American television system, the only one
+        // issuing it.
         "TV-MA" => Meaning::From(17),
         "NC-17" | "X" | "R18+" | "18+" => Meaning::From(18),
         "12A" => Meaning::From(12),

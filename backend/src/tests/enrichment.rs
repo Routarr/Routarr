@@ -107,9 +107,8 @@ async fn tmdb_s_score_is_cached_with_its_votes() {
     assert_eq!(stored, serde_json::json!({ "tmdb": { "value": 7.9, "votes": 1200 } }));
 }
 
-/// A v3 key travels as the `api_key` query parameter and a v4 token as a
-/// bearer, each only its own way: a v4 token in the query string is written
-/// into the access log of every mirror and proxy on the path.
+/// A v4 token in the query string would be written into the access log of every mirror and
+/// proxy on the path.
 #[tokio::test]
 async fn the_tmdb_credential_travels_the_way_its_kind_is_read() {
     const V4_TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl";
@@ -132,8 +131,6 @@ async fn the_tmdb_credential_travels_the_way_its_kind_is_read() {
     }
 }
 
-/// A 429's `Retry-After` of a second holds the next request back at least that long, followed
-/// from the wire to the next request (`rate_limit` tests the pacing arithmetic).
 #[tokio::test]
 async fn a_retry_after_from_the_source_holds_back_the_next_request() {
     let tmdb = FakeTmdb::throttling_once(1).await;
@@ -234,8 +231,7 @@ async fn certifications_and_countries_are_extracted() {
     assert!(series.3.contains("documentary"), "series keywords come under `results`");
 }
 
-/// A source's status is stored in the words the Arrs use: TMDB's "Released"
-/// for a film and "Ended" for a series read as Radarr and Sonarr write them.
+/// TMDB's "Released" and "Ended" read as Radarr and Sonarr write them.
 #[tokio::test]
 async fn a_status_is_stored_in_the_words_the_arrs_use() {
     let tmdb = FakeTmdb::start().await;
@@ -283,8 +279,7 @@ async fn one_failing_item_does_not_abort_the_pass() {
     assert_eq!(rows[0].0, 200, "the reachable item was still cached");
 }
 
-/// A title the source refuses for itself alone, with a 400, 410 or 422, is an
-/// answer: stored empty, and not asked again at every pass.
+/// A 400, 410 or 422 refuses that title alone, so it is stored empty.
 #[tokio::test]
 async fn a_title_the_source_refuses_is_not_asked_again_next_pass() {
     for status in [400, 410, 422] {
@@ -301,9 +296,7 @@ async fn a_title_the_source_refuses_is_not_asked_again_next_pass() {
     }
 }
 
-/// A source failing now and then is working: the breaker counts failures in
-/// a row, so one title in four refused over a pass costs those titles alone,
-/// not the rest of the pass.
+/// The breaker counts failures in a row, so one title in four refused costs those titles alone.
 #[tokio::test]
 async fn scattered_failures_do_not_abandon_a_working_source() {
     let ids: Vec<i64> = (100..132).collect();
@@ -321,8 +314,7 @@ async fn scattered_failures_do_not_abandon_a_working_source() {
     assert_eq!((report.enriched, report.failed), (ids.len() - refused.len(), refused.len()));
 }
 
-/// An answer that cannot be stored costs that one item, not the pass: the
-/// others are written as they arrive, and the next pass tries the failed one.
+/// The others are written as they arrive, and the next pass tries the failed one.
 #[tokio::test]
 async fn one_answer_that_cannot_be_stored_does_not_abort_the_pass() {
     let tmdb = FakeTmdb::start().await;
@@ -397,8 +389,7 @@ async fn media_without_an_external_id_is_skipped() {
     assert!(tmdb.recorded().paths.is_empty());
 }
 
-/// TMDB listed with no key is asked nothing: every request would be refused.
-/// The same library with a key is asked, the control.
+/// Every request would be refused. The same library with a key is the control.
 #[tokio::test]
 async fn enrichment_is_a_no_op_without_an_api_key() {
     let tmdb = FakeTmdb::start().await;
@@ -504,14 +495,14 @@ async fn enriched_metadata_reaches_the_rule_engine() {
     assert_eq!(after.decisions[0].target_root_folder.as_deref(), Some("/movies/anime"));
 }
 
-/// A 404 says TMDB does not have that title, and nothing about the next one:
-/// ten unknown titles in a row leave the eleventh to be asked and stored.
+/// A 404 from a TMDB that answers other titles says it does not have that title, and nothing
+/// about the next one: ten unknown titles in a row leave the twelfth to be asked and stored.
 #[tokio::test]
 async fn titles_tmdb_does_not_have_never_cut_it_off() {
-    let unknown: Vec<i64> = (1..=10).collect();
+    let unknown: Vec<i64> = (2..=11).collect();
     let tmdb = FakeTmdb::with(unknown.clone(), vec![]).await;
     let mut items: Vec<(i64, &str, i64)> = unknown.iter().map(|id| (*id, "movie", *id)).collect();
-    items.push((11, "movie", 500));
+    items.extend([(1, "movie", 1), (12, "movie", 500)]);
     let app = library(&tmdb, &items).await;
 
     let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
@@ -520,17 +511,16 @@ async fn titles_tmdb_does_not_have_never_cut_it_off() {
 
     assert_eq!(report.skipped, 0, "{report:?}");
     let asked = tmdb.recorded().paths.clone();
-    assert_eq!(asked.len(), 11, "{asked:?}");
+    assert_eq!(asked.len(), 12, "{asked:?}");
     // Each answered, ten of them with nothing.
-    assert_eq!(report.enriched, 11, "{report:?}");
+    assert_eq!(report.enriched, 12, "{report:?}");
     let described: Vec<i64> =
         cached(&app).await.into_iter().filter(|row| row.2 != "[]").map(|row| row.0).collect();
-    assert_eq!(described, [500]);
+    assert_eq!(described, [1, 500]);
 }
 
-/// TMDB down answers every title alike: the fetching stage stops at the
-/// breaker, five refusals and the requests then in flight, instead of asking
-/// once per title, and leaves the rest to the next pass.
+/// TMDB down answers every title alike, so the pass stops at the breaker and leaves the rest to
+/// the next one.
 #[tokio::test]
 async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     let tmdb = FakeTmdb::down(503).await;
@@ -548,9 +538,8 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     assert!(report.skipped > 0, "{report:?}");
 }
 
-/// A cached answer lives `metadata_cache_ttl_days` as set when a pass reads it, seven unset,
-/// and a TMDB one six months at most, as its terms require. Lowering the setting refreshes the
-/// answers already cached, or a stale one outlives it by months.
+/// A TMDB answer lives six months at most, as its terms require, and lowering the setting
+/// refreshes what is cached, or a stale answer outlives it by months.
 #[tokio::test]
 async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
     for (setting, days) in [(None, 7), (Some("1"), 1), (Some("365"), 180)] {
@@ -578,8 +567,6 @@ async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
     }
 }
 
-/// A title TMDB does not have is an answer like any other: cached for the
-/// cache's lifetime, so the next pass does not ask again.
 #[tokio::test]
 async fn a_title_tmdb_does_not_have_is_not_asked_again_next_pass() {
     let tmdb = FakeTmdb::with(vec![7], vec![]).await;

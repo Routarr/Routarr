@@ -173,6 +173,14 @@ pub fn masked(address: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// The address as a person reads it, of a file somebody else publishes: its credentials masked
+/// and its query cut, where a token travels.
+pub fn for_display(address: &str) -> String {
+    let masked = masked(address);
+    let end = masked.find(['?', '#']).unwrap_or(masked.len());
+    masked[..end].to_string()
+}
+
 /// The address without its credentials, for what leaves the installation.
 pub fn without_credentials(address: &str) -> std::borrow::Cow<'_, str> {
     match credentials(address) {

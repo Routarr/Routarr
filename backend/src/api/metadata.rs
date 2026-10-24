@@ -1,10 +1,5 @@
-//! The metadata sources this build knows about, and a refresh of what they
-//! answered.
-//!
-//! The Settings screen needs the whole catalogue, not just the enabled part:
-//! a source can only be added back to the priority list if the interface knows
-//! it exists. The order itself is an ordinary setting (`metadata_providers`),
-//! saved through `PUT /settings` like everything else.
+//! The metadata sources this build knows about, enabled or not, and a refresh of what they
+//! answered. The order is the `metadata_providers` setting, saved through `PUT /settings`.
 
 use super::Json;
 use axum::extract::State;
@@ -95,7 +90,7 @@ pub async fn import_anime_ids(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> AppResult<Response> {
-    let entries = anime_ids::read_file(&state, &body).await?;
+    let entries = anime_ids::read_file(&state, body.into()).await?;
     let by = identity.attribution();
     let task_state = state.clone();
     let work =
@@ -112,9 +107,8 @@ pub struct RefreshRequest {
     pub media_id: Option<String>,
 }
 
-/// Ask the sources again, as a task. A title is asked at once, its search
-/// matches forgotten; a source or everything is marked due and read by a
-/// pass, refused while one runs.
+/// Ask the sources again, as a task. A title is asked at once, its search matches forgotten.
+/// A source or everything is marked due and read by a pass, refused while one runs.
 pub async fn refresh(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
