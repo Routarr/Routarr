@@ -1,8 +1,4 @@
 //! The settings Routarr knows, and what each one may hold.
-//!
-//! Below the handlers: both writers of the settings table (`PUT /settings` and
-//! `POST /config/import`) validate through it, and the startup sweeps of
-//! `maintenance`, a service, read its bounds and its sealed keys.
 
 use crate::error::{AppError, AppResult};
 use crate::localization::Localizer;
@@ -17,21 +13,16 @@ const MAX_RETENTION_DAYS: i64 = 3_650;
 /// the number of archives a disk has to hold.
 const MAX_BACKUPS_KEPT: i64 = 50;
 
-/// Settings Routarr knows about, with the validation each one requires.
-///
-/// An unknown key is rejected rather than silently stored: a typo like
-/// `global_dryrun` would otherwise look saved while dry-run stayed on.
+/// Settings Routarr knows about, with the validation each one requires. An unknown key is
+/// refused: a typo like `global_dryrun` would look saved while dry run stayed on.
 const KNOWN: &[(&str, Kind, &str)] = &[
     ("default_category", Kind::Category, crate::state::DEFAULT_CATEGORY),
     ("global_dry_run", Kind::Bool, "true"),
     ("auto_sync_enabled", Kind::Bool, "true"),
     ("auto_simulate_enabled", Kind::Bool, "true"),
     ("auto_apply_enabled", Kind::Bool, "false"),
-    // Every count is bounded on both sides: a number that decides how long a
-    // list gets and how much disk it costs is not special to backups.
-    // Unbounded, each of these has a value that reads as "off" while the
-    // interface reports it as set: an interval of a million hours is a backup
-    // that never runs.
+    // Every count is bounded on both sides: unbounded, each has a value that reads as set and
+    // behaves as off, as a backup every million hours.
     ("batch_limit", Kind::Bounded(1, 1_000), "50"),
     ("confirmation_threshold", Kind::Bounded(1, 10_000), "10"),
     // Ten years. Past that the intent is "never expire", which should be said
@@ -45,8 +36,7 @@ const KNOWN: &[(&str, Kind, &str)] = &[
     // Off until somebody turns it on: the download is a request to a third party.
     ("anime_ids_weekly", Kind::Bool, "false"),
     ("backup_enabled", Kind::Bool, "true"),
-    // A week, which is what `jobs::scheduler` clamps this to when it reads it.
-    // A wider bound would let the interface accept a number that is silently
+    // A week, which `jobs::scheduler` clamps it to: a wider bound would show a number that is
     // not the one running.
     ("backup_interval_hours", Kind::Bounded(1, 24 * 7), "24"),
     ("backup_retention_count", Kind::Retention(1, MAX_BACKUPS_KEPT), "7"),
@@ -59,9 +49,7 @@ const KNOWN: &[(&str, Kind, &str)] = &[
     ("decision_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS), "30"),
     ("log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS), "90"),
     ("security_log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS), "365"),
-    // The same bounds the scheduler clamps to when it reads this. The clamp
-    // stays (it is the guard), but refusing here means the number on screen is
-    // the number that runs, instead of one silently ignored.
+    // The bounds the scheduler clamps it to, as for `backup_interval_hours`.
     ("scheduler_interval_minutes", Kind::Bounded(1, 24 * 60), "15"),
     ("certification_regions", Kind::CountryList, "US"),
     ("notification_webhook_url", Kind::WebhookUrl, ""),
@@ -75,14 +63,8 @@ const KNOWN: &[(&str, Kind, &str)] = &[
     // Whether the getting-started guide is still wanted. Written by
     // `PUT /onboarding`, listed here so a configuration bundle carries it.
     ("onboarding", Kind::Onboarding, "pending"),
-    // The metadata credentials. Sealed on the way in and never returned, the
-    // same posture as an Arr's key, which is the *more* dangerous of the two,
-    // since it writes to the library while these only read.
-    //
-    // Each key is named `<id>_api_key` after its source's id in
-    // `metadata::PROVIDERS`: `AppState::provider_key_from` and the check that
-    // refuses a source without its key build that name, so a key stored under
-    // any other is never read.
+    // Each key is named `<id>_api_key` after its source's id in `metadata::PROVIDERS`, the name
+    // `AppState::provider_key_from` builds: a key stored under any other is never read.
     ("tmdb_api_key", Kind::Secret, ""),
     ("omdb_api_key", Kind::Secret, ""),
     ("tvdb_api_key", Kind::Secret, ""),
@@ -94,10 +76,6 @@ const KNOWN: &[(&str, Kind, &str)] = &[
 ];
 
 /// What a setting's value has to be, and therefore how it is validated.
-///
-/// One variant per shape rather than a free-form validator per key: the table
-/// above then reads as a list of settings, and the reason for a bound sits
-/// beside the setting it bounds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Kind {
     Bool,
@@ -109,15 +87,12 @@ enum Kind {
     /// A passphrase a person chose, sealed like a `Secret`, and set only
     /// through its own route.
     Passphrase,
-    /// A whole number within an inclusive range, both ends stated at the table
-    /// above so the reason for each ceiling sits beside the setting it bounds.
-    /// Converged at startup when stored outside the range, by
-    /// `maintenance::converge_setting_bounds`.
+    /// A whole number within an inclusive range, converged into it at startup
+    /// (`maintenance::converge_setting_bounds`).
     Bounded(i64, i64),
-    /// A count of things kept: bounded on save like `Bounded`, raised to its
-    /// floor at startup like `Bounded`, and never lowered by one. Lowering it
-    /// removes what is beyond it, so nothing but the operator's own save may,
-    /// and `offline_warnings` names a stored value above the ceiling until then.
+    /// A count of things kept, bounded on save like `Bounded` and raised to its floor at startup,
+    /// but never lowered by a start: lowering it removes what is beyond it. `offline_warnings`
+    /// names a stored value above the ceiling.
     Retention(i64, i64),
     Category,
     CountryList,
@@ -139,8 +114,7 @@ impl Kind {
         matches!(self, Kind::Secret | Kind::WebhookUrl | Kind::Passphrase)
     }
 
-    /// The inclusive range a value must sit in to be saved, if it is a number
-    /// with one. The one place the two ranged kinds are read alike.
+    /// The inclusive range a value must sit in to be saved, if it is a number with one.
     fn range(self) -> Option<(i64, i64)> {
         match self {
             Kind::Bounded(min, max) | Kind::Retention(min, max) => Some((min, max)),
@@ -148,20 +122,14 @@ impl Kind {
         }
     }
 
-    /// Whether a start may *lower* a stored value into its range. Raising is
-    /// always safe (a floor of one keeps more, not less), while lowering a
-    /// retention count removes what is beyond it.
+    /// Whether a start may lower a stored value into its range (see [`Kind::Retention`]).
     fn lowered_at_startup(self) -> bool {
         matches!(self, Kind::Bounded(..))
     }
 }
 
-/// Whether a value may be stored under this key.
-///
-/// The settings table has a second writer, `POST /config/import`, which writes
-/// it from a bundle. Both go through this, or the bundle becomes a way to store
-/// what the API refuses: a `default_category` naming a category that does not
-/// exist, a source list without `arr`, a theme nothing renders.
+/// Whether a value may be stored under this key. `POST /config/import` goes through it too, or a
+/// bundle would store what `PUT /settings` refuses.
 pub fn check(
     key: &str,
     value: &str,
@@ -182,18 +150,14 @@ pub fn default_of(key: &str) -> &'static str {
     KNOWN.iter().find(|(k, _, _)| *k == key).map_or("", |(_, _, default)| *default)
 }
 
-/// Whether `key` holds a category's name, which its writers store in the
-/// form category names take before this module compares it.
+/// Whether `key` holds a category's name, which its writers normalise before [`check`]
+/// compares it.
 pub fn names_a_category(key: &str) -> bool {
     KNOWN.iter().any(|(k, kind, _)| *k == key && matches!(kind, Kind::Category))
 }
 
-/// The label a setting is shown under, for a refusal or a warning that names
-/// it.
-///
-/// The settings an operator types and only the server checks, and the
-/// retentions a warning names above their ceiling: the others are chosen from
-/// a list, or held to their bounds by the form before a save.
+/// The label a setting is shown under, for a refusal or a warning that names it: only those the
+/// form cannot check itself, and the retentions a warning names.
 fn label(key: &str) -> &str {
     match key {
         "notification_webhook_url" => "SettingNotificationWebhook",
@@ -206,14 +170,9 @@ fn label(key: &str) -> &str {
     }
 }
 
-/// The range a `Bounded` key is converged into, if it is one.
-///
-/// Read by the startup sweep that converges values stored outside their bound:
-/// `PUT /settings` validates the whole payload and the Settings screen always
-/// sends every field, so one out-of-range value left in the table blocks
-/// *every* save, with an error naming a field in a tab the operator never
-/// opened. A `Retention` count answers its floor and no ceiling: raised like
-/// any other, never lowered by a start.
+/// The range a ranged key is converged into at startup, a `Retention` count answering no
+/// ceiling. Left out of range, one value would block every save of the Settings screen, which
+/// sends every field.
 pub fn bounds(key: &str) -> Option<(i64, i64)> {
     KNOWN.iter().find(|(k, _, _)| *k == key).and_then(|(_, kind, _)| {
         let (min, max) = kind.range()?;
@@ -230,9 +189,7 @@ pub fn retention_counts() -> impl Iterator<Item = (&'static str, &'static str, i
     })
 }
 
-/// Every ranged key: its save range, and whether a start may lower it. Only a
-/// test asks, so the matrix test reads the table as `bounds` does rather than
-/// naming the keys it happens to know.
+/// Every ranged key: its save range, and whether a start may lower it, for the tests.
 #[cfg(test)]
 pub fn ranged_keys() -> Vec<(&'static str, i64, i64, bool)> {
     KNOWN
@@ -243,10 +200,7 @@ pub fn ranged_keys() -> Vec<(&'static str, i64, i64, bool)> {
         .collect()
 }
 
-/// Whether this key holds a sealed value.
-///
-/// Sealed with a master key one installation holds, so it is meaningless
-/// anywhere else: a bundle must neither carry it nor accept it.
+/// Whether this key holds a sealed value, which a bundle neither carries nor accepts.
 pub fn is_secret(key: &str) -> bool {
     KNOWN.iter().any(|(k, kind, _)| *k == key && kind.sealed())
 }
@@ -275,12 +229,8 @@ fn validate(
     };
 
     match kind {
-        // Nothing to check beyond a shape nobody can predict: TMDB accepts a v3
-        // key or a v4 token, OMDb an eight-character string, TheTVDB a UUID
-        // and a PIN of its own making.
-        // A pattern guessed here would reject a credential the provider accepts,
-        // which is worse than letting the source report that it cannot connect,
-        // and the diagnostics screen already probes each one.
+        // Unchecked: TMDB takes a v3 key or a v4 token, OMDb eight characters, TheTVDB a UUID and a
+        // PIN, and the diagnostics screen probes each one.
         Kind::Secret => {}
         // Set on its own, with the proof a session gives and the archives
         // converted to it (`api::backup::set_passphrase`).
@@ -288,10 +238,8 @@ fn validate(
             return Err(bad(format!("'{key}' is set with PUT /api/v1/backups/passphrase")));
         }
         Kind::WebhookUrl => {
-            // Empty means "no notifications", which is the default and not an
-            // error. Anything else has to be a URL we could actually POST to:
-            // a typo here fails silently in the background, where nobody sees
-            // it, which is precisely what this feature exists to prevent.
+            // Empty turns notifications off. Anything else must be an address a POST can reach:
+            // a typo would fail in the background, where nobody sees it.
             let usable = value.is_empty()
                 || reqwest::Url::parse(value).is_ok_and(|url| {
                     matches!(url.scheme(), "http" | "https")
@@ -306,10 +254,6 @@ fn validate(
                 return Err(bad(format!("'{key}' must be 'true' or 'false'")));
             }
         }
-        // Bounded on both sides. A floor alone accepts "keep 10 000 backups",
-        // whose card grows without end and whose disk fills with the very thing
-        // meant to protect it, and accepts a backup interval of a million
-        // hours, which reads as configured and never runs.
         Kind::Bounded(min, max) | Kind::Retention(min, max) => {
             let n: i64 =
                 value.parse().map_err(|_| bad(format!("'{key}' must be a whole number")))?;
@@ -357,10 +301,8 @@ fn validate(
             }
         }
         Kind::ProviderList => {
-            // An unknown id is a typo, and a silently ignored typo would look
-            // like a source that simply never answers. `arr` cannot be left
-            // out: its data arrives with the synchronisation at no cost, and a
-            // list without it makes every metadata rule dead.
+            // An ignored typo would pass for a source that never answers. `arr` is required: its
+            // data comes with the sync at no cost.
             let ids: Vec<&str> =
                 value.split(',').map(str::trim).filter(|v| !v.is_empty()).collect();
             for (at, id) in ids.iter().enumerate() {
@@ -402,11 +344,6 @@ mod tests {
         assert!(validate("global_dry_run", "yes", Kind::Bool, &[], &Localizer::new("en")).is_err());
     }
 
-    /// Every ranged setting takes its bounds and refuses past either side,
-    /// and what is not a whole number. Without a ceiling each count has a
-    /// value that reads as configured and behaves as off: a backup every
-    /// million hours, a cache that never expires, a retention SQLite's date
-    /// arithmetic runs past.
     #[test]
     fn every_ranged_setting_takes_its_bounds_and_nothing_past_them() {
         let english = Localizer::new("en");
@@ -422,8 +359,6 @@ mod tests {
         }
     }
 
-    /// Each default is a value its own setting accepts, so falling back to
-    /// it never reads as a value the screen would refuse.
     #[test]
     fn every_setting_has_one_default_that_its_own_validation_accepts() {
         for (key, kind, default) in KNOWN {
@@ -466,7 +401,6 @@ mod tests {
     fn the_theme_is_one_of_three_states() {
         assert!(validate("ui_theme", "dark", Kind::Theme, &[], &Localizer::new("en")).is_ok());
         assert!(validate("ui_theme", "light", Kind::Theme, &[], &Localizer::new("en")).is_ok());
-        // `auto` follows the operating system, and an explicit choice overrides it.
         assert!(validate("ui_theme", "auto", Kind::Theme, &[], &Localizer::new("en")).is_ok());
         assert!(validate("ui_theme", "midnight", Kind::Theme, &[], &Localizer::new("en")).is_err());
         assert!(validate("ui_theme", "", Kind::Theme, &[], &Localizer::new("en")).is_err());
@@ -504,8 +438,7 @@ mod tests {
         );
     }
 
-    /// A client drawing one row per source, keyed by its id, cannot draw one
-    /// twice, and an order gains nothing from a repeat.
+    /// The interface draws one row per source, keyed by its id.
     #[test]
     fn a_source_listed_twice_is_refused() {
         assert!(

@@ -11,25 +11,35 @@ use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::{AuthMode, Config};
-use crate::listener::{fired, stop_on};
+use crate::listener::{fired, stop_on, until_stopped};
 use crate::state::AppState;
 use crate::{api, commands, db, error, http, jobs, listener, services};
 
-#[tokio::main]
-pub async fn main() -> std::process::ExitCode {
-    match run().await {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            // In one sentence, never Rust's dump of the error: through the log
-            // once it is set up, so a JSON log keeps the line, else on stderr.
-            if tracing::dispatcher::has_been_set() {
-                log_error!("{error}");
-            } else {
-                eprintln!("Error: {error}");
-            }
-            std::process::ExitCode::FAILURE
+pub fn main() -> std::process::ExitCode {
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("Error: the runtime cannot start: {e}");
+            return std::process::ExitCode::FAILURE;
         }
-    }
+    };
+    let code = runtime.block_on(async {
+        match run().await {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                // In one sentence, never Rust's dump of the error: through the log
+                // once it is set up, so a JSON log keeps the line, else on stderr.
+                if tracing::dispatcher::has_been_set() {
+                    log_error!("{error}");
+                } else {
+                    eprintln!("Error: {error}");
+                }
+                std::process::ExitCode::FAILURE
+            }
+        }
+    });
+    listener::end(runtime, listener::ABANDON);
+    code
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -86,7 +96,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .display()
     );
 
-    let (api_key, pool, secrets) = crate::open_storage(&config).await?;
+    // Heard from here on, so a stop asked while the start archives or migrates ends it.
+    let (stopping, hurrying) = stop_on(shutdown_signal(), shutdown_signal());
+    let Some(storage) = until_stopped(crate::open_storage(&config), stopping.clone()).await else {
+        info!("Routarr stopped before its database was open");
+        return Ok(());
+    };
+    let (api_key, pool, secrets) = storage?;
     let job_registry = jobs::JobRegistry::new(pool.clone());
     job_registry.recover_orphans().await?;
 
@@ -109,13 +125,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         key_rates: Arc::default(),
         route_misses: Arc::default(),
         last_probe: Arc::default(),
+        backup_copy_written: Arc::default(),
         config: Arc::new(config),
     };
 
-    services::maintenance::converge(&state).await?;
-    api::categories::converge_names(&state).await?;
-    // What a conversion interrupted by the last stop left in the clear.
-    services::backup::resume_sealing(&state).await;
+    match until_stopped(converge(&state), stopping.clone()).await {
+        Some(converged) => converged?,
+        None => {
+            db::checkpoint_and_close(&state.pool).await;
+            info!("Routarr stopped before it served");
+            return Ok(());
+        }
+    }
     // The archive a migration took, and those a share asleep missed, copied away.
     let started = jobs::Attribution::unattended(jobs::TRIGGER_SCHEDULE);
     services::backup::copy_in_background(&state, started);
@@ -130,8 +151,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Stopped before the pool closes: SQLite will not truncate a WAL another
     // connection is writing, which is what a sweep in flight is doing. Told
     // with the server, so no pass starts while the requests drain.
-    let (stopping, hurrying) = stop_on(shutdown_signal(), shutdown_signal());
     let scheduler = jobs::scheduler::start(state.clone(), stopping.clone());
+    state.jobs.close_when(fired(stopping.clone()));
 
     let bind_addr = state.config.bind_address();
     // Kept past `build_router`, which consumes the state: the pool closes once the server and
@@ -159,18 +180,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
-    // Bounded to fit the Compose file's 30-second grace with the drain: past it SQLite rolls a
-    // sweep back and only the WAL truncation is lost. A second signal stops waiting.
+    // Fits the drain and this wait in the Compose file's 20 seconds of its 30-second grace: past
+    // it a sweep rolls back and only the WAL truncation is lost. A second signal stops waiting.
     let waits = async {
         tokio::join!(
-            jobs.drain(std::time::Duration::from_secs(20)),
+            jobs.wait(std::time::Duration::from_secs(15)),
             tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
         )
     };
     tokio::select! {
         (drained, scheduler) = waits => {
             if !drained {
-                warn!("Moves were still being recorded after 20s, closing the database anyway");
+                warn!("Moves were still being recorded after 15s, closing the database anyway");
             }
             if scheduler.is_err() {
                 warn!("The scheduler did not stop within 10s, closing the database anyway");
@@ -185,6 +206,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
     info!("Routarr stopped cleanly");
+    Ok(())
+}
+
+/// What a start does once the database is open and before it serves, each step left as safe
+/// by a stop as by a kill: a step cut short is done again at the next start.
+async fn converge(state: &AppState) -> error::AppResult<()> {
+    services::maintenance::converge(state).await?;
+    api::categories::converge_names(state).await?;
+    // What a conversion interrupted by the last stop left in the clear.
+    services::backup::resume_sealing(state).await;
     Ok(())
 }
 

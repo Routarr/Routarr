@@ -419,9 +419,6 @@ async fn delete_older_than(pool: &SqlitePool, sql: &'static str, days: i64) -> A
 
 #[cfg(test)]
 mod tests {
-
-    /// A reverted decision is `skipped` and carries its `move` and `revert` logs, which hold it
-    /// by a foreign key with no `ON DELETE`: deleting it would fail the whole maintenance run.
     #[tokio::test]
     async fn a_decision_that_caused_a_write_does_not_break_the_purge() {
         let state = crate::state::AppState::for_tests().await;
@@ -487,8 +484,6 @@ mod tests {
         .unwrap();
     }
 
-    /// A reverted move and a failed one are named by their execution logs, so they stay as long
-    /// as the logs do, whatever the decision retention, and go in the pass that removes the last.
     #[tokio::test]
     async fn a_reverted_or_failed_move_goes_in_the_pass_that_removes_its_log() {
         let state = crate::state::AppState::for_tests().await;
@@ -543,8 +538,6 @@ mod tests {
         assert_eq!(kept().await, 0, "a move outlived the log that named it");
     }
 
-    /// A superseded proposal carries no history and goes at once, a decision
-    /// retention of 0, which keeps the rest, included.
     #[tokio::test]
     async fn superseded_pending_decisions_are_purged_immediately() {
         for retention in ["30", "0"] {
@@ -694,8 +687,7 @@ mod tests {
         .unwrap()
     }
 
-    /// A source addressed by search caches under its own id, which only `source_identifiers`
-    /// ties to the library. The orphan beside it is the control: a purge keeping all would pass.
+    /// The orphan beside it is the control: a purge keeping every row would pass.
     #[tokio::test]
     async fn metadata_resolved_by_search_survives_the_purge() {
         let state = AppState::for_tests().await;
@@ -732,9 +724,6 @@ mod tests {
         );
     }
 
-    /// TMDB's terms forbid keeping its answers past six months: one cached
-    /// longer goes though its title is still in the library, and another
-    /// source's stays at any age.
     #[tokio::test]
     async fn a_tmdb_answer_older_than_six_months_goes_whatever_names_it() {
         let state = AppState::for_tests().await;
@@ -816,8 +805,6 @@ mod tests {
         );
     }
 
-    /// A resolution whose library key names no media any more would keep its
-    /// cache row alive for ever, so it is pruned first and the cache follows.
     #[tokio::test]
     async fn a_search_resolution_for_vanished_media_is_dropped_with_its_cache() {
         let state = AppState::for_tests().await;
@@ -862,9 +849,6 @@ mod tests {
         assert_eq!(cache_rows(&state).await, vec![("anilist".into(), "47".into())]);
     }
 
-    /// Deleting an instance takes its media with it, but `decisions` has no
-    /// foreign key, so its unresolved proposals would otherwise sit in the
-    /// pending count for ever, un-appliable and never superseded.
     #[tokio::test]
     async fn a_proposal_for_media_that_no_longer_exists_is_dropped() {
         let state = AppState::for_tests().await;

@@ -78,9 +78,11 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   until the next restart and no further. A leaked key is therefore revoked in a
   click rather than a maintenance window, and the sessions it opened end with it.
 - **A session proves itself again before it makes a key.** Replacing or
-  withdrawing the API key and making an application key ask for the current
+  withdrawing the API key, making an application key and downloading a backup
+  archive, which carries the master key and the API key, ask for the current
   password in `forms` and for the key in `apikey`: a session left open on a
-  shared machine would otherwise make a key that outlives it. A wrong password
+  shared machine would otherwise make a key that outlives it, or carry the
+  existing ones away. A wrong password
   counts toward the wait of its address, as a failed sign-in does. In `oidc` the
   sign-in has to be less than ten minutes old, and an older one is sent back to
   the provider with `max_age=0`, whose `auth_time` is then checked. A key sent
@@ -259,12 +261,13 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   made before the passphrase was set stays as readable as it was.
 - **A restore brings back no credential withdrawn since the backup.** An
   application key revoked, a signing secret replaced, the master API key
-  rotated or the password changed stay as they are today, and every session
-  the archive held is closed. Going back to last night undoes the damage of a
-  leaked key, not its revocation. The database and master key a restore
-  replaces are kept beside them, as `routarr.db.pre-restore` and
-  `routarr.key.pre-restore`, until the next restore: the key copy is as secret
-  as the key.
+  rotated, the password changed or an instance's webhook token rotated stay as
+  they are today, and every session the archive held is closed. Going back to
+  last night undoes the damage of a leaked key, not its revocation. The master
+  key a restore replaces is deleted as the restore is applied, since a key
+  withdrawn on purpose must not survive on disk. The database it replaces is
+  kept beside the restored one, as `routarr.db.pre-restore`, and listed on the
+  Backups card until it is deleted there or the next restore replaces it.
 - **The application makes no outbound request nobody asked for.** No telemetry,
   no fonts from a CDN, no analytics. Every response carries a CSP whose
   `connect-src` is `'self'`.

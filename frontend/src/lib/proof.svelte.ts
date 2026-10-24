@@ -17,8 +17,16 @@ import { t } from './i18n.svelte';
 /** What the dialog asks for. */
 export type Asked = 'password' | 'key' | 'passphrase';
 
+/** What the proof is for, which the dialog's help says: a key to make or withdraw, or an archive. */
+export type Purpose = 'key' | 'archive';
+
 /** `note`, when there is one, is said in place of the help: why it asks again. */
-type Request = { asked: Asked; note?: string; resolve: (value: string | null) => void };
+type Request = {
+  asked: Asked;
+  note?: string;
+  purpose?: Purpose;
+  resolve: (value: string | null) => void;
+};
 
 const state = $state<{ request: Request | null }>({ request: null });
 
@@ -35,10 +43,10 @@ export function settleProof(value: string | null): void {
   pending?.resolve(value);
 }
 
-function ask(asked: Asked, note?: string): Promise<string | null> {
+function ask(asked: Asked, note?: string, purpose?: Purpose): Promise<string | null> {
   state.request?.resolve(null);
   return new Promise((resolve) => {
-    state.request = { asked, note, resolve };
+    state.request = { asked, note, purpose, resolve };
   });
 }
 
@@ -56,15 +64,18 @@ export function signInAgainUrl(screen: string): string {
 }
 
 /**
- * Send a write that touches a key, with the proof the mode asks for. `null` is
- * a proof declined, or a sign-in at the provider the person chose to make
- * first, which leaves the page.
+ * Send a write that touches a key, or a download of an archive, with the proof the
+ * mode asks for. `null` is a proof declined, or a sign-in at the provider the person
+ * chose to make first, which leaves the page.
  */
-export async function withProof<T>(send: (proof: Proof) => Promise<T>): Promise<T | null> {
+export async function withProof<T>(
+  send: (proof: Proof) => Promise<T>,
+  purpose: Purpose = 'key',
+): Promise<T | null> {
   const mode = (await api.authMode()).mode;
   let proof: Proof = {};
   if (mode === 'forms' || mode === 'apikey') {
-    const typed = await ask(mode === 'forms' ? 'password' : 'key');
+    const typed = await ask(mode === 'forms' ? 'password' : 'key', undefined, purpose);
     if (typed === null) return null;
     proof = mode === 'forms' ? { current_password: typed } : { current_key: typed };
   }

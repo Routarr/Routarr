@@ -247,7 +247,8 @@ async function exchange<T>(
   const page = read !== readBlob && (res.headers?.get?.('content-type') ?? '').includes('html');
   if (res.redirected || page) throw new ApiError('', res.status, 'unexpected_answer', requestId);
 
-  if (res.status === 204) return undefined as T;
+  // A 202 that only starts work, as taking the backup copy folder does, carries no body.
+  if (res.status === 204 || res.headers?.get?.('content-length') === '0') return undefined as T;
   return read(res);
 }
 
@@ -702,8 +703,17 @@ export const api = {
       method: 'POST',
       body: body(passphrase === undefined ? {} : { passphrase }),
     }),
-  /** The archive carries the master key, so it is never reachable without one. */
-  downloadBackup: (name: string) => download(`/backups/${encodeURIComponent(name)}`),
+  /** The archive carries the master key and the API key, so a session sends its proof. */
+  downloadBackup: (name: string, proof: Proof) =>
+    request<Blob>(
+      `/backups/${encodeURIComponent(name)}/download`,
+      { method: 'POST', body: body(proof) },
+      readBlob,
+    ),
+  /** Withdraw the restore staged for the next start. */
+  withdrawRestore: () => request<unknown>('/backups/restore', { method: 'DELETE' }),
+  deleteReplacedDatabase: () =>
+    request<unknown>('/backups/replaced-database', { method: 'DELETE' }),
   updateSettings: (settings: Settings) =>
     request<unknown>('/settings', { method: 'PUT', body: body({ settings }) }),
   getOnboarding: (signal?: AbortSignal) => request<OnboardingStatus>('/onboarding', { signal }),

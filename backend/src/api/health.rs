@@ -57,7 +57,7 @@ pub struct Warning {
     /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
     /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,
     /// `webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,
-    /// `deprecated_api_called` or `removal_held`. The list may grow.
+    /// `deprecated_api_called`, `removal_held` or `restore_pending`. The list may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -808,13 +808,14 @@ async fn offline_warnings(
             warnings.push(Warning::new("backup_copy_failed", message));
         }
     }
+    if let Some(pending) = crate::services::backup::pending_restore(&state.config) {
+        let message = localizer.translate("WarnRestorePending", &[("name", &pending.name)]);
+        warnings.push(Warning::new("restore_pending", message));
+    }
     if let Some(free) = data_disk_low(&state.config) {
-        let free =
-            crate::localization::human_bytes(i64::try_from(free).unwrap_or(i64::MAX), localizer);
-        warnings.push(Warning::new(
-            "data_disk_low",
-            localizer.translate("WarnDataDiskLow", &[("free", &free)]),
-        ));
+        let replaced = crate::services::backup::replaced_database(&state.config);
+        let message = disk_low_message(free, replaced.map(|kept| kept.size_bytes), localizer);
+        warnings.push(Warning::new("data_disk_low", message));
     }
 
     // Never clamped: lowering a retention count deletes, which only the operator's save may do.
@@ -1182,10 +1183,18 @@ async fn backup_overdue(state: &AppState, hours: i64) -> AppResult<bool> {
 fn data_disk_low(config: &crate::config::Config) -> Option<u64> {
     let free = fs4::available_space(&config.data_dir).ok()?;
     let database = std::fs::metadata(&config.db_path).map(|meta| meta.len()).unwrap_or(0);
-    disk_is_low(free, database).then_some(free)
+    crate::services::backup::disk_is_low(free, database).then_some(free)
 }
 
-/// Fewer bytes free than twice the database and 100 MiB.
-pub(crate) fn disk_is_low(free: u64, database: u64) -> bool {
-    free < database.saturating_mul(2).saturating_add(100 * 1024 * 1024)
+/// What the low disk warning says, `replaced` the size of the database a restore set aside.
+pub(crate) fn disk_low_message(free: u64, replaced: Option<u64>, localizer: &Localizer) -> String {
+    let bytes =
+        |n: u64| crate::localization::human_bytes(i64::try_from(n).unwrap_or(i64::MAX), localizer);
+    match replaced {
+        Some(size) => localizer.translate(
+            "WarnDataDiskLowReplaced",
+            &[("free", &bytes(free)), ("size", &bytes(size))],
+        ),
+        None => localizer.translate("WarnDataDiskLow", &[("free", &bytes(free))]),
+    }
 }

@@ -1,10 +1,8 @@
 //! Accepting connections, and serving each one with a deadline on its headers.
 //!
-//! The port is often published straight to the network with no proxy in
-//! front. A peer that opens connections and never finishes their headers
-//! would otherwise hold a task and a descriptor each, until the process runs
-//! out of descriptors and stops answering everyone. A body sent a byte at a
-//! time is bounded by [`crate::BODY_DEADLINE`], which sits with the other layers.
+//! The port is often published straight to the network: a peer that never finishes its
+//! headers would hold a task and a descriptor each until none are left. A slow body is
+//! bounded by [`crate::BODY_DEADLINE`].
 
 use std::future::Future;
 use std::net::SocketAddr;
@@ -142,5 +140,27 @@ pub fn stop_on(
 pub async fn fired(mut flag: tokio::sync::watch::Receiver<bool>) {
     if flag.wait_for(|raised| *raised).await.is_err() {
         std::future::pending::<()>().await;
+    }
+}
+
+/// How long the process waits, once its work is done, for the blocking threads still running:
+/// a copy blocked on a share that hangs never ends, and the process ends without it.
+pub const ABANDON: Duration = Duration::from_secs(2);
+
+/// End the process's runtime, giving its blocking threads `grace` and no more. A runtime merely
+/// dropped waits for every one of them without end.
+pub fn end(runtime: tokio::runtime::Runtime, grace: Duration) {
+    runtime.shutdown_timeout(grace);
+}
+
+/// `work`, or `None` once a stop is asked first, `work` then dropped where it waits. Only for
+/// work a kill would leave safe: what it leaves half done, the next start sweeps or resumes.
+pub async fn until_stopped<T>(
+    work: impl Future<Output = T>,
+    stopping: tokio::sync::watch::Receiver<bool>,
+) -> Option<T> {
+    tokio::select! {
+        done = work => Some(done),
+        () = fired(stopping) => None,
     }
 }

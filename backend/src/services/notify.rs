@@ -688,7 +688,7 @@ impl Delivery {
         let Some(url) = webhook_url(state, kind).await else {
             return Err(Undelivered::NoAddress);
         };
-        // Retried later: sent unsigned, it would pass a receiver checking only present signatures.
+        // Retried later, never sent unsigned (see `Undelivered::SecretUnreadable`).
         let signing = signing_keys(state)
             .await
             .map_err(|error| Undelivered::Failed { error, again: Some(None) })?;
@@ -921,8 +921,6 @@ mod receivers {
         serde_json::from_str(&payload(event, AT, format, &english()).body).unwrap()
     }
 
-    /// Each event names itself, says how serious it is, and carries the ids
-    /// and counts a program reads, never prose.
     #[test]
     fn each_event_carries_its_name_its_severity_and_its_data() {
         use serde_json::json;
@@ -978,8 +976,8 @@ mod receivers {
         }
     }
 
-    /// Apprise API refuses with a 400 a `type` outside its four outcomes, a `format` outside
-    /// text, markdown and html, and a request with no `body`. `type` picks the colour shown.
+    /// Apprise API refuses with a 400 a `type` outside its four outcomes, a `format` outside text,
+    /// markdown and html, and a request with no `body`.
     #[test]
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
         let outcomes = [
@@ -997,8 +995,6 @@ mod receivers {
         }
     }
 
-    /// A title is whatever the Arr holds, `@everyone` included, and Discord
-    /// pings what a message names unless `allowed_mentions` says otherwise.
     #[test]
     fn a_title_naming_everyone_pings_nobody_on_discord() {
         let event = Event::InstanceRecovered { instance: "@everyone @here <@&1>".into() };
@@ -1034,8 +1030,7 @@ mod receivers {
         serde_json::to_value(moved).unwrap()
     }
 
-    /// Fifty titles, the most a move notification lists, stay readable where a person reads them:
-    /// ntfy's text under 4096 bytes, Discord's content under 2000 characters, five titles named.
+    /// Fifty titles is the most a move notification lists.
     #[test]
     fn a_long_move_list_stays_readable_in_every_format_a_person_reads() {
         let titles: Vec<String> =
@@ -1059,8 +1054,6 @@ mod receivers {
         assert_eq!(sent(&event)["data"]["moves"].as_array().unwrap().len(), 50);
     }
 
-    /// ntfy publishes a body posted to a topic as its text, and turns one over 4096 bytes into an
-    /// attachment nobody reads in the notification: the ntfy format stays under it.
     #[test]
     fn ntfy_shows_every_event_as_text() {
         for event in every_event() {
@@ -1069,8 +1062,7 @@ mod receivers {
         }
     }
 
-    /// A release waits as the published contract says it does: the test
-    /// builds wait milliseconds, so only this sees the shipped waits.
+    /// Test builds wait milliseconds, so only this sees the shipped waits.
     #[test]
     fn a_release_retries_on_the_schedule_the_contract_states() {
         assert_eq!(SHIPPED_RETRIES.map(|wait| wait.as_secs()), [10, 60, 300]);
@@ -1104,9 +1096,7 @@ mod receivers {
         assert_eq!(Format::of("apprise", "https://apprise.example.org/notify/k"), Format::Apprise);
     }
 
-    /// Discord refuses an embed without a title or a description, and one
-    /// over 4096 characters, and pings what a message names unless
-    /// `allowed_mentions` says otherwise.
+    /// Discord refuses an embed without a title or a description.
     #[test]
     fn discord_gets_an_embed_coloured_by_the_outcome() {
         for event in every_event() {
@@ -1123,8 +1113,6 @@ mod receivers {
         assert_ne!(failed, recovered);
     }
 
-    /// ntfy reads its title, priority and tags from headers, and shows the
-    /// body as the message. A failure rings, a finished run stays quiet.
     #[test]
     fn ntfy_gets_the_message_as_text_and_the_rest_in_headers() {
         let header = |payload: &Payload, name: &str| {
@@ -1143,8 +1131,6 @@ mod receivers {
         assert_eq!(header(&finished, "Tags").as_deref(), Some("white_check_mark"));
     }
 
-    /// An error is whatever the Arr answered, of any length, and each
-    /// receiver drops or hides what passes its limit.
     #[test]
     fn a_long_error_is_cut_to_what_discord_and_ntfy_show() {
         let event = Event::SyncFailed {
@@ -1159,8 +1145,6 @@ mod receivers {
         assert!(ntfy.len() <= 4096 && ntfy.len() > 4000, "{} bytes", ntfy.len());
     }
 
-    /// Gotify's Android client is silent below 4 and puts a message on
-    /// screen from 8.
     #[test]
     fn gotify_gets_a_priority_by_severity() {
         let priorities: Vec<i64> = every_event()

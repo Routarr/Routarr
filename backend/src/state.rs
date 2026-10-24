@@ -79,6 +79,9 @@ pub struct AppState {
     /// The last probe `/health` made, which a second caller waits for and a
     /// caller soon after reads again.
     pub last_probe: Arc<tokio::sync::Mutex<Option<Arc<crate::api::health::Probe>>>>,
+    /// The bytes the copies into the backup copy folder have written, which tell a share that
+    /// answers slowly from one that hangs, to the copy and to the one waiting behind it.
+    pub backup_copy_written: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The settings table as [`AppState::settings`] read it, parsed as the single-key readers parse,
@@ -480,6 +483,7 @@ impl AppState {
             key_rates: Arc::default(),
             route_misses: Arc::default(),
             last_probe: Arc::default(),
+            backup_copy_written: Arc::default(),
             config: Arc::new(config),
             pool,
         }

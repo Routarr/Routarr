@@ -6,8 +6,7 @@ use axum::Router;
 use axum::routing::get;
 use tokio::io::AsyncWriteExt;
 
-/// A server whose one route answers after a minute, as a probe of a host that
-/// never answers does, stopped by `stop` and hurried by `hurry`.
+/// A server whose one route answers after a minute, stopped by `stop` and hurried by `hurry`.
 async fn serving_a_slow_request(
     stop: tokio::sync::oneshot::Receiver<()>,
     hurry: tokio::sync::oneshot::Receiver<()>,
@@ -45,8 +44,7 @@ async fn serving_a_slow_request(
     server
 }
 
-/// A request still open when the stop comes is given the drain and no more:
-/// under Docker a stop that waits for it ends in SIGKILL, before the database
+/// Under Docker a stop that waits for an open request ends in SIGKILL, before the database
 /// is checkpointed.
 #[tokio::test]
 async fn a_stop_answers_within_its_drain_even_with_a_request_open() {
@@ -60,7 +58,6 @@ async fn a_stop_answers_within_its_drain_even_with_a_request_open() {
     assert!(asked.elapsed() < Duration::from_millis(1300), "{:?}", asked.elapsed());
 }
 
-/// A second signal cuts the drain short.
 #[tokio::test]
 async fn a_second_signal_cuts_the_drain_short() {
     let (stop, stopped) = tokio::sync::oneshot::channel();
@@ -72,8 +69,7 @@ async fn a_second_signal_cuts_the_drain_short() {
     tokio::time::timeout(Duration::from_secs(5), server).await.expect("the stop waited").unwrap();
 }
 
-/// The first signal reaches the server and the scheduler together, so no pass
-/// starts while the requests drain, and only a second hurries the stop.
+/// The scheduler hears the first signal with the server, so no pass starts while requests drain.
 #[tokio::test]
 async fn the_first_signal_stops_everything_at_once_and_a_second_hurries() {
     let (first, first_heard) = tokio::sync::oneshot::channel::<()>();
@@ -96,4 +92,51 @@ async fn the_first_signal_stops_everything_at_once_and_a_second_hurries() {
     second.send(()).unwrap();
     let heard = tokio::time::timeout(Duration::from_secs(1), hurrying.wait_for(|raised| *raised));
     heard.await.expect("the second signal hurried nothing").unwrap();
+}
+
+/// A copy blocked on a share that hangs holds a thread nothing can stop. The process ends within
+/// its grace all the same, the runtime abandoning the thread, where dropping the runtime waits
+/// for it without end.
+#[test]
+fn a_thread_blocked_on_a_share_never_holds_the_process_past_its_grace() {
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    runtime.spawn_blocking(|| std::thread::sleep(Duration::from_secs(60)));
+    let (ended, ending) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        crate::listener::end(runtime, Duration::from_secs(1));
+        let _ = ended.send(());
+    });
+
+    ending.recv_timeout(Duration::from_secs(5)).expect("the stop waited for the blocked thread");
+}
+
+/// A stop asked while the start archives or migrates a large database ends the start at once:
+/// in a container, a stop that goes unheard ends in SIGKILL once the grace is over.
+#[tokio::test]
+async fn a_stop_during_the_start_ends_it_at_once() {
+    let signals = || {
+        let (first, first_heard) = tokio::sync::oneshot::channel::<()>();
+        let (second, second_heard) = tokio::sync::oneshot::channel::<()>();
+        let (stopping, _) = crate::listener::stop_on(
+            async move {
+                let _ = first_heard.await;
+            },
+            async move {
+                let _ = second_heard.await;
+            },
+        );
+        (first, second, stopping)
+    };
+
+    let (_first, _second, stopping) = signals();
+    let ended = crate::listener::until_stopped(async { "started" }, stopping).await;
+    assert_eq!(ended, Some("started"), "a start nobody stopped was cut short");
+
+    let (first, _second, stopping) = signals();
+    let long =
+        crate::listener::until_stopped(tokio::time::sleep(Duration::from_secs(60)), stopping);
+    first.send(()).unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(2), long).await;
+    assert_eq!(ended.expect("the start went on past the stop"), None);
 }

@@ -1,9 +1,7 @@
 //! Backup management.
 //!
-//! Every handler that takes a name from the URL runs it through
-//! `is_valid_backup_name` first: these are the only endpoints where a caller
-//! chooses a path on the server's filesystem, and an archive sits in the same
-//! directory as the master key.
+//! Every handler taking a name from the URL runs it through `is_valid_backup_name` first:
+//! the name picks a file in the folder that also holds the master key.
 
 use super::Json;
 use axum::extract::State;
@@ -16,7 +14,9 @@ use serde::Serialize;
 use crate::api::auth::allowed;
 use crate::error::{AppError, AppResult};
 use crate::services::audit::Kind;
-use crate::services::backup::{self, BackupCopy, BackupFile, BackupManifest};
+use crate::services::backup::{
+    self, BackupCopy, BackupFile, BackupManifest, PendingRestore, ReplacedDatabase,
+};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -26,6 +26,10 @@ pub struct BackupListResponse {
     pub retention_count: usize,
     /// The copy into `ROUTARR_BACKUP_COPY_DIR`, null when the variable is unset.
     pub copy: Option<BackupCopy>,
+    /// The restore the next start applies, whenever it comes. Null when none is staged.
+    pub pending_restore: Option<PendingRestore>,
+    /// The database the last restore replaced, kept until deleted. Null when there is none.
+    pub replaced_database: Option<ReplacedDatabase>,
 }
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<BackupListResponse>> {
@@ -44,7 +48,17 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<BackupListRes
         backups,
         retention_count: state.setting::<usize>("backup_retention_count").await,
         copy,
+        pending_restore: backup::pending_restore(&state.config),
+        replaced_database: backup::replaced_database(&state.config),
     }))
+}
+
+/// Delete the database the last restore replaced, the way back from a restore made by mistake.
+pub async fn delete_replaced_database(
+    State(state): State<AppState>,
+) -> AppResult<Json<super::Deleted>> {
+    let deleted = backup::delete_replaced_database(&state.config)?;
+    Ok(Json(super::Deleted { deleted }))
 }
 
 /// Take the copy folder as it is now, after a change made on purpose left it without the
@@ -70,12 +84,9 @@ pub async fn create(
     crate::api::jobs::answer(&state, crate::api::jobs::prefers_async(&headers), work).await
 }
 
-/// Stream an archive to the caller.
-///
-/// It carries the master key, so this is the one endpoint that hands out the
-/// means to decrypt every stored Arr credential. That is why it sits behind the
-/// API key like everything else: whoever holds the key holds the credentials,
-/// and that escalation is stated rather than left implicit.
+/// Stream an archive to a caller that sent the key, or to anyone in a mode without one.
+/// It carries the master key and the API key, nothing a key holder lacks. A session proves
+/// itself again first, through [`download_proven`].
 pub async fn download(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
@@ -85,12 +96,43 @@ pub async fn download(
     if !backup::is_valid_backup_name(&name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
-    let event = allowed(Kind::Backup, "AuditBackupDownloaded").with("name", &name);
-    crate::api::auth::audited(&state, &identity, client, event);
+    if identity.signed_in_at.is_some() {
+        let localizer = state.localizer().await;
+        let message = localizer.translate("ErrorBackupDownloadProof", &[("name", &name)]);
+        return Err(AppError::ProofRequired(message));
+    }
+    stream_archive(&state, &identity, client, &name).await
+}
+
+/// Stream an archive once a session proved itself again: the password in `forms`, the API key
+/// in `apikey`, a recent sign-in at the provider in `oidc`.
+pub async fn download_proven(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
+    Path(name): Path<String>,
+    body: axum::body::Bytes,
+) -> AppResult<Response> {
+    if !backup::is_valid_backup_name(&name) {
+        return Err(AppError::NotFound("Unknown backup".into()));
+    }
+    let proof = crate::api::account::proof_in(&body)?;
+    crate::api::account::prove(&state, &identity, &proof, client).await?;
+    stream_archive(&state, &identity, client, &name).await
+}
+
+async fn stream_archive(
+    state: &AppState,
+    identity: &crate::api::auth::Identity,
+    client: Option<std::net::IpAddr>,
+    name: &str,
+) -> AppResult<Response> {
+    let event = allowed(Kind::Backup, "AuditBackupDownloaded").with("name", name);
+    crate::api::auth::audited(state, identity, client, event);
 
     // Streamed: an archive is the whole database, and reading it into memory
     // first doubles the process's footprint for the length of the download.
-    let path = backup::backup_dir(&state).join(&name);
+    let path = backup::backup_dir(state).join(name);
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| AppError::NotFound("Unknown backup".into()))?;
@@ -155,6 +197,21 @@ pub async fn restore(
     let event = allowed(Kind::Restore, "AuditRestoreStaged").with("name", &name);
     crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(RestoreResponse { manifest, restart_required: true }))
+}
+
+/// Withdraw the restore staged for the next start, which would otherwise apply it whenever it
+/// comes.
+pub async fn withdraw_restore(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
+) -> AppResult<Json<super::Deleted>> {
+    let withdrawn = backup::withdraw_pending_restore(&state).await?;
+    if let Some(withdrawn) = &withdrawn {
+        let event = allowed(Kind::Restore, "AuditRestoreWithdrawn").with("name", &withdrawn.name);
+        crate::api::auth::audited(&state, &identity, client, event);
+    }
+    Ok(Json(super::Deleted { deleted: withdrawn.is_some() }))
 }
 
 /// The backup passphrase to set, an empty one removing it, with the proof a

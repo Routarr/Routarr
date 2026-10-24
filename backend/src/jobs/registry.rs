@@ -166,12 +166,25 @@ impl JobRegistry {
         self.tracker.spawn(work)
     }
 
-    /// End every run that moves titles before its next move, then wait up to
-    /// `grace` for the work in flight to record what it did. `false` when
-    /// some was still running at the bound.
-    pub async fn drain(&self, grace: Duration) -> bool {
+    /// End every run that moves titles before its next move.
+    pub fn close(&self) {
         self.closing.store(true, Ordering::SeqCst);
         self.tracker.close();
+    }
+
+    /// Close once `stop` resolves, on a task of its own: a stop reaches the runs that move
+    /// titles while the open requests drain, not once they have.
+    pub fn close_when(&self, stop: impl std::future::Future<Output = ()> + Send + 'static) {
+        let jobs = self.clone();
+        tokio::spawn(async move {
+            stop.await;
+            jobs.close();
+        });
+    }
+
+    /// Wait up to `grace` for the work in flight, once closed, to record what it did. `false`
+    /// when some was still running at the bound.
+    pub async fn wait(&self, grace: Duration) -> bool {
         tokio::time::timeout(grace, self.tracker.wait()).await.is_ok()
     }
 

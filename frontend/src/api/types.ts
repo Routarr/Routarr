@@ -204,11 +204,28 @@ export interface BackupFile {
 /** The copy into `ROUTARR_BACKUP_COPY_DIR`, read from its tasks, never from the folder. */
 export interface BackupCopy {
   folder: string;
-  /** `unmounted`: the folder lacks the marker its first copy left, a share not mounted. */
-  state: 'never' | 'running' | 'copied' | 'failed' | 'unmounted';
+  /**
+   * `unmounted`: the folder lacks the marker its first copy left, a share not mounted.
+   * `foreign`: another Routarr database copied into it.
+   */
+  state: 'never' | 'running' | 'copied' | 'failed' | 'unmounted' | 'foreign';
   /** What the last copy said, in the interface language. */
   detail: string | null;
   copied_at: string | null;
+  /** The last good copy found the folder on the disk of the data folder. */
+  same_disk: boolean;
+}
+
+/** A restore staged for the next start, which applies it whenever it comes. */
+export interface PendingRestore {
+  name: string;
+  staged_at: string;
+}
+
+/** The database the last restore replaced, kept until deleted. */
+export interface ReplacedDatabase {
+  size_bytes: number;
+  replaced_at: string;
 }
 
 /** What a retention purge removed. */
@@ -291,6 +308,8 @@ export interface BackupList {
   retention_count: number;
   /** Null when no copy folder is set. */
   copy: BackupCopy | null;
+  pending_restore: PendingRestore | null;
+  replaced_database: ReplacedDatabase | null;
 }
 
 export interface MetadataProvider {
