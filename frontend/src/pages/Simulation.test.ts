@@ -96,7 +96,7 @@ async function show(pending: Decision[]) {
 
 // No run is going on when the screen opens, unless a test says otherwise, and nothing to filter.
 beforeEach(() => {
-  vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
+  vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([]));
   vi.spyOn(api, 'getSettings').mockResolvedValue({ batch_limit: '50' });
   vi.spyOn(api, 'getInstances').mockResolvedValue([]);
   vi.spyOn(api, 'getCategories').mockResolvedValue([]);
@@ -616,14 +616,14 @@ describe('what the screen says after applying', () => {
         });
       },
     );
-    const cancelJob = vi.spyOn(api, 'cancelJob').mockResolvedValue(undefined);
+    const cancelTask = vi.spyOn(api, 'cancelTask').mockResolvedValue(undefined);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
     finish();
 
-    expect(cancelJob).toHaveBeenCalledWith('j-apply');
+    expect(cancelTask).toHaveBeenCalledWith('j-apply');
     expect(await screen.findByText('Stopped on request: the rest was not attempted.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
   });
@@ -784,10 +784,10 @@ describe('a run followed through its task', () => {
   });
 
   it('follows a run already going when the screen opens, and lists what it proposed', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ id: 'j9', kind: 'simulate' })]));
+    vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job({ id: 'j9', kind: 'simulate' })]));
     let finish: (result: SimulationResult) => void = () => {};
     const follow = vi
-      .spyOn(api, 'followJob')
+      .spyOn(api, 'followTask')
       .mockReturnValue(new Promise((resolve) => (finish = resolve as never)));
     await show([]);
 
@@ -880,7 +880,7 @@ describe('narrowing what is reviewed and applied', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await screen.findByText('Akira');
 
-    vi.spyOn(api, 'getJobs').mockResolvedValue(
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([job({ kind: 'simulate', result: latest })]),
     );
     RUNS.set(reviewed.simulation_id, []);

@@ -116,7 +116,7 @@
   const newer = createAsync(
     async (signal) => {
       if (!result) return null;
-      const jobs = await api.getJobs({ kind: 'simulate', status: 'success', per_page: 1 }, signal);
+      const jobs = await api.getTasks({ kind: 'simulate', status: 'success', per_page: 1 }, signal);
       const latest = jobs.data[0]?.result as SimulationResult | null | undefined;
       return latest && latest.simulation_id !== result.simulation_id ? latest : null;
     },
@@ -151,11 +151,11 @@
   /** A stored run started earlier and still going, by this screen or another caller. */
   async function resume() {
     const running = await api
-      .getJobs({ kind: 'simulate', status: 'running', per_page: 1 }, leaving.signal)
+      .getTasks({ kind: 'simulate', status: 'running', per_page: 1 }, leaving.signal)
       .catch(() => null);
     const job = running?.data[0];
     if (!job || busy !== null) return;
-    await follow(() => api.followJob<SimulationResult>(job.id, following));
+    await follow(() => api.followTask<SimulationResult>(job.id, following));
   }
 
   /**
@@ -202,7 +202,7 @@
   async function cancelApply() {
     if (!applying) return;
     try {
-      await api.cancelJob(applying);
+      await api.cancelTask(applying);
     } catch (err) {
       outcome.fail(err);
     }

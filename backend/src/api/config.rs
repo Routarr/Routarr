@@ -608,7 +608,7 @@ pub async fn import(
         // As `POST /exceptions` pins: by the importer, withdrawing the proposals it now decides.
         let reason = over.reason.as_deref();
         let by = identity.attribution();
-        match super::overrides::pin_in(&mut tx, &media_ids, &category, reason, &by, &localizer)
+        match super::exceptions::pin_in(&mut tx, &media_ids, &category, reason, &by, &localizer)
             .await
         {
             Ok(()) => report.overrides += media_ids.len(),

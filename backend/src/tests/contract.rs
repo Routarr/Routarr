@@ -703,7 +703,7 @@ async fn keep_backups(checker: &mut Checker) {
 /// in its list here and in the `x-extensible-enum` its field publishes.
 #[test]
 fn each_published_vocabulary_is_the_one_its_type_writes() {
-    use crate::api::media::TraceOutcome;
+    use crate::api::library::TraceOutcome;
     use crate::models::{DecisionAction, DecisionStatus, RuleMediaType, Severity};
     fn written<T: serde::Serialize>(values: &[T]) -> Value {
         serde_json::to_value(values).expect("a vocabulary serializes")

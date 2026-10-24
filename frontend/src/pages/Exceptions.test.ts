@@ -57,7 +57,7 @@ function override(over: Partial<OverrideEntry> = {}): OverrideEntry {
 }
 
 function show(overrides: OverrideEntry[]) {
-  vi.spyOn(api, 'getOverrides').mockResolvedValue(paginated(overrides));
+  vi.spyOn(api, 'getExceptions').mockResolvedValue(paginated(overrides));
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   return renderWithI18n(Exceptions);
 }
@@ -81,7 +81,7 @@ describe('Exceptions', () => {
   });
 
   it('asks before removing, naming what would be removed', async () => {
-    const remove = vi.spyOn(api, 'deleteOverride');
+    const remove = vi.spyOn(api, 'deleteException');
     show([override()]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
@@ -100,7 +100,7 @@ describe('Exceptions', () => {
    * one was refused.
    */
   it('takes the previous success off screen when the next removal is refused', async () => {
-    vi.spyOn(api, 'deleteOverride')
+    vi.spyOn(api, 'deleteException')
       .mockResolvedValueOnce(undefined as never)
       .mockRejectedValueOnce(new ApiError('The override could not be removed', 409, 'conflict'));
     show([override({ media_title: 'Akira' }), override({ id: 'o2', media_title: 'Totoro' })]);
@@ -117,7 +117,7 @@ describe('Exceptions', () => {
   });
 
   it('removes it once the question is answered', async () => {
-    const remove = vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
+    const remove = vi.spyOn(api, 'deleteException').mockResolvedValue(undefined as never);
     show([override()]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
@@ -133,7 +133,7 @@ describe('Exceptions', () => {
    * for something the user never filled in: they searched and forgot to click.
    */
   it('will not pin until an item has actually been chosen', async () => {
-    const create = vi.spyOn(api, 'createOverride');
+    const create = vi.spyOn(api, 'createException');
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
@@ -151,7 +151,7 @@ describe('Exceptions', () => {
    */
   it('lets the keyboard pick an item, through a control that says what it picks', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
-    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([picked]));
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([picked]));
     show([]);
     const user = userEvent.setup();
 
@@ -170,7 +170,7 @@ describe('Exceptions', () => {
   });
 
   it('says a search found nothing, rather than seeming to ignore the click', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([]));
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([]));
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
@@ -197,7 +197,7 @@ describe('Exceptions', () => {
    */
   it('says how many it shows of how many matched, under named columns', async () => {
     const found = Array.from({ length: 15 }, (_, i) => media({ id: `m${i}`, title: `Star ${i}` }));
-    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated(found, { total: 40 }));
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated(found, { total: 40 }));
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
@@ -221,8 +221,8 @@ describe('Exceptions', () => {
 
   it('shows a refused pin inside the dialog rather than behind it', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
-    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([picked]));
-    vi.spyOn(api, 'createOverride').mockRejectedValue(
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([picked]));
+    vi.spyOn(api, 'createException').mockRejectedValue(
       new ApiError('This item is already pinned', 409, 'conflict'),
     );
     show([]);
@@ -240,11 +240,11 @@ describe('Exceptions', () => {
 
   /** The button turns disabled while it writes, which drops its focus out of the dialog. */
   it('gives the focus back to Create exception once a pin is refused', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue(
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(
       paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
     );
     let refuse = () => {};
-    vi.spyOn(api, 'createOverride').mockReturnValue(
+    vi.spyOn(api, 'createException').mockReturnValue(
       new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
     );
     show([]);
@@ -264,10 +264,10 @@ describe('Exceptions', () => {
   });
 
   it('pins once however often Create exception is pressed', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue(
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(
       paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
     );
-    const create = vi.spyOn(api, 'createOverride').mockReturnValue(new Promise(() => {}));
+    const create = vi.spyOn(api, 'createException').mockReturnValue(new Promise(() => {}));
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
@@ -284,8 +284,8 @@ describe('Exceptions', () => {
 
   it('pins the item that was picked, in the category that was picked', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
-    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([picked]));
-    const create = vi.spyOn(api, 'createOverride').mockResolvedValue(undefined as never);
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([picked]));
+    const create = vi.spyOn(api, 'createException').mockResolvedValue(undefined as never);
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
@@ -321,10 +321,10 @@ describe('Exceptions', () => {
 it('hands the focus to the exception that took the place of the removed one', async () => {
   const next = override({ id: 'o2', media_title: 'Perfect Blue' });
   show([override(), next]);
-  vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
+  vi.spyOn(api, 'deleteException').mockResolvedValue(undefined as never);
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
-  vi.spyOn(api, 'getOverrides').mockResolvedValue(paginated([next]));
+  vi.spyOn(api, 'getExceptions').mockResolvedValue(paginated([next]));
   await answerConfirmation();
 
   await waitFor(() =>
@@ -338,7 +338,7 @@ it('hands the focus to the exception that took the place of the removed one', as
 describe('more exceptions than a page holds', () => {
   it('asks the server for the next page', async () => {
     const list = vi
-      .spyOn(api, 'getOverrides')
+      .spyOn(api, 'getExceptions')
       .mockResolvedValue(paginated([override()], { total: 51, total_pages: 2 }));
     vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
     renderWithI18n(Exceptions);
@@ -353,13 +353,13 @@ describe('more exceptions than a page holds', () => {
   /** The last one of the last page gone, the page before it is the one left to show. */
   it('steps back a page once the last exception of the last one is removed', async () => {
     const list = vi
-      .spyOn(api, 'getOverrides')
+      .spyOn(api, 'getExceptions')
       .mockResolvedValueOnce(paginated([override()], { total: 51, total_pages: 2 }))
       .mockResolvedValueOnce(paginated([override()], { page: 2, total: 51, total_pages: 2 }))
       .mockResolvedValueOnce(paginated([], { page: 2, total: 50, total_pages: 1 }))
       .mockResolvedValue(paginated([override({ id: 'o3', media_title: 'Paprika' })]));
     vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
-    vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
+    vi.spyOn(api, 'deleteException').mockResolvedValue(undefined as never);
     renderWithI18n(Exceptions);
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));

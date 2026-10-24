@@ -66,7 +66,7 @@ pub async fn create(
 ) -> AppResult<super::Created<RuleTest>> {
     rule_tests::validate(&body, &state.localizer().await)?;
 
-    let media = crate::api::media::load_media(&state, &body.media_id).await?;
+    let media = crate::api::library::load_media(&state, &body.media_id).await?;
     let metadata = enrichment::resolve_for_media(&state, &media).await?;
 
     // Pinned with the case, since `added_within_days` reads `now` and the wall clock moves on.

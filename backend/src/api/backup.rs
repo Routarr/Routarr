@@ -74,7 +74,7 @@ pub async fn adopt_copy_folder(
     crate::api::auth::audited(&state, &identity, client, event);
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move { backup::copy_now(&task_state, by).await };
-    crate::api::jobs::answer(&state, crate::api::jobs::prefers_async(&headers), work).await
+    crate::api::tasks::answer(&state, crate::api::tasks::prefers_async(&headers), work).await
 }
 
 pub async fn create(
@@ -84,7 +84,7 @@ pub async fn create(
 ) -> AppResult<Response> {
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move { backup::create(&task_state, &by).await };
-    crate::api::jobs::answer(&state, crate::api::jobs::prefers_async(&headers), work).await
+    crate::api::tasks::answer(&state, crate::api::tasks::prefers_async(&headers), work).await
 }
 
 /// Stream an archive to a caller that sent the key, or to anyone in a mode without one.

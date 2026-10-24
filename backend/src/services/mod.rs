@@ -111,8 +111,8 @@ mod tests {
     }
 
     /// The paths the group opening `group` names, each after `prefix`, a nested
-    /// group left whole: `{api::media, error::{A, B}}` after `crate::` names
-    /// `crate::api::media` and `crate::error::{A, B}`.
+    /// group left whole: `{api::library, error::{A, B}}` after `crate::` names
+    /// `crate::api::library` and `crate::error::{A, B}`.
     fn ungrouped(prefix: &str, group: &str) -> Vec<String> {
         let mut paths = Vec::new();
         let (mut depth, mut start) = (0, 1);
@@ -170,16 +170,16 @@ mod tests {
     #[test]
     fn the_layer_scan_finds_a_path_however_it_is_written() {
         for source in [
-            format!("use {GROUP}api::media::metadata_predicate, error::AppError}};"),
-            format!("use {GROUP}\n    error::AppError,\n    api::{{media, rules}},\n}};"),
+            format!("use {GROUP}api::library::metadata_predicate, error::AppError}};"),
+            format!("use {GROUP}\n    error::AppError,\n    api::{{library, rules}},\n}};"),
             format!("use {GROUP}api as handlers}};"),
-            format!("let at = (\"http://127.0.0.1:1\", {HANDLERS}::media::metadata_predicate);"),
+            format!("let at = (\"http://127.0.0.1:1\", {HANDLERS}::library::metadata_predicate);"),
         ] {
             assert!(!lines_naming(&source, HANDLERS).is_empty(), "missed in {source}");
         }
         for source in [
             format!("use {GROUP}services::{{routing, api}}, error}};"),
-            format!("use {HANDLERS}s::media;"),
+            format!("use {HANDLERS}s::library;"),
             format!("use {GROUP}error}}; // {HANDLERS}"),
         ] {
             assert!(lines_naming(&source, HANDLERS).is_empty(), "found in {source}");

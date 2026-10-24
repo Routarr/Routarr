@@ -18,7 +18,7 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
-    /// Every field a condition can read, which `merge` and `api::media::metadata_predicate`
+    /// Every field a condition can read, which `merge` and `api::library::metadata_predicate`
     /// iterate, so a new variant belongs here too.
     pub const ALL: [MetadataField; 6] = [
         Self::Genres,

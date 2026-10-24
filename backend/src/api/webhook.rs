@@ -367,7 +367,7 @@ async fn run(
     if let Some(id) = media_id.as_deref() {
         // Before the rules, or a new title's first decision falls back to the default category.
         let enriched = async {
-            let media = crate::api::media::load_media(state, id).await?;
+            let media = crate::api::library::load_media(state, id).await?;
             enrichment::enrich_one(state, &media).await
         };
         if let Err(e) = enriched.await {

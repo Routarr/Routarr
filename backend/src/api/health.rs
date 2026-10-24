@@ -333,7 +333,7 @@ pub async fn health_check(
 
     let cached_items: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache").fetch_one(pool).await?;
-    let known = crate::api::media::metadata_predicate(&settings);
+    let known = crate::api::library::metadata_predicate(&settings);
     let media_missing_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
     )))
@@ -824,7 +824,7 @@ async fn offline_warnings(
         ));
     }
 
-    let known = crate::api::media::metadata_predicate(settings);
+    let known = crate::api::library::metadata_predicate(settings);
     let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
             (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::fake_arr::FakeArr;
 use super::{TestApp, TestResponse, finished, preferring_async};
-use crate::api::jobs::prefers_async;
+use crate::api::tasks::prefers_async;
 
 /// Totoro twice: on `inst-1` as the library seeds it, and on a second Radarr.
 async fn two_copies() -> TestApp {

@@ -674,7 +674,7 @@ struct Requesters {
 async fn requester_tags(state: &AppState) -> AppResult<Requesters> {
     let mut found = Requesters { people: Vec::new(), all: Vec::new() };
     let mut seen: Vec<String> = Vec::new();
-    for facet in super::media::json_facets(&state.pool, "tags").await? {
+    for facet in super::library::json_facets(&state.pool, "tags").await? {
         let Some((seerr_id, name)) = templates::requester_of(&facet.value) else { continue };
         found.all.push(facet.value.clone());
         if seen.contains(&seerr_id) {

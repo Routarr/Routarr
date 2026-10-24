@@ -19,7 +19,7 @@
    * sources a pass asks: the list follows each save through the status
    * revision the save bumps.
    */
-  const catalogue = createAsync((signal) => api.getMetadataProviders(signal), statusRevision);
+  const catalogue = createAsync((signal) => api.getSources(signal), statusRevision);
   const asked = $derived(
     (catalogue.data?.order ?? [])
       .map((id) => catalogue.data?.providers.find((provider) => provider.id === id))

@@ -19,17 +19,17 @@ use crate::api::conditions::ConditionCatalog;
 use crate::api::decisions::{
     ApplyAllRequest, ApplyDecisionsRequest, RevertAllRequest, RevertDecisionsRequest,
 };
+use crate::api::exceptions::{KeepRequest, PinRequest};
 use crate::api::health::{HealthQuery, HealthResponse, Pong, StatusResponse};
-use crate::api::jobs::{Accepted, Job, JobQuery};
-use crate::api::logs::{LogEntry, LogFilter, LogQuery};
-use crate::api::media::LibraryFacets;
-use crate::api::media::{Explanation, ExternalTitle, MediaDetail, MediaListItem, RouteQuery};
-use crate::api::metadata::ProvidersResponse;
-use crate::api::overrides::{KeepRequest, PinRequest};
+use crate::api::library::LibraryFacets;
+use crate::api::library::{Explanation, ExternalTitle, MediaDetail, MediaListItem, RouteQuery};
+use crate::api::move_log::{LogEntry, LogFilter, LogQuery};
 use crate::api::root_folders::{Declared, Mapped, MappingConflict};
 use crate::api::rules::{
     PreviewRequest, PreviewResponse, Reordered, RuleImportReport, RuleVerdict,
 };
+use crate::api::sources::ProvidersResponse;
+use crate::api::tasks::{Accepted, Job, JobQuery};
 use crate::api::templates::{TemplateAdded, TemplatePreview, TemplateRequest, TemplateSummary};
 use crate::api::{Deleted, PageQuery};
 use crate::error::ErrorResponse;

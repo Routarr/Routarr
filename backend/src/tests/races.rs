@@ -233,7 +233,7 @@ async fn a_pin_made_while_its_category_is_removed_leaves_no_orphan() {
     let app = with_category("doomed-pin").await;
     let pin = json!({ "media_id": "m-1", "target_category": "doomed-pin" });
     race(
-        "overrides::pin",
+        "exceptions::pin",
         "doomed-pin",
         posting(&app, "/api/v1/exceptions", pin),
         removing(&app, "doomed-pin"),
@@ -311,7 +311,7 @@ async fn a_keep_made_while_its_category_is_renamed_follows_the_rename() {
     let mapped = json!({ "category": "doomed-keep" });
     app.put("/api/v1/root-folders/rf-1/category", mapped).await.assert_ok();
     let (kept, renamed) = race(
-        "overrides::keep",
+        "exceptions::keep",
         "m-1",
         posting(&app, "/api/v1/library/m-1/keep", json!({})),
         putting(&app, "/api/v1/categories/cat-doomed-keep".into(), json!({ "name": "reborn" })),
@@ -563,7 +563,7 @@ async fn what_goes_while_it_is_written_to_is_not_found() {
             "DELETE FROM instances WHERE id = 'inst-1'",
         ),
         (
-            "overrides::create",
+            "exceptions::create",
             "m-1",
             "/api/v1/exceptions",
             json!({ "media_id": "m-1", "target_category": "anime" }),

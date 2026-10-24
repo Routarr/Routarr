@@ -258,7 +258,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    let known = crate::api::media::metadata_predicate(&state.settings().await);
+    let known = crate::api::library::metadata_predicate(&state.settings().await);
     let undescribed: Vec<(String, String, String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT i.id, i.name, m.media_type, COUNT(*)
            FROM media m JOIN instances i ON i.id = m.instance_id

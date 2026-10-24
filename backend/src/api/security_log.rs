@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
-use crate::api::logs::csv_field;
+use crate::api::move_log::csv_field;
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
 use crate::services::audit::{Kind, Outcome};
@@ -118,7 +118,7 @@ pub async fn export(
 
     let mut csv = format!(
         "{}at,event,outcome,subject,client,repeated,message\n",
-        crate::api::logs::BYTE_ORDER_MARK
+        crate::api::move_log::BYTE_ORDER_MARK
     );
     for row in rows {
         let event = SecurityEvent::from(row);

@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe('Move log', () => {
   it('says nothing has been written rather than showing an empty table', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([]));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([]));
     show();
 
     expect(
@@ -53,7 +53,7 @@ describe('Move log', () => {
 
   /** "Did the nightly sweep do this, or did somebody", and which somebody. */
   it('names what set each write off, and who asked when a mode said', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(
       paginated([
         entry({ id: 'l1', media_title: 'Akira', actor: 'manual', subject: 'alice' }),
         entry({ id: 'l2', media_title: 'Totoro', actor: 'schedule', subject: null }),
@@ -70,7 +70,7 @@ describe('Move log', () => {
 
   /** A bare "failed" badge would record that something went wrong and nothing about what. */
   it('shows the reason a write failed, not only that it failed', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(
       paginated([entry({ success: false, error_message: 'Radarr said 409' })]),
     );
     show();
@@ -84,7 +84,7 @@ describe('Move log', () => {
    * order. English writes the two alike, and French does not.
    */
   it('names a revert by its noun, not by the button that does it', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry({ action: 'revert' })]));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry({ action: 'revert' })]));
     renderWithI18n(MoveLog, {
       language: 'fr',
       strings: { ActionRevert: 'Annulation', Revert: 'Annuler le déplacement' },
@@ -95,7 +95,7 @@ describe('Move log', () => {
   });
 
   it('has nothing to export while the list is empty', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([]));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([]));
     show();
 
     const button = await screen.findByRole('button', { name: /export csv/i });
@@ -107,8 +107,8 @@ describe('Move log', () => {
    * `<a href>`, the browser would save the error's body as the file.
    */
   it('says a refused export rather than saving the refusal as the file', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
-    vi.spyOn(api, 'exportLogs').mockRejectedValue(new ApiError('', 403, 'forbidden'));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
+    vi.spyOn(api, 'exportMoveLog').mockRejectedValue(new ApiError('', 403, 'forbidden'));
     const saved = captureDownloads();
 
     show();
@@ -119,8 +119,8 @@ describe('Move log', () => {
   });
 
   it('exports what the filters show, under the name of the log', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
-    const exportLogs = vi.spyOn(api, 'exportLogs').mockResolvedValue(new Blob(['a,b']));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
+    const exportMoveLog = vi.spyOn(api, 'exportMoveLog').mockResolvedValue(new Blob(['a,b']));
     const saved = captureDownloads();
     show();
 
@@ -128,7 +128,7 @@ describe('Move log', () => {
     await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
     // The screen speaks in outcomes, and the API takes a boolean.
     await waitFor(() =>
-      expect(api.getLogs).toHaveBeenLastCalledWith(
+      expect(api.getMoveLog).toHaveBeenLastCalledWith(
         expect.objectContaining({ search: 'akira', success: true }),
         expect.anything(),
       ),
@@ -136,13 +136,13 @@ describe('Move log', () => {
     await userEvent.click(screen.getByRole('button', { name: /export csv/i }));
 
     await waitFor(() => expect(saved).toHaveLength(1));
-    expect(nthCall(exportLogs)[0]).toMatchObject({ search: 'akira', success: true });
+    expect(nthCall(exportMoveLog)[0]).toMatchObject({ search: 'akira', success: true });
     expect(saved[0]?.name).toBe('routarr-logs.csv');
   });
 
   it('counts every entry under the table, and asks the server for the next page', async () => {
-    const getLogs = vi
-      .spyOn(api, 'getLogs')
+    const getMoveLog = vi
+      .spyOn(api, 'getMoveLog')
       .mockResolvedValue(paginated([entry()], { total_pages: 3, total: 150 }));
     show();
 
@@ -150,7 +150,7 @@ describe('Move log', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     await waitFor(() =>
-      expect(getLogs).toHaveBeenLastCalledWith(
+      expect(getMoveLog).toHaveBeenLastCalledWith(
         expect.objectContaining({ page: 2 }),
         expect.any(AbortSignal),
       ),
@@ -162,22 +162,22 @@ describe('Move log', () => {
    * on may not exist in the narrower list.
    */
   it('asks for a typed term once the typing stops, from the first page', async () => {
-    const getLogs = vi
-      .spyOn(api, 'getLogs')
+    const getMoveLog = vi
+      .spyOn(api, 'getMoveLog')
       .mockResolvedValue(paginated([entry()], { total_pages: 3, total: 150 }));
     show();
     await screen.findByText('Akira');
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getMoveLog).toHaveBeenCalledTimes(2));
 
     await userEvent.type(
       screen.getByRole('searchbox', { name: 'Search title or details' }),
       'heat',
     );
 
-    await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(3));
-    expect(nthCall(getLogs, 2)[0]).toMatchObject({ search: 'heat', page: 1 });
-    expect(getLogs.mock.calls.map(([filters]) => filters?.search)).toEqual([
+    await waitFor(() => expect(getMoveLog).toHaveBeenCalledTimes(3));
+    expect(nthCall(getMoveLog, 2)[0]).toMatchObject({ search: 'heat', page: 1 });
+    expect(getMoveLog.mock.calls.map(([filters]) => filters?.search)).toEqual([
       undefined,
       undefined,
       'heat',
@@ -185,22 +185,22 @@ describe('Move log', () => {
   });
 
   it('asks for everything when the filter is cleared, rather than for failures', async () => {
-    const getLogs = vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
+    const getMoveLog = vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
     show();
     await screen.findByText('Akira');
 
     await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
-    await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getMoveLog).toHaveBeenCalledTimes(2));
     await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), '');
 
     // `undefined`, not `false`: `success=false` would quietly show only the failures.
-    await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(3));
-    expect(nthCall(getLogs, 2)[0]).toMatchObject({ success: undefined });
+    await waitFor(() => expect(getMoveLog).toHaveBeenCalledTimes(3));
+    expect(nthCall(getMoveLog, 2)[0]).toMatchObject({ success: undefined });
   });
 
   /** A failed export is not a load to retry: the list is fine, the file is not. */
   it('reports a failed export without offering to reload the list', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => '' }),
@@ -214,7 +214,7 @@ describe('Move log', () => {
   });
 
   it('takes a failed export off screen once the next one downloads', async () => {
-    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
     vi.stubGlobal(
       'fetch',
       vi

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sqlx::AssertSqlSafe;
 use uuid::Uuid;
 
-use crate::api::media::ExternalTitle;
+use crate::api::library::ExternalTitle;
 use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::state::AppState;
@@ -103,7 +103,7 @@ pub async fn create(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateOverrideRequest>,
 ) -> AppResult<super::Created<OverrideEntry>> {
-    crate::race::checked("overrides::create", &req.media_id).await;
+    crate::race::checked("exceptions::create", &req.media_id).await;
     let pinned = pin(
         &state,
         std::slice::from_ref(&req.media_id),
@@ -175,7 +175,7 @@ pub async fn keep(
     let Some(category) = folder_category(&mut *tx, &instance_id, &folder).await? else {
         return Err(refused("folder_unmapped", "ErrorKeepFolderUnmapped", &[("folder", &folder)]));
     };
-    crate::race::checked("overrides::keep", &id).await;
+    crate::race::checked("exceptions::keep", &id).await;
     let by = identity.attribution();
     pin_in(&mut tx, std::slice::from_ref(&id), &category, req.reason.as_deref(), &by, &localizer)
         .await?;
@@ -301,7 +301,7 @@ async fn pin(
     // Checked under the pins' write lock, so the category cannot be removed before they land.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     super::categories::ensure_exists(&mut tx, &category, &localizer).await?;
-    crate::race::checked("overrides::pin", &category).await;
+    crate::race::checked("exceptions::pin", &category).await;
     pin_in(&mut tx, media_ids, &category, reason, &asker.attribution(), &localizer).await?;
 
     // Read back before committing: an upsert keeps the stored id, and no later pin can slip in.

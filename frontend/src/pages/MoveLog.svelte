@@ -27,7 +27,7 @@
   });
 
   const logs = createAsync(
-    (signal) => api.getLogs(filters, signal),
+    (signal) => api.getMoveLog(filters, signal),
     () => [search, outcome, page],
   );
   // How the last export went: `outcome` is the filter on the log itself.
@@ -38,7 +38,7 @@
 
   async function download() {
     try {
-      downloadBlob(await api.exportLogs(filters), 'routarr-logs.csv');
+      downloadBlob(await api.exportMoveLog(filters), 'routarr-logs.csv');
       exported.clear();
     } catch (err) {
       // Said as the export's failure, with its status, rather than as whatever

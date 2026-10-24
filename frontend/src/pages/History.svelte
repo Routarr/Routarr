@@ -80,7 +80,7 @@
   );
   /** The recent simulations, by the time each ran. */
   const runs = createAsync(async (signal) => {
-    const jobs = await api.getJobs({ kind: 'simulate', status: 'success', per_page: 20 }, signal);
+    const jobs = await api.getTasks({ kind: 'simulate', status: 'success', per_page: 20 }, signal);
     return jobs.data.flatMap((job) => {
       const ran = job.result as SimulationResult | null;
       return ran ? [{ id: ran.simulation_id, when: job.started_at }] : [];
@@ -157,7 +157,7 @@
   async function stopRevertAll() {
     if (!task) return;
     try {
-      await api.cancelJob(task);
+      await api.cancelTask(task);
     } catch (err) {
       outcome.fail(err);
     }

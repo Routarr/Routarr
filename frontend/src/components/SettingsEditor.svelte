@@ -64,7 +64,7 @@
       api.getSettings(signal),
       api.getCategories(signal),
       api.getLanguages(signal),
-      api.getMetadataProviders(signal),
+      api.getSources(signal),
     ]);
     const { values, sealed } = splitStored(answer);
     // An unstored list is the server's default: a copy kept here would be stored by the first

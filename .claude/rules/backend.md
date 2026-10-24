@@ -31,7 +31,7 @@ paths:
   since a flattened query reads every value as text. A create answers `api::Created`, a removal
   `api::Deleted`, and a timestamp leaves through `crate::timestamp` with
   `#[schema(format = DateTime)]` (`backend/src/tests/contract.rs` finds each one missed).
-- A route that starts one job answers through `api::jobs::answer`: the work runs on its own task
+- A route that starts one job answers through `api::tasks::answer`: the work runs on its own task
   whatever the caller does, and `Prefer: respond-async` gets 202 once the job has started. Every
   question and refusal comes before `JobRegistry::start`, and the work calls `JobHandle::report`
   before the outcome, so a finished job always carries the report its call answers.
@@ -49,7 +49,7 @@ Each of these questions has one function. Call it, never spell the question agai
   which takes a title the library does not hold as a media row it never writes)
 - where the last run sent a title, moved or not: its `media_routing` row, which
   `routing::store_run` writes. The decisions hold only what a run proposed.
-- whether an item has matchable metadata: `api::media::metadata_predicate`
+- whether an item has matchable metadata: `api::library::metadata_predicate`
 - every warning: `offline_warnings` in `backend/src/api/health.rs`, returned by both `/status`
   and `/health`. `/status` is polled and never probes. A finding only a probe can make reaches
   it through the `probe_results` table, which `/health` writes.

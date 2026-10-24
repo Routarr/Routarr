@@ -102,7 +102,7 @@ function mount(
   // The signing card loads with the Notifications section, and its failure would
   // pass through every test of that section unseen.
   vi.spyOn(api, 'webhookSigning').mockResolvedValue({ signed: false, since: null, readable: true });
-  vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(catalogue(provider));
+  vi.spyOn(api, 'getSources').mockResolvedValue(catalogue(provider));
   return renderWithI18n(page, { direction });
 }
 
@@ -538,7 +538,7 @@ describe("a source's stored key", () => {
       metadata_providers: 'arr,tmdb',
       tmdb_api_key_configured: true,
     });
-    vi.mocked(api.getMetadataProviders).mockResolvedValue(
+    vi.mocked(api.getSources).mockResolvedValue(
       catalogue({ configured: true, order: ['arr', 'tmdb'] }),
     );
     await save();
@@ -556,7 +556,7 @@ describe("a source's stored key", () => {
     expect(screen.queryByText('Inactive', { selector: '.badge' })).toBeNull();
 
     vi.mocked(api.getSettings).mockResolvedValue({ metadata_providers: 'arr,tmdb' });
-    vi.mocked(api.getMetadataProviders).mockResolvedValue(
+    vi.mocked(api.getSources).mockResolvedValue(
       catalogue({ configured: false, order: ['arr', 'tmdb'] }),
     );
     await save();

@@ -68,7 +68,7 @@ impl JobKind {
 /// What a job is doing or did: a dictionary key and the values it names.
 ///
 /// Stored as the key, not as a sentence, because the Tasks screen reads it
-/// later in the language the interface speaks then (`api::jobs`). The log and
+/// later in the language the interface speaks then (`api::tasks`). The log and
 /// the `detail` column take the English text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detail {
@@ -378,7 +378,7 @@ struct Started {
 
 tokio::task_local! {
     /// Where the first job a piece of work starts says its id, for a caller
-    /// that answers as soon as the work has begun (`api::jobs::answer`).
+    /// that answers as soon as the work has begun (`api::tasks::answer`).
     static STARTED: std::cell::RefCell<Started>;
 }
 

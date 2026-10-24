@@ -36,7 +36,7 @@
   async function cancel(job: Job) {
     if (!(await askConfirmation(t('ConfirmStopTask'), 'StopTask'))) return;
     try {
-      await api.cancelJob(job.id);
+      await api.cancelTask(job.id);
       outcome.succeed(t('TaskStopRequested'));
     } catch (err) {
       outcome.fail(err);
@@ -50,7 +50,7 @@
   let page = $state(1);
 
   const jobsPage = createAsync(
-    (signal) => api.getJobs({ status: status || undefined, page, per_page: 50 }, signal),
+    (signal) => api.getTasks({ status: status || undefined, page, per_page: 50 }, signal),
     () => [status, page],
   );
   const pagination = $derived(jobsPage.data?.pagination);

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sqlx::AssertSqlSafe;
 
 use crate::api::auth::Identity;
-use crate::api::jobs::{answer, prefers_async};
+use crate::api::tasks::{answer, prefers_async};
 use crate::api::{Page, paginate};
 use crate::db::Conditions;
 use crate::error::{AppError, AppResult};
