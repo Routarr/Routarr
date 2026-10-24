@@ -316,9 +316,6 @@ mod tests {
         }
     }
 
-    /// A refused key or a spent quota is an error, a spent quota its own,
-    /// whether OMDb sends it with a 401 or a 200. A miss is an empty answer,
-    /// which is cached.
     #[test]
     fn a_refusal_is_an_error_and_a_miss_is_an_empty_answer() {
         for refused in ["Invalid API key!", "No API key provided."] {

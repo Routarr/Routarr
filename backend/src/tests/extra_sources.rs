@@ -34,8 +34,6 @@ async fn cached(app: &TestApp, source: &str) -> Option<(String, String, Option<S
     .unwrap()
 }
 
-// -------------------------------------------------------- direct addressing
-
 #[tokio::test]
 async fn omdb_is_addressed_by_the_imdb_id_and_normalises_its_prose() {
     let sources = FakeSources::start().await;
@@ -207,8 +205,6 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
     assert_eq!(row.2, r#"{"FR":"-12","US":"TV-14"}"#, "fra -> FR, usa -> US");
 }
 
-// ------------------------------------------------------------- resolution
-
 #[tokio::test]
 async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
     let sources = FakeSources::start().await;
@@ -235,6 +231,27 @@ async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
     assert_eq!(countries, r#"["JP"]"#);
     // Community tags make the keywords, minus the ones nobody agrees with.
     assert_eq!(keywords, r#"["Iyashikei","Rural"]"#);
+}
+
+/// An Arr names a remake with its year in parentheses, "Dororo (2019)", which no anime source
+/// writes: each is searched by the bare title and the match taken on it.
+#[tokio::test]
+async fn a_title_the_arr_names_with_its_year_is_searched_without_it() {
+    for source in ["anilist", "tenrai", "myanimelist"] {
+        let sources = FakeSources::start().await;
+        let app = TestApp::one_film_on(&sources, source).await;
+        app.execute(&["UPDATE media SET title = 'My Neighbor Totoro (1988)'"]).await;
+
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
+
+        let searched: Vec<String> =
+            sources.recorded().searches.iter().map(|(_, term)| term.clone()).collect();
+        assert_eq!(searched, ["My Neighbor Totoro"], "{source}");
+        let found = app.count("SELECT COUNT(*) FROM source_identifiers WHERE external_id = '523'");
+        assert_eq!(found.await, 1, "{source} did not take the work");
+    }
 }
 
 /// A film is searched among films and a series among everything else, on
@@ -450,6 +467,58 @@ async fn a_webhook_enrichment_asks_every_source_the_row_can_address() {
     assert!(cached(&app, "tvdb").await.is_some(), "TheTVDB's answer was not stored");
 }
 
+/// A title asked about alone keeps what each answer says, as a pass keeps it: an id the source
+/// naming works alike found is read and stored without a search, a search finding nothing is
+/// remembered and a failed one is not, and a quota spent closes the day.
+#[tokio::test]
+async fn a_title_asked_alone_keeps_what_each_answer_says() {
+    let searches = |sources: &FakeSources, source: &str| {
+        sources.recorded().searches.iter().filter(|(asked, _)| *asked == source).count()
+    };
+    let by = crate::jobs::Attribution::manual(None);
+
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "tenrai").await;
+    enrichment::enrich_all_media(&app.state, &by).await.unwrap();
+    app.store_setting("metadata_providers", "tenrai,myanimelist").await;
+    let scoped = serde_json::json!({ "media_id": "m-1", "source": "myanimelist" });
+    app.post("/api/v1/sources/refresh", scoped).await.assert_ok();
+    assert_eq!(searches(&sources, "myanimelist"), 0, "the shared id was searched for again");
+    assert_eq!(asked(&sources, "myanimelist"), ["523"]);
+    let shared: Option<(Option<String>, String)> = sqlx::query_as(
+        "SELECT external_id, found_by FROM source_identifiers WHERE source = 'myanimelist'",
+    )
+    .fetch_optional(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(shared, Some((Some("523".into()), metadata::BY_SHARING.into())));
+
+    for (sources, kept) in
+        [(FakeSources::with_mismatched_year().await, 1), (FakeSources::failing(503).await, 0)]
+    {
+        let app = TestApp::one_film_on(&sources, "anilist").await;
+        let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+        for _ in 0..2 {
+            enrichment::enrich_one(&app.state, &media).await.unwrap();
+        }
+        let remembered = app.count("SELECT COUNT(*) FROM source_identifiers").await;
+        assert_eq!(remembered, kept, "what a search answered was kept wrong");
+        let sent = sources.recorded().paths.iter().filter(|path| *path == "/anilist").count();
+        assert_eq!(sent, 2 - usize::try_from(kept).unwrap(), "a search on record was sent again");
+    }
+
+    let sources = FakeSources::start().await;
+    sources.spend_omdb_quota();
+    let app = TestApp::one_film_on(&sources, "omdb").await;
+    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+    let omdb = || sources.recorded().paths.iter().filter(|path| *path == "/omdb").count();
+    enrichment::enrich_one(&app.state, &media).await.unwrap();
+    assert_eq!(omdb(), 1, "the control: OMDb was asked");
+    enrichment::enrich_one(&app.state, &media).await.unwrap();
+    assert_eq!(probe_verdicts(&app).await, ["source_quota_spent"]);
+    assert_eq!(omdb(), 1, "the closed day was asked again");
+}
+
 /// An upgrade forgets the ids an Arr wrote as 0, and the one answer every
 /// title without an id shared under the key `tmdb:0`: kept, it would go on
 /// routing them all until their next sync.
@@ -619,8 +688,6 @@ async fn a_myanimelist_client_id_refused_is_said_and_writes_no_miss() {
     assert_eq!(remembered, 0, "a refused key wrote a miss");
     assert_eq!(probe_verdicts(&app).await, ["source_key_refused"]);
 }
-
-// ------------------------------------------------------------- all together
 
 #[tokio::test]
 async fn every_source_contributes_what_only_it_has() {
@@ -851,8 +918,6 @@ async fn a_source_without_its_key_is_reported_rather_than_probed() {
     assert_eq!(health["status"], "ok");
 }
 
-// ------------------------------------------------------------------- units
-
 #[test]
 fn the_local_key_prefers_the_most_stable_identifier_it_has() {
     assert_eq!(
@@ -867,8 +932,6 @@ fn the_local_key_prefers_the_most_stable_identifier_it_has() {
     // Nothing but a title: still a key, and still shared between instances.
     assert_eq!(metadata::local_key_of(None, None, None, "Akira", Some(1988)), "title:akira|1988");
 }
-
-// ------------------------------------------------------- source outages
 
 /// A library big enough that a doomed request per item would be obvious.
 async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
@@ -952,9 +1015,7 @@ async fn a_tvdb_key_refused_at_login_costs_a_handful_of_attempts() {
     assert!(reads.is_empty(), "a read went out without a token: {reads:?}");
 }
 
-/// A `Retry-After` received while searching holds the searches after it
-/// back, as one received while fetching holds the fetches: the search after
-/// a 429 asking for a second of quiet leaves at least a second after it.
+/// As one received while fetching holds the fetches.
 #[tokio::test]
 async fn a_retry_after_received_while_searching_holds_the_next_search() {
     let sources = FakeSources::start().await;
@@ -974,13 +1035,16 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
     assert!(gap >= std::time::Duration::from_secs(1), "the next search left after {gap:?}");
 }
 
-/// A source reading MyAnimeList answers `504` to every request while it is down. One refusing
-/// five times in a row is not asked again that pass, not even for the titles a search identified
-/// before, but the requests in flight at the fifth refusal still go out.
+/// A source down answers every request alike: a 504, a CDN's 522, or the 404 or 400 of a wrong
+/// base path. Past the breaker, with nothing answered, it is not asked again that pass, not even
+/// for titles a search identified, nothing it said is kept, though the requests in flight go out.
 #[tokio::test]
 async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
-    for source in ["tenrai", "anilist", "omdb", "tvdb"] {
-        let sources = FakeSources::failing(504).await;
+    for (status, source) in [504, 522, 404, 400]
+        .into_iter()
+        .flat_map(|status| ["tenrai", "anilist", "omdb", "tvdb"].map(|source| (status, source)))
+    {
+        let sources = FakeSources::failing(status).await;
         let app = library_of(&sources, source, 20).await;
         if source == "tvdb" {
             app.execute(&[SERIES_ALONE]).await;
@@ -1002,14 +1066,25 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
                 .unwrap();
 
         // The point is how it failed: a handful of requests, not one per item.
-        assert_eq!(report.enriched, 0, "{source}");
+        assert_eq!(report.enriched, 0, "{source} answering {status}");
         assert!(report.considered > 0, "{source} had no record to fetch: {report:?}");
         let attempts = sources.recorded().paths.len();
         assert!(
             attempts <= ceiling,
-            "{attempts} requests went out to {source}, which was down (21 items in the library), \
-             {ceiling} at most"
+            "{attempts} requests went out to {source} answering {status} (21 items in the \
+             library), {ceiling} at most"
         );
+        let misses = app.count("SELECT COUNT(*) FROM source_identifiers WHERE external_id IS NULL");
+        assert_eq!(misses.await, 0, "{source} answering {status} wrote misses");
+        let cached =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM metadata_cache WHERE source = ?")
+                .bind(source)
+                .fetch_one(&app.state.pool)
+                .await
+                .unwrap();
+        assert_eq!(cached, 0, "{source} answering {status} cached answers");
+        let refused = app.count("SELECT COUNT(*) FROM anime_ids_refused").await;
+        assert_eq!(refused, 0, "{source} answering {status} set ids aside");
     }
 }
 
@@ -1027,8 +1102,6 @@ async fn a_working_source_is_never_cut_off_by_the_breaker() {
     assert_eq!(report.skipped, 0, "a healthy source was cut off: {report:?}");
     assert!(report.enriched > 0);
 }
-
-// ------------------------------------------------------------ pacing
 
 /// AniList states its limit beside each answer, and the pace every request
 /// to it waits on follows that limit rather than the one assumed.
@@ -1056,7 +1129,12 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     let sources = FakeSources::start().await;
 
     // The fake is what a mirror or a proxy looks like, and no published limit applies to it.
-    let app = TestApp::one_film_on(&sources, "anilist,tenrai,omdb").await;
+    let app = TestApp::one_film_on(&sources, "tmdb,anilist,tenrai,omdb").await;
+    let mut config = (*app.state.config).clone();
+    (config.tmdb_api_key, config.tmdb_base_url) =
+        (Some("tmdb-key".into()), sources.base_url.clone());
+    let app = TestApp::around(app.state.clone().with_config(config));
+    assert_eq!(app.state.metadata_sources().await.len(), 4, "the control: every source is built");
     for source in app.state.metadata_sources().await {
         assert!(
             source.rate().is_none(),
@@ -1071,26 +1149,33 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     config.tenrai_base_url = crate::integrations::tenrai::DEFAULT_BASE_URL.into();
     config.omdb_base_url = crate::integrations::omdb::DEFAULT_BASE_URL.into();
     config.omdb_api_key = Some("omdb-key".into());
+    config.tmdb_base_url = crate::config::DEFAULT_TMDB_BASE_URL.into();
+    config.tmdb_api_key = Some("tmdb-key".into());
     let app = TestApp::around(AppState::for_tests().await.with_config(config));
-    app.store_setting("metadata_providers", "anilist,tenrai,omdb").await;
+    app.store_setting("metadata_providers", "tmdb,anilist,tenrai,omdb").await;
 
     let sources = app.state.metadata_sources().await;
     let rates: Vec<(&str, Option<(u32, u32)>)> =
         sources.iter().map(|source| (source.id(), source.rate())).collect();
     assert_eq!(
         rates,
-        vec![("anilist", Some((30, 2))), ("tenrai", Some((60, 3))), ("omdb", Some((300, 10)))]
+        vec![
+            ("tmdb", Some((2000, 20))),
+            ("anilist", Some((30, 2))),
+            ("tenrai", Some((60, 3))),
+            ("omdb", Some((300, 10)))
+        ]
     );
 
     // A concurrency setting is a ceiling: Tenrai keeps two in flight whatever it says.
     let concurrency: Vec<(&str, usize)> =
         sources.iter().map(|source| (source.id(), source.concurrency(8))).collect();
-    assert_eq!(concurrency, vec![("anilist", 8), ("tenrai", 2), ("omdb", 8)]);
+    assert_eq!(concurrency, vec![("tmdb", 8), ("anilist", 8), ("tenrai", 2), ("omdb", 8)]);
 }
 
-/// A verdict must not outlive its subject. A source switched off is not probed, and nothing
-/// expires `probe_results`, so the probe prunes what it no longer looks at, or the last failure
-/// is reported on every `/status` poll for ever.
+/// A verdict must not outlive its subject. A source switched off is not probed, so the probe
+/// prunes what it no longer looks at, or the last failure is reported on every `/status` poll
+/// until it is a day old.
 #[tokio::test]
 async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     let sources = FakeSources::start().await;
@@ -1122,6 +1207,25 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     );
 }
 
+/// A source's verdict counts a day: older, it says nothing of the source now, and nothing probes
+/// it on a schedule, so it would warn on every `/status` poll for good.
+#[tokio::test]
+async fn a_source_verdict_older_than_a_day_stops_counting() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,anilist,omdb").await;
+    app.execute(&["INSERT INTO probe_results (subject, reachable, detail, checked_at)
+         VALUES ('source:anilist', 0, NULL, datetime('now', '-23 hours')),
+                ('source:omdb', 0, NULL, datetime('now', '-25 hours'))"])
+        .await;
+
+    let warned = warning_messages(app.get("/api/v1/status").await.assert_ok());
+
+    let localizer = app.state.localizer().await;
+    let unreachable = |name| localizer.translate("WarnProviderUnreachable", &[("provider", name)]);
+    assert!(warned.contains(&unreachable("AniList")), "the control: {warned:?}");
+    assert!(!warned.contains(&unreachable("OMDb")), "an old verdict counted: {warned:?}");
+}
+
 /// A probe names what it found: a refused key, a source asking for fewer requests and one that
 /// does not answer each call for something else of the operator. A source taking no key that
 /// refuses is one not answering, with no key to check.
@@ -1129,6 +1233,8 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
 async fn a_probe_names_why_a_source_did_not_answer() {
     for (status, order, verdict) in [
         (429, "arr,tenrai", "source_rate_limited"),
+        // A 403 is Tenrai's anti-abuse block of the address.
+        (403, "arr,tenrai", "source_rate_limited"),
         (429, "arr,anilist", "source_rate_limited"),
         (429, "arr,myanimelist", "source_rate_limited"),
         // A 403 with the client ID sent is MyAnimeList's front blocking the address.
@@ -1144,19 +1250,94 @@ async fn a_probe_names_why_a_source_did_not_answer() {
     }
 }
 
-/// A probe keeps to its source's pace: sent while the source has asked for
-/// quiet, it earns another refusal and reports the source as failing.
+/// Tenrai answers an address its anti-abuse system blocked with a 403 for up to a day: nothing
+/// more is sent to it until the next UTC day, by a pass, a lookup or a probe.
+#[tokio::test]
+async fn a_tenrai_block_holds_it_back_until_the_next_day() {
+    let sources = FakeSources::failing(403).await;
+    let app = library_of(&sources, "tenrai", 5).await;
+    let by = crate::jobs::Attribution::manual(None);
+    enrichment::enrich_all_media(&app.state, &by).await.unwrap();
+    let asked = sources.recorded().paths.len();
+    assert!(asked > 0, "the control: Tenrai was asked");
+
+    enrichment::enrich_all_media(&app.state, &by).await.unwrap();
+    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+    enrichment::enrich_one(&app.state, &media).await.unwrap();
+    assert_eq!(probe_verdicts(&app).await, ["source_rate_limited"]);
+    assert_eq!(sources.recorded().paths.len(), asked, "a blocked address asked again");
+
+    app.execute(&["UPDATE source_requests SET day = date('now', '-1 day')"]).await;
+    enrichment::enrich_all_media(&app.state, &by).await.unwrap();
+    assert!(sources.recorded().paths.len() > asked, "the next day never came");
+}
+
+/// A probe keeps to its source's pace: sent while the source has asked for quiet, it earns
+/// another refusal and reports the source as failing. A hold longer than the probe waits is
+/// reported as what the source said, without a request.
 #[tokio::test]
 async fn a_probe_waits_while_its_source_is_held_back() {
+    use std::time::Duration;
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "arr,tenrai").await;
     let tenrai = app.state.metadata_sources().await.into_iter().find(|s| s.id() == "tenrai");
     let pace = app.state.paces.of(&tenrai.expect("tenrai is a source"));
-    pace.penalise(std::time::Duration::from_millis(300)).await;
+    pace.penalise(Duration::from_millis(300)).await;
 
     let started = std::time::Instant::now();
     assert!(probe_verdicts(&app).await.is_empty(), "the held source failed its probe");
-    assert!(started.elapsed() >= std::time::Duration::from_millis(250), "the probe did not wait");
+    assert!(started.elapsed() >= Duration::from_millis(250), "the probe did not wait");
+
+    pace.penalise(Duration::from_secs(60)).await;
+    let asked = sources.recorded().paths.len();
+    let fresh = app.get("/api/v1/health?fresh=true");
+    let probed = tokio::time::timeout(Duration::from_secs(10), fresh).await;
+    let health = probed.expect("the probe waited for the whole hold");
+    let tenrai = health.assert_ok()["metadata"]["providers"][1].clone();
+    assert_eq!(tenrai["reason"], "rate_limited");
+    assert_eq!(sources.recorded().paths.len(), asked, "the held source was asked");
+}
+
+/// A title asked about with a deadline stops waiting for a held source at that deadline, and
+/// what the source would have answered is left to the next pass.
+#[tokio::test]
+async fn a_lookup_stops_at_its_deadline_behind_a_held_source() {
+    use std::time::Duration;
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "tenrai").await;
+    let tenrai = app.state.metadata_sources().await.into_iter().next().expect("tenrai");
+    app.state.paces.of(&tenrai).penalise(Duration::from_secs(60)).await;
+    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    let asked = enrichment::ask_now(&app.state, &media, deadline);
+    let fresh = tokio::time::timeout(Duration::from_secs(1), asked).await;
+
+    assert!(fresh.expect("the lookup waited past its deadline").metadata.is_empty());
+    assert!(sources.recorded().paths.is_empty(), "the held source was asked");
+}
+
+/// Each source's summary of a pass names its source as a field a log query filters on, and
+/// counts the titles a quota deferred beside the others.
+#[tokio::test]
+async fn a_pass_summary_names_its_source() {
+    use tracing_subscriber::layer::SubscriberExt;
+    let log = super::LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(log.clone()));
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,tenrai").await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let contents = log.contents();
+    let summary = contents.lines().find(|line| line.contains("item(s) enriched"));
+    let summary = summary.unwrap_or_else(|| panic!("no summary in:\n{contents}"));
+    assert!(summary.contains("source=tenrai"), "{summary}");
+    assert!(summary.contains("0 deferred"), "{summary}");
 }
 
 /// A pass counts again from zero at each source and each stage, so the task names the one its

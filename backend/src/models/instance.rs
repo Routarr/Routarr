@@ -258,12 +258,12 @@ pub struct InstanceResponse {
     #[schema(format = DateTime)]
     pub updated_at: String,
     /// Relative URL to register in Radarr/Sonarr's webhook connection, the
-    /// token in it, for an Arr that sends no custom header. `null` for an
-    /// application key: its token lets anyone post events as the Arr.
+    /// token in it, for an Arr given neither a header nor a password. `null`
+    /// for an application key: its token lets anyone post events as the Arr.
     pub webhook_url: Option<String>,
     /// The same without the token, which goes in `X-Routarr-Token`: Radarr
-    /// 5.16 and Sonarr 4.0.11 send custom headers. `null` for an application
-    /// key.
+    /// 5.16 and Sonarr 4.0.11 send custom headers, and every release can send
+    /// a Basic password. `null` for an application key.
     pub webhook_path: Option<String>,
     /// The token for `X-Routarr-Token`. `null` for an application key.
     pub webhook_token: Option<String>,

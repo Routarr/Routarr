@@ -140,6 +140,11 @@ pub struct TmdbDetails {
 }
 
 impl TmdbClient {
+    /// Where this client points, so a caller can tell the public API from a mirror or a proxy.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub fn new(client: Client, api_key: &str, base_url: &str) -> Self {
         Self {
             client,
@@ -387,8 +392,6 @@ mod tests {
         assert_eq!((tmdb.value, tmdb.votes), (8.4, Some(2100)));
     }
 
-    /// A blank TV rating rates nothing, and a country listed twice keeps its
-    /// first rating, under its upper-case code.
     #[test]
     fn a_blank_tv_rating_rates_nothing() {
         let ratings = |pairs: &[(&str, &str)]| ContentRatingsBlock {
@@ -427,8 +430,6 @@ mod tests {
         assert_eq!(out, vec!["KR"]);
     }
 
-    /// TMDB lists a release before its rating is known: the first rated
-    /// release of each country is its rating.
     #[test]
     fn a_film_is_rated_by_its_first_rated_release_in_each_country() {
         let block = ReleaseDatesBlock {

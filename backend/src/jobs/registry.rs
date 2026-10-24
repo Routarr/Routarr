@@ -371,10 +371,9 @@ pub struct JobHandle {
     closing: Arc<AtomicBool>,
 }
 
-/// The first job a piece of work started, and where to say its id.
+/// Where the first job a piece of work starts says its id.
 struct Started {
     tell: Option<tokio::sync::oneshot::Sender<String>>,
-    id: Option<String>,
 }
 
 tokio::task_local! {
@@ -390,20 +389,12 @@ pub async fn announcing<T>(
     started: tokio::sync::oneshot::Sender<String>,
     work: impl std::future::Future<Output = T>,
 ) -> T {
-    STARTED.scope(std::cell::RefCell::new(Started { tell: Some(started), id: None }), work).await
-}
-
-/// The id of the first job the running work started, when it runs under
-/// [`announcing`]: the task a caller polls for the work's outcome.
-pub fn announced() -> Option<String> {
-    STARTED.try_with(|started| started.borrow().id.clone()).ok().flatten()
+    STARTED.scope(std::cell::RefCell::new(Started { tell: Some(started) }), work).await
 }
 
 fn announce(id: &str) {
     let _ = STARTED.try_with(|started| {
-        let mut started = started.borrow_mut();
-        if let Some(tell) = started.tell.take() {
-            started.id = Some(id.to_string());
+        if let Some(tell) = started.borrow_mut().tell.take() {
             let _ = tell.send(id.to_string());
         }
     });

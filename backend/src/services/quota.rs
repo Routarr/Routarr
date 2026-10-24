@@ -1,4 +1,4 @@
-//! The requests a source with a daily quota may still be sent today.
+//! What a source may still be sent today: its daily quota, or nothing once it blocked the address.
 //!
 //! OMDb answers a free key 1,000 requests a UTC day and refuses every one
 //! after. The enrichment, the lookups of a placement or a webhook and the
@@ -75,6 +75,44 @@ impl DailyQuota {
         )
         .bind(self.source)
         .bind(self.limit)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+}
+
+/// A source that refuses an address for the rest of the day once it blocks it, as Tenrai's
+/// anti-abuse 403 does: nothing more is sent until the next UTC day. A row of `source_requests`
+/// dated today holds it, as it holds OMDb's spent day, so a restart keeps it.
+#[derive(Debug, Clone)]
+pub struct DayHold {
+    source: &'static str,
+}
+
+impl DayHold {
+    pub fn new(source: &'static str) -> Self {
+        Self { source }
+    }
+
+    /// Whether the source refused for the rest of today. Unreadable, it is asked: a request
+    /// refused again costs less than a source silenced on a database error.
+    pub async fn holds(&self, pool: &SqlitePool) -> bool {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM source_requests WHERE source = ? AND day = date('now'))",
+        )
+        .bind(self.source)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(false)
+    }
+
+    /// Hold the source back until the next UTC day.
+    pub async fn begin(&self, pool: &SqlitePool) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO source_requests (source, day, spent) VALUES (?, date('now'), 0)
+             ON CONFLICT(source) DO UPDATE SET day = excluded.day",
+        )
+        .bind(self.source)
         .execute(pool)
         .await?;
         Ok(())

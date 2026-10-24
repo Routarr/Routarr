@@ -135,11 +135,13 @@ CREATE TABLE anime_ids_state (
     origin TEXT NOT NULL
 );
 
--- The ids a source refused although the table named them: never read from it again, so the title
--- is searched instead. Kept through loads, which would otherwise bring them back.
+-- The ids a source refused although the table named them: not read from it for a miss's lifetime
+-- from `refused_at`, so the title is searched instead. Kept through loads, which would otherwise
+-- bring them back, and forgotten by a refresh of the title or the source.
 CREATE TABLE anime_ids_refused (
     source TEXT NOT NULL,
     external_id TEXT NOT NULL,
+    refused_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (source, external_id)
 );
 

@@ -29,7 +29,7 @@ const MAX_ERROR_BODY: usize = 64 << 10;
 
 /// Send a request and decode its JSON body, turning any non-2xx into a typed
 /// `ExternalApi` error carrying the upstream status.
-pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
+pub(crate) async fn send_json<T: serde::de::DeserializeOwned + Send + 'static>(
     service: &'static str,
     request: reqwest::RequestBuilder,
 ) -> AppResult<T> {
@@ -39,7 +39,7 @@ pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
 
 /// [`send_json`] for a library listing, read up to `cap` bytes, which
 /// `ROUTARR_MAX_LIBRARY_MIB` sets.
-pub(crate) async fn send_json_within<T: serde::de::DeserializeOwned>(
+pub(crate) async fn send_json_within<T: serde::de::DeserializeOwned + Send + 'static>(
     service: &'static str,
     request: reqwest::RequestBuilder,
     cap: usize,
@@ -50,7 +50,7 @@ pub(crate) async fn send_json_within<T: serde::de::DeserializeOwned>(
 
 /// [`send_json`], refusing a body over `cap` bytes: a file somebody else publishes, whose size
 /// nothing here decides.
-pub(crate) async fn send_json_capped<T: serde::de::DeserializeOwned>(
+pub(crate) async fn send_json_capped<T: serde::de::DeserializeOwned + Send + 'static>(
     service: &'static str,
     request: reqwest::RequestBuilder,
     cap: usize,
@@ -88,7 +88,7 @@ impl StatedLimit {
 }
 
 /// [`send_json`], with what the source states of its limit beside a success.
-pub(crate) async fn send_json_stating<T: serde::de::DeserializeOwned>(
+pub(crate) async fn send_json_stating<T: serde::de::DeserializeOwned + Send + 'static>(
     service: &'static str,
     request: reqwest::RequestBuilder,
 ) -> AppResult<(T, StatedLimit)> {
@@ -98,7 +98,7 @@ pub(crate) async fn send_json_stating<T: serde::de::DeserializeOwned>(
 }
 
 /// The JSON a successful answer carries, read up to [`MAX_BODY`].
-pub(crate) async fn json_within<T: serde::de::DeserializeOwned>(
+pub(crate) async fn json_within<T: serde::de::DeserializeOwned + Send + 'static>(
     service: &'static str,
     response: reqwest::Response,
 ) -> AppResult<T> {
@@ -107,7 +107,7 @@ pub(crate) async fn json_within<T: serde::de::DeserializeOwned>(
 
 /// The JSON of an answer read up to `cap` bytes. `variable` names what raises
 /// the cap, said when an answer outgrows it.
-async fn json_capped<T: serde::de::DeserializeOwned>(
+async fn json_capped<T: serde::de::DeserializeOwned + Send + 'static>(
     service: &'static str,
     response: reqwest::Response,
     cap: usize,
@@ -123,8 +123,26 @@ async fn json_capped<T: serde::de::DeserializeOwned>(
         // A body cut or timed out is a transport failure, not an unreadable one.
         Err(e) => return Err(transport_failure(service, &e)),
     };
-    serde_json::from_slice(&body)
-        .map_err(|e| upstream(service, 0, Upstream::Unreadable, e.to_string()))
+    decoded(service, body).await
+}
+
+/// Past this, a body is decoded on the blocking pool: a library listing or the anime table
+/// would otherwise hold a runtime worker, and every request it serves, for the whole decode.
+const DECODED_INLINE: usize = 1 << 20;
+
+/// The JSON `body` holds, told `Unreadable` when it is not `T`.
+pub(crate) async fn decoded<T: serde::de::DeserializeOwned + Send + 'static>(
+    service: &'static str,
+    body: Vec<u8>,
+) -> AppResult<T> {
+    let decoded = if body.len() > DECODED_INLINE {
+        tokio::task::spawn_blocking(move || serde_json::from_slice(&body))
+            .await
+            .map_err(|e| crate::error::AppError::Internal(format!("a decode stopped: {e}")))?
+    } else {
+        serde_json::from_slice(&body)
+    };
+    decoded.map_err(|e| upstream(service, 0, Upstream::Unreadable, e.to_string()))
 }
 
 /// The body, up to `cap` bytes, and whether more was coming.
@@ -132,7 +150,8 @@ async fn read_up_to(
     mut response: reqwest::Response,
     cap: usize,
 ) -> Result<(Vec<u8>, bool), reqwest::Error> {
-    let mut body = Vec::new();
+    let announced = response.content_length().and_then(|length| usize::try_from(length).ok());
+    let mut body = Vec::with_capacity(announced.unwrap_or(0).min(cap));
     while let Some(chunk) = response.chunk().await? {
         let room = cap - body.len();
         if chunk.len() > room {
@@ -167,8 +186,9 @@ async fn check_status(
         return Err(upstream(service, 0, metadata, String::new()));
     }
     let (method, sent_to) = (request.method().clone(), request.url().clone());
+    let credentials = credentials_of(&request);
     let response = client.execute(request).await.map_err(|e| transport_failure(service, &e))?;
-    // A redirect turns a write into a GET without its body, whose success is not the write's.
+    // Any redirect of a write is refused: the answer that follows may be a GET's, not the write's.
     if !method.is_safe() && response.url() != &sent_to {
         return Err(upstream(service, 0, Upstream::WriteRedirected, String::new()));
     }
@@ -195,8 +215,38 @@ async fn check_status(
         status,
         kind: Upstream::Http,
         retry_after,
-        message: upstream_message(&body),
+        message: upstream_message(&redacted(&body, &credentials)),
     })
+}
+
+/// The shortest value read as a credential: an OMDb key has eight characters. A shorter one
+/// left in, a `limit=5` would take every 5 out of what the source said.
+const SHORTEST_CREDENTIAL: usize = 8;
+
+/// What a request carries that an error page may quote back: its address, its query and each
+/// value of it, and the credentials of its headers. Longest first, so a value inside the address
+/// does not leave the rest of the address standing.
+fn credentials_of(request: &reqwest::Request) -> Vec<String> {
+    let url = request.url();
+    let mut credentials = vec![url.to_string()];
+    if let Some(query) = url.query() {
+        credentials.extend([format!("{}?{query}", url.path()), query.to_string()]);
+        credentials.extend(url.query_pairs().map(|(_, value)| value.into_owned()));
+    }
+    for name in ["authorization", "x-api-key", "x-mal-client-id"] {
+        if let Some(value) = request.headers().get(name).and_then(|value| value.to_str().ok()) {
+            credentials.push(value.split_once(' ').map_or(value, |(_, token)| token).to_string());
+        }
+    }
+    credentials.retain(|credential| credential.chars().count() >= SHORTEST_CREDENTIAL);
+    credentials.sort_by_key(|credential| std::cmp::Reverse(credential.len()));
+    credentials.dedup();
+    credentials
+}
+
+/// `said` with each of `credentials` written `***`.
+fn redacted(said: &str, credentials: &[String]) -> String {
+    credentials.iter().fold(said.to_string(), |said, credential| said.replace(credential, "***"))
 }
 
 /// An upstream failure with no `Retry-After`.
@@ -613,6 +663,75 @@ mod tests {
         assert!(message.contains("unreadable"), "not reported as unreadable: {message}");
         assert!(!message.contains("SUPERSECRET123"), "the key leaked: {message}");
         assert!(!message.contains("api_key"), "the query string leaked: {message}");
+    }
+
+    /// An error page quoting the address it failed on, as a proxy's does, never carries the key
+    /// that address holds into the error, the log or what a reader is told.
+    #[tokio::test]
+    async fn an_error_page_quoting_the_url_never_echoes_the_key() {
+        let proxy = axum::Router::new().route(
+            "/3/movie/1",
+            axum::routing::get(|uri: axum::http::Uri| async move {
+                let page = format!("<html>The proxy could not reach {uri}</html>");
+                (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::response::Html(page))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, proxy).await });
+
+        let request = reqwest::Client::new()
+            .get(format!("http://{address}/3/movie/1?api_key=SUPERSECRET123"));
+        let error =
+            send_json::<serde_json::Value>("TMDB", request).await.expect_err("a 503 is no answer");
+
+        let told = error.told().expect("a told failure");
+        for said in [error.to_string(), told.render(&crate::localization::Localizer::new("en"))] {
+            assert!(said.contains("The proxy could not reach"), "the page was not said: {said}");
+            assert!(!said.contains("SUPERSECRET123"), "the key leaked: {said}");
+            assert!(!said.contains("api_key="), "the query string leaked: {said}");
+        }
+    }
+
+    /// A library listing of many MiB is decoded off the runtime: decoded on it, it would stop
+    /// every request, webhook and probe its worker serves for as long as the decode takes.
+    #[tokio::test]
+    async fn a_large_answer_is_decoded_off_the_runtime() {
+        use std::time::{Duration, Instant};
+        let film = r#"{"id":1,"title":"A title","path":"/movies/a","monitored":true}"#;
+        let body = format!("[{}]", vec![film; 200_000].join(","));
+        let listing = axum::Router::new().route(
+            "/api/v3/movie",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move { ([("content-type", "application/json")], body) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, listing).await });
+        let ticks = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let ticker = tokio::spawn({
+            let ticks = std::sync::Arc::clone(&ticks);
+            async move {
+                loop {
+                    ticks.lock().unwrap().push(Instant::now());
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+        });
+
+        let request = reqwest::Client::new().get(format!("http://{address}/api/v3/movie"));
+        let films: Vec<serde_json::Value> =
+            send_json_within("Radarr", request, 64 << 20).await.unwrap();
+        ticks.lock().unwrap().push(Instant::now());
+        ticker.abort();
+
+        assert_eq!(films.len(), 200_000);
+        let ticks = ticks.lock().unwrap();
+        let longest = ticks.windows(2).map(|pair| pair[1] - pair[0]).max().unwrap_or_default();
+        let call = ticks[ticks.len() - 1] - ticks[0];
+        assert!(longest * 4 < call, "the runtime stood still {longest:?} of a {call:?} call");
     }
 
     /// The listing in the shape `FileSystemResult` serialises to, written from the Arrs'

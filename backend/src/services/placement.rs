@@ -112,6 +112,7 @@ pub async fn place(
     let held = routing::media_by_external_id(&state.pool, media_type, id, instance).await?;
 
     let mut placement = Placement::default();
+    let deadline = tokio::time::Instant::now() + crate::services::enrichment::ASK_BUDGET;
     // Asked once per title, whichever instances know it: a source's quota is spent per request.
     let mut asked: std::collections::HashMap<(String, String), routing::Fresh> =
         std::collections::HashMap::new();
@@ -139,7 +140,7 @@ pub async fn place(
             match asked.get(&title) {
                 Some(fresh) => fresh.clone(),
                 None => {
-                    let fresh = crate::services::enrichment::ask_now(state, &media, None).await;
+                    let fresh = crate::services::enrichment::ask_now(state, &media, deadline).await;
                     asked.insert(title, fresh.clone());
                     fresh
                 }
