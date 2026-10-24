@@ -402,6 +402,78 @@ async fn a_run_leaves_alone_a_title_a_later_run_decided() {
     assert_eq!(category, "standard");
 }
 
+/// A row a clock that ran ahead stored, or a restored archive brought, orders after a run
+/// started now unless the run reads the floor.
+#[tokio::test]
+async fn a_run_after_the_clock_went_back_stores_what_it_decided() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    let ahead = chrono::Utc::now().timestamp_micros() + 86_400_000_000;
+    sqlx::query(
+        "INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
+         VALUES ('m-1', 'standard', ?, datetime('now'))",
+    )
+    .bind(ahead)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    run_simulation(
+        &app.state.pool,
+        &app.state.library_passes,
+        SimulationOptions { persist: true, ..Default::default() },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(proposals_for_totoro(&app).await, 1, "the run stored no move for Totoro");
+    let (category, order): (String, i64) =
+        sqlx::query_as("SELECT category, load_order FROM media_routing WHERE media_id = 'm-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(category, "anime");
+    assert!(order > ahead, "the run took an order below the one stored");
+}
+
+/// A pass after a sync and a webhook's unattended pass each run the rule tests: the second to
+/// read waits for the first's verdicts, so the suite turning to failing is told once.
+#[tokio::test]
+async fn two_rule_test_runs_announce_a_failure_once() {
+    let receiver = crate::tests::notify::Receiver::start().await;
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.store_setting("notification_webhook_url", &receiver.url).await;
+    let body = json!({ "name": "Totoro stays", "media_id": "m-1" });
+    app.post("/api/v1/rule-tests", body).await.assert_ok();
+    app.seed_anime_rule().await;
+    let app = Arc::new(app);
+    let check = || {
+        let app = Arc::clone(&app);
+        async move { crate::services::rule_tests::check(&app.state).await.unwrap().failed }
+    };
+
+    let gate = arm("rule_tests::check", "");
+    let first = tokio::spawn(check());
+    gate.reached().await;
+    let mut second = tokio::spawn(check());
+    let early = tokio::time::timeout(Duration::from_millis(300), &mut second).await;
+    gate.release();
+    assert_eq!(first.await.unwrap(), 1);
+    let second = match early {
+        Ok(done) => done.unwrap(),
+        Err(_) => second.await.unwrap(),
+    };
+    assert_eq!(second, 1);
+
+    receiver.awaiting(1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let told: Vec<String> = receiver.deliveries().into_iter().map(|d| d.body).collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].contains("rule_tests_failing"), "{told:?}");
+}
+
 /// The reorder checks its list under the lock it writes with.
 #[tokio::test]
 async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() {

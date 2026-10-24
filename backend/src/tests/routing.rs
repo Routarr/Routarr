@@ -28,6 +28,24 @@ async fn a_matching_rule_produces_a_move() {
     assert!(result.decisions[0].confidence > 0.5);
 }
 
+/// A sweep returns no decision, so wording the moves it stores is work nothing reads.
+#[tokio::test]
+async fn a_persisted_run_returning_nothing_words_no_line() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+
+    let swept = simulate(&app, SimulationOptions { max_returned: Some(0), ..persisting() }).await;
+    assert_eq!(swept.moves_required, 1);
+    let stored = app.count("SELECT COUNT(*) FROM decisions WHERE action = 'move'").await;
+    assert_eq!(stored, 1, "the move was not stored");
+    assert_eq!(routing::lines_worded(&swept.simulation_id), 0);
+
+    let shown = simulate(&app, persisting()).await;
+    assert!(routing::lines_worded(&shown.simulation_id) > 0, "a returned move was not worded");
+    assert!(!shown.decisions[0].reasons.is_empty());
+}
+
 #[tokio::test]
 async fn media_already_in_place_needs_no_move() {
     let app = TestApp::new().await;
@@ -92,12 +110,8 @@ async fn a_category_without_a_root_folder_is_skipped_not_moved() {
     assert!(result.decisions[0].target_root_folder.is_none());
 }
 
-/// The library pass loads what a rule can match on, and nothing else.
-///
-/// `MetadataField` names five fields. The status and the synopsis are matchable
-/// by no condition and the pass never opens them. Read whole, they would make
-/// up much of every cache row, held in memory for the duration of every
-/// simulation.
+/// The status and the synopsis match no condition, and read whole they would make up much of
+/// every cache row held through a simulation.
 #[tokio::test]
 async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     let app = TestApp::new().await;
@@ -121,25 +135,17 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
         .get(&("tmdb".to_string(), "129".to_string(), "movie".to_string()))
         .expect("the row is in the cache");
 
-    // What a condition reads is there...
     assert_eq!(answer.genres, vec!["Animation"]);
     assert_eq!(answer.original_language.as_deref(), Some("ja"));
     assert_eq!(answer.certification.as_deref(), Some("PG"));
-    // ...and what none of them can read was never fetched. The explanation
-    // panel gets these from the per-item path instead.
+    // The explanation panel reads these from the per-item path.
     assert!(answer.overview.is_none(), "the pass carried a synopsis it cannot match on");
     assert!(answer.status.is_none());
 }
 
-/// A root folder on a NAS that has spun down is reported inaccessible, and
-/// that is *unknown*, not gone.
-///
-/// Read as absent, it would leave the category unmapped, so everything bound
-/// for it would become "skip", indistinguishable on screen from a category
-/// nobody mapped, and the rerun would supersede a plan built while the disk was
-/// awake.
-/// The question of whether the destination can be written to is asked at apply
-/// time instead, where it can be answered.
+/// A NAS asleep reports its folder inaccessible, which is unknown, not gone: read as absent, the
+/// category would be unmapped and everything bound for it a skip. Whether it can be written to is
+/// asked at apply time.
 #[tokio::test]
 async fn a_root_folder_that_is_asleep_still_routes() {
     let app = TestApp::new().await;
@@ -161,12 +167,8 @@ async fn a_root_folder_that_is_asleep_still_routes() {
     assert_eq!(result.skipped_unmapped, 0, "and it was counted as an unmapped category");
 }
 
-/// The plan built while the disk was awake has to survive the nap.
-///
-/// Rerunning marks prior `pending` decisions `superseded`, which is what stops
-/// two contradictory proposals both being applied. A destination that vanishes
-/// from the map would turn that guard into one that destroys the good plan
-/// instead of replacing it.
+/// A rerun supersedes the pending decisions, so a destination vanishing from the map would
+/// destroy the good plan instead of replacing it.
 #[tokio::test]
 async fn a_pass_run_while_the_disk_sleeps_keeps_the_plan() {
     let app = TestApp::new().await;
@@ -592,10 +594,8 @@ async fn an_unreadable_instance_list_scopes_the_rule_to_nothing() {
     assert_eq!(simulate(&app, persisting()).await.moves_required, 0, "the rule widened");
 }
 
-/// Two library-wide passes at once evaluate the library twice for one result.
-/// The webhook's single-item run must *not* queue behind a sweep:
-/// `routing::store_run` touches only what it evaluated, and a season import
-/// arrives as one delivery per episode.
+/// Two library passes at once evaluate the library twice for one result. The webhook's
+/// single-item run never queues behind one: a season arrives as one delivery per episode.
 #[tokio::test]
 async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
     let arr = crate::tests::fake_arr::FakeArr::start().await;
@@ -625,15 +625,9 @@ async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
     app.post("/api/v1/simulate", serde_json::json!({ "persist": true })).await.assert_ok();
 }
 
-/// The explanation panel names the category, the folder and the action the
-/// simulation proposes, whatever road the item takes to get there.
-///
-/// A panel naming a folder the simulation does not propose breaks the promise
-/// that every decision explains itself. Each item reaches its folder by a road
-/// a second spelling of the decision could read differently: an exclusion
-/// handing it to the next rule and a folder declared here rather than reported
-/// by the Arr, a folder the Arr reports asleep, and an override onto the folder
-/// the item is already in, stored with a trailing slash.
+/// Each item reaches its folder by a road a second spelling of the decision could read
+/// differently: an exclusion handing it on, a declared folder, a folder asleep, and an override
+/// onto its own folder stored with a trailing slash.
 #[tokio::test]
 async fn the_explanation_names_the_folder_the_simulation_proposes() {
     let app = TestApp::new().await;
@@ -688,10 +682,8 @@ async fn the_explanation_names_the_folder_the_simulation_proposes() {
     }
 }
 
-/// The plan weighs what it sends to each folder: bytes crossing from another
-/// filesystem count against the free space, bytes from a folder reporting the
-/// same free space are a rename and do not, and a folder that cannot take
-/// what it is sent comes first.
+/// Bytes from another filesystem count against the free space, bytes from a folder reporting the
+/// same free space are a rename, and a folder that cannot take its share comes first.
 #[tokio::test]
 async fn the_plan_weighs_what_each_folder_receives() {
     let app = TestApp::new().await;
@@ -803,8 +795,8 @@ async fn an_upgrade_shows_each_title_its_latest_standing_decision() {
     assert_eq!(kept, [("m-1".to_string(), "kids".to_string(), Some("r-2".to_string()))]);
 }
 
-/// "Added within the last 0 days" meant the last 24 hours, and 0 is refused
-/// now: an upgrade turns it into 1, which means the same, wherever it stands.
+/// An `added_within_days` of 0, which the validator refuses, becomes 1, the same last 24 hours,
+/// wherever it stands.
 #[tokio::test]
 async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
     let pool = crate::tests::database_of_0_1_5().await;
@@ -894,9 +886,8 @@ async fn an_upgrade_tells_apart_instances_sharing_a_name() {
     assert_eq!(names[4], "Sonarr");
 }
 
-/// What a key wrote before keys were recorded beside names goes to the key
-/// whose name it carries, when no other key ever had that name. A name given
-/// twice cannot say which key wrote a row, and the row names no key.
+/// A row naming a key by its name alone goes to the key whose name it carries, when no other key
+/// ever had that name. A name given twice names no key.
 #[tokio::test]
 async fn an_upgrade_gives_each_key_what_it_alone_could_have_written() {
     let pool = crate::tests::database_of_0_1_5().await;

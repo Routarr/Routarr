@@ -1,15 +1,9 @@
-//! Servarr language names to ISO 639-1 codes.
+//! Servarr language names to ISO 639-1 codes, and country names and codes to ISO 3166-1.
 //!
-//! TMDB reports `original_language` as a code (`ja`), the Arrs as a word
-//! (`Japanese`). One field, two vocabularies: untranslated, a rule matching
-//! through TMDB silently stops matching the day the Arr answers first, the
-//! worst failure a routing rule has.
-//!
-//! The tables (`tables.rs`) hold every ISO 639-1 language and every ISO 3166-1
-//! country. Radarr names 57 languages and Sonarr 46 of them, OMDb writes
-//! English names of its own, and TheTVDB three-letter codes. A name no table
-//! knows keeps its own spelling, lowercased, so a rule still has something to
-//! compare against instead of the field going empty.
+//! TMDB reports `original_language` as a code (`ja`), the Arrs as a word (`Japanese`):
+//! untranslated, a rule matching through TMDB stops matching the day the Arr answers first.
+//! The tables (`tables.rs`) hold every ISO 639-1 language and ISO 3166-1 country. A name no
+//! table knows keeps its own spelling, lowercased, for a rule to compare against.
 
 mod tables;
 
@@ -73,7 +67,7 @@ pub fn from_iso_639_3(code: &str) -> Option<String> {
 /// `origin_country` conditions are written against the code. A country we do not
 /// know yields nothing rather than a wrong code: a source below can still
 /// answer, and a wrong country silently misroutes.
-fn country_code(name: &str) -> Option<String> {
+pub fn country_by_name(name: &str) -> Option<String> {
     let name = name.trim().to_lowercase();
     COUNTRIES
         .iter()
@@ -119,7 +113,7 @@ const RETIRED_ALIASES: &[(&str, &str)] = &[
 
 /// Split a comma-separated list of country names into ISO codes.
 pub fn country_codes(list: &str) -> Vec<String> {
-    list.split(',').filter_map(country_code).collect()
+    list.split(',').filter_map(country_by_name).collect()
 }
 
 /// The first language of a comma-separated list of names, as a code.
@@ -156,8 +150,6 @@ mod tests {
         assert_eq!(country_from_alpha3("DD").as_deref(), Some("XG"), "the ISO code of the GDR");
     }
 
-    /// OMDb writes "N/A" where it has no language, and "None" for a film with
-    /// no dialogue: neither is a language a rule could name.
     #[test]
     fn omdb_saying_it_has_no_language_gives_none() {
         for absent in ["N/A", "None", "n/a"] {
@@ -214,8 +206,8 @@ mod tests {
         assert!(ISO_639_3.windows(2).all(|pair| pair[0].0 < pair[1].0), "the table is unsorted");
     }
 
-    /// Radarr names 57 languages, Sonarr 46 of them: each reads as the code a
-    /// rule is written against, Georgian as `ka`.
+    /// Each language Radarr names, Sonarr's among them, reads as the code a rule is written
+    /// against, Georgian as `ka`.
     #[test]
     fn every_language_radarr_names_reads_as_its_code() {
         let radarr = [
@@ -350,8 +342,6 @@ mod tests {
         assert_eq!(from_iso_639_3("fra").as_deref(), Some("fr"));
     }
 
-    /// Romansh is in the vocabulary a rule is written against, as `rm`, so a
-    /// source answering `roh` has to land there too.
     #[test]
     fn romansh_in_three_letters_matches_a_rule_written_against_rm() {
         assert_eq!(from_iso_639_3("roh").as_deref(), Some("rm"));
@@ -376,17 +366,9 @@ mod tests {
         assert_eq!(country_from_alpha3("xyz"), None);
     }
 
-    // ------------------------------------------------- dropping, not guessing
-    //
-    // This module's contract is that an unmappable value produces *no answer*
-    // rather than a plausible one. That matters because of what happens next: a
-    // dropped field lets the source below the current one answer, while a wrong
-    // one is accepted and silently routes a title into the wrong folder. The
-    // failure is invisible either way, since nothing logs "this rule stopped
-    // matching", so these tests stand in for a symptom.
+    // An unmappable value gives no answer rather than a plausible one: a dropped field lets the
+    // next source answer, where a wrong one routes in silence.
 
-    /// TheTVDB answers in three-letter codes and not all of them are ones we
-    /// map. The unmappable one has to disappear, not become a neighbour.
     #[test]
     fn an_unmappable_country_code_is_no_answer_rather_than_a_neighbour() {
         assert_eq!(country_from_alpha3("xkx"), None);
@@ -394,17 +376,13 @@ mod tests {
         assert_eq!(country_from_alpha3(""), None);
     }
 
-    /// A code that is already ISO 3166-1 alpha-2 passes through, cased the way
-    /// a rule is written.
     #[test]
     fn a_two_letter_country_code_is_normalised_not_rejected() {
         assert_eq!(country_from_alpha3("jp").as_deref(), Some("JP"));
         assert_eq!(country_from_alpha3(" Us ").as_deref(), Some("US"));
     }
 
-    /// OMDb returns prose: "Japan, United States". One unrecognised entry must
-    /// not cost the others: a partial answer is still an answer, and an empty
-    /// one makes every country condition stop matching.
+    /// An empty answer would make every country condition stop matching.
     #[test]
     fn an_unknown_entry_does_not_discard_the_countries_beside_it() {
         assert_eq!(country_codes("Japan, Atlantis, France"), vec!["JP", "FR"]);
@@ -412,8 +390,7 @@ mod tests {
         assert!(country_codes("").is_empty());
     }
 
-    /// `first_language` takes the *first that maps*, not the first entry. OMDb
-    /// puts the original language first, but it also writes "Unknown" there.
+    /// OMDb puts the original language first, and writes "Unknown" there too.
     #[test]
     fn the_first_language_is_the_first_one_that_maps() {
         assert_eq!(first_language("Japanese, English").as_deref(), Some("ja"));
@@ -421,10 +398,8 @@ mod tests {
         assert_eq!(first_language(""), None);
     }
 
-    /// The asymmetry between the two entry points is deliberate and worth
-    /// pinning. A *name* we do not know is kept as itself, because it is still
-    /// a value a user can write a rule against. A *code* we do not know is
-    /// dropped, because "tlh" means nothing to anyone reading the interface.
+    /// An unknown name is still a value a rule can name. An unknown code, as `tlh`, means
+    /// nothing to a reader.
     #[test]
     fn an_unknown_name_is_kept_while_an_unknown_code_is_dropped() {
         assert_eq!(normalise("Klingon").as_deref(), Some("klingon"));

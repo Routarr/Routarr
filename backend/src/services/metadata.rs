@@ -70,6 +70,8 @@ pub struct ProviderInfo {
     pub key_env: Option<&'static str>,
     pub addressing: Addressing,
     pub fields: &'static [MetadataField],
+    /// The score scales it rates on, for which `Ratings` among `fields` stands.
+    pub scales: &'static [&'static str],
     /// The media types it answers for: TheTVDB for series alone, since Radarr
     /// carries no TheTVDB id.
     pub media_types: &'static [&'static str],
@@ -97,6 +99,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
             MetadataField::Ratings,
         ],
+        scales: &["imdb", "tmdb", "metacritic", "rotten_tomatoes"],
         media_types: EVERY_MEDIA_TYPE,
         website: None,
     },
@@ -115,6 +118,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
             MetadataField::Ratings,
         ],
+        scales: &["tmdb"],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://www.themoviedb.org"),
     },
@@ -133,6 +137,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginCountries,
             MetadataField::Ratings,
         ],
+        scales: &["anilist"],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://anilist.co"),
     },
@@ -149,6 +154,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
             MetadataField::Ratings,
         ],
+        scales: &["mal"],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://myanimelist.net"),
     },
@@ -166,6 +172,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
             MetadataField::Ratings,
         ],
+        scales: &["mal"],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://myanimelist.net"),
     },
@@ -184,6 +191,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
             MetadataField::Ratings,
         ],
+        scales: &["imdb", "metacritic", "rotten_tomatoes"],
         media_types: EVERY_MEDIA_TYPE,
         website: Some("https://www.omdbapi.com"),
     },
@@ -200,6 +208,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginCountries,
             MetadataField::Certification,
         ],
+        scales: &[],
         media_types: &["series"],
         website: Some("https://thetvdb.com"),
     },
@@ -259,6 +268,17 @@ pub fn covered_fields(providers: &[&'static ProviderInfo]) -> Vec<MetadataField>
         }
     }
     fields
+}
+
+/// The score scales the enabled sources give between them.
+pub fn covered_scales(providers: &[&'static ProviderInfo]) -> Vec<&'static str> {
+    let mut scales: Vec<&'static str> = Vec::new();
+    for scale in providers.iter().flat_map(|provider| provider.scales) {
+        if !scales.contains(scale) {
+            scales.push(scale);
+        }
+    }
+    scales
 }
 
 /// The `arr` source, read from the row. A malformed `genres` payload yields no genres rather
@@ -586,8 +606,6 @@ fn numeric(external_id: &str, service: &str) -> AppResult<i64> {
         crate::error::AppError::BadRequest(format!("'{external_id}' is not a {service} identifier"))
     })
 }
-
-// ------------------------------------------------------------ resolution
 
 /// Accept a candidate only on an exact title match and a year that agrees. A search is where a
 /// source can attach the wrong work, whose genres route a film into the wrong folder: better to
@@ -1056,8 +1074,19 @@ pub async fn load_cache_of(
 #[cfg(test)]
 mod tests {
 
-    /// The regions are read in their order, not the ratings', whatever case
-    /// they are written in, and a blank rating rates nothing.
+    /// A score range is warned of by the scales a source names, so a source answering ratings
+    /// on no scale, or on one no rule can name, leaves a rule unanswered without a word.
+    #[test]
+    fn a_source_names_its_scales_exactly_when_it_answers_ratings() {
+        for provider in super::PROVIDERS {
+            let rates = provider.fields.contains(&super::MetadataField::Ratings);
+            assert_eq!(rates, !provider.scales.is_empty(), "{}", provider.id);
+            for scale in provider.scales {
+                assert!(crate::models::scale(scale).is_some(), "{}: {scale}", provider.id);
+            }
+        }
+    }
+
     #[test]
     fn the_first_region_rated_gives_the_rating() {
         let rated = super::BTreeMap::from([
@@ -1074,8 +1103,6 @@ mod tests {
         assert_eq!(pick(&["DE", "GB"]), None);
     }
 
-    /// Every path to a source spends one budget, a source with no published
-    /// rate included: unpaced, it is still held back when it refuses.
     #[tokio::test]
     async fn every_path_to_a_source_spends_one_pace() {
         use crate::integrations::anilist::AniListClient;
@@ -1105,9 +1132,7 @@ mod tests {
         assert_eq!(order.iter().map(|p| p.id).collect::<Vec<_>>(), vec!["tmdb", "arr"]);
     }
 
-    /// A list written around the validator without the Arr still reads it,
-    /// after every source the user listed: ahead of them, it would answer
-    /// in their place.
+    /// Ahead of the listed sources, the Arr would answer in their place.
     #[test]
     fn a_list_without_the_arr_reads_it_last() {
         let order = parse_order("tmdb, omdb");
@@ -1135,9 +1160,6 @@ mod tests {
         );
     }
 
-    /// A found id is kept for good, a miss for thirty to forty days: one a day
-    /// short of thirty is still remembered, one a day past forty is searched
-    /// again.
     #[tokio::test]
     async fn a_miss_is_remembered_a_month_or_so_and_a_found_id_for_good() {
         let pool = crate::db::test_pool().await;
@@ -1165,8 +1187,6 @@ mod tests {
         );
     }
 
-    /// TMDB's answers are kept six months at most, whatever the lifetime set,
-    /// and every other source's as long as it says.
     #[test]
     fn a_tmdb_answer_is_kept_six_months_at_most() {
         assert_eq!(cache_days(TMDB, 3_650), 180);
@@ -1175,8 +1195,6 @@ mod tests {
         assert_eq!(cache_days(OMDB, 0), 1);
     }
 
-    /// The misses a pass writes in one go come due over ten days, not in the
-    /// same hours a month later.
     #[test]
     fn misses_written_at_one_instant_come_due_over_ten_days() {
         let days: HashSet<i64> = (0..200)
@@ -1185,9 +1203,6 @@ mod tests {
         assert_eq!(days, (30..=40).collect());
     }
 
-    /// A title is searched on AniList and MyAnimeList when filed under Animation or Anime,
-    /// however spelt, as an anime series, or with no genre yet, and any title when the setting
-    /// says so.
     #[test]
     fn only_a_title_that_may_be_anime_is_searched_by_default() {
         let genres = |names: &[&str]| names.iter().map(|name| name.to_string()).collect::<Vec<_>>();
@@ -1199,9 +1214,6 @@ mod tests {
         assert!(may_search("all", &genres(&["Drama"]), None));
     }
 
-    /// The year agrees within one either way, and a candidate without a year is refused when
-    /// the library knows it. A title of punctuation alone matches nothing, and the first
-    /// candidate that matches is taken.
     #[test]
     fn a_candidate_is_taken_on_its_title_and_a_year_within_one() {
         let totoro = |id: &str, year: Option<i64>| {

@@ -467,7 +467,12 @@ pub async fn explain(
     let rules_category = match override_category {
         Some(_) => {
             let default_category = AppState::default_category(&state.pool).await?;
-            crate::services::rule_tests::decided_by_rules(ctx, &rules, &default_category).0
+            crate::services::rule_tests::decided_by_rules(
+                ctx,
+                &rule_engine::Prepared::new(&rules),
+                &default_category,
+            )
+            .0
         }
         None => category.clone(),
     };
@@ -678,21 +683,21 @@ async fn column_facets(pool: &sqlx::SqlitePool, column: &'static str) -> AppResu
 }
 
 /// The quality profiles of every instance, by name, with the titles holding each.
+pub(crate) const PROFILE_FACETS: &str = "SELECT p.name AS value, COALESCE(c.n, 0) AS n
+       FROM (SELECT name FROM arr_quality_profiles
+             UNION SELECT quality_profile FROM media WHERE quality_profile IS NOT NULL) p
+       LEFT JOIN (SELECT quality_profile, COUNT(*) AS n FROM media
+                   WHERE quality_profile IS NOT NULL GROUP BY quality_profile) c
+         ON c.quality_profile = p.name
+      ORDER BY n DESC, value";
+
 async fn profile_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
-    Ok(sqlx::query_as::<_, (String, i64)>(
-        "SELECT p.name AS value, COALESCE(c.n, 0) AS n
-           FROM (SELECT name FROM arr_quality_profiles
-                 UNION SELECT quality_profile FROM media WHERE quality_profile IS NOT NULL) p
-           LEFT JOIN (SELECT quality_profile, COUNT(*) AS n FROM media
-                       WHERE quality_profile IS NOT NULL GROUP BY quality_profile) c
-             ON c.quality_profile = p.name
-          ORDER BY n DESC, value",
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|(value, count)| Facet { value, label: None, count, group: None })
-    .collect())
+    Ok(sqlx::query_as::<_, (String, i64)>(PROFILE_FACETS)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(value, count)| Facet { value, label: None, count, group: None })
+        .collect())
 }
 
 /// The folders the titles sit in, one entry per folder however its Arr wrote

@@ -12,18 +12,20 @@ use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::state::AppState;
 
-type OverrideRow = (
-    String,
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    String,
-    String,
-    String,
-    Option<String>,
-);
+/// One exception as the list reads it, by column name.
+#[derive(sqlx::FromRow)]
+struct OverrideListRow {
+    id: String,
+    media_id: String,
+    target_category: String,
+    reason: Option<String>,
+    created_at: String,
+    subject: Option<String>,
+    subject_key: Option<String>,
+    title: String,
+    media_type: String,
+    instance_name: String,
+}
 
 /// A page of the exceptions, the newest first: a script pins a whole library
 /// through `PUT /exceptions/external`, and one answer holding every pin would
@@ -34,9 +36,9 @@ pub async fn list(
     Query(query): Query<super::PageQuery>,
 ) -> AppResult<Json<super::Page<OverrideWithMedia>>> {
     let (page, per_page, offset) = super::paginate(query.page, query.per_page);
-    let rows: Vec<OverrideRow> = sqlx::query_as(
+    let rows: Vec<OverrideListRow> = sqlx::query_as(
         "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
-         m.title, m.media_type, i.name, o.subject_key
+         m.title, m.media_type, i.name AS instance_name, o.subject_key
          FROM overrides o
          JOIN media m ON o.media_id = m.id
          JOIN instances i ON m.instance_id = i.id
@@ -59,16 +61,16 @@ pub async fn list(
         .into_iter()
         .map(|r| OverrideWithMedia {
             override_entry: OverrideEntry {
-                id: r.0,
-                media_id: r.1,
-                target_category: r.2,
-                reason: r.3,
-                created_at: r.4,
-                subject: identity.shown_subject(r.5, r.9.as_deref()),
+                id: r.id,
+                media_id: r.media_id,
+                target_category: r.target_category,
+                reason: r.reason,
+                created_at: r.created_at,
+                subject: identity.shown_subject(r.subject, r.subject_key.as_deref()),
             },
-            media_title: r.6,
-            media_type: r.7,
-            instance_name: r.8,
+            media_title: r.title,
+            media_type: r.media_type,
+            instance_name: r.instance_name,
         })
         .collect();
     Ok(Json(super::Page::new(entries, page, per_page, total)))

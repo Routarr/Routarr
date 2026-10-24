@@ -8,7 +8,7 @@ use crate::integrations::language;
 use crate::localization::Localizer;
 use crate::models::{Condition, CreateRuleRequest, MatchMode, Rule};
 use crate::services::metadata;
-use crate::services::routing::PRIORITY_STEP;
+use crate::services::routing::priority_after;
 
 /// What a template asks beside its category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +62,11 @@ impl Template {
     /// What a rule added from this template records, as `children@1`.
     pub fn marker(&self) -> String {
         format!("{}@{}", self.id, self.version)
+    }
+
+    /// Whether one of its rules reads titles of `media_type`, `movie` or `series`.
+    pub fn routes(&self, media_type: &str) -> bool {
+        self.rules.iter().any(|shape| shape.media_type == "both" || shape.media_type == media_type)
     }
 }
 
@@ -257,8 +262,8 @@ pub fn find(id: &str) -> Option<&'static Template> {
     CATALOGUE.iter().find(|template| template.id == id)
 }
 
-/// A template's place in the catalogue, by the marker a rule keeps. A template
-/// this build no longer ships goes after every other.
+/// A template's place in the catalogue, by the marker a rule keeps. A template the catalogue
+/// lacks goes after every other.
 pub fn rank(marker: &str) -> usize {
     let id = marker.split('@').next().unwrap_or_default();
     CATALOGUE.iter().position(|template| template.id == id).unwrap_or(CATALOGUE.len())
@@ -344,7 +349,7 @@ pub fn place(held: &[Held], rank: usize, adding: usize) -> (Vec<(String, i64)>, 
     let mut last = at.checked_sub(1).map_or(base, |before| tail[before].priority);
     let new: Vec<i64> = (0..adding)
         .map(|_| {
-            last += PRIORITY_STEP;
+            last = priority_after(last);
             last
         })
         .collect();
@@ -353,7 +358,7 @@ pub fn place(held: &[Held], rank: usize, adding: usize) -> (Vec<(String, i64)>, 
         if rule.priority > last {
             break;
         }
-        last += PRIORITY_STEP;
+        last = priority_after(last);
         moved.push((rule.id.to_string(), last));
     }
     (moved, new)
@@ -526,12 +531,7 @@ pub fn reads_as_4k(name: &str) -> bool {
 /// The languages a household is assumed to watch in: the interface's and
 /// English, as ISO 639-1 codes.
 pub fn household_languages(interface: &str) -> Vec<String> {
-    let own = interface.split(['_', '-']).next().unwrap_or_default().to_lowercase();
-    // TMDB and the Arrs write Norwegian `no`, whichever of its forms.
-    let own = match own.as_str() {
-        "nb" | "nn" => "no".to_string(),
-        _ => own,
-    };
+    let own = language_code(interface).unwrap_or_default();
     let mut languages = vec![own, "en".to_string()];
     languages.retain(|code| !code.is_empty());
     languages.dedup();
@@ -544,12 +544,32 @@ pub fn household_languages(interface: &str) -> Vec<String> {
 pub fn language_code(raw: &str) -> Option<String> {
     let known = |code: &str| language::LANGUAGES.iter().any(|(listed, _)| *listed == code);
     let base = raw.trim().split(['-', '_']).next().unwrap_or_default().to_lowercase();
-    match base.len() {
+    let code = match base.len() {
         2 => Some(base).filter(|code| known(code)),
         3 => language::from_iso_639_3(&base),
         _ => None,
     }
-    .or_else(|| language::normalise(raw).filter(|code| known(code)))
+    .or_else(|| language::normalise(raw).filter(|code| known(code)))?;
+    // TMDB and the Arrs write Norwegian `no`, whichever of its forms.
+    Some(match code.as_str() {
+        "nb" | "nn" => "no".to_string(),
+        _ => code,
+    })
+}
+
+/// A country as the engine compares it, an ISO 3166-1 alpha-2 code, from what a person
+/// typed: `JP`, `jp`, `jpn` or `Japan`. `None` for what names no country.
+pub fn country_code(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let upper = raw.to_uppercase();
+    if language::COUNTRIES.iter().any(|(code, _)| *code == upper) {
+        return Some(upper);
+    }
+    match raw.len() {
+        3 => language::country_from_alpha3(raw),
+        _ => None,
+    }
+    .or_else(|| language::country_by_name(raw))
 }
 
 /// A tag Seerr gave a requester, `3-alice`, or `3 - alice` as an older Seerr
@@ -614,13 +634,43 @@ mod tests {
         }
         assert_eq!(code("pt_BR").as_deref(), Some("pt"));
         assert_eq!(code("jpn").as_deref(), Some("ja"));
+        // The sources write Norwegian `no`, whichever of its forms a film is in.
+        for norwegian in ["no", "nb", "nn", "nob", "nno", "Norwegian Bokmål", "norwegian nynorsk"]
+        {
+            assert_eq!(code(norwegian).as_deref(), Some("no"), "{norwegian}");
+        }
         for nothing in ["xx", "klingon", "frr-", "12"] {
             assert_eq!(code(nothing), None, "{nothing}");
         }
     }
 
+    /// A bundle keeps a rule's template only through a marker of the shape it checks, so a
+    /// template id it refuses comes back from every import as a rule written by hand.
     #[test]
-    fn the_catalogue_goes_in_the_order_the_owner_chose() {
+    fn every_template_marker_survives_a_bundle() {
+        for template in CATALOGUE {
+            let bundled = crate::models::BundledRule {
+                rule: crate::models::CreateRuleRequest {
+                    name: template.id.to_string(),
+                    description: None,
+                    priority: None,
+                    enabled: true,
+                    media_type: "both".into(),
+                    conditions: Vec::new(),
+                    exclusions: Vec::new(),
+                    match_mode: Default::default(),
+                    target_category: "anime".into(),
+                    instance_ids: None,
+                },
+                instance_names: None,
+                template: Some(template.marker()),
+            };
+            assert_eq!(bundled.marker(), Some(template.marker().as_str()), "{}", template.id);
+        }
+    }
+
+    #[test]
+    fn the_catalogue_keeps_its_order_and_ranks_a_missing_template_last() {
         let ids: Vec<&str> = CATALOGUE.iter().map(|template| template.id).collect();
         assert_eq!(
             ids,
@@ -673,14 +723,21 @@ mod tests {
         assert_eq!(new, vec![40]);
     }
 
-    /// A rule written by hand after a template added earlier stays ahead of
-    /// any template added later, whatever the catalogue's order.
     #[test]
     fn a_template_added_later_never_goes_before_a_rule_written_by_hand() {
         let held = [held("kids", 20, Some("children@1")), held("4k", 30, None)];
         let (moved, new) = place(&held, rank("documentaries@1"), 1);
         assert!(moved.is_empty());
         assert_eq!(new, vec![40]);
+    }
+
+    #[test]
+    fn a_template_added_after_a_rule_at_the_highest_priority_stays_within_it() {
+        use crate::services::rule_engine::MAX_PRIORITY;
+        let held = [held("mine", MAX_PRIORITY, None), held("anime", MAX_PRIORITY, Some("anime@1"))];
+        let (moved, new) = place(&held, rank("children@1"), 2);
+        assert_eq!(new, vec![MAX_PRIORITY, MAX_PRIORITY]);
+        assert!(moved.iter().all(|(_, priority)| *priority <= MAX_PRIORITY), "{moved:?}");
     }
 
     #[test]
@@ -747,8 +804,6 @@ mod tests {
         assert!(arranged.moved.is_empty());
     }
 
-    /// Adding a requester leaves the others' rules as they stand, edits
-    /// included, and unticking one removes theirs.
     #[test]
     fn a_requester_still_chosen_keeps_their_rule_and_one_left_out_loses_it() {
         let template = find("requesters").unwrap();
@@ -758,7 +813,7 @@ mod tests {
             rule("mine", 20, "both", None, Vec::new()),
             rule("alice", 30, "both", Some("requesters@1"), tag("3 - alice")),
             rule("dave", 35, "both", Some("requesters@1"), tag("6-dave")),
-            // From a template this build no longer ships, so after them all.
+            // From a template the catalogue lacks, so after them all.
             rule("gone", 40, "both", Some("gone@1"), Vec::new()),
         ];
         let person = |tags: &[&str], name: &str| Requester {

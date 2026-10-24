@@ -531,9 +531,19 @@ impl Localizer {
             }
             ("added_within_days", added) => crate::services::routing::parse_timestamp(added)
                 .map_or_else(|| added.to_string(), |added| added.format("%Y-%m-%d").to_string()),
-            // A score's fraction, as `7,5` in French. No scale name holds a full stop.
-            ("score_range", score) => {
-                score.replace('.', &decimal_separator(self.language()).to_string())
+            // `8,1 (393 000)` in French, the votes grouped. No scale name holds a full stop.
+            ("score_range", found) => {
+                let decimal = |score: &str| {
+                    score.replace('.', &decimal_separator(self.language()).to_string())
+                };
+                match found.strip_suffix(')').and_then(|rest| rest.split_once(" (")) {
+                    Some((score, votes)) => {
+                        let votes = group_digits(self.language(), votes)
+                            .unwrap_or_else(|| votes.to_string());
+                        format!("{} ({votes})", decimal(score))
+                    }
+                    None => decimal(found),
+                }
             }
             (_, other) => other.to_string(),
         }

@@ -163,15 +163,20 @@ export function rejectedNumbers(input: string): string[] {
     .filter((part) => part !== '' && !isIdentifier(part));
 }
 
-/** Where a new rule goes: after every other, as the server places one given no priority. */
+/** The highest priority a rule may take: `MAX_PRIORITY` in the rule engine, the authority. */
+export const MAX_PRIORITY = 1_000_000;
+
+/**
+ * Where a new rule goes: after every other, as the server places one given no priority, held at
+ * `MAX_PRIORITY` as the server holds it, since a priority past it is refused.
+ */
 export function nextPriority(priorities: number[]): number {
-  return Math.max(0, ...priorities) + 10;
+  return Math.min(Math.max(0, ...priorities) + 10, MAX_PRIORITY);
 }
 
 /**
- * The first surviving film, and the furthest ahead a rule may reach. Mirrors
- * `MIN_YEAR` and `MAX_YEARS_AHEAD` in the rule engine, which is the authority:
- * these two only stop the browser offering a value the server will refuse.
+ * `MIN_YEAR` and `MAX_YEARS_AHEAD` of the rule engine, which holds the bounds: these stop the
+ * browser offering a year the server refuses.
  */
 export const MIN_YEAR = 1888;
 export const maxYear = (now = new Date()) => now.getFullYear() + 5;
@@ -231,7 +236,7 @@ export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
  */
 export function facetOf(facets: LibraryFacets | null, axis: string | undefined): Facet[] {
   if (!axis || !facets) return [];
-  // Narrowed, not widened to a `Record`, which would erase later checks. A test holds the name.
+  // `every_axis_a_spec_names_is_one_the_facets_payload_answers` holds `axis` to these keys.
   const held = facets[axis as FacetAxis] ?? [];
   // Only two axes have a closed vocabulary, offered whole so an unsynced code is never guessed.
   const vocabulary = facets.vocabularies[axis as keyof Vocabularies] ?? [];

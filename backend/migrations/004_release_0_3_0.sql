@@ -178,3 +178,11 @@ ALTER TABLE instances ADD COLUMN removal_held INTEGER NOT NULL DEFAULT 0;
 -- it concerns. A row written without one names neither, so every session ends here.
 ALTER TABLE sessions ADD COLUMN opened_under TEXT NOT NULL DEFAULT '';
 DELETE FROM sessions;
+
+-- Each instance's name as names are compared, case folded beyond ASCII where `lower()` stops.
+-- Filled as 0.2.0 compared names, which its index kept unique: at each start Routarr folds the
+-- rest, and of two names that fold alike the later takes a number.
+ALTER TABLE instances ADD COLUMN name_key TEXT;
+UPDATE instances SET name_key = lower(trim(name));
+DROP INDEX idx_instances_name;
+CREATE UNIQUE INDEX idx_instances_name_key ON instances (name_key);

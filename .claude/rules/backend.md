@@ -54,7 +54,7 @@ Each of these questions has one function. Call it, never spell the question agai
   and `/health`. `/status` is polled and never probes. A finding only a probe can make reaches
   it through the `probe_results` table, which `/health` writes.
 - a stored timestamp: `routing::format_timestamp` and `routing::parse_timestamp`
-- a category name: `api::categories::normalise`, run by every writer of `categories`
+- a category name: `api::categories::normalise` to write one, `stored_form` to compare with one
 - whether two folders are one, or one holds the other: `crate::paths` in Rust (`key`, `same`,
   `within`), `a = b COLLATE path` in SQL, registered on every pool by `db::with_paths`. An Arr
   closes a root folder with its separator, and one on Windows writes `D:\Media\` and reads a

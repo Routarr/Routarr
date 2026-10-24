@@ -215,6 +215,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 async fn converge(state: &AppState) -> error::AppResult<()> {
     services::maintenance::converge(state).await?;
     api::categories::converge_names(state).await?;
+    api::instances::converge_names(&state.pool).await?;
     // What a conversion interrupted by the last stop left in the clear.
     services::backup::resume_sealing(state).await;
     Ok(())

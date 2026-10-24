@@ -1,12 +1,6 @@
-//! The simulation must not go to the database once per media item.
-//!
-//! Every other test seeds one or two media items, so a regression to a query
-//! per item passes the whole suite and surfaces only on a large library.
-//!
-//! The query assertions are invariances, not stopwatches: the number of
-//! statements a simulation runs must not change when the library grows
-//! ten-fold. The timing assertions compare one run with another ten times its
-//! size, so they measure how the work grows rather than how fast the runner is.
+//! The simulation must not go to the database once per media item, which every other test, on
+//! one or two items, would miss. Statement counts must not change when the library grows
+//! ten-fold, and timings compare a run with one ten times its size, so the runner's speed cancels.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -22,15 +16,11 @@ use crate::services::maintenance;
 use crate::services::routing::{self, SimulationOptions};
 use crate::tests::TestApp;
 
-/// Counts the statements a future sends to SQLite.
-///
-/// sqlx runs every statement on the connection's worker thread, inside the
-/// span that was current where the statement was issued. Run inside a span
-/// this subscriber created, each statement enters that span once on the
-/// worker, whether it went through the pool, over a connection held across a
-/// loop, or inside a transaction. The caller's own thread enters it on every
-/// poll, and is not counted. The subscriber is the future's own, so tests
-/// running in parallel cannot pollute each other's reading.
+/// Counts the statements a future sends to SQLite. sqlx runs each on the connection's worker
+/// thread inside the span current where it was issued, so each enters a span this subscriber
+/// made once on the worker, through the pool, a held connection or a transaction alike. The
+/// caller's thread enters on every poll and is not counted, and the subscriber is the future's
+/// own, so parallel tests do not mix.
 #[derive(Clone)]
 struct Statements {
     entered: Arc<AtomicUsize>,
@@ -72,15 +62,9 @@ async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
     pool
 }
 
-/// A clock for the work one library does: the CPU time of the test's thread,
-/// of the library's worker thread, where its statements run, and of the
-/// threads a pass runs on, when it is told their name.
-///
-/// Waiting on a lock or on a core another test holds is not in it, so the
-/// reading follows the work rather than how busy the runner is. Where the
-/// kernel publishes no per-thread figure, the wall clock stands in for the
-/// whole measure, and [`WorkClock::measures`] says so beside every figure: a
-/// ratio read on it follows the runner's load.
+/// A clock for one library's work: the CPU time of the test's thread, the library's worker and,
+/// once named, the threads a pass runs on. Waits are not in it, so it follows the work. Without a
+/// per-thread figure from the kernel the wall clock stands in, and [`WorkClock::measures`] says so.
 struct WorkClock {
     /// The worker's `schedstat`, `None` when the wall clock stands in.
     worker: Option<std::path::PathBuf>,
@@ -335,10 +319,8 @@ async fn revalidating_moves_does_not_query_once_per_item() {
     );
 }
 
-/// A preview evaluates two rule sets over one library. Loaded once, an
-/// evaluation reaches the database for nothing: every table it reads is in
-/// memory, so the second rule set costs no query and a plain run is one load
-/// and nothing more.
+/// A preview evaluates two rule sets over one library, and with every table in memory the second
+/// costs no query.
 #[tokio::test]
 async fn an_evaluation_over_a_loaded_library_costs_no_query() {
     let pool = library_pool().await;
@@ -353,23 +335,18 @@ async fn an_evaluation_over_a_loaded_library_costs_no_query() {
     let library = library.unwrap();
     assert!(loading > 0, "loading reads the library");
 
-    let ((without_rules, with_rules), evaluating) = statements_of(async {
-        let without = routing::simulate_loaded(
-            &pool,
-            &library,
-            SimulationOptions { rules_override: Some(Vec::new()), ..Default::default() },
-        )
-        .await
-        .unwrap();
-        let with =
+    let stored = routing::load_rules(&pool).await.unwrap();
+    let ((compared, simulated), evaluating) = statements_of(async {
+        let compared = routing::compare(&library, Vec::new(), stored, 1, "en").await.unwrap();
+        let simulated =
             routing::simulate_loaded(&pool, &library, SimulationOptions::default()).await.unwrap();
-        (without, with)
+        (compared, simulated)
     })
     .await;
     assert_eq!(evaluating, 0, "an evaluation reached the database");
-    assert_eq!(without_rules.total_media, 200);
+    assert_eq!((compared.total_media, simulated.total_media), (200, 200));
     assert_ne!(
-        without_rules.moves_required, with_rules.moves_required,
+        compared.before.moves_required, compared.after.moves_required,
         "the two rule sets must have been evaluated apart"
     );
     drop(library);
@@ -446,10 +423,8 @@ async fn a_pass_over_the_library_leaves_the_runtime_free() {
     assert!(longest * 4 < pass, "the pass held the runtime {longest:?} out of {pass:?}");
 }
 
-/// The hourly prune of the search resolutions no title holds any more removes
-/// them a chunk at a time, not a statement per key: after an instance of
-/// thousands of titles is deleted, a statement each held the write lock for
-/// minutes.
+/// After an instance of thousands of titles is deleted, a statement per key would hold the write
+/// lock for minutes.
 #[tokio::test]
 async fn pruning_stale_resolutions_does_not_query_once_per_key() {
     let mut counts = Vec::new();
@@ -486,11 +461,8 @@ async fn pruning_stale_resolutions_does_not_query_once_per_key() {
 /// a rescan of the library per item about a hundred times.
 const TEN_FOLD_CEILING: u32 = 15;
 
-/// The work a stored simulation of `count` items costs, at its least, and
-/// what it was measured in.
-///
-/// On a runtime of its own, whose threads carry a name the clock finds: the
-/// evaluation runs on one of them, off the test's thread.
+/// The work a stored simulation of `count` items costs at its least, and what it was measured
+/// in. It runs on a runtime whose named threads the clock finds.
 fn simulation_work(count: usize) -> (Duration, &'static str) {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let passes = format!("pass-{}", NEXT.fetch_add(1, Ordering::Relaxed));
@@ -580,11 +552,21 @@ async fn facets_and_sweep_work(count: usize) -> (Duration, Duration, &'static st
     (facets, sweep, clock.measures())
 }
 
-/// The two queries that join `media` to `metadata_cache` across every identifier
-/// namespace. Written as one OR over three cast columns they cannot use an
-/// index, and on a large library the facets take minutes and the hourly purge
-/// holds a connection for as long. A join that stopped using its index scans
-/// the cache once per item, and ten times the library takes a hundred times
+/// The seeded library holds no profile, so the timing below cannot see a profile counted by a
+/// scan of its own: the plan names one.
+#[tokio::test]
+async fn the_profile_facet_counts_in_one_scan() {
+    let pool = crate::db::test_pool().await;
+    let sql = format!("EXPLAIN QUERY PLAN {}", crate::api::media::PROFILE_FACETS);
+    let plan: Vec<(i64, i64, i64, String)> =
+        sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str())).fetch_all(&pool).await.unwrap();
+    let steps: Vec<&str> = plan.iter().map(|step| step.3.as_str()).collect();
+    assert!(!steps.is_empty(), "no plan read");
+    assert!(!steps.iter().any(|step| step.contains("CORRELATED")), "{steps:?}");
+}
+
+/// The two queries joining `media` to `metadata_cache` across every identifier namespace. As one
+/// OR over three cast columns they use no index, and ten times the library takes a hundred times
 /// as long.
 #[tokio::test]
 async fn facets_and_the_orphan_sweep_stay_indexed_at_scale() {

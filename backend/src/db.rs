@@ -1099,6 +1099,42 @@ mod tests {
         assert_eq!(sessions, 0, "a session 0.2.0 opened outlived the upgrade");
     }
 
+    /// 0.2.0 told instance names apart by ASCII case alone, so it may hold two that read alike
+    /// beyond it: the later takes a number, as 0.2.0 renamed the pairs it refused.
+    #[tokio::test]
+    async fn two_instance_names_0_2_0_told_apart_by_ascii_case_alone_are_renamed_apart() {
+        let pool = crate::tests::database_of_0_2_0().await;
+        for statement in
+            ["INSERT INTO instances (id, name, instance_type, base_url, api_key, created_at)
+             VALUES ('i-1', 'Émissions', 'sonarr', 'http://127.0.0.1:1', 'k', '2026-01-01'),
+                    ('i-2', 'émissions', 'sonarr', 'http://127.0.0.1:2', 'k', '2026-02-01'),
+                    ('i-3', 'Radarr', 'radarr', 'http://127.0.0.1:3', 'k', '2026-03-01')"]
+        {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        run_migrations(&pool).await.unwrap();
+        crate::api::instances::converge_names(&pool).await.unwrap();
+
+        let named: Vec<(String, String, Option<String>)> =
+            sqlx::query_as("SELECT id, name, name_key FROM instances ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let named: Vec<(&str, &str, Option<&str>)> = named
+            .iter()
+            .map(|(id, name, key)| (id.as_str(), name.as_str(), key.as_deref()))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("i-1", "Émissions", Some("émissions")),
+                ("i-2", "émissions (2)", Some("émissions (2)")),
+                ("i-3", "Radarr", Some("radarr")),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn an_upgrade_that_tightens_the_schema_keeps_every_row() {
         let pool = crate::tests::database_of_0_1_5().await;

@@ -98,6 +98,11 @@ async fn an_instance_name_already_taken_is_refused() {
         .await
         .assert_status(StatusCode::CONFLICT);
     app.put(&format!("/api/v1/instances/{id}"), named("Radarr UHD")).await.assert_ok();
+
+    // Case folds beyond ASCII, where SQLite's `lower()` stops.
+    app.post("/api/v1/instances", named("Émissions")).await.assert_ok();
+    let refused = app.post("/api/v1/instances", named("émissions")).await;
+    assert_eq!(refused.assert_status(StatusCode::CONFLICT)["reason"], "name_taken");
 }
 
 #[tokio::test]
@@ -858,6 +863,75 @@ async fn a_rule_given_no_priority_goes_last_and_keeps_its_place() {
     assert_eq!(edited["priority"], 40, "{edited}");
 }
 
+/// Past the integers SQLite stores, the next rule placed after the last would be a REAL that
+/// no read of the rules accepts, and the interface sends a rule's priority back on each edit.
+#[tokio::test]
+async fn a_priority_past_its_bound_is_refused_and_the_next_rule_stays_within_it() {
+    let app = library_with_kids().await;
+    for priority in [i64::MAX, 1_000_001, -1_000_001] {
+        let mut body = anime_rule_body();
+        body["priority"] = serde_json::json!(priority);
+        let verdict = app.post("/api/v1/rules/validate", body.clone()).await.assert_ok().clone();
+        let keys: Vec<&str> = verdict["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|issue| issue["key"].as_str())
+            .collect();
+        assert!(keys.contains(&"ValidationPriorityRange"), "{priority}: {verdict}");
+        app.post("/api/v1/rules", body).await.assert_status(StatusCode::BAD_REQUEST);
+    }
+
+    let mut top = anime_rule_body();
+    top["priority"] = serde_json::json!(1_000_000);
+    app.post("/api/v1/rules", top).await.assert_ok();
+    let next = app.post("/api/v1/rules", anime_rule_body()).await.assert_ok().clone();
+    assert_eq!(next["priority"], 1_000_000, "{next}");
+    let mut edited = anime_rule_body();
+    edited["priority"] = next["priority"].clone();
+    let id = next["id"].as_str().unwrap();
+    app.put(&format!("/api/v1/rules/{id}"), edited).await.assert_ok();
+    app.get("/api/v1/rules").await.assert_ok();
+}
+
+/// A score on a scale no enabled source gives, or a condition the rule's media type never
+/// carries, matches no title: each is warned of, beside a control that is not.
+#[tokio::test]
+async fn a_condition_nothing_can_answer_for_the_rule_is_warned_of() {
+    let app = library_with_kids().await;
+    let warned = |media_type: &str, condition: serde_json::Value| {
+        let body = serde_json::json!({
+            "name": "Probe", "media_type": media_type, "target_category": "anime",
+            "conditions": [condition]
+        });
+        let app = &app;
+        async move {
+            let verdict = app.post("/api/v1/rules/validate", body).await.assert_ok().clone();
+            verdict["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|issue| issue["severity"] == "warning")
+                .map(|issue| issue["key"].as_str().unwrap().to_string())
+                // `anime` is mapped on the Radarr alone, which a series rule cannot reach.
+                .filter(|key| key != "ValidationCategoryUnmapped")
+                .collect::<Vec<_>>()
+        }
+    };
+    let score = |scale: &str| serde_json::json!({ "type": "score_range", "value": { "scale": scale, "min": 7 } });
+
+    // The Arr alone is enabled, which rates on IMDb, TMDB, Metacritic and Rotten Tomatoes.
+    assert_eq!(warned("both", score("anilist")).await, ["ValidationConditionNoSource"]);
+    assert!(warned("both", score("imdb")).await.is_empty());
+
+    let seasons = serde_json::json!({ "type": "season_count_over", "value": 1 });
+    let studio = serde_json::json!({ "type": "studio_in", "value": ["Ghibli"] });
+    assert_eq!(warned("movie", seasons.clone()).await, ["ValidationConditionMediaType"]);
+    assert_eq!(warned("series", studio.clone()).await, ["ValidationConditionMediaType"]);
+    assert!(warned("series", seasons).await.is_empty());
+    assert!(warned("both", studio).await.is_empty());
+}
+
 /// Every field a rule carries, none of them at its default.
 fn full_rule_body() -> serde_json::Value {
     serde_json::json!({
@@ -1042,6 +1116,65 @@ async fn an_imported_rule_keeps_its_scope_or_never_widens() {
     );
 }
 
+/// A bundle's priorities mean something only where it was written: kept, they interleave
+/// the imported rules with the rules in place, and a title both match changes rule.
+#[tokio::test]
+async fn an_appended_bundle_goes_after_the_rules_in_place_in_its_own_order() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let rule = |name: &str, priority: i64| {
+        let mut rule = anime_rule_body();
+        rule["name"] = serde_json::json!(name);
+        rule["priority"] = serde_json::json!(priority);
+        rule
+    };
+    app.post("/api/v1/rules", rule("Kids", 10)).await.assert_ok();
+    app.post("/api/v1/rules", rule("Zeta", 20)).await.assert_ok();
+
+    let bundle =
+        serde_json::json!({ "version": 2, "rules": [rule("Docs", 20), rule("Anime", 10)] });
+    let report = app
+        .post("/api/v1/rules/import", serde_json::json!({ "bundle": bundle }))
+        .await
+        .assert_ok()
+        .clone();
+    assert_eq!(report["imported"], 2, "{report}");
+
+    let rules = app.get("/api/v1/rules").await.assert_ok().clone();
+    let names: Vec<&str> =
+        rules.as_array().unwrap().iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Kids", "Zeta", "Anime", "Docs"]);
+}
+
+/// A rule the bundle shares with the rules in place, by everything but its priority, is not
+/// added again, and one differing by any part that routes is.
+#[tokio::test]
+async fn importing_a_bundle_again_adds_no_rule_already_present() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut other = anime_rule_body();
+    other["conditions"] = serde_json::json!([{ "type": "original_language", "value": ["ko"] }]);
+    let bundle = serde_json::json!({ "version": 2, "rules": [anime_rule_body(), other] });
+    let import =
+        || app.post("/api/v1/rules/import", serde_json::json!({ "bundle": bundle.clone() }));
+    assert_eq!(import().await.assert_ok()["imported"], 2);
+
+    let again = import().await.assert_ok().clone();
+    assert_eq!(again["imported"], 0, "{again}");
+    assert_eq!(again["adjusted"].as_array().unwrap().len(), 2, "{again}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM rules").await, 2);
+
+    let mut renamed = anime_rule_body();
+    renamed["name"] = serde_json::json!("Anime, again");
+    let bundle = serde_json::json!({ "version": 2, "rules": [renamed] });
+    let report = app
+        .post("/api/v1/rules/import", serde_json::json!({ "bundle": bundle }))
+        .await
+        .assert_ok()
+        .clone();
+    assert_eq!(report["imported"], 1, "a rule differing by its name was taken as present");
+}
+
 /// A copy is named in the reader's language and stays a name a rule may
 /// carry, however long its source's.
 #[tokio::test]
@@ -1098,6 +1231,7 @@ async fn a_replacing_import_that_keeps_nothing_deletes_nothing() {
 async fn importing_creates_missing_categories() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    app.store_setting("ui_language", "fr").await;
 
     let bundle = serde_json::json!({
         "version": 1,
@@ -1124,12 +1258,56 @@ async fn importing_creates_missing_categories() {
             .await
             .unwrap();
     assert!(exists);
+    // The Categories table shows it, so in the interface language.
+    let description: Option<String> =
+        sqlx::query_scalar("SELECT description FROM categories WHERE name = 'concerts'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    let french = crate::localization::Localizer::new("fr");
+    assert_eq!(description, Some(french.translate("RuleImportCategoryCreated", &[])));
     let target: Option<String> =
         sqlx::query_scalar("SELECT target_category FROM rules WHERE name = 'Concerts'")
             .fetch_optional(&app.state.pool)
             .await
             .unwrap();
     assert_eq!(target.as_deref(), Some("concerts"), "the rule was not stored");
+}
+
+/// The bundle's category is created in its stored form, composed, and the rule naming it with
+/// its accent apart names that category rather than one the import never finds.
+#[tokio::test]
+async fn a_bundle_naming_its_category_with_its_accent_apart_imports_its_rule() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let rule = serde_json::json!({
+        "name": "Foreign films",
+        "media_type": "movie",
+        "target_category": "films-e\u{301}trangers",
+        "conditions": [{ "type": "original_language_not", "value": ["en"] }]
+    });
+    let bundle = serde_json::json!({ "version": 2, "rules": [rule.clone()] });
+
+    let body = app
+        .post("/api/v1/rules/import", serde_json::json!({ "bundle": bundle }))
+        .await
+        .assert_ok()
+        .clone();
+    assert_eq!(
+        (body["imported"].clone(), body["skipped"].clone()),
+        (1.into(), serde_json::json!([]))
+    );
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM categories WHERE name LIKE 'films-%'")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(names, ["films-étrangers"]);
+
+    let mut again = rule;
+    again["name"] = serde_json::json!("Foreign films, by hand");
+    let created = app.post("/api/v1/rules", again).await.assert_status(StatusCode::CREATED).clone();
+    assert_eq!(created["target_category"], "films-étrangers");
 }
 
 /// An export lists the categories its rules target, and a bundle written by
@@ -1535,6 +1713,44 @@ async fn a_movie_rule_does_not_warn_about_a_sonarr_that_could_never_receive_it()
             && c["instance_name"] == "Radarr"
             && c["category"] == "concerts"),
         "the actionable warning disappeared: {conflicts:?}"
+    );
+}
+
+/// A rule kept to one instance never routes into another, whatever folders that one holds.
+#[tokio::test]
+async fn a_scoped_rule_does_not_warn_about_an_instance_outside_its_scope() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+         VALUES ('inst-2', 'Radarr 4K', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
+        "INSERT INTO categories (id, name) VALUES ('cat-uhd', 'uhd-anime')",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+         VALUES ('rf-uhd', 'inst-2', 9, '/movies/uhd', 1, 'uhd-anime')",
+    ])
+    .await;
+    let mut rule = anime_rule_body();
+    rule["target_category"] = "uhd-anime".into();
+    rule["instance_ids"] = serde_json::json!(["inst-2"]);
+    app.post("/api/v1/rules", rule).await.assert_ok();
+
+    let conflicts = app.get("/api/v1/root-folders/conflicts").await.assert_ok().clone();
+    let unmapped: Vec<_> = conflicts
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["kind"] == "unmapped_category" && c["category"] == "uhd-anime")
+        .collect();
+    assert!(unmapped.is_empty(), "a warning for an instance the rule never reaches: {unmapped:?}");
+
+    // Unscoped, the rule reaches the Radarr, which holds no such folder.
+    app.execute(&["UPDATE rules SET instance_ids = NULL"]).await;
+    let conflicts = app.get("/api/v1/root-folders/conflicts").await.assert_ok().clone();
+    assert!(
+        conflicts.as_array().unwrap().iter().any(|c| c["kind"] == "unmapped_category"
+            && c["instance_name"] == "Radarr"
+            && c["category"] == "uhd-anime"),
+        "{conflicts}"
     );
 }
 

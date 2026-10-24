@@ -3,6 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 
 mod folding;
@@ -10,7 +11,7 @@ mod validation;
 
 pub use folding::{certification_key, normalise_value, status_key};
 use folding::{contains_all, contains_any};
-pub use validation::{MAX_NAME_LENGTH, RuleDraft, ValidationEnv, validate_rule};
+pub use validation::{MAX_NAME_LENGTH, MAX_PRIORITY, RuleDraft, ValidationEnv, validate_rule};
 
 use crate::models::{Condition, MatchMode, Media, MediaMetadata, Rule};
 
@@ -34,7 +35,6 @@ pub struct ConditionOutcome {
     pub expected: String,
     /// Which metadata source supplied `observed`, absent for a condition the
     /// Arr answers directly.
-    // With several sources, the reader must see which one supplied the value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
@@ -76,16 +76,169 @@ pub struct RuleMatch {
 /// lowest priority first, then by name, then by id, since two rules may share a
 /// name. The order never depends on the one SQLite returns.
 pub fn in_order<'a>(rules: &'a [Rule], media: &Media) -> Vec<&'a Rule> {
-    let mut applicable: Vec<&Rule> = rules
-        .iter()
-        .filter(|r| r.enabled)
-        .filter(|r| r.covers_media_type(&media.media_type))
-        .filter(|r| r.covers_instance(&media.instance_id))
-        .collect();
-    applicable.sort_by(|a, b| {
-        a.priority.cmp(&b.priority).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id))
-    });
+    let mut applicable: Vec<&Rule> =
+        rules.iter().filter(|r| r.enabled && applies(r, media)).collect();
+    applicable.sort_by(tried_before);
     applicable
+}
+
+fn applies(rule: &Rule, media: &Media) -> bool {
+    rule.covers_media_type(&media.media_type) && rule.covers_instance(&media.instance_id)
+}
+
+fn tried_before(a: &&Rule, b: &&Rule) -> std::cmp::Ordering {
+    a.priority.cmp(&b.priority).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id))
+}
+
+/// A rule set ready to be held against many titles: its enabled rules in the order
+/// [`in_order`] gives, each condition's values folded once rather than once per title.
+pub struct Prepared<'a> {
+    rules: Vec<PreparedRule<'a>>,
+}
+
+struct PreparedRule<'a> {
+    rule: &'a Rule,
+    conditions: Vec<Vec<String>>,
+    exclusions: Vec<Vec<String>>,
+}
+
+impl<'a> Prepared<'a> {
+    pub fn new(rules: &'a [Rule]) -> Self {
+        let mut enabled: Vec<&Rule> = rules.iter().filter(|r| r.enabled).collect();
+        enabled.sort_by(tried_before);
+        let fold = |list: &[Condition]| list.iter().map(folded_values).collect();
+        let rules = enabled
+            .into_iter()
+            .map(|rule| PreparedRule {
+                rule,
+                conditions: fold(&rule.conditions),
+                exclusions: fold(&rule.exclusions),
+            })
+            .collect();
+        Self { rules }
+    }
+}
+
+/// The values of a condition compared through [`normalise_value`], folded, blanks dropped,
+/// and none for a kind compared otherwise.
+fn folded_values(condition: &Condition) -> Vec<String> {
+    use Condition::*;
+    match condition {
+        GenreContains(values)
+        | GenreContainsAll(values)
+        | GenreNotContains(values)
+        | KeywordContains(values)
+        | KeywordContainsAll(values)
+        | KeywordNotContains(values)
+        | OriginCountry(values)
+        | OriginCountryAll(values)
+        | TagIn(values)
+        | TagInAll(values)
+        | QualityProfileIn(values)
+        | StudioIn(values)
+        | NetworkIn(values)
+        | CollectionIn(values)
+        | TitleContains(values) => {
+            values.iter().map(|v| normalise_value(v)).filter(|v| !v.is_empty()).collect()
+        }
+        OriginalLanguage(_)
+        | OriginalLanguageNot(_)
+        | OriginalLanguageKnown(_)
+        | YearRange { .. }
+        | SeriesTypeIs(_)
+        | RuntimeRange { .. }
+        | ScoreRange { .. }
+        | SizeOnDiskOverGb(_)
+        | SeasonCountOver(_)
+        | CertificationIn(_)
+        | StatusIs(_)
+        | CurrentRootFolder(_)
+        | CurrentRootFolderStartsWith(_)
+        | HasFiles(_)
+        | TmdbIdIn(_)
+        | TvdbIdIn(_)
+        | ImdbIdIn(_)
+        | AddedWithinDays(_)
+        | Monitored(_)
+        | HasMetadata(_) => Vec::new(),
+    }
+}
+
+/// One title as an evaluation reads it, each of its values folded on its first read, so
+/// every condition reading genres shares one fold of them.
+struct Reading<'a> {
+    ctx: EvalContext<'a>,
+    genres: OnceCell<Vec<String>>,
+    keywords: OnceCell<Vec<String>>,
+    countries: OnceCell<Vec<String>>,
+    tags: OnceCell<(Vec<String>, Vec<String>)>,
+    title: OnceCell<String>,
+    profile: OnceCell<Vec<String>>,
+    studio: OnceCell<Vec<String>>,
+    network: OnceCell<Vec<String>>,
+    collection: OnceCell<Vec<String>>,
+}
+
+fn fold_all(values: &[String]) -> Vec<String> {
+    values.iter().map(|v| normalise_value(v)).collect()
+}
+
+impl<'a> Reading<'a> {
+    fn new(ctx: EvalContext<'a>) -> Self {
+        Self {
+            ctx,
+            genres: OnceCell::new(),
+            keywords: OnceCell::new(),
+            countries: OnceCell::new(),
+            tags: OnceCell::new(),
+            title: OnceCell::new(),
+            profile: OnceCell::new(),
+            studio: OnceCell::new(),
+            network: OnceCell::new(),
+            collection: OnceCell::new(),
+        }
+    }
+
+    fn genres(&self) -> &[String] {
+        self.ctx.metadata.map(|m| m.genres.as_slice()).unwrap_or_default()
+    }
+
+    fn keywords(&self) -> &[String] {
+        self.ctx.metadata.map(|m| m.keywords.as_slice()).unwrap_or_default()
+    }
+
+    fn countries(&self) -> &[String] {
+        self.ctx.metadata.map(|m| m.origin_countries.as_slice()).unwrap_or_default()
+    }
+
+    fn folded_genres(&self) -> &[String] {
+        self.genres.get_or_init(|| fold_all(self.genres()))
+    }
+
+    fn folded_keywords(&self) -> &[String] {
+        self.keywords.get_or_init(|| fold_all(self.keywords()))
+    }
+
+    fn folded_countries(&self) -> &[String] {
+        self.countries.get_or_init(|| fold_all(self.countries()))
+    }
+
+    /// The tags as the Arr names them, and folded.
+    fn tags(&self) -> &(Vec<String>, Vec<String>) {
+        self.tags.get_or_init(|| {
+            let tags = self.ctx.media.tag_labels();
+            let folded = fold_all(&tags);
+            (tags, folded)
+        })
+    }
+
+    fn folded_title(&self) -> &str {
+        self.title.get_or_init(|| normalise_value(&self.ctx.media.title))
+    }
+
+    fn folded_one<'c>(cell: &'c OnceCell<Vec<String>>, value: &Option<String>) -> &'c [String] {
+        cell.get_or_init(|| value.iter().map(|v| normalise_value(v)).collect())
+    }
 }
 
 /// Marker used in place of a rule id when a human decision wins.
@@ -112,9 +265,9 @@ pub struct EvalContext<'a> {
 
 /// Evaluate all rules against a single media item: the first to hold wins, and
 /// the rest are reported as alternatives the explanation shows.
-pub fn evaluate_rules(
+pub fn evaluate_prepared(
     ctx: EvalContext<'_>,
-    rules: &[Rule],
+    rules: &Prepared<'_>,
     override_category: Option<&str>,
 ) -> Evaluation {
     if let Some(cat) = override_category {
@@ -134,14 +287,17 @@ pub fn evaluate_rules(
 
     let mut matches: Vec<RuleMatch> = Vec::new();
     let mut excluded: Vec<RuleMatch> = Vec::new();
+    let reading = Reading::new(ctx);
 
-    for rule in in_order(rules, ctx.media) {
-        let (matched, evaluations) = evaluate_conditions(&rule.conditions, rule.match_mode, ctx);
+    for prepared in rules.rules.iter().filter(|prepared| applies(prepared.rule, ctx.media)) {
+        let rule = prepared.rule;
+        let (matched, evaluations) =
+            hold(&rule.conditions, &prepared.conditions, rule.match_mode, &reading);
         if !matched {
             continue;
         }
 
-        let veto = veto(rule, ctx);
+        let veto = first_veto(&rule.exclusions, &prepared.exclusions, &reading);
 
         let confidence = confidence_for(&evaluations, rule.match_mode);
         let mut hit = RuleMatch {
@@ -170,9 +326,19 @@ pub fn evaluate_rules(
 /// The exclusion that sets aside `rule`, whose conditions hold. Read only
 /// once the rule would otherwise fire, and any one of them vetoes it.
 pub fn veto(rule: &Rule, ctx: EvalContext<'_>) -> Option<ConditionOutcome> {
-    rule.exclusions
+    let folded: Vec<Vec<String>> = rule.exclusions.iter().map(folded_values).collect();
+    first_veto(&rule.exclusions, &folded, &Reading::new(ctx))
+}
+
+fn first_veto(
+    exclusions: &[Condition],
+    folded: &[Vec<String>],
+    reading: &Reading<'_>,
+) -> Option<ConditionOutcome> {
+    exclusions
         .iter()
-        .map(|c| evaluate_single_condition(c, ctx))
+        .zip(folded)
+        .map(|(condition, wanted)| evaluate_single_condition(condition, wanted, reading))
         .find(|outcome| outcome.matched)
 }
 
@@ -197,12 +363,25 @@ pub(crate) fn evaluate_conditions(
     mode: MatchMode,
     ctx: EvalContext<'_>,
 ) -> (bool, Vec<ConditionOutcome>) {
+    let folded: Vec<Vec<String>> = conditions.iter().map(folded_values).collect();
+    hold(conditions, &folded, mode, &Reading::new(ctx))
+}
+
+fn hold(
+    conditions: &[Condition],
+    folded: &[Vec<String>],
+    mode: MatchMode,
+    reading: &Reading<'_>,
+) -> (bool, Vec<ConditionOutcome>) {
     if conditions.is_empty() {
         return (false, vec![]);
     }
 
-    let outcomes: Vec<ConditionOutcome> =
-        conditions.iter().map(|c| evaluate_single_condition(c, ctx)).collect();
+    let outcomes: Vec<ConditionOutcome> = conditions
+        .iter()
+        .zip(folded)
+        .map(|(condition, wanted)| evaluate_single_condition(condition, wanted, reading))
+        .collect();
 
     let matched = match mode {
         MatchMode::All => outcomes.iter().all(|o| o.matched),
@@ -212,8 +391,14 @@ pub(crate) fn evaluate_conditions(
     (matched, outcomes)
 }
 
-/// Evaluate one condition, returning the key and parameters of its wording, never the wording.
-pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) -> ConditionOutcome {
+/// One condition held against `reading`, `wanted` its values as [`folded_values`] folds them,
+/// answering the key and parameters of its wording, never the wording.
+fn evaluate_single_condition(
+    condition: &Condition,
+    wanted: &[String],
+    reading: &Reading<'_>,
+) -> ConditionOutcome {
+    let ctx = reading.ctx;
     let media = ctx.media;
     let metadata = ctx.metadata;
     let kind = condition.kind();
@@ -236,45 +421,33 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
     let mut outcome = match condition {
         Condition::GenreContains(values) => {
-            let genres = metadata.map(|m| m.genres.as_slice()).unwrap_or_default();
-            list(kind, "ConditionGenreContains", contains_any(genres, values), values, genres)
+            let matched = contains_any(reading.folded_genres(), wanted);
+            list(kind, "ConditionGenreContains", matched, values, reading.genres())
         }
 
         Condition::GenreContainsAll(values) => {
-            let genres = metadata.map(|m| m.genres.as_slice()).unwrap_or(&[]);
-            list(kind, "ConditionGenreContainsAll", contains_all(genres, values), values, genres)
+            let matched = contains_all(reading.folded_genres(), wanted);
+            list(kind, "ConditionGenreContainsAll", matched, values, reading.genres())
         }
 
         Condition::GenreNotContains(values) => {
-            let genres = metadata.map(|m| m.genres.as_slice()).unwrap_or_default();
-            list(kind, "ConditionGenreNotContains", !contains_any(genres, values), values, genres)
+            let matched = !contains_any(reading.folded_genres(), wanted);
+            list(kind, "ConditionGenreNotContains", matched, values, reading.genres())
         }
 
         Condition::KeywordContains(values) => {
-            let keywords = metadata.map(|m| m.keywords.as_slice()).unwrap_or_default();
-            list(kind, "ConditionKeywordContains", contains_any(keywords, values), values, keywords)
+            let matched = contains_any(reading.folded_keywords(), wanted);
+            list(kind, "ConditionKeywordContains", matched, values, reading.keywords())
         }
 
         Condition::KeywordContainsAll(values) => {
-            let keywords = metadata.map(|m| m.keywords.as_slice()).unwrap_or(&[]);
-            list(
-                kind,
-                "ConditionKeywordContainsAll",
-                contains_all(keywords, values),
-                values,
-                keywords,
-            )
+            let matched = contains_all(reading.folded_keywords(), wanted);
+            list(kind, "ConditionKeywordContainsAll", matched, values, reading.keywords())
         }
 
         Condition::KeywordNotContains(values) => {
-            let keywords = metadata.map(|m| m.keywords.as_slice()).unwrap_or_default();
-            list(
-                kind,
-                "ConditionKeywordNotContains",
-                !contains_any(keywords, values),
-                values,
-                keywords,
-            )
+            let matched = !contains_any(reading.folded_keywords(), wanted);
+            list(kind, "ConditionKeywordNotContains", matched, values, reading.keywords())
         }
 
         Condition::OriginalLanguage(values) => {
@@ -313,19 +486,13 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
         }
 
         Condition::OriginCountry(values) => {
-            let countries = metadata.map(|m| m.origin_countries.as_slice()).unwrap_or_default();
-            list(kind, "ConditionOriginCountry", contains_any(countries, values), values, countries)
+            let matched = contains_any(reading.folded_countries(), wanted);
+            list(kind, "ConditionOriginCountry", matched, values, reading.countries())
         }
 
         Condition::OriginCountryAll(values) => {
-            let countries = metadata.map(|m| m.origin_countries.as_slice()).unwrap_or(&[]);
-            list(
-                kind,
-                "ConditionOriginCountryAll",
-                contains_all(countries, values),
-                values,
-                countries,
-            )
+            let matched = contains_all(reading.folded_countries(), wanted);
+            list(kind, "ConditionOriginCountryAll", matched, values, reading.countries())
         }
 
         Condition::YearRange { min, max } => {
@@ -419,25 +586,13 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
         ),
 
         Condition::TagIn(values) => {
-            let tags = media.tag_labels();
-            ConditionOutcome::new(
-                kind,
-                contains_any(&tags, values),
-                "ConditionTagIn",
-                &[("values", values.join(", "))],
-                tags.join(", "),
-            )
+            let (tags, folded) = reading.tags();
+            list(kind, "ConditionTagIn", contains_any(folded, wanted), values, tags)
         }
 
         Condition::TagInAll(values) => {
-            let tags = media.tag_labels();
-            ConditionOutcome::new(
-                kind,
-                contains_all(&tags, values),
-                "ConditionTagInAll",
-                &[("values", values.join(", "))],
-                tags.join(", "),
-            )
+            let (tags, folded) = reading.tags();
+            list(kind, "ConditionTagInAll", contains_all(folded, wanted), values, tags)
         }
 
         Condition::SeriesTypeIs(values) => {
@@ -454,8 +609,8 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::QualityProfileIn(values) => {
             let profile: Vec<String> = media.quality_profile.iter().cloned().collect();
-            let matched = contains_any(&profile, values);
-            list(kind, "ConditionQualityProfileIn", matched, values, &profile)
+            let folded = Reading::folded_one(&reading.profile, &media.quality_profile);
+            list(kind, "ConditionQualityProfileIn", contains_any(folded, wanted), values, &profile)
         }
 
         Condition::RuntimeRange { min, max } => {
@@ -477,18 +632,20 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::StudioIn(values) => {
             let studio: Vec<String> = media.studio.iter().cloned().collect();
-            list(kind, "ConditionStudioIn", contains_any(&studio, values), values, &studio)
+            let folded = Reading::folded_one(&reading.studio, &media.studio);
+            list(kind, "ConditionStudioIn", contains_any(folded, wanted), values, &studio)
         }
 
         Condition::NetworkIn(values) => {
             let network: Vec<String> = media.network.iter().cloned().collect();
-            list(kind, "ConditionNetworkIn", contains_any(&network, values), values, &network)
+            let folded = Reading::folded_one(&reading.network, &media.network);
+            list(kind, "ConditionNetworkIn", contains_any(folded, wanted), values, &network)
         }
 
         Condition::CollectionIn(values) => {
             let collection: Vec<String> = media.collection.iter().cloned().collect();
-            let matched = contains_any(&collection, values);
-            list(kind, "ConditionCollectionIn", matched, values, &collection)
+            let folded = Reading::folded_one(&reading.collection, &media.collection);
+            list(kind, "ConditionCollectionIn", contains_any(folded, wanted), values, &collection)
         }
 
         Condition::ScoreRange { scale, min, max, min_votes } => {
@@ -545,14 +702,10 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::TitleContains(values) => {
             // Normalised like every string condition, so `amelie` finds "Amélie".
-            let title = normalise_value(&media.title);
+            let title = reading.folded_title();
             ConditionOutcome::new(
                 kind,
-                values
-                    .iter()
-                    .map(|v| normalise_value(v))
-                    .filter(|v| !v.is_empty())
-                    .any(|v| title.contains(&v)),
+                wanted.iter().any(|v| title.contains(v.as_str())),
                 "ConditionTitleContains",
                 &[("values", values.join(", "))],
                 media.title.clone(),
@@ -636,6 +789,10 @@ mod tests {
     use super::*;
     use crate::models::{Condition, MatchMode, Media, ProviderMetadata, Rule, RuleMediaType};
     use chrono::TimeZone;
+
+    fn evaluate_one(condition: &Condition, ctx: EvalContext<'_>) -> ConditionOutcome {
+        evaluate_single_condition(condition, &folded_values(condition), &Reading::new(ctx))
+    }
 
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 8, 21, 12, 0, 0).unwrap()
@@ -731,6 +888,14 @@ mod tests {
         )
     }
 
+    fn evaluate_rules(
+        ctx: EvalContext<'_>,
+        rules: &[Rule],
+        override_category: Option<&str>,
+    ) -> Evaluation {
+        evaluate_prepared(ctx, &Prepared::new(rules), override_category)
+    }
+
     fn evaluate(rules: &[Rule], override_category: Option<&str>) -> Evaluation {
         let media = media();
         let metadata = metadata();
@@ -740,8 +905,6 @@ mod tests {
             override_category,
         )
     }
-
-    // ---------------------------------------------------------- selection
 
     #[test]
     fn matching_rule_wins() {
@@ -781,7 +944,6 @@ mod tests {
         assert_eq!(first, "cat-a");
     }
 
-    /// Ties on name and priority go by id, whatever order the rules arrive in.
     #[test]
     fn two_rules_with_the_same_name_and_priority_still_have_an_order() {
         let mut a = rule("same", 10, "cat-a", vec![Condition::HasFiles(true)]);
@@ -842,9 +1004,6 @@ mod tests {
         assert!(evaluate(&[rule("empty", 1, "kids", vec![])], None).winner.is_none());
     }
 
-    // ------------------------------------------------- genres: OR and AND
-    // Values in one condition are alternatives: an AND is the `_all` form or a second one.
-
     /// Evaluate one rule against the fixture, whose genres are Animation,
     /// Family and Fantasy.
     fn genre_rule(conditions: Vec<Condition>, mode: MatchMode) -> bool {
@@ -864,12 +1023,10 @@ mod tests {
 
     #[test]
     fn several_genres_in_one_condition_are_alternatives() {
-        // Only the second is carried, and the condition still holds.
         assert!(genre_rule(
             vec![Condition::GenreContains(vec!["Horror".into(), "Animation".into()])],
             MatchMode::All,
         ));
-        // Neither is, and it does not.
         assert!(!genre_rule(
             vec![Condition::GenreContains(vec!["Horror".into(), "Western".into()])],
             MatchMode::All,
@@ -879,16 +1036,10 @@ mod tests {
     /// Whether `condition` holds for `media` and the canonical metadata.
     fn holds(condition: Condition, media: &Media) -> bool {
         let metadata = metadata();
-        evaluate_single_condition(
-            &condition,
-            EvalContext { media, metadata: Some(&metadata), now: now() },
-        )
-        .matched
+        evaluate_one(&condition, EvalContext { media, metadata: Some(&metadata), now: now() })
+            .matched
     }
 
-    /// Sonarr's series type is one of a few words: any of the condition's
-    /// values may name it, in any case and with stray spaces, and a title
-    /// with no series type, a film among them, matches none.
     #[test]
     fn a_series_type_matches_any_of_its_values_whatever_their_case() {
         use Condition::SeriesTypeIs;
@@ -932,8 +1083,6 @@ mod tests {
         assert!(holds(Condition::TagIn(one_missing), &tagged));
     }
 
-    /// The Arr's own status, whatever its case and however its words are
-    /// split, against any of the values: Radarr writes `inCinemas`.
     #[test]
     fn a_status_matches_any_of_the_values_it_names() {
         assert!(holds(Condition::StatusIs(vec!["announced".into(), "Released".into()]), &media()));
@@ -944,14 +1093,12 @@ mod tests {
         assert!(!holds(Condition::StatusIs(vec!["released".into()]), &unknown));
     }
 
-    /// The quantifier, which is what removes the need for a second condition.
     #[test]
     fn one_condition_can_require_every_genre_it_names() {
         assert!(genre_rule(
             vec![Condition::GenreContainsAll(vec!["Animation".into(), "Family".into()])],
             MatchMode::All,
         ));
-        // Western is not carried, so the pair fails where the `any` form holds.
         let mixed = vec!["Fantasy".into(), "Western".into()];
         assert!(!genre_rule(vec![Condition::GenreContainsAll(mixed.clone())], MatchMode::All));
         assert!(genre_rule(vec![Condition::GenreContains(mixed)], MatchMode::All));
@@ -965,16 +1112,12 @@ mod tests {
         ));
     }
 
-    /// An empty list is an unfinished condition and matches nothing, never the
-    /// whole library.
     #[test]
     fn requiring_every_genre_of_nothing_matches_nothing() {
         assert!(!genre_rule(vec![Condition::GenreContainsAll(vec![])], MatchMode::All));
         assert!(Condition::GenreContainsAll(vec![]).is_empty());
     }
 
-    /// Both quantifiers stay available as separate conditions, which is what a
-    /// rule needs to say "animated, and either science fiction or fantasy".
     #[test]
     fn the_two_quantifiers_combine_in_one_rule() {
         assert!(genre_rule(
@@ -1005,7 +1148,6 @@ mod tests {
             ],
             MatchMode::All,
         ));
-        // Western is absent, so the pair cannot hold, where `any` would.
         let both_needed = vec![
             Condition::GenreContains(vec!["Animation".into()]),
             Condition::GenreContains(vec!["Western".into()]),
@@ -1014,8 +1156,6 @@ mod tests {
         assert!(genre_rule(both_needed, MatchMode::Any));
     }
 
-    /// The case that reads ambiguously in any other arrangement: one condition
-    /// offering a choice, another demanding a genre outright.
     #[test]
     fn a_multi_genre_condition_combines_with_a_second_one() {
         assert!(genre_rule(
@@ -1025,7 +1165,6 @@ mod tests {
             ],
             MatchMode::All,
         ));
-        // The alternative half offers nothing the item carries.
         assert!(!genre_rule(
             vec![
                 Condition::GenreContains(vec!["Western".into(), "Horror".into()]),
@@ -1061,8 +1200,6 @@ mod tests {
         assert_eq!(json, r#"{"type":"genre_contains","value":["Science Fiction","Fantasy"]}"#);
         assert_eq!(serde_json::from_str::<Condition>(&json).unwrap(), condition);
     }
-
-    // ---------------------------------------------------------- match modes
 
     #[test]
     fn any_mode_requires_only_one_condition() {
@@ -1111,8 +1248,6 @@ mod tests {
         assert!(reasons_of(&winner).iter().any(|reason| reason.starts_with('✗')));
     }
 
-    // ---------------------------------------------------------- exclusions
-
     #[test]
     fn an_exclusion_vetoes_a_matching_rule() {
         let mut r = anime_rule();
@@ -1128,7 +1263,6 @@ mod tests {
         );
     }
 
-    /// Any one exclusion vetoes, wherever it sits in the list.
     #[test]
     fn the_second_exclusion_vetoes_as_well_as_the_first() {
         let mut r = anime_rule();
@@ -1161,12 +1295,10 @@ mod tests {
         assert_eq!(result.excluded.len(), 1);
     }
 
-    // ---------------------------------------------------------- conditions
-
     fn matches(condition: Condition) -> bool {
         let media = media();
         let metadata = metadata();
-        evaluate_single_condition(
+        evaluate_one(
             &condition,
             EvalContext { media: &media, metadata: Some(&metadata), now: now() },
         )
@@ -1178,7 +1310,7 @@ mod tests {
         let mut media = media();
         adjust(&mut media);
         let metadata = metadata();
-        evaluate_single_condition(
+        evaluate_one(
             &condition,
             EvalContext { media: &media, metadata: Some(&metadata), now: now() },
         )
@@ -1187,11 +1319,7 @@ mod tests {
 
     fn matches_without_metadata(condition: Condition) -> bool {
         let media = media();
-        evaluate_single_condition(
-            &condition,
-            EvalContext { media: &media, metadata: None, now: now() },
-        )
-        .matched
+        evaluate_one(&condition, EvalContext { media: &media, metadata: None, now: now() }).matched
     }
 
     #[test]
@@ -1241,7 +1369,7 @@ mod tests {
         let (media, metadata) = (media(), metadata());
         let check = |scale: &str, min, max, min_votes| {
             let condition = Condition::ScoreRange { scale: scale.into(), min, max, min_votes };
-            evaluate_single_condition(
+            evaluate_one(
                 &condition,
                 EvalContext { media: &media, metadata: Some(&metadata), now: now() },
             )
@@ -1264,11 +1392,7 @@ mod tests {
             let mut m = media();
             m.runtime = runtime;
             let condition = Condition::RuntimeRange { min, max };
-            evaluate_single_condition(
-                &condition,
-                EvalContext { media: &m, metadata: None, now: now() },
-            )
-            .matched
+            evaluate_one(&condition, EvalContext { media: &m, metadata: None, now: now() }).matched
         };
         assert!(holds(Some(86), Some(80), Some(90)));
         assert!(holds(Some(86), None, Some(86)));
@@ -1284,11 +1408,7 @@ mod tests {
         m.network = Some("Fuji TV".into());
         m.collection = Some("Studio Ghibli Collection".into());
         let holds = |condition: Condition, m: &Media| {
-            evaluate_single_condition(
-                &condition,
-                EvalContext { media: m, metadata: None, now: now() },
-            )
-            .matched
+            evaluate_one(&condition, EvalContext { media: m, metadata: None, now: now() }).matched
         };
         let one = |value: &str| vec![value.to_string()];
         assert!(holds(Condition::QualityProfileIn(one("ultra hd")), &m));
@@ -1316,7 +1436,7 @@ mod tests {
         let mut media = media();
         media.year = None;
         let metadata = metadata();
-        let outcome = evaluate_single_condition(
+        let outcome = evaluate_one(
             &Condition::YearRange { min: None, max: None },
             EvalContext { media: &media, metadata: Some(&metadata), now: now() },
         );
@@ -1337,8 +1457,6 @@ mod tests {
         assert!(!matches_without_metadata(Condition::CertificationIn(vec!["".into()])));
     }
 
-    /// MyAnimeList's `R+` is its own rating, not the MPA's `R`, as the
-    /// library's facets already list them.
     #[test]
     fn a_myanimelist_r_plus_is_not_an_r() {
         let rated = |code: &str| {
@@ -1346,7 +1464,7 @@ mod tests {
             let metadata = MediaMetadata { certification: Some(code.into()), ..metadata() };
             move |values: &[&str]| {
                 let values = values.iter().map(|v| v.to_string()).collect();
-                evaluate_single_condition(
+                evaluate_one(
                     &Condition::CertificationIn(values),
                     EvalContext { media: &media, metadata: Some(&metadata), now: now() },
                 )
@@ -1366,8 +1484,6 @@ mod tests {
         assert!(!matches(Condition::CurrentRootFolder("/movies/anime".into())));
     }
 
-    /// An item with no language has none, not the empty string: a blank value
-    /// in a language list reaches no such item, and excludes none.
     #[test]
     fn a_blank_language_value_reaches_no_item_without_a_language() {
         let with_blank = vec!["ja".to_string(), String::new()];
@@ -1375,8 +1491,6 @@ mod tests {
         assert!(matches_without_metadata(Condition::OriginalLanguageNot(with_blank)));
     }
 
-    /// A prefix is a folder: `/movies` holds `/movies/standard`, and
-    /// `/movies/stand` is a sibling sharing its letters.
     #[test]
     fn a_folder_prefix_does_not_match_a_sibling_sharing_its_letters() {
         assert!(!matches(Condition::CurrentRootFolderStartsWith("/movies/stand".into())));
@@ -1428,14 +1542,12 @@ mod tests {
         assert!(!matches(Condition::TitleContains(vec!["akira".into()])));
     }
 
-    /// A title goes through `normalise_value` like every other string condition,
-    /// accents and punctuation folded.
     #[test]
     fn a_title_is_matched_the_way_every_other_value_is() {
         let accented = |needle: &str| {
             let mut media = media();
             media.title = "Amélie".to_string();
-            evaluate_single_condition(
+            evaluate_one(
                 &Condition::TitleContains(vec![needle.to_string()]),
                 EvalContext { media: &media, metadata: None, now: now() },
             )
@@ -1448,7 +1560,7 @@ mod tests {
         let punctuated = |needle: &str| {
             let mut media = media();
             media.title = "Spider-Man: No Way Home".to_string();
-            evaluate_single_condition(
+            evaluate_one(
                 &Condition::TitleContains(vec![needle.to_string()]),
                 EvalContext { media: &media, metadata: None, now: now() },
             )
@@ -1475,14 +1587,11 @@ mod tests {
         let (media, metadata) = (media(), metadata());
         let ctx = EvalContext { media: &media, metadata: Some(&metadata), now: now() };
         for condition in [Condition::TmdbIdIn(vec![8392, 1]), Condition::TvdbIdIn(vec![8392, 1])] {
-            let outcome = evaluate_single_condition(&condition, ctx);
+            let outcome = evaluate_one(&condition, ctx);
             assert_eq!(outcome.params["values"], "8392, 1", "{}", outcome.kind);
         }
     }
 
-    /// N days are N times 24 hours before the injected clock, and an Arr
-    /// whose clock runs ahead of Routarr's by less than a day dates a title it
-    /// has just added a little in the future, which still reads as just added.
     #[test]
     fn added_within_days_counts_whole_days_back_from_the_clock() {
         use chrono::TimeDelta;
@@ -1498,9 +1607,7 @@ mod tests {
         assert!(!added(TimeDelta::days(2000)));
     }
 
-    /// An Arr dates a title in RFC 3339, and a rule test's snapshot may hold a
-    /// stamp with no zone or a bare date. Each reads in UTC, a bare date at its
-    /// midnight, and two days back from the clock end at noon on the 19th.
+    /// Two days back from the fixture's clock end at noon on the 19th, UTC.
     #[test]
     fn added_within_days_reads_every_shape_a_title_is_dated_in() {
         let added = |stamp: &str| {
@@ -1520,7 +1627,7 @@ mod tests {
     fn an_unparseable_timestamp_does_not_match() {
         let mut m = media();
         m.added_at = Some("not a date".into());
-        let outcome = evaluate_single_condition(
+        let outcome = evaluate_one(
             &Condition::AddedWithinDays(3650),
             EvalContext { media: &m, metadata: None, now: now() },
         );
@@ -1534,8 +1641,6 @@ mod tests {
         // The negative form holds, as a "not anime" rule needs on an unknown title.
         assert!(matches_without_metadata(Condition::GenreNotContains(vec!["Animation".into()])));
     }
-
-    // ---------------------------------------------------------- explanation
 
     #[test]
     fn a_matched_condition_shows_what_it_found() {
@@ -1598,10 +1703,53 @@ mod tests {
         })
     }
 
-    /// Every kind explains itself in words, in English and French: its key is in
-    /// the dictionary and every placeholder of the sentence is filled.
+    /// The cost of a pass is one fold per value, of the rules and of each title, and folding
+    /// inside each comparison pays both again for every condition reading them.
     #[test]
-    fn every_condition_produces_a_reason() {
+    fn an_evaluation_folds_each_title_value_and_each_rule_value_at_most_once() {
+        use crate::services::templates;
+        let localizer = crate::localization::Localizer::new("en");
+        let answers = templates::Answers { category: "x".into(), ..Default::default() };
+        let rules: Vec<Rule> = ["children", "concerts", "documentaries"]
+            .into_iter()
+            .flat_map(|id| templates::render(templates::find(id).unwrap(), &answers, &localizer))
+            .enumerate()
+            .map(|(index, req)| {
+                let mut rule = rule(&req.name, index as i64, "x", req.conditions);
+                rule.exclusions = req.exclusions;
+                rule
+            })
+            .collect();
+        let rule_values: usize = rules
+            .iter()
+            .flat_map(|rule| rule.conditions.iter().chain(&rule.exclusions))
+            .map(|condition| match condition {
+                Condition::GenreContains(values) | Condition::KeywordContains(values) => {
+                    values.len()
+                }
+                _ => 0,
+            })
+            .sum();
+        let mut media = media();
+        media.tags = Some(r#"["kids"]"#.into());
+        let metadata = metadata();
+        let title_values = metadata.genres.len()
+            + metadata.keywords.len()
+            + metadata.origin_countries.len()
+            + media.tag_labels().len()
+            + 1;
+
+        let ctx = EvalContext { media: &media, metadata: Some(&metadata), now: now() };
+        let (prepared, folded) = folding::folds_in(|| Prepared::new(&rules));
+        assert!(folded <= rule_values, "{folded} folds for {rule_values} rule values");
+        for _ in 0..2 {
+            let (_, folded) = folding::folds_in(|| evaluate_prepared(ctx, &prepared, None));
+            assert!(folded <= title_values, "{folded} folds for {title_values} title values");
+        }
+    }
+
+    #[test]
+    fn every_condition_is_worded_whole_in_english_and_french() {
         let (mut media, metadata) = (media(), metadata());
         media.size_on_disk = Some(13_207_024_435);
         let english = crate::localization::Localizer::new("en");
@@ -1609,7 +1757,7 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         let mut condition = next_kind(None);
         while let Some(current) = condition {
-            let outcome = evaluate_single_condition(
+            let outcome = evaluate_one(
                 &current,
                 EvalContext { media: &media, metadata: Some(&metadata), now: now() },
             );
@@ -1621,6 +1769,9 @@ mod tests {
             for english_only in ["true", "false", " GB", "T00:", ":00Z", "[-]"] {
                 assert!(!reason.contains(english_only), "{}: {reason}", outcome.kind);
             }
+            if outcome.kind == "score_range" {
+                assert!(reason.contains("8,1 (393\u{202f}000)"), "the votes found: {reason}");
+            }
             assert!(seen.insert(current.kind()), "{} is visited twice", current.kind());
             condition = next_kind(Some(&current));
         }
@@ -1631,7 +1782,7 @@ mod tests {
     fn condition_outcomes_carry_expected_and_observed() {
         let media = media();
         let metadata = metadata();
-        let outcome = evaluate_single_condition(
+        let outcome = evaluate_one(
             &Condition::GenreContains(vec!["Animation".into()]),
             EvalContext { media: &media, metadata: Some(&metadata), now: now() },
         );
@@ -1645,7 +1796,6 @@ mod tests {
         );
     }
 
-    /// One agreeing signal sets the mode's base, and each further one adds a step.
     #[test]
     fn confidence_grows_by_a_step_per_agreeing_signal() {
         let one =
@@ -1665,8 +1815,6 @@ mod tests {
         let loose = evaluate(&[any], None).winner.unwrap().confidence;
         assert!(loose < strict);
     }
-
-    // ---------------------------------------------------------- serde
 
     #[test]
     fn conditions_round_trip_through_json() {

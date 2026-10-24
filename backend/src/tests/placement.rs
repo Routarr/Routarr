@@ -70,11 +70,9 @@ async fn a_title_the_library_holds_goes_where_the_simulation_sends_it() {
     assert_eq!(explained.assert_ok()["target_category"], answer["category"]);
 }
 
-/// Each answer a request bot acts on, over the one fixture: a title already
-/// where it belongs is left alone, one whose category has no folder is
-/// skipped, a declared folder says so, a pin settles the title whatever the
-/// rules read, and a field only an exclusion reads is still named unanswered,
-/// since answered, it could send the title elsewhere.
+/// Over one fixture: left alone, skipped for want of a folder, a declared folder, a pin, and a
+/// field only an exclusion reads named unanswered, since answered it could send the title
+/// elsewhere.
 #[tokio::test]
 async fn each_answer_a_caller_acts_on_comes_back_as_such() {
     struct Case {
@@ -186,8 +184,7 @@ async fn a_title_only_the_arr_knows_is_looked_up_and_placed_without_being_stored
     assert!(arr.recorded().reads.iter().any(|read| read == "/api/v3/movie/lookup/129"));
 }
 
-/// A title nobody knows is not found, and one no instance of its kind can
-/// hold is not found either.
+/// One no instance of its kind can hold is not found either.
 #[tokio::test]
 async fn a_title_no_instance_knows_is_not_found() {
     let arr = FakeArr::start().await;
@@ -202,7 +199,6 @@ async fn a_title_no_instance_knows_is_not_found() {
     assert_eq!(refused.status, StatusCode::BAD_REQUEST);
 }
 
-/// One Arr that cannot be asked is said, and the other still answers.
 #[tokio::test]
 async fn an_instance_that_fails_is_reported_and_stops_none_of_the_others() {
     let arr = FakeArr::start().await;
@@ -228,7 +224,6 @@ async fn an_instance_that_fails_is_reported_and_stops_none_of_the_others() {
     assert!(narrowed.assert_ok()["errors"].as_array().unwrap().is_empty());
 }
 
-/// The tags a requester would add the title with reach a rule reading them.
 #[tokio::test]
 async fn the_tags_a_new_title_would_carry_reach_the_rules() {
     let arr = FakeArr::start().await;
@@ -246,9 +241,8 @@ async fn the_tags_a_new_title_would_carry_reach_the_rules() {
     assert_eq!(only(tagged.assert_ok())["category"], "kids");
 }
 
-/// A rule tried before the winner reads a field nobody answered, so the
-/// placement could change once a source does. `enrich` asks the source now,
-/// and stores nothing it hears.
+/// A rule tried before the winner reads a field nobody answered, so a source could change the
+/// placement.
 #[tokio::test]
 async fn enrich_asks_a_source_for_what_the_rules_read_and_stores_nothing() {
     let arr = FakeArr::start().await;
@@ -277,6 +271,31 @@ async fn enrich_asks_a_source_for_what_the_rules_read_and_stores_nothing() {
     assert_eq!(answer["category"], "kids", "{answer}");
     assert_eq!(answer["unanswered_fields"], serde_json::json!([]));
     assert_eq!(count(&app, "metadata_cache").await, 0, "an enriched placement stored an answer");
+}
+
+/// A score is answered by its scale: TMDB's score says nothing of the IMDb one a rule tried
+/// before the winner reads, so the placement may still change.
+#[tokio::test]
+async fn a_score_rule_on_a_scale_nobody_gave_is_named_unanswered() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    radarr_library(&app, &arr).await;
+    app.list_tmdb().await;
+    app.execute(&[
+        "INSERT INTO metadata_cache (source, external_id, media_type, genres, ratings)
+         VALUES ('tmdb', '129', 'movie', '[\"Animation\"]', '{\"tmdb\":{\"value\":8.5,\"votes\":900}}')",
+    ])
+    .await;
+    let score =
+        serde_json::json!({ "type": "score_range", "value": { "scale": "imdb", "min": 7 } });
+    app.seed_rule_on(score).await;
+    app.execute(&["UPDATE rules SET priority = 1, target_category = 'kids' WHERE id = 'r-1'"])
+        .await;
+
+    let placed = app.get("/api/v1/route?type=movie&tmdb=129").await;
+    let answer = only(placed.assert_ok());
+    assert_eq!(answer["category"], "anime", "{answer}");
+    assert_eq!(answer["unanswered_fields"], serde_json::json!(["ratings"]), "{answer}");
 }
 
 /// A title two instances know is one title to a source: `enrich` asks each
@@ -317,8 +336,7 @@ async fn library_on_anilist(arr: &FakeArr, sources: &FakeSources) -> TestApp {
     app
 }
 
-/// A source found by title, as AniList is, answers under the id its search
-/// resolved. `enrich` reads that answer under that id, and stores neither.
+/// AniList answers under the id its search resolved, which `enrich` must use.
 #[tokio::test]
 async fn enrich_reads_what_a_source_found_by_title_answers_and_stores_nothing() {
     let (arr, sources) = (FakeArr::start().await, FakeSources::start().await);
@@ -417,8 +435,7 @@ async fn sonarr_library_routing_on(arr: &FakeArr, condition: Value) -> TestApp {
     app
 }
 
-/// A series Sonarr does not hold yet is judged on what adding it would set,
-/// not on the defaults its lookup answers: the type the caller names.
+/// Not on the defaults its lookup answers: the type the caller names.
 #[tokio::test]
 async fn a_series_sonarr_does_not_hold_is_judged_on_the_type_it_would_be_added_with() {
     let arr = FakeArr::start().await;
@@ -440,7 +457,7 @@ async fn a_series_sonarr_does_not_hold_is_judged_on_the_type_it_would_be_added_w
     assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{:?}", unknown.json);
 }
 
-/// And added today, which the lookup's date for a title nobody added is not.
+/// The lookup's date for a title nobody added is not today.
 #[tokio::test]
 async fn a_title_the_arr_does_not_hold_is_judged_as_added_today() {
     let arr = FakeArr::start().await;
@@ -496,10 +513,8 @@ async fn a_film_radarr_holds_keeps_its_own_tags_before_it_is_synced() {
     assert_eq!(answer["category"], "anime", "{answer}");
 }
 
-/// An instance whose key cannot be opened fails for a reason that belongs to
-/// the operator's log, not to whoever asked: the decryption error names the
-/// variable that holds the master key. `/route` and the task list say that
-/// something failed inside, and the log keeps the detail.
+/// The decryption error names the variable holding the master key, which belongs to the
+/// operator's log, not to whoever asked.
 #[tokio::test]
 async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
     let arr = FakeArr::start().await;
@@ -546,9 +561,8 @@ async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
     assert!(!warnings.to_lowercase().contains("decrypt"), "/status told {warnings}");
 }
 
-/// A key looping on ids no library holds would send each to the Arr, which
-/// sends it to its own metadata service, on the owner's quota. A title the Arr
-/// did not know is believed unknown for ten minutes.
+/// A key looping on ids no library holds would send each to the Arr's metadata service, on the
+/// owner's quota.
 #[tokio::test]
 async fn a_title_no_arr_knows_is_asked_about_once_within_ten_minutes() {
     let arr = FakeArr::start().await;

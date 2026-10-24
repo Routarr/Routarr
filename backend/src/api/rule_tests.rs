@@ -1,5 +1,4 @@
-//! Pinned expectations: list, pin, delete, replay. The CRUD queries from the handler, and the
-//! replay lives in `services::rule_tests`, since evaluating rules is logic without HTTP.
+//! Pinned expectations: list, pin, delete, replay. The replay is `services::rule_tests`.
 
 use super::Json;
 use axum::extract::State;
@@ -71,7 +70,12 @@ pub async fn create(
             let rules = routing::load_rules(&state.pool).await?;
             let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
             let default_category = AppState::default_category(&state.pool).await?;
-            rule_tests::decided_by_rules(ctx, &rules, &default_category).0
+            rule_tests::decided_by_rules(
+                ctx,
+                &crate::services::rule_engine::Prepared::new(&rules),
+                &default_category,
+            )
+            .0
         }
     };
 

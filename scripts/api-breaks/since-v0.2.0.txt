@@ -27,3 +27,13 @@ POST /decisions/apply-all added the new `failed` enum value to the `stopped/oneO
 POST /decisions/revert added the new `refused` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 POST /decisions/revert added the new `failed` enum value to the `stopped/oneOf[#/components/schemas/StopReason]/` response property for the response status `200`
 x-routarr-scope changed on GET /health: operate in the release, read now
+POST /rules the `priority` request property's max was set to `1000000.00`
+POST /rules the `priority` request property's min was set to `-1000000.00`
+POST /rules/import the `bundle/rules/items/priority` request property's max was set to `1000000.00`
+POST /rules/import the `bundle/rules/items/priority` request property's min was set to `-1000000.00`
+POST /rules/preview the `rule/priority` request property's max was set to `1000000.00`
+POST /rules/preview the `rule/priority` request property's min was set to `-1000000.00`
+POST /rules/validate the `priority` request property's max was set to `1000000.00`
+POST /rules/validate the `priority` request property's min was set to `-1000000.00`
+PUT /rules/{id} the `priority` request property's max was set to `1000000.00`
+PUT /rules/{id} the `priority` request property's min was set to `-1000000.00`

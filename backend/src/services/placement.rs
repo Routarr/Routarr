@@ -327,9 +327,8 @@ async fn answer(
     })
 }
 
-/// The fields the rules tried up to the winner read, and no source answered.
-/// Past the winner nothing is read that could change the placement: a rule
-/// below it loses on priority whatever it finds.
+/// The fields the rules tried up to the winner read, and no source answered: a rule below
+/// the winner loses on priority whatever it finds.
 fn unanswered(
     rules: &[crate::models::Rule],
     media: &Media,
@@ -340,10 +339,13 @@ fn unanswered(
     let mut missing: Vec<&'static str> = Vec::new();
     for rule in in_order(rules, media) {
         for condition in rule.conditions.iter().chain(&rule.exclusions) {
-            if let Some(field) = condition.metadata_field()
-                && !answered(field.as_str())
-                && !missing.contains(&field.as_str())
-            {
+            let Some(field) = condition.metadata_field() else { continue };
+            // A score is answered by its scale: `ratings` stands for the first one given.
+            let read = match condition {
+                crate::models::Condition::ScoreRange { scale, .. } => format!("ratings.{scale}"),
+                _ => field.as_str().to_string(),
+            };
+            if !answered(&read) && !missing.contains(&field.as_str()) {
                 missing.push(field.as_str());
             }
         }

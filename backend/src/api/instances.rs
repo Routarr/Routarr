@@ -6,6 +6,7 @@ use axum::extract::State;
 use super::Path;
 use axum::http::HeaderMap;
 use axum::response::Response;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::api::auth::{Client, Identity, allowed, audited};
@@ -71,6 +72,82 @@ fn key_set(state: &AppState, instance: &Instance) -> bool {
     state.secrets.open(&instance.api_key).map_or(true, |key| !key.is_empty())
 }
 
+/// The one form two instance names are compared in, trimmed, lower-cased beyond ASCII and
+/// composed, so ` Émissions` and `émissions` are one name. Stored as `name_key`, whose unique
+/// index refuses a second instance of one name.
+pub fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.trim().to_lowercase().nfc().collect()
+}
+
+/// Every instance's id, by the `name_key` of its name.
+pub(crate) async fn ids_by_name<'e, E>(executor: E) -> AppResult<HashMap<String, String>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let named: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, id FROM instances").fetch_all(executor).await?;
+    Ok(named.into_iter().map(|(name, id)| (name_key(&name), id)).collect())
+}
+
+/// Give every instance the `name_key` of its name, renaming the later of two whose names fold
+/// alike as migration 002 renames the pairs it refuses: a number after it, or its id where that
+/// number names an instance already.
+pub async fn converge_names(pool: &sqlx::SqlitePool) -> AppResult<()> {
+    let rows: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT id, name, name_key FROM instances ORDER BY created_at, id")
+            .fetch_all(pool)
+            .await?;
+    let mut held: std::collections::HashSet<String> =
+        rows.iter().map(|(_, name, _)| name_key(name)).collect();
+    let mut ranks: HashMap<String, usize> = HashMap::new();
+    let mut changed = Vec::new();
+    for (id, name, stored) in &rows {
+        let rank = ranks.entry(name_key(name)).or_default();
+        *rank += 1;
+        let kept = match *rank {
+            1 => name.clone(),
+            rank => {
+                let numbered = format!("{} ({rank})", name.trim());
+                let renamed = match held.contains(&name_key(&numbered)) {
+                    true => format!("{numbered} {}", id.chars().take(8).collect::<String>()),
+                    false => numbered,
+                };
+                tracing::warn!(
+                    "The instance '{name}' is renamed '{renamed}', as another reads the same"
+                );
+                held.insert(name_key(&renamed));
+                renamed
+            }
+        };
+        let key = name_key(&kept);
+        if &kept != name || stored.as_deref() != Some(key.as_str()) {
+            changed.push((id, kept, key));
+        }
+    }
+    if changed.is_empty() {
+        return Ok(());
+    }
+    // Cleared first, so no key lands on a row before the row holding it lets it go.
+    let mut tx = crate::db::write_transaction(pool).await?;
+    for (id, ..) in &changed {
+        sqlx::query("UPDATE instances SET name_key = NULL WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    for (id, name, key) in &changed {
+        sqlx::query("UPDATE instances SET name = ?, name_key = ? WHERE id = ?")
+            .bind(name)
+            .bind(key)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Another instance holds the name, case and spaces aside: a bundle names an
 /// instance by it, and two would be one there.
 fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Localizer) -> AppError {
@@ -96,12 +173,13 @@ pub async fn create(
     let webhook_token = Uuid::new_v4().to_string();
 
     sqlx::query(
-        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled,
+        "INSERT INTO instances (id, name, name_key, instance_type, base_url, api_key, enabled,
          sync_interval_minutes, webhook_token, auto_apply)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(req.name.trim())
+    .bind(name_key(&req.name))
     .bind(req.instance_type.to_lowercase())
     .bind(&base_url)
     .bind(state.secrets.seal(req.api_key.trim())?)
@@ -152,11 +230,13 @@ pub async fn update(
     let instance_type = req.instance_type.to_lowercase();
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     sqlx::query(
-        "UPDATE instances SET name = ?, instance_type = ?, base_url = ?, api_key = ?,
-         enabled = ?, sync_interval_minutes = ?, auto_apply = ?, updated_at = datetime('now')
+        "UPDATE instances SET name = ?, name_key = ?, instance_type = ?, base_url = ?,
+         api_key = ?, enabled = ?, sync_interval_minutes = ?, auto_apply = ?,
+         updated_at = datetime('now')
          WHERE id = ?",
     )
     .bind(req.name.trim())
+    .bind(name_key(&req.name))
     .bind(&instance_type)
     .bind(&base_url)
     .bind(api_key)

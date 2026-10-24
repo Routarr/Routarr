@@ -104,7 +104,6 @@ describe('Rules', () => {
     expect(within(row).queryByText('Radarr')).toBeNull();
   });
 
-  /** The two diagnostics failing silently would look exactly like a healthy rule set. */
   it('says the rule analysis is missing, and reads it again on Retry', async () => {
     const report = vi
       .spyOn(api, 'getRuleHealth')
@@ -139,7 +138,6 @@ describe('Rules', () => {
     ).toBeNull();
   });
 
-  /** A label over a hidden input takes no focus, so the import is a button. */
   it('offers the import as a button that opens the file picker', async () => {
     show([]);
     const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
@@ -198,10 +196,6 @@ describe('Rules', () => {
     expect(nthCall(reorder)[0]).toEqual(['r2', 'r1']);
   });
 
-  /**
-   * An action keeps the table and the focus with the rule, or a keyboard user starts again from
-   * the top. The library facets are read once, since no action on a rule changes them.
-   */
   it("moving a rule keeps the table and the focus on the moved rule's button", async () => {
     const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
     const facets = vi.spyOn(api, 'getLibraryFacets').mockRejectedValue(new Error('not read'));
@@ -236,7 +230,6 @@ describe('Rules', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  /** A stale success above the next action's refusal reads as that action's outcome. */
   it('takes the previous success off screen when the next action is refused', async () => {
     vi.spyOn(api, 'duplicateRule').mockResolvedValue(undefined as never);
     vi.spyOn(api, 'deleteRule').mockRejectedValue(
@@ -254,7 +247,6 @@ describe('Rules', () => {
     expect(screen.queryByText('Rule duplicated')).toBeNull();
   });
 
-  /** A cancelled question did nothing, so the last outcome stays on screen. */
   it('leaves the previous success standing when an import is cancelled', async () => {
     vi.spyOn(api, 'duplicateRule').mockResolvedValue(undefined as never);
     const importRules = vi.spyOn(api, 'importRules');
@@ -282,7 +274,6 @@ describe('Rules', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('r1'));
   });
 
-  /** The shell draws the guide, whose rule step hears of a rule only through this. */
   it('tells the shell when the rules change', async () => {
     vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
     show([rule()]);
@@ -294,7 +285,6 @@ describe('Rules', () => {
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 
-  /** The guide's rule step hears of a saved rule only through the shell. */
   it('tells the shell when a rule is saved from the editor', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     const update = vi.spyOn(api, 'updateRule').mockResolvedValue(rule());
@@ -308,10 +298,6 @@ describe('Rules', () => {
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 
-  /**
-   * A stored rule can still hold a repeated value, and chips keyed by value would crash on it,
-   * so the editor drops the repeat.
-   */
   it('opens a rule stored with a repeated value, and saves it without the repeat', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     const update = vi.spyOn(api, 'updateRule').mockResolvedValue(rule());
@@ -338,7 +324,6 @@ describe('Rules', () => {
     expect(screen.getByText('Disabled')).toBeTruthy();
   });
 
-  /** The table reads as the editor does, never in the engine's own identifiers. */
   it('describes each condition by its caption and each value by its name', async () => {
     const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];
     const served: ConditionCatalog = {
@@ -400,7 +385,6 @@ describe('Rules', () => {
     expect(screen.queryByText(/original_language|certification_in/)).toBeNull();
   });
 
-  /** A language is named in the reader's language, not in the server's English. */
   it('names a language value in the language of the interface', async () => {
     const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];
     const served: ConditionCatalog = {
@@ -483,7 +467,6 @@ describe('Rules', () => {
     expect(await screen.findByText('Original language is one of Reserved (qaa)')).toBeTruthy();
   });
 
-  /** The editor waits for the catalogue it is built from, rather than draw an empty picker. */
   it('builds the editor from the catalogue the server serves', async () => {
     show([]);
 
@@ -521,7 +504,6 @@ describe('Rules', () => {
     expect(nthCall(importRules)[1]).toBe(true);
   });
 
-  /** An import that brought in no rule at all is a failure, not a count of zero. */
   it('reports an import that skipped every rule as a failure', async () => {
     await importFile({ imported: 0, skipped: ["'Anime': no condition", "'Kids': no target"] });
 
@@ -530,7 +512,6 @@ describe('Rules', () => {
     expect(screen.getByText("'Kids': no target")).toBeTruthy();
   });
 
-  /** Some rules in and some refused is a partial result, each refusal with its reason. */
   it('reports an import that skipped some rules as a partial result', async () => {
     await importFile({ imported: 1, skipped: ["'Kids': no target"] });
 
@@ -539,7 +520,6 @@ describe('Rules', () => {
     expect(screen.getByText("'Kids': no target")).toBeTruthy();
   });
 
-  /** A rule imported switched off or on fewer instances than its file names needs a look. */
   it('names each rule imported otherwise than its file has it', async () => {
     const note = "'Anime': imported switched off";
     await importFile({ imported: 1, skipped: [], adjusted: [note] });
@@ -549,7 +529,6 @@ describe('Rules', () => {
     expect(screen.getByText(note)).toBeTruthy();
   });
 
-  /** The guide's link waits for the catalogue the editor is built from, as the button does. */
   it('opens the rule editor when the guide sends the reader here', async () => {
     window.history.replaceState({}, '', '/rules?new=1');
     show([]);
@@ -571,10 +550,6 @@ describe('Rules', () => {
 });
 
 describe('the templates', () => {
-  /**
-   * In place of the empty table while no rule is written, so a first rule is one click away and
-   * nothing pushes the screen's object out of view, then below the table once one is.
-   */
   it('offers the templates in place of the empty table, and after the rules once one is', async () => {
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
     const { unmount } = show([]);
@@ -623,7 +598,6 @@ describe('the templates', () => {
     window.history.replaceState({}, '', '/rules');
   });
 
-  /** A folder just mapped sends its template here, on the category it now leads to. */
   it('opens the template a mapped folder offers, on the category of that folder', async () => {
     window.history.replaceState({}, '', '/rules?template=documentaries&category=docus');
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
@@ -636,7 +610,6 @@ describe('the templates', () => {
     window.history.replaceState({}, '', '/rules');
   });
 
-  /** A household language the library holds no film in is still named, not a bare code. */
   it('names the languages the household watches in from the whole vocabulary', async () => {
     vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({
       ...NO_FACETS,
@@ -664,7 +637,6 @@ describe('the templates', () => {
     expect(chips.getByText(/French/)).toBeTruthy();
   });
 
-  /** Below the table once rules are written, the gallery is a link away. */
   it('follows the link to the gallery from the screen it is on', async () => {
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
     show([rule()]);
@@ -680,7 +652,6 @@ describe('the templates', () => {
   });
 });
 
-/** A deleted rule takes its row and its menu: the next rule's menu takes the focus. */
 it('hands the focus to the rule that took the place of the deleted one', async () => {
   const first = rule({ id: 'r1', name: 'First' });
   const next = rule({ id: 'r2', name: 'Next' });
@@ -696,10 +667,6 @@ it('hands the focus to the rule that took the place of the deleted one', async (
   );
 });
 
-/**
- * A rule under a broader one, a copy of another and one that matches nothing each say so on
- * their row, the first two naming the rule to look at.
- */
 describe('the rule health badges', () => {
   const verdict = (over: Partial<RuleHealth>): RuleHealth => ({
     rule_id: 'r1',
@@ -710,9 +677,12 @@ describe('the rule health badges', () => {
     shadowed: 0,
     vetoed: 0,
     shadowed_by: null,
+    shadowed_by_id: null,
     matched_nothing: false,
     ambiguous_with: null,
+    ambiguous_with_id: null,
     duplicate_of: null,
+    duplicate_of_id: null,
     ...over,
   });
 
@@ -739,7 +709,6 @@ describe('the rule health badges', () => {
     expect(await within(row).findByText(badge)).toBeTruthy();
   });
 
-  /** How many it lost and to whom is said in the row, not in a title only a mouse shows. */
   it('says in the row how many items a shadowed rule loses', async () => {
     vi.spyOn(api, 'getRuleHealth').mockResolvedValue({
       total_media: 12,
