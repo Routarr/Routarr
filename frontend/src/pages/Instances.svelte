@@ -11,7 +11,6 @@
   } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import {
-    failureDetail,
     formatCount,
     formatRelative,
     formatTimestamp,
@@ -284,12 +283,10 @@
     const now = list.data?.find((each) => each.id === awaited.id);
     if (!now?.last_sync_attempt_at || following !== awaited) return;
     following = null;
-    if (now.last_sync_status === 'success') {
+    if (now.last_sync_error === null) {
       outcome.succeed(t('InstanceFirstSyncFinished', { name: awaited.name }));
     } else {
-      outcome.warn(t('InstanceFirstSyncFailed', { name: awaited.name }), [
-        now.last_sync_status ?? '',
-      ]);
+      outcome.warn(t('InstanceFirstSyncFailed', { name: awaited.name }), [now.last_sync_error]);
     }
     invalidateStatus();
   }
@@ -534,18 +531,16 @@
                       })}
                     </span>
                   {/if}
-                  {#if instance.last_sync_status}
+                  {#if instance.last_sync_attempt_at}
                     <span
-                      class="badge {instance.last_sync_status === 'success'
+                      class="badge {instance.last_sync_error === null
                         ? 'badge-success'
                         : 'badge-danger'}"
                     >
-                      {t(
-                        instance.last_sync_status === 'success' ? 'StatusSuccess' : 'StatusFailed',
-                      )}
+                      {t(instance.last_sync_error === null ? 'StatusSuccess' : 'StatusFailed')}
                     </span>
-                    {#if instance.last_sync_status !== 'success'}
-                      <span class="status-reason">{failureDetail(instance.last_sync_status)}</span>
+                    {#if instance.last_sync_error !== null}
+                      <span class="status-reason">{instance.last_sync_error}</span>
                     {/if}
                   {/if}
                   {#if instance.removal_held > 0}

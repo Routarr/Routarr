@@ -17,11 +17,8 @@ pub async fn get_all(State(state): State<AppState>) -> AppResult<Json<serde_json
 
     let mut settings = serde_json::Map::new();
     for (key, value) in rows {
-        // A sealed value never leaves the process. The screen needs to know
-        // whether one is set, not what it is, so it gets a boolean under a
-        // separate key and the key itself is left out: an empty string written
-        // back removes the credential, so a client saving what it read would
-        // erase every one.
+        // A sealed value never leaves: the screen gets `<key>_configured` instead, and the key is
+        // left out, since an empty string written back would erase the credential.
         if is_secret(&key) {
             let configured = !value.trim().is_empty();
             settings.insert(format!("{key}_configured"), serde_json::Value::Bool(configured));
@@ -30,10 +27,8 @@ pub async fn get_all(State(state): State<AppState>) -> AppResult<Json<serde_json
         settings.insert(key, serde_json::Value::String(value));
     }
 
-    // A key never stored is left out rather than answered as "": an empty
-    // value is refused for several keys, `onboarding` among them, so a client
-    // writing back what it read would be refused, and the screen, which fills
-    // what is missing with its own fallback, would take "" for a choice.
+    // A key never stored is left out, never answered as "": several keys refuse an empty value,
+    // and the screen fills a missing one with its own fallback.
 
     Ok(Json(serde_json::Value::Object(settings)))
 }
@@ -48,10 +43,19 @@ pub struct UpdateSettingsRequest {
 /// name in the one form category names take, so `Anime` names `anime`.
 pub(crate) fn stored_value(key: &str, value: &str) -> String {
     if crate::services::settings::names_a_category(key) {
-        crate::api::categories::stored_form(value)
-    } else {
-        value.trim().to_string()
+        return crate::api::categories::stored_form(value);
     }
+    // ISO reserves `UK` for the United Kingdom, which every source rates under `GB`.
+    let codes: Vec<&str> = value.split(',').map(str::trim).collect();
+    if key == "certification_regions" && codes.iter().any(|code| code.eq_ignore_ascii_case("UK")) {
+        let codes: Vec<&str> = codes
+            .into_iter()
+            .filter(|code| !code.is_empty())
+            .map(|code| if code.eq_ignore_ascii_case("UK") { "GB" } else { code })
+            .collect();
+        return codes.join(", ");
+    }
+    value.trim().to_string()
 }
 
 /// Write the settings named and leave every other as it stands: a merge, where
@@ -68,10 +72,8 @@ pub async fn update(
         refuse_a_source_without_its_key(&state, list, &req.settings).await?;
     }
 
-    // Validate everything before writing anything: a half-applied settings save
-    // is worse than a rejected one. Under the write lock the settings are
-    // written with, so the category `default_category` names cannot be removed
-    // between the check and the write.
+    // Everything is validated before anything is written, under the lock the settings are written
+    // with, so the category `default_category` names cannot go in between.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let categories: Vec<String> =
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&mut *tx).await?;
@@ -85,9 +87,7 @@ pub async fn update(
     }
 
     for (key, value) in &written {
-        // Sealed here rather than in the client, so a value reaching the table
-        // in plaintext is impossible whatever the caller sent. An empty value
-        // stays empty: sealing nothing would store an opaque blob meaning "unset".
+        // Sealed here, whatever the caller sent. An empty value stays empty, since it means unset.
         let stored = if is_secret(key) && !value.is_empty() {
             state.secrets.seal(value)?
         } else {
@@ -104,9 +104,7 @@ pub async fn update(
     }
     tx.commit().await?;
 
-    // Pruning only after a backup is taken would leave every archive above the
-    // new retention on disk, and on screen, until the next scheduled run.
-    // The number takes effect when it is set.
+    // A lowered retention prunes now, not at the next backup.
     if req.settings.contains_key("backup_retention_count") {
         crate::services::backup::retention_changed(&state, identity.attribution()).await;
     }

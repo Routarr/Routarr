@@ -14,8 +14,8 @@ import { publishAccess } from '../lib/access.svelte';
  * until it does, each source is named by its id.
  */
 function show(data: Explanation, strings?: Record<string, string>, onChanged = vi.fn()) {
-  if (!vi.isMockFunction(api.getMetadataProviders)) {
-    vi.spyOn(api, 'getMetadataProviders').mockReturnValue(new Promise(() => {}));
+  if (!vi.isMockFunction(api.getSources)) {
+    vi.spyOn(api, 'getSources').mockReturnValue(new Promise(() => {}));
   }
   if (!vi.isMockFunction(api.getConditionCatalog)) {
     vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
@@ -97,7 +97,7 @@ describe('ExplanationModal', () => {
   it("keeps the title in its folder's category, and reloads what is behind", async () => {
     const kept = vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
     const read = vi
-      .spyOn(api, 'explainMedia')
+      .spyOn(api, 'explainTitle')
       .mockResolvedValue(explanation({ override_category: 'standard', action: 'none' }));
     const onChanged = vi.fn();
     show(explanation(), undefined, onChanged);
@@ -127,7 +127,7 @@ describe('ExplanationModal', () => {
 
   it('asks before replacing an exception that sends the title elsewhere', async () => {
     const kept = vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
-    vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation());
+    vi.spyOn(api, 'explainTitle').mockResolvedValue(explanation());
     show(explanation({ override_category: 'kids', target_category: 'kids' }));
 
     await fireEvent.click(screen.getByRole('button', { name: 'Keep here' }));
@@ -193,7 +193,7 @@ describe('ExplanationModal', () => {
   /** A refresh reads the explanation again once the sources answered, and says how many did. */
   it('reads the explanation again once the sources were asked again', async () => {
     const asked = vi.spyOn(api, 'refreshTitleMetadata').mockResolvedValue({ answered: 2 });
-    vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation({ target_category: 'kids' }));
+    vi.spyOn(api, 'explainTitle').mockResolvedValue(explanation({ target_category: 'kids' }));
     show(explanation());
 
     await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
@@ -205,7 +205,7 @@ describe('ExplanationModal', () => {
 
   it('says so when no source answered a refresh', async () => {
     vi.spyOn(api, 'refreshTitleMetadata').mockResolvedValue({ answered: 0 });
-    vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation());
+    vi.spyOn(api, 'explainTitle').mockResolvedValue(explanation());
     show(explanation());
 
     await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
@@ -374,7 +374,7 @@ describe('ExplanationModal', () => {
    * with the source that gave it, named and linked as its terms ask.
    */
   it('shows the status and the synopsis, each linked to its source', async () => {
-    vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({
+    vi.spyOn(api, 'getSources').mockResolvedValue({
       providers: [
         source('arr', 'Radarr / Sonarr', null),
         source('tmdb', 'TMDB', 'https://www.themoviedb.org'),

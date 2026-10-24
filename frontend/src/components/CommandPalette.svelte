@@ -104,7 +104,7 @@
     searching = true;
     const timer = setTimeout(() => {
       api
-        .getMedia({ search: term, per_page: 5 }, search.signal)
+        .getLibrary({ search: term, per_page: 5 }, search.signal)
         .then((page) => {
           if (live()) ((media = page.data), (error = null));
         })
@@ -152,7 +152,7 @@
     asked = row.media.id;
     try {
       error = null;
-      const answer = await api.explainMedia(row.media.id, mine.signal);
+      const answer = await api.explainTitle(row.media.id, mine.signal);
       if (!mine.signal.aborted) explaining = answer;
     } catch (cause) {
       if (!mine.signal.aborted) error = describeError(cause);

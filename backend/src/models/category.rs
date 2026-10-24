@@ -43,11 +43,16 @@ pub struct CreateCategoryRequest {
     pub display_order: i64,
 }
 
-/// A category with the counts that make it safe (or unsafe) to delete.
+/// A category with the counts that make it safe (or unsafe) to delete: a removal is refused
+/// while any of them is above 0.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct CategoryWithUsage {
     #[serde(flatten)]
     pub category: Category,
     pub rule_count: i64,
     pub root_folder_count: i64,
+    /// Exceptions pinning a title to it.
+    pub exception_count: i64,
+    /// Rule tests expecting it.
+    pub rule_test_count: i64,
 }

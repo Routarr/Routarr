@@ -14,7 +14,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('AboutDialog', () => {
   it('names the version and the licences, credits the sources, and closes', async () => {
-    vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({ providers: [], order: [] });
+    vi.spyOn(api, 'getSources').mockResolvedValue({ providers: [], order: [] });
     const onClose = vi.fn();
     renderWithI18n(AboutDialog, { props: { version: '0.2.0', onClose } });
 

@@ -24,7 +24,7 @@
   const bundle = createAsync(
     async (signal) => {
       const [overrides, categories] = await Promise.all([
-        api.getOverrides({ page, per_page: 50 }, signal),
+        api.getExceptions({ page, per_page: 50 }, signal),
         api.getCategories(signal),
       ]);
       return { overrides, categories };
@@ -44,7 +44,7 @@
   async function remove(id: string, title: string, index: number) {
     if (!(await askConfirmation(t('ConfirmDeleteOverride', { title }), 'Delete'))) return;
     try {
-      await api.deleteOverride(id);
+      await api.deleteException(id);
       outcome.succeed(t('OverrideRemoved'));
       invalidateStatus();
       await bundle.reload();
@@ -96,7 +96,7 @@
     finding?.abort();
     const mine = (finding = new AbortController());
     try {
-      const page = await api.getMedia({ search, per_page: 15 }, mine.signal);
+      const page = await api.getLibrary({ search, per_page: 15 }, mine.signal);
       results = page.data;
       matched = page.pagination.total;
       searched = true;
@@ -112,7 +112,7 @@
     const pressed = document.activeElement as HTMLElement | null;
     saving = true;
     try {
-      await api.createOverride({
+      await api.createException({
         media_id: selected.id,
         target_category: category,
         reason: reason || null,

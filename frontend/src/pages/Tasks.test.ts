@@ -27,14 +27,14 @@ afterEach(() => {
 describe('Tasks', () => {
   /** A running apply can be stopped from here, after a question, and nothing else can. */
   it('stops a running apply once asked, and reads a stopped task as stopped', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([
         job({ id: 'j-apply', kind: 'apply', status: 'running' }),
         job({ id: 'j-sync', kind: 'sync', status: 'running' }),
         job({ id: 'j-old', kind: 'apply', status: 'cancelled' }),
       ]),
     );
-    const cancelJob = vi.spyOn(api, 'cancelJob').mockResolvedValue(undefined);
+    const cancelTask = vi.spyOn(api, 'cancelTask').mockResolvedValue(undefined);
     show();
 
     const stops = await screen.findAllByRole('button', { name: /^Stop/ });
@@ -43,7 +43,7 @@ describe('Tasks', () => {
     await userEvent.click(stops[0]!);
     await answerConfirmation();
 
-    await waitFor(() => expect(cancelJob).toHaveBeenCalledWith('j-apply'));
+    await waitFor(() => expect(cancelTask).toHaveBeenCalledWith('j-apply'));
     expect(
       await screen.findByText('Stop requested: the task ends before its next move.'),
     ).toBeTruthy();
@@ -51,7 +51,7 @@ describe('Tasks', () => {
 
   /** A kind of two words reads its own label, not its raw name. */
   it('names a task whose kind has two words', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ kind: 'sync_all' })]));
+    vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job({ kind: 'sync_all' })]));
     show();
 
     expect(await screen.findByText('Sync of every instance')).toBeTruthy();
@@ -59,23 +59,23 @@ describe('Tasks', () => {
 
   /** Fifty tasks are half a day of syncs, and last night's failure sits on a later page. */
   it('reaches the tasks past the first page, and goes back to it on a filter', async () => {
-    const getJobs = vi
-      .spyOn(api, 'getJobs')
+    const getTasks = vi
+      .spyOn(api, 'getTasks')
       .mockResolvedValue(paginated([job()], { total: 120, total_pages: 3 }));
     show();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(getJobs).toHaveBeenCalledTimes(2));
-    expect(nthCall(getJobs, 1)[0]).toMatchObject({ page: 2, per_page: 50 });
+    await waitFor(() => expect(getTasks).toHaveBeenCalledTimes(2));
+    expect(nthCall(getTasks, 1)[0]).toMatchObject({ page: 2, per_page: 50 });
     expect(screen.getByText(/Tasks: 120/)).toBeTruthy();
 
     await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'running');
-    await waitFor(() => expect(getJobs).toHaveBeenCalledTimes(3));
-    expect(nthCall(getJobs, 2)[0]).toMatchObject({ status: 'running', page: 1 });
+    await waitFor(() => expect(getTasks).toHaveBeenCalledTimes(3));
+    expect(nthCall(getTasks, 2)[0]).toMatchObject({ status: 'running', page: 1 });
   });
 
   it('names a job by what it did, not by the identifier it is stored under', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job()]));
+    vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job()]));
     show();
 
     expect(await screen.findByText('Sync')).toBeTruthy();
@@ -87,7 +87,7 @@ describe('Tasks', () => {
 
   /** An application's key names it, and the task says which one asked. */
   it('names the application that started a task beside its trigger', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([job({ trigger: 'api', subject: 'n8n' })]),
     );
     show();
@@ -99,7 +99,7 @@ describe('Tasks', () => {
 
   /** Every move of an apply refused is a failure the task counts itself. */
   it('marks the detail of a task that failed on its own count as a failure', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([
         job({ status: 'failed', detail: 'Applied: 0, failed: 3', error_message: null }),
         job({ id: 'job-2', detail: 'Applied: 2, failed: 0' }),
@@ -112,14 +112,14 @@ describe('Tasks', () => {
   });
 
   it('says so when nothing has ever run, instead of showing an empty table', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
+    vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([]));
     show();
 
     expect(await screen.findByText('No task has run yet.')).toBeTruthy();
   });
 
   it('claims nothing about refreshing once everything has finished', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ status: 'success' })]));
+    vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job({ status: 'success' })]));
     show();
 
     await screen.findByText('Sync');
@@ -133,33 +133,33 @@ describe('Tasks', () => {
    */
   it('polls fast while a task runs, then at an idle pace', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const getJobs = vi
-      .spyOn(api, 'getJobs')
+    const getTasks = vi
+      .spyOn(api, 'getTasks')
       .mockResolvedValue(paginated([job({ status: 'running' })]));
     show();
 
     await screen.findByText('Auto-refreshing');
-    const before = getJobs.mock.calls.length;
+    const before = getTasks.mock.calls.length;
 
     await vi.advanceTimersByTimeAsync(3000);
-    expect(getJobs.mock.calls.length).toBeGreaterThan(before);
+    expect(getTasks.mock.calls.length).toBeGreaterThan(before);
 
-    getJobs.mockResolvedValue(paginated([job({ status: 'success' })]));
+    getTasks.mockResolvedValue(paginated([job({ status: 'success' })]));
     await vi.advanceTimersByTimeAsync(3000);
     await waitFor(() => expect(screen.queryByText('Auto-refreshing')).toBeNull());
 
-    const settled = getJobs.mock.calls.length;
+    const settled = getTasks.mock.calls.length;
     await vi.advanceTimersByTimeAsync(3000);
-    expect(getJobs.mock.calls.length).toBe(settled);
+    expect(getTasks.mock.calls.length).toBe(settled);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(getJobs.mock.calls.length).toBeGreaterThan(settled);
+    expect(getTasks.mock.calls.length).toBeGreaterThan(settled);
   });
 });
 
 describe('for a reader', () => {
   /** A stop is a write to a running task, which a reader is refused. */
   it('offers the owner the stop of a running apply, and a reader none', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([job({ id: 'j-apply', kind: 'apply', status: 'running' })]),
     );
     const { unmount } = show();

@@ -451,7 +451,7 @@ async fn a_webhook_enrichment_asks_every_source_the_row_can_address() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+    let media = crate::api::library::load_media(&app.state, "m-1").await.unwrap();
 
     enrichment::enrich_one(&app.state, &media).await.unwrap();
 
@@ -497,7 +497,7 @@ async fn a_title_asked_alone_keeps_what_each_answer_says() {
         [(FakeSources::with_mismatched_year().await, 1), (FakeSources::failing(503).await, 0)]
     {
         let app = TestApp::one_film_on(&sources, "anilist").await;
-        let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+        let media = crate::api::library::load_media(&app.state, "m-1").await.unwrap();
         for _ in 0..2 {
             enrichment::enrich_one(&app.state, &media).await.unwrap();
         }
@@ -510,7 +510,7 @@ async fn a_title_asked_alone_keeps_what_each_answer_says() {
     let sources = FakeSources::start().await;
     sources.spend_omdb_quota();
     let app = TestApp::one_film_on(&sources, "omdb").await;
-    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+    let media = crate::api::library::load_media(&app.state, "m-1").await.unwrap();
     let omdb = || sources.recorded().paths.iter().filter(|path| *path == "/omdb").count();
     enrichment::enrich_one(&app.state, &media).await.unwrap();
     assert_eq!(omdb(), 1, "the control: OMDb was asked");
@@ -854,7 +854,7 @@ fn tvdb_logins(sources: &FakeSources) -> Vec<String> {
         .collect()
 }
 
-/// A PIN saved on the Sources screen is the one the login carries, over
+/// A PIN saved on the Metadata sources screen is the one the login carries, over
 /// `TVDB_SUBSCRIBER_PIN`: otherwise saving one looks done and changes nothing.
 #[tokio::test]
 async fn a_saved_tvdb_pin_reaches_the_login_over_the_environment() {
@@ -1262,7 +1262,7 @@ async fn a_tenrai_block_holds_it_back_until_the_next_day() {
     assert!(asked > 0, "the control: Tenrai was asked");
 
     enrichment::enrich_all_media(&app.state, &by).await.unwrap();
-    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+    let media = crate::api::library::load_media(&app.state, "m-1").await.unwrap();
     enrichment::enrich_one(&app.state, &media).await.unwrap();
     assert_eq!(probe_verdicts(&app).await, ["source_rate_limited"]);
     assert_eq!(sources.recorded().paths.len(), asked, "a blocked address asked again");
@@ -1307,7 +1307,7 @@ async fn a_lookup_stops_at_its_deadline_behind_a_held_source() {
     let app = TestApp::one_film_on(&sources, "tenrai").await;
     let tenrai = app.state.metadata_sources().await.into_iter().next().expect("tenrai");
     app.state.paces.of(&tenrai).penalise(Duration::from_secs(60)).await;
-    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+    let media = crate::api::library::load_media(&app.state, "m-1").await.unwrap();
 
     let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
     let asked = enrichment::ask_now(&app.state, &media, deadline);

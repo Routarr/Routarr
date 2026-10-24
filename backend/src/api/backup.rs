@@ -62,16 +62,19 @@ pub async fn delete_replaced_database(
 }
 
 /// Take the copy folder as it is now, after a change made on purpose left it without the
-/// marker of its first copy, and copy into it.
+/// marker of its first copy, and copy into it, answered as any task.
 pub async fn adopt_copy_folder(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
-) -> AppResult<StatusCode> {
-    backup::adopt_copy_folder(&state, identity.attribution()).await?;
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    backup::adopt_copy_folder(&state).await?;
     let event = allowed(Kind::Backup, "AuditBackupCopyAdopted");
     crate::api::auth::audited(&state, &identity, client, event);
-    Ok(StatusCode::ACCEPTED)
+    let (task_state, by) = (state.clone(), identity.attribution());
+    let work = async move { backup::copy_now(&task_state, by).await };
+    crate::api::tasks::answer(&state, crate::api::tasks::prefers_async(&headers), work).await
 }
 
 pub async fn create(
@@ -81,7 +84,7 @@ pub async fn create(
 ) -> AppResult<Response> {
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move { backup::create(&task_state, &by).await };
-    crate::api::jobs::answer(&state, crate::api::jobs::prefers_async(&headers), work).await
+    crate::api::tasks::answer(&state, crate::api::tasks::prefers_async(&headers), work).await
 }
 
 /// Stream an archive to a caller that sent the key, or to anyone in a mode without one.
@@ -111,7 +114,7 @@ pub async fn download_proven(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
     Path(name): Path<String>,
-    body: axum::body::Bytes,
+    crate::api::Bytes(body): crate::api::Bytes,
 ) -> AppResult<Response> {
     if !backup::is_valid_backup_name(&name) {
         return Err(AppError::NotFound("Unknown backup".into()));
@@ -127,15 +130,15 @@ async fn stream_archive(
     client: Option<std::net::IpAddr>,
     name: &str,
 ) -> AppResult<Response> {
-    let event = allowed(Kind::Backup, "AuditBackupDownloaded").with("name", name);
-    crate::api::auth::audited(state, identity, client, event);
-
     // Streamed: an archive is the whole database, and reading it into memory
     // first doubles the process's footprint for the length of the download.
     let path = backup::backup_dir(state).join(name);
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| AppError::NotFound("Unknown backup".into()))?;
+    // Once the archive opened: a name that names none downloads nothing.
+    let event = allowed(Kind::Backup, "AuditBackupDownloaded").with("name", name);
+    crate::api::auth::audited(state, identity, client, event);
     let length = file.metadata().await.map(|m| m.len()).ok();
     let content_type =
         if backup::is_sealed_file(&path) { "application/octet-stream" } else { "application/zip" };
@@ -169,15 +172,34 @@ pub async fn remove(
 #[derive(Debug, Serialize)]
 pub struct RestoreResponse {
     /// What was staged, so the interface can say what will be applied.
-    pub manifest: BackupManifest,
+    pub manifest: StagedManifest,
     /// Always true: the swap happens at the next start, never under a live pool.
     pub restart_required: bool,
+}
+
+/// An archive's manifest as an answer writes it, its time with its zone. `BackupManifest` is
+/// also the file every archive carries, which older releases read back as it is.
+#[derive(Debug, Serialize)]
+pub struct StagedManifest {
+    pub version: String,
+    pub schema: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    pub created_at: String,
+    pub includes_master_key: bool,
+}
+
+impl From<BackupManifest> for StagedManifest {
+    fn from(manifest: BackupManifest) -> Self {
+        let BackupManifest { version, schema, created_at, includes_master_key } = manifest;
+        Self { version, schema, created_at, includes_master_key }
+    }
 }
 
 /// What a restore may carry: the passphrase of a sealed archive, once the
 /// server asked for it with `passphrase_required`. No `Debug`: it would print
 /// the passphrase.
 #[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RestoreRequest {
     #[serde(default)]
     pub passphrase: Option<String>,
@@ -188,7 +210,7 @@ pub async fn restore(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
     Path(name): Path<String>,
-    body: axum::body::Bytes,
+    crate::api::Bytes(body): crate::api::Bytes,
 ) -> AppResult<Json<RestoreResponse>> {
     let request: RestoreRequest = if body.iter().all(u8::is_ascii_whitespace) {
         RestoreRequest::default()
@@ -200,7 +222,7 @@ pub async fn restore(
     let manifest = backup::stage_restore(&state, &name, given).await?;
     let event = allowed(Kind::Restore, "AuditRestoreStaged").with("name", &name);
     crate::api::auth::audited(&state, &identity, client, event);
-    Ok(Json(RestoreResponse { manifest, restart_required: true }))
+    Ok(Json(RestoreResponse { manifest: manifest.into(), restart_required: true }))
 }
 
 /// Withdraw the restore staged for the next start, which would otherwise apply it whenever it

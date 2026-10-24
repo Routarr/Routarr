@@ -33,7 +33,6 @@ pub const DEPRECATED_PATHS: &[(&str, &str)] = &[
     ("/media/facets", "/library/facets"),
     ("/media/{id}", "/library/{id}"),
     ("/media/{id}/explain", "/library/{id}/explain"),
-    ("/media/{id}/keep", "/library/{id}/keep"),
     ("/metadata/providers", "/sources"),
     ("/metadata/refresh", "/sources/refresh"),
 ];
@@ -57,25 +56,41 @@ pub fn current(template: &str) -> &str {
 
 /// The route a request matched, its prefix up to `/api/v1` left out.
 pub fn route_of(request: &Request) -> Option<&str> {
-    let matched = request.extensions().get::<MatchedPath>()?.as_str();
-    Some(matched.rsplit_once("/api/v1").map_or(matched, |(_, route)| route))
+    Some(under_the_api(request.extensions().get::<MatchedPath>()?.as_str()))
 }
 
-/// On an answer to a deprecated path, `Deprecation` and `Link` (RFC 9745), and a `Location`
-/// written under the old names the caller used, so a script following it stays on them. Runs
-/// behind `authenticate`, whose `Identity` names the caller counted.
-pub async fn signal(State(state): State<AppState>, request: Request, next: Next) -> Response {
+/// A matched route template, its prefix up to `/api/v1` left out.
+pub fn under_the_api(matched: &str) -> &str {
+    matched.rsplit_once("/api/v1").map_or(matched, |(_, route)| route)
+}
+
+/// Counts a call to a deprecated path against its caller. Runs behind `authenticate`, whose
+/// `Identity` names the caller counted.
+pub async fn count(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let called = route_of(&request).and_then(|route| Some((route.to_owned(), replacement(route)?)));
     if let Some((route, new)) = &called {
         let identity = request.extensions().get::<Identity>();
         let method = request.method().as_str();
         state.deprecated_calls.count(&state.pool, identity, method, route, new).await;
     }
+    next.run(request).await
+}
+
+/// `Deprecation` and `Link` (RFC 9745), which every answer to a deprecated path carries.
+pub fn mark(headers: &mut axum::http::HeaderMap) {
+    headers.insert("deprecation", HeaderValue::from_static(DEPRECATED_AT));
+    headers.append(header::LINK, HeaderValue::from_static(DEPRECATION_PAGE));
+}
+
+/// On an answer to a deprecated path, [`mark`], and a `Location` written under the old names
+/// the caller used, so a script following it stays on them. Runs around `authenticate`, so a
+/// key it refuses learns the path is going too.
+pub async fn signal(request: Request, next: Next) -> Response {
+    let deprecated = route_of(&request).and_then(replacement).is_some();
     let mut response = next.run(request).await;
-    if called.is_some() {
+    if deprecated {
         let headers = response.headers_mut();
-        headers.insert("deprecation", HeaderValue::from_static(DEPRECATED_AT));
-        headers.append(header::LINK, HeaderValue::from_static(DEPRECATION_PAGE));
+        mark(headers);
         let renamed = headers
             .get(header::LOCATION)
             .and_then(|location| location.to_str().ok())
@@ -257,38 +272,54 @@ async fn insert(pool: &SqlitePool, calls: impl Iterator<Item = (Call, i64)>) -> 
 }
 
 /// Who called an old path in the last 30 days: an application key's name, or `None` for the
-/// owner's key or a session, with each `METHOD /path` called and the day of the last call.
+/// owner's key or a session, with each `METHOD /path` called and the time of the last call.
 pub struct Caller {
     pub application: Option<String>,
+    /// The application key's id, empty for a person.
+    key_id: String,
     pub routes: Vec<String>,
-    pub last_day: String,
+    pub last_called_at: String,
 }
 
+impl Caller {
+    /// Whether this is the application key `id`.
+    pub fn is(&self, id: &str) -> bool {
+        self.application.is_some() && self.key_id == id
+    }
+}
+
+/// The callers of old paths a warning still concerns: a key revoked or expired since calls
+/// nothing more, though its rows stay for the counter.
 pub async fn recent_callers(pool: &SqlitePool) -> sqlx::Result<Vec<Caller>> {
     let rows: Vec<(String, String, String, String, String, String)> = sqlx::query_as(
-        "SELECT caller_kind, caller_id, caller_name, method, path, date(last_called_at)
-           FROM deprecated_calls
-          WHERE last_called_at >= datetime('now', '-30 days')
-          ORDER BY caller_kind, caller_name, caller_id, path, method",
+        "SELECT d.caller_kind, d.caller_id, d.caller_name, d.method, d.path, d.last_called_at
+           FROM deprecated_calls d
+           LEFT JOIN api_keys k
+             ON k.id = d.caller_id AND k.revoked_at IS NULL
+            AND (k.expires_at IS NULL OR k.expires_at > datetime('now'))
+          WHERE d.last_called_at >= datetime('now', '-30 days')
+            AND (d.caller_kind != 'application' OR k.id IS NOT NULL)
+          ORDER BY d.caller_kind, d.caller_name, d.caller_id, d.path, d.method",
     )
     .fetch_all(pool)
     .await?;
-    let mut callers: Vec<(String, String, Caller)> = Vec::new();
-    for (kind, id, name, method, path, day) in rows {
+    let mut callers: Vec<(String, Caller)> = Vec::new();
+    for (kind, id, name, method, path, at) in rows {
         let route = format!("{method} /api/v1{path}");
         match callers.last_mut() {
-            Some((k, i, caller)) if *k == kind && *i == id => {
+            Some((k, caller)) if *k == kind && caller.key_id == id => {
                 caller.routes.push(route);
-                caller.last_day = caller.last_day.clone().max(day);
+                caller.last_called_at = caller.last_called_at.clone().max(at);
             }
             _ => {
                 let application = (kind == "application").then_some(name);
-                let caller = Caller { application, routes: vec![route], last_day: day };
-                callers.push((kind, id, caller));
+                let caller =
+                    Caller { application, key_id: id, routes: vec![route], last_called_at: at };
+                callers.push((kind, caller));
             }
         }
     }
-    Ok(callers.into_iter().map(|(_, _, caller)| caller).collect())
+    Ok(callers.into_iter().map(|(_, caller)| caller).collect())
 }
 
 /// `location` with a resource renamed back to its old name, as `/api/v1/tasks/x` to

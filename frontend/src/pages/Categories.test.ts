@@ -8,15 +8,11 @@ import { statusRevision } from '../lib/status.svelte';
 import { api, ApiError } from '../api/client';
 import type { Category, FolderSuggestion, MappingConflict, RootFolder } from '../api/types';
 import { answerConfirmation } from '../test/confirm';
+import { confirmation } from '../lib/confirm.svelte';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import Categories from './Categories.svelte';
 import { publishAccess } from '../lib/access.svelte';
-
-/**
- * Categories are strings joined by name with no foreign key, so this screen keeps the names in
- * step. The API refuses to delete one in use, and the default one cannot be deleted at all.
- */
 
 function folder(over: Partial<RootFolder> = {}): RootFolder {
   return {
@@ -73,10 +69,7 @@ describe('Categories', () => {
     expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });
 
-  /**
-   * The server renames the row, the `%_category` columns and the setting in one transaction.
-   * `{@const}` is reactive: clearing the dialog before reading the id would send no rename.
-   */
+  /** The server renames the row, the `%_category` columns and the setting in one transaction. */
   it('renames through the API and re-reads what the rename touched', async () => {
     const rename = vi.spyOn(api, 'renameCategory').mockResolvedValue(undefined as never);
     const reread = vi.spyOn(api, 'getCategories');
@@ -91,10 +84,6 @@ describe('Categories', () => {
     await waitFor(() => expect(reread.mock.calls.length).toBeGreaterThan(1));
   });
 
-  /**
-   * A category another folder of the instance holds is joined only once asked: the folders then
-   * share its new titles. Each folder of the set names the others it shares with.
-   */
   it('asks before a folder joins a category another folder holds, then says they share it', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
     show(
@@ -127,10 +116,6 @@ describe('Categories', () => {
     expect(screen.getByText('Shared with /data/anime')).toBeTruthy();
   });
 
-  /**
-   * An arrow key on a closed select fires `change` on Windows and Linux, so writing on `change`
-   * would send every category passed on the way.
-   */
   it('writes the category chosen only when Save is pressed', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
     show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
@@ -145,7 +130,6 @@ describe('Categories', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime', false));
   });
 
-  /** A category picked and not saved is dropped by leaving, so leaving asks first. */
   it('asks before the screen changes under a category not saved, and stays on Cancel', async () => {
     show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
     const picker = await screen.findByLabelText('Category for /data/anime');
@@ -162,10 +146,6 @@ describe('Categories', () => {
     expect(picker).toHaveValue('anime');
   });
 
-  /**
-   * A mapping can clear the "categories mapped to nothing" warning, which the shell counts, so
-   * the screen tells it the answer changed.
-   */
   it('tells the shell its counters are out of date', async () => {
     vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
     show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
@@ -180,10 +160,6 @@ describe('Categories', () => {
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 
-  /**
-   * A NAS that spins down is unreachable every night, so a folder that did not answer says when
-   * it last did, as a warning: an error badge for a sleeping disk teaches the reader to ignore it.
-   */
   it('says when a folder last answered rather than calling it broken', async () => {
     show([folder({ accessible: false, last_accessible_at: new Date().toISOString() })], []);
 
@@ -199,10 +175,6 @@ describe('Categories', () => {
     expect(await screen.findByText('Has never answered')).toBeInTheDocument();
   });
 
-  /**
-   * A target need not be a root folder in the Arr already: an operator keeps one root folder per
-   * Arr and declares the targets beneath it here.
-   */
   it('declares a destination the instance does not report', async () => {
     const declare = vi
       .spyOn(api, 'declareRootFolder')
@@ -215,7 +187,6 @@ describe('Categories', () => {
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i1', '/media/movies/anime'));
   });
 
-  /** Add turns disabled with the path it cleared, so the focus goes to the next path. */
   it('hands the focus to the path field once a destination is added', async () => {
     vi.spyOn(api, 'declareRootFolder').mockResolvedValue({
       id: 'rf-x',
@@ -243,10 +214,6 @@ describe('Categories', () => {
     expect(declare).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * The instance shown is the instance written to. Bound to an empty string, the select would show
-   * blank while `declare` used the first instance, which is wrong as soon as there are two.
-   */
   it('declares against the instance the form is showing', async () => {
     const declare = vi
       .spyOn(api, 'declareRootFolder')
@@ -264,10 +231,6 @@ describe('Categories', () => {
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i2', '/data/anime'));
   });
 
-  /**
-   * A folder the instance reports would come back at the next sync without its category, so only
-   * a declared one is offered for removal.
-   */
   it('offers to remove only what it declared', async () => {
     show(
       [
@@ -281,10 +244,6 @@ describe('Categories', () => {
     expect(screen.getAllByRole('button', { name: /^Remove/ })).toHaveLength(1);
   });
 
-  /**
-   * A refusal is never read beside the previous success: the older, louder
-   * sentence is the one that gets believed.
-   */
   it('drops the previous success when the next attempt is refused', async () => {
     vi.spyOn(api, 'declareRootFolder')
       .mockResolvedValueOnce({ id: 'rf-x', path: '/ok', verified: true })
@@ -303,7 +262,6 @@ describe('Categories', () => {
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
   });
 
-  /** The select reads what the server holds, never the choice it refused. */
   it('leaves the select on the stored category when a save is refused', async () => {
     vi.spyOn(api, 'updateRootFolderCategory').mockRejectedValue(
       new ApiError('anime already maps /data/other', 409, 'conflict'),
@@ -321,7 +279,6 @@ describe('Categories', () => {
     await waitFor(() => expect(select.value).toBe('standard'));
   });
 
-  /** A refused path stays in its field, to be corrected rather than typed again. */
   it('keeps a refused destination in its field', async () => {
     vi.spyOn(api, 'declareRootFolder').mockRejectedValue(new Error('the instance cannot see it'));
     show([folder()], []);
@@ -337,10 +294,6 @@ describe('Categories', () => {
     expect(field.value).toBe('/mnt/typo');
   });
 
-  /**
-   * A refused name stays in its dialog, and the reason is said there: the page
-   * banner sits under the modal, dimmed and out of reach.
-   */
   it('keeps a refused new category in its dialog and says why there', async () => {
     vi.spyOn(api, 'createCategory').mockRejectedValue(
       new ApiError('A category named anime exists', 409, 'conflict'),
@@ -388,11 +341,33 @@ describe('Categories', () => {
 
   it('asks before deleting a category, and deletes nothing on Cancel', async () => {
     const remove = vi.spyOn(api, 'deleteCategory');
-    show([folder()], [category({ id: 'c2', name: 'kids', is_default: false })]);
+    const kids = category({ id: 'c2', name: 'kids', is_default: false, root_folder_count: 0 });
+    show([folder()], [kids]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – kids' }));
 
     expect(await answerConfirmation(null)).toBe('Delete the category "kids"?');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  /** The table counts rules and folders: what else holds a category is said before the refusal. */
+  it('names what still holds a category and offers no removal the server would refuse', async () => {
+    const remove = vi.spyOn(api, 'deleteCategory');
+    const held = category({
+      id: 'c2',
+      name: 'kids',
+      root_folder_count: 0,
+      exception_count: 1,
+      rule_test_count: 2,
+    });
+    show([folder()], [held]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – kids' }));
+
+    await waitFor(() => expect(confirmation.request?.choices).toEqual([]));
+    expect(await answerConfirmation(null)).toBe(
+      'The category "kids" is still in use, so it cannot be deleted. Rules: 0, root folders: 0, exceptions: 1, rule tests: 2.',
+    );
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -422,7 +397,6 @@ describe('Categories', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', null, false));
   });
 
-  /** One banner a severity, as the dashboard draws its warnings. */
   it('lists the conflicts of one severity in one banner', async () => {
     const conflict = (severity: 'error' | 'warning', message: string) => ({
       kind: 'unmapped',
@@ -450,7 +424,6 @@ describe('Categories', () => {
     expect(errors[0]?.textContent).toContain('Two folders claim "anime"');
   });
 
-  /** Opened on its close button, a form is one reflex Enter from thrown away. */
   it('opens each category dialog on its name field', async () => {
     show([], [category({ name: 'anime' })]);
 
@@ -463,7 +436,6 @@ describe('Categories', () => {
   });
 });
 
-/** A removal takes its row and the pressed button: the next row's takes the focus. */
 describe('the focus after a removal', () => {
   it('goes to the destination that took the place of the removed one', async () => {
     const next = folder({ id: 'rf2', path: '/data/anime', origin: 'declared' });
@@ -483,7 +455,7 @@ describe('the focus after a removal', () => {
 
   it('goes to the category that took the place of the deleted one', async () => {
     const next = category({ id: 'c2', name: 'anime' });
-    show([], [category(), next]);
+    show([], [category({ root_folder_count: 0 }), next]);
     vi.spyOn(api, 'deleteCategory').mockResolvedValue(undefined as never);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – standard' }));
@@ -557,10 +529,6 @@ function suggestion(over: Partial<FolderSuggestion> = {}): FolderSuggestion {
 const unmapped = (id: string, path: string) => folder({ id, path, category: null });
 
 describe('folder suggestions', () => {
-  /**
-   * A category the library lacks is made, then the folder mapped, and the row turns into what
-   * was done: an undo, and the template's rules on that category.
-   */
   it('maps a suggested folder, making its category first, and offers the rules after', async () => {
     const create = vi
       .spyOn(api, 'createCategory')
@@ -615,7 +583,6 @@ describe('folder suggestions', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('c-anime'));
   });
 
-  /** An ambiguous name waits for a choice, and Map all leaves it, saying what it mapped. */
   it('maps every row that names one category, and leaves a choice to the person', async () => {
     vi.spyOn(api, 'createCategory').mockResolvedValue(category({ name: 'x' }));
     const map = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
@@ -667,12 +634,9 @@ describe('folder suggestions', () => {
     expect(screen.getByText('/movies/docs: Taken meanwhile.')).toBeTruthy();
   });
 
-  /** Dismissed, a row leaves the list until asked for, and comes back on demand. */
   it('hides a dismissed suggestion and shows it again on demand', async () => {
     const dismiss = vi.spyOn(api, 'dismissFolderSuggestion').mockResolvedValue({ dismissed: true });
-    const restore = vi
-      .spyOn(api, 'restoreFolderSuggestion')
-      .mockResolvedValue({ dismissed: false });
+    const restore = vi.spyOn(api, 'restoreFolderSuggestion').mockResolvedValue({ deleted: true });
     show([], [category({ name: 'standard' })], [], undefined, [suggestion()]);
     const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
 

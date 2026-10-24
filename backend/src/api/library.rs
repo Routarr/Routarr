@@ -518,7 +518,7 @@ pub async fn explain(
 
     let current_category = match media.current_root_folder.as_deref() {
         Some(folder) => {
-            crate::api::overrides::folder_category(&state.pool, &media.instance_id, folder).await?
+            crate::api::exceptions::folder_category(&state.pool, &media.instance_id, folder).await?
         }
         None => None,
     };

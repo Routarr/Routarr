@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 pub use copy::{
     BackupCopy, adopt as adopt_copy_folder, in_background as copy_in_background, last_copied_at,
-    status as copy_status,
+    now as copy_now, status as copy_status,
 };
 pub use sealed::{
     MIN_LENGTH as MIN_PASSPHRASE_LENGTH, Passphrase, SETTING as PASSPHRASE_SETTING, is_sealed_file,

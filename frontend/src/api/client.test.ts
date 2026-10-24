@@ -223,21 +223,21 @@ describe('error handling', () => {
 describe('query building', () => {
   it('drops undefined and empty parameters', async () => {
     const spy = mockFetch({ body: { data: [], pagination: {} } });
-    await api.getMedia({ search: '', media_type: undefined, page: 2 });
+    await api.getLibrary({ search: '', media_type: undefined, page: 2 });
 
     expect(fetchCall(spy).url).toBe('/api/v1/library?page=2');
   });
 
   it('omits the question mark entirely when nothing is filtered', async () => {
     const spy = mockFetch({ body: { data: [], pagination: {} } });
-    await api.getMedia({});
+    await api.getLibrary({});
 
     expect(fetchCall(spy).url).toBe('/api/v1/library');
   });
 
   it('encodes values that would otherwise break the URL', async () => {
     const spy = mockFetch({ body: { data: [], pagination: {} } });
-    await api.getMedia({ search: 'a&b=c d' });
+    await api.getLibrary({ search: 'a&b=c d' });
 
     expect(fetchCall(spy).url).toBe('/api/v1/library?search=a%26b%3Dc+d');
   });

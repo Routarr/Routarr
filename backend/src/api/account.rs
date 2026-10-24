@@ -140,7 +140,7 @@ pub async fn rotate_api_key(
     axum::Extension(identity): axum::Extension<Identity>,
     Client(client): Client,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    crate::api::Bytes(body): crate::api::Bytes,
 ) -> AppResult<super::Json<serde_json::Value>> {
     refuse_if_pinned(&state)?;
     prove(&state, &identity, &proof_in(&body)?, client).await?;
@@ -160,7 +160,7 @@ pub async fn delete_api_key(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
     Client(client): Client,
-    body: axum::body::Bytes,
+    crate::api::Bytes(body): crate::api::Bytes,
 ) -> AppResult<super::Json<super::Deleted>> {
     refuse_if_pinned(&state)?;
     // Gone, the key would lock out every request, the one restoring it included.

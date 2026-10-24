@@ -328,6 +328,11 @@ fn validate(
             {
                 return Err(refused("SettingRefusedRegion", &[("code", bad_code)]));
             }
+            if let Some(unknown) =
+                codes.iter().find(|code| !crate::integrations::language::is_country_code(code))
+            {
+                return Err(refused("SettingRefusedRegionUnknown", &[("code", unknown)]));
+            }
         }
     }
 
@@ -483,5 +488,19 @@ mod tests {
             validate("certification_regions", "", Kind::CountryList, &[], &Localizer::new("en"))
                 .is_err()
         );
+        // Two letters ISO 3166-1 assigns to no country match no source's rating.
+        for unknown in ["XX", "EU", "FR, ZZ"] {
+            let refused = validate(
+                "certification_regions",
+                unknown,
+                Kind::CountryList,
+                &[],
+                &Localizer::new("en"),
+            );
+            assert!(refused.is_err(), "{unknown} was taken");
+        }
+        let retired =
+            validate("certification_regions", "SU", Kind::CountryList, &[], &Localizer::new("en"));
+        assert!(retired.is_ok(), "a country gone keeps the code its films are filed under");
     }
 }

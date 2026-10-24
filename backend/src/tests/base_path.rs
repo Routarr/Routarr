@@ -1,9 +1,5 @@
-//! Serving Routarr under a sub-path.
-//!
-//! The Servarr "URL base" convention: `https://host/routarr` behind the family
-//! reverse proxy. Everything here is about one failure mode: a mount point that
-//! works on the developer's `/` and breaks behind the proxy, which is the one
-//! place it cannot be debugged comfortably.
+//! Serving Routarr under a sub-path, the Servarr "URL base" (`https://host/routarr` behind a
+//! reverse proxy), and what the server answers for the page and its static files.
 
 use axum::http::StatusCode;
 
@@ -24,9 +20,7 @@ async fn mounted_at(base: &str) -> TestApp {
     serving(config).await
 }
 
-/// A route asked with a method it does not take answers the envelope every
-/// other failure carries, and the `Allow` header HTTP requires on a 405, so a
-/// client that parses every failure as one shape does not fail on this one.
+/// A client parsing every failure as one shape must not fail on a 405.
 #[tokio::test]
 async fn a_method_a_route_does_not_take_answers_the_envelope_and_its_allow_header() {
     use axum::body::Body;
@@ -44,26 +38,37 @@ async fn a_method_a_route_does_not_take_answers_the_envelope_and_its_allow_heade
     }
 }
 
-/// Under the API prefix every miss is a JSON 404, whatever the method and
-/// wherever the application is mounted. Answered with `index.html` and a 200,
-/// a typo in an API path leaves a script parsing HTML as JSON, with a message
-/// that names neither the route nor the mistake.
+/// Answered with `index.html` and a 200, a typo in an API path leaves a script parsing HTML as
+/// JSON.
 #[tokio::test]
 async fn an_unknown_api_path_is_a_json_404_not_the_index() {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
 
+    // With the interface served, whose page answers every other path.
+    let dir = super::TempDir::new("api-misses");
+    std::fs::write(dir.join("index.html"), "<html><head></head><body>app</body></html>").unwrap();
     for (base, prefix) in [("", ""), ("/routarr", "/routarr")] {
-        let app = mounted_at(base).await;
-        for method in ["GET", "POST", "DELETE"] {
+        let mut config = Config::for_tests();
+        config.base_path = normalise_base_path(base);
+        config.frontend_dir = dir.to_path_buf();
+        let app = serving(config).await;
+        for (method, path) in [
+            ("GET", "/api/v1/nope"),
+            ("POST", "/api/v1/nope"),
+            ("DELETE", "/api/v1/nope"),
+            ("GET", "/api/v2/status"),
+            ("GET", "/api/status"),
+            ("POST", "/api/v1x/status"),
+        ] {
             let request = Request::builder()
                 .method(method)
-                .uri(format!("{prefix}/api/v1/nope"))
+                .uri(format!("{prefix}{path}"))
                 .body(Body::empty())
                 .unwrap();
             let response = app.send_raw(request).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {prefix}/api/v1/nope");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {prefix}{path}");
             let content_type = response
                 .headers()
                 .get(axum::http::header::CONTENT_TYPE)
@@ -104,9 +109,7 @@ async fn the_api_answers_under_the_mount_point() {
     assert_eq!(status_of(&app, "/routarr/api/v1/ping").await, StatusCode::OK);
 }
 
-/// A task started without waiting is found at the address its answer gives,
-/// under the mount point as anywhere: a `Location` without it sends a client
-/// polling to a path nothing answers.
+/// A `Location` without it sends a client polling a path nothing answers.
 #[tokio::test]
 async fn a_task_not_waited_for_is_located_under_the_mount_point() {
     let app = mounted_at("/routarr").await;
@@ -128,14 +131,11 @@ async fn a_task_not_waited_for_is_located_under_the_mount_point() {
 async fn nothing_answers_outside_the_mount_point() {
     let app = mounted_at("/routarr").await;
 
-    // A proxy strips its own prefix or it does not. If it does not, answering at
-    // the root anyway would hide the misconfiguration until something subtler
-    // broke.
+    // Answering at the root as well would hide a proxy misconfigured for the mount point.
     assert_eq!(status_of(&app, "/api/v1/ping").await, StatusCode::NOT_FOUND);
 }
 
-/// The bare address, typed by someone who forgot the mount point, leads to
-/// it rather than to an empty page.
+/// Typed by someone who forgot the mount point, the bare address would show an empty page.
 #[tokio::test]
 async fn the_root_leads_to_the_mount_point() {
     let app = mounted_at("/routarr").await;
@@ -178,11 +178,8 @@ async fn a_webhook_url_is_advertised_relative_to_the_mount_point() {
     assert!(url.starts_with("/routarr/api/v1/webhook/"), "got {url}");
 }
 
-/// The index must carry a `<base href>` pointing at the mount point.
-///
-/// Without it a deep link like `/routarr/rules` resolves the relative asset URLs
-/// against `/routarr/rules/` and the page comes up blank, behind the proxy and
-/// only there.
+/// Without a `<base href>`, a deep link like `/routarr/rules` resolves the relative asset URLs
+/// against `/routarr/rules/`, and the page comes up blank.
 #[tokio::test]
 async fn the_index_pins_asset_resolution_to_the_mount_point() {
     let dir = super::TempDir::new("base-href");
@@ -217,11 +214,9 @@ async fn a_deep_link_and_the_root_both_serve_the_application() {
 
     let app = serving(config).await;
 
-    // The root, a client-side route, and a real asset.
     assert_eq!(status_of(&app, "/routarr/").await, StatusCode::OK);
     assert_eq!(status_of(&app, "/routarr/rules").await, StatusCode::OK);
     assert_eq!(status_of(&app, "/routarr/assets/app.js").await, StatusCode::OK);
-    // And nothing outside.
     assert_eq!(status_of(&app, "/rules").await, StatusCode::NOT_FOUND);
 }
 
@@ -254,14 +249,15 @@ async fn a_hashed_asset_is_kept_and_the_page_is_not() {
             "public, max-age=31536000, immutable"
         );
         assert_eq!(kept(format!("{base}/")).await, "no-cache");
-        assert_eq!(kept(format!("{base}/assets/gone-1b2c.js")).await, "no-cache");
+        assert_eq!(kept(format!("{base}/library")).await, "no-cache");
+        // A chunk a tab opened before an upgrade asks for is gone, not the page.
+        let gone = app.raw(&format!("{base}/assets/gone-1b2c.js")).await;
+        assert_eq!(gone.status(), StatusCode::NOT_FOUND, "{base}");
     }
 }
 
-/// The build writes every text file in UTF-8, the third-party notices among
-/// them, whose licences name their authors with letters outside ASCII. A
-/// browser handed `text/plain` with no charset may read them in a legacy
-/// encoding and garble each of those names.
+/// The third-party notices name authors with letters outside ASCII, which a browser handed
+/// `text/plain` without a charset may garble.
 #[tokio::test]
 async fn a_text_file_the_build_wrote_is_read_as_utf8() {
     let dir = super::TempDir::new("utf8-files");
@@ -295,9 +291,7 @@ async fn a_text_file_the_build_wrote_is_read_as_utf8() {
     }
 }
 
-/// The contract and the dictionary are asked for again and again, and change
-/// only with a release or the language: a client holding them is answered
-/// 304, with nothing to download again.
+/// Both change only with a release or the language, and are asked for again and again.
 #[tokio::test]
 async fn the_contract_and_the_dictionary_answer_a_client_holding_them_with_304() {
     use axum::body::Body;
@@ -308,6 +302,8 @@ async fn the_contract_and_the_dictionary_answer_a_client_holding_them_with_304()
         let first = app.raw(path).await;
         let tag = first.headers()["etag"].clone();
         assert_eq!(first.headers()["cache-control"], "no-cache", "{path}");
+        // Weak: the compression layer answers the same tag for two encodings of one body.
+        assert!(tag.to_str().unwrap().starts_with("W/\""), "{path}: {tag:?}");
 
         let again = Request::get(path).header("if-none-match", &tag).body(Body::empty()).unwrap();
         let again = app.send_raw(again).await;
@@ -328,9 +324,7 @@ fn embedded_dictionary(html: &str) -> serde_json::Value {
     serde_json::from_str(&html[start..end]).expect("a dictionary that is not JSON")
 }
 
-/// The page carries its strings, in the language set, so its first paint asks
-/// for nothing more, and a dictionary that cannot be fetched is never a blank
-/// page followed by raw keys.
+/// The first paint then asks for nothing more, and a failed fetch never shows raw keys.
 #[tokio::test]
 async fn the_page_carries_its_strings_in_the_language_set() {
     let dir = super::TempDir::new("dictionary");

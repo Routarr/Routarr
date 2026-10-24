@@ -747,7 +747,10 @@ fn evaluate_single_condition(
                 added.is_some_and(|added| added_within(ctx.now - added, *days)),
                 "ConditionAddedWithinDays",
                 &[("value", days.to_string())],
-                media.added_at.clone().unwrap_or_default(),
+                // The age at `now`, what the condition compares, as an ISO 8601 duration.
+                added
+                    .map(|added| format!("PT{}M", (ctx.now - added).num_minutes()))
+                    .unwrap_or_default(),
             )
         }
     };
@@ -1621,6 +1624,23 @@ mod tests {
         assert!(!added("2026-08-19T11:30:00"));
         assert!(added("2026-08-20"), "a bare date");
         assert!(!added("2026-08-19"));
+    }
+
+    /// The explanation says the age the condition compared, at the clock it was judged by, in
+    /// the reader's units.
+    #[test]
+    fn an_age_condition_explains_itself_with_the_title_s_age() {
+        let mut media = media();
+        media.added_at = Some("2026-07-31 12:00:00".into());
+        let outcome = evaluate_one(
+            &Condition::AddedWithinDays(30),
+            EvalContext { media: &media, metadata: None, now: now() },
+        );
+        assert!(outcome.matched);
+        let english = crate::localization::Localizer::new("en").describe(&outcome);
+        assert!(english.ends_with("found [21 d]"), "{english}");
+        let french = crate::localization::Localizer::new("fr").describe(&outcome);
+        assert!(french.ends_with("[21\u{a0}j]"), "{french}");
     }
 
     #[test]

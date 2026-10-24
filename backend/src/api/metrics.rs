@@ -1,5 +1,6 @@
-//! Prometheus exposition. Every family is read from the database at scrape time, so a restart
-//! loses nothing: a gauge, or a counter named `_total` whose rows are never deleted.
+//! Prometheus exposition. Every family is read at scrape time, from the database and the data
+//! folder, so a restart loses nothing: a gauge, or a counter named `_total` whose rows are never
+//! deleted. The two `process_` families describe the running process alone.
 
 use axum::extract::State;
 use axum::http::header;
@@ -54,6 +55,27 @@ pub(crate) const LATEST: &str = "d.superseded = 0
                      WHERE later.media_id = d.media_id AND later.superseded = 0
                        AND (later.decided_at > d.decided_at
                             OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)))";
+
+/// A failed decision a stored run of its title has settled since, over `decisions d`: no move
+/// waits for a person, so neither `/status` nor the metrics count it.
+pub(crate) const SETTLED: &str = "d.status = 'failed'
+    AND EXISTS (SELECT 1 FROM media_routing r
+                 WHERE r.media_id = d.media_id AND r.evaluated_at > d.decided_at)";
+
+/// When this process started, in seconds since the Unix epoch, taken as the router is built.
+pub(crate) static STARTED: std::sync::LazyLock<f64> = std::sync::LazyLock::new(|| {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |since| since.as_secs_f64())
+});
+
+/// The resident memory of this process, from `/proc` where the system has one.
+fn resident_bytes() -> Option<f64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status.lines().find_map(|line| line.strip_prefix("VmRSS:"))?;
+    let kib: f64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
+    Some(kib * 1024.0)
+}
 
 /// An instance's id, name, last sync outcome, enabled, last success, last try, auto-apply, last
 /// webhook and sync interval in minutes.
@@ -112,31 +134,47 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: media,
     });
 
-    let by_category: Vec<(String, i64)> =
-        sqlx::query_as("SELECT category, COUNT(*) FROM media_routing GROUP BY category")
-            .fetch_all(pool)
-            .await?;
+    let by_category: Vec<(String, f64)> = sqlx::query_as::<_, (String, i64)>(
+        "SELECT category, COUNT(*) FROM media_routing GROUP BY category",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(category, count)| (format!("category=\"{}\"", label(&category)), count as f64))
+    .collect();
+    families.push(Family {
+        name: "routarr_titles_routed",
+        help: "Titles per category the last run sends them to.",
+        samples: by_category.clone(),
+    });
+    // The deprecated name of `routarr_titles_routed`, kept until the deprecated API paths go.
     families.push(Family {
         name: "routarr_decisions_by_category",
-        help: "Titles per category the last run sends them to.",
-        samples: by_category
-            .into_iter()
-            .map(|(category, count)| (format!("category=\"{}\"", label(&category)), count as f64))
-            .collect(),
+        help: "Deprecated, read routarr_titles_routed. Titles per category the last run sends \
+               them to.",
+        samples: by_category,
     });
 
-    let by_status: Vec<(String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
-        "SELECT d.status, COUNT(*) FROM decisions d WHERE {LATEST} GROUP BY d.status"
+    let by_status: Vec<(String, f64)> = sqlx::query_as::<_, (String, i64)>(AssertSqlSafe(format!(
+        "SELECT d.status, COUNT(*) FROM decisions d
+              WHERE {LATEST} AND NOT ({SETTLED})
+              GROUP BY d.status"
     )))
     .fetch_all(pool)
-    .await?;
+    .await?
+    .into_iter()
+    .map(|(status, count)| (format!("status=\"{}\"", label(&status)), count as f64))
+    .collect();
+    families.push(Family {
+        name: "routarr_decisions",
+        help: "Current decisions per status. `pending` is what awaits a human, `failed` a move \
+               no later run has settled.",
+        samples: by_status.clone(),
+    });
     families.push(Family {
         name: "routarr_decisions_by_status",
-        help: "Current decisions per status. `pending` is what awaits a human.",
-        samples: by_status
-            .into_iter()
-            .map(|(status, count)| (format!("status=\"{}\"", label(&status)), count as f64))
-            .collect(),
+        help: "Deprecated, read routarr_decisions. Current decisions per status.",
+        samples: by_status,
     });
 
     // Without the sync timestamps, a sync that stopped running would read as up for ever.
@@ -220,7 +258,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    let known = crate::api::media::metadata_predicate(&state.settings().await);
+    let known = crate::api::library::metadata_predicate(&state.settings().await);
     let undescribed: Vec<(String, String, String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT i.id, i.name, m.media_type, COUNT(*)
            FROM media m JOIN instances i ON i.id = m.instance_id
@@ -315,7 +353,8 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
 
     families.push(Family {
         name: "routarr_backup_last_success_timestamp_seconds",
-        help: "When the newest archive was written, in seconds since the Unix epoch.",
+        help: "When the newest archive the schedule or the owner took was written, in seconds \
+               since the Unix epoch.",
         samples: crate::services::backup::last_taken_at(&state)
             .map(|taken| (String::new(), taken.timestamp() as f64))
             .into_iter()
@@ -407,6 +446,17 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         name: "routarr_rule_tests_failing",
         help: "Rule tests the last run found failing. Auto-apply holds while one does.",
         samples: vec![(String::new(), failing as f64)],
+    });
+
+    families.push(Family {
+        name: "process_start_time_seconds",
+        help: "When this process started, in seconds since the Unix epoch.",
+        samples: vec![(String::new(), *STARTED)],
+    });
+    families.push(Family {
+        name: "process_resident_memory_bytes",
+        help: "The memory this process holds, in bytes. Absent where the system does not say.",
+        samples: resident_bytes().map(|bytes| (String::new(), bytes)).into_iter().collect(),
     });
 
     let mut body = String::new();

@@ -51,13 +51,14 @@ pub struct Warning {
     /// What the warning is about, stable across releases and languages: `api_unauthenticated`,
     /// `api_external_auth`, `source_needs_key`, `source_key_unlisted`, `source_unreachable`,
     /// `source_quota_spent`, `source_rate_limited`, `source_key_refused`, `instance_unreachable`,
-    /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`, `scheduler_panicked`,
-    /// `backup_failed`, `backup_overdue`, `data_disk_low`, `setting_above_maximum`,
-    /// `instance_without_mapping`, `certification_country_outside_regions`,
-    /// `certification_country_changed`, `auto_apply_held`, `arr_below_version`,
-    /// `oidc_open_to_anyone`, `backup_passphrase_unreadable`, `rule_tests_failing`,
-    /// `webhook_never_delivered`, `webhook_misconfigured`, `backup_copy_failed`,
-    /// `deprecated_api_called`, `removal_held` or `restore_pending`. The list may grow.
+    /// `instance_sync_failing`, `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
+    /// `scheduler_panicked`, `backup_failed`, `backup_overdue`, `data_disk_low`,
+    /// `setting_above_maximum`, `instance_without_mapping`,
+    /// `certification_country_outside_regions`, `certification_country_changed`, `auto_apply_held`,
+    /// `arr_below_version`, `oidc_open_to_anyone`, `backup_passphrase_unreadable`,
+    /// `rule_tests_failing`, `webhook_never_delivered`, `webhook_misconfigured`,
+    /// `backup_copy_failed`, `deprecated_api_called`, `removal_held` or `restore_pending`. The list
+    /// may grow.
     pub code: &'static str,
     /// What it means, in the interface language.
     pub message: String,
@@ -80,40 +81,62 @@ impl Warning {
     }
 }
 
-/// `error` for a fault that stops something Routarr does, which turns `/health` `degraded`.
-/// `info` for a choice the operator made or a fact about the library.
+/// Every warning code with its severity: `error` for a fault that stops something Routarr does,
+/// which turns `/health` `degraded`, `info` for a choice the operator made or a fact about the
+/// library. The contract's list and the shipped alert rules are held to it by their tests.
+pub(crate) const CODES: &[(&str, &str)] = &[
+    ("api_unauthenticated", "warning"),
+    ("api_external_auth", "info"),
+    ("source_needs_key", "warning"),
+    ("source_key_unlisted", "info"),
+    ("source_unreachable", "error"),
+    ("source_quota_spent", "warning"),
+    ("source_rate_limited", "warning"),
+    ("source_key_refused", "error"),
+    ("instance_unreachable", "error"),
+    ("instance_sync_failing", "error"),
+    ("unmapped_categories", "warning"),
+    ("no_enabled_instance", "warning"),
+    ("missing_metadata", "info"),
+    ("scheduler_panicked", "error"),
+    ("backup_failed", "error"),
+    ("backup_overdue", "warning"),
+    ("data_disk_low", "error"),
+    ("setting_above_maximum", "warning"),
+    ("instance_without_mapping", "warning"),
+    ("certification_country_outside_regions", "info"),
+    ("certification_country_changed", "info"),
+    ("auto_apply_held", "warning"),
+    ("arr_below_version", "warning"),
+    ("oidc_open_to_anyone", "warning"),
+    ("backup_passphrase_unreadable", "error"),
+    ("rule_tests_failing", "warning"),
+    ("webhook_never_delivered", "warning"),
+    ("webhook_misconfigured", "warning"),
+    ("backup_copy_failed", "warning"),
+    ("deprecated_api_called", "info"),
+    ("removal_held", "warning"),
+    ("restore_pending", "warning"),
+];
+
 fn severity_of(code: &str) -> &'static str {
-    match code {
-        "instance_unreachable"
-        | "source_unreachable"
-        | "source_key_refused"
-        | "scheduler_panicked"
-        | "backup_failed"
-        | "backup_passphrase_unreadable"
-        | "data_disk_low" => "error",
-        "api_external_auth"
-        | "source_key_unlisted"
-        | "missing_metadata"
-        | "certification_country_outside_regions"
-        | "certification_country_changed"
-        | "deprecated_api_called" => "info",
-        _ => "warning",
-    }
+    let severity = CODES.iter().find(|(listed, _)| *listed == code).map(|(_, severity)| *severity);
+    debug_assert!(severity.is_some(), "{code} is missing from CODES");
+    severity.unwrap_or("warning")
 }
 
 /// A failed move still asking for attention, as a condition over `decisions d`: the title's
 /// latest standing decision, with no stored run of the title since.
 fn open_failure() -> String {
-    format!(
-        "d.status = 'failed' AND {}
-         AND NOT EXISTS (SELECT 1 FROM media_routing r
-                          WHERE r.media_id = d.media_id AND r.evaluated_at > d.decided_at)",
-        crate::api::metrics::LATEST
-    )
+    use crate::api::metrics::{LATEST, SETTLED};
+    format!("d.status = 'failed' AND {LATEST} AND NOT ({SETTLED})")
 }
 
 /// Cheap status for the persistent chrome of the UI.
-pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusResponse>> {
+pub async fn status(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+) -> AppResult<Json<StatusResponse>> {
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));
     let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
@@ -126,7 +149,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusRespo
     .fetch_one(&state.pool)
     .await?;
 
-    let warnings = offline_warnings(&state, &localizer, &settings).await?;
+    let warnings = offline_warnings(&state, &localizer, &settings, reader(&identity)).await?;
 
     Ok(Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -174,8 +197,12 @@ pub struct InstanceHealth {
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_sync: Option<String>,
-    /// How the last sync ended: `success`, or `error: ` and the reason.
+    /// How the last sync ended: `success`, or `error: ` and the reason. Deprecated: the reason
+    /// alone is `last_sync_error`.
+    #[schema(deprecated)]
     pub last_sync_status: Option<String>,
+    /// Why the last sync failed, in the interface language. Null when it succeeded or none ran.
+    pub last_sync_error: Option<String>,
     /// The titles the last sync read from it.
     pub media_count: i64,
     /// Its root folders mapped to a category.
@@ -306,7 +333,7 @@ pub async fn health_check(
 
     let cached_items: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache").fetch_one(pool).await?;
-    let known = crate::api::media::metadata_predicate(&settings);
+    let known = crate::api::library::metadata_predicate(&settings);
     let media_missing_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
     )))
@@ -318,7 +345,7 @@ pub async fn health_check(
     let providers = provider_health(&state, connectivity, &settings);
 
     // After the probe, whose findings reach the warnings through `probe_results`.
-    let warnings = offline_warnings(&state, &localizer, &settings).await?;
+    let warnings = offline_warnings(&state, &localizer, &settings, reader(&identity)).await?;
     let faulty = warnings.iter().any(|warning| warning.severity == "error");
 
     Ok((
@@ -386,11 +413,15 @@ fn configuration_of(instances: &[Instance], settings: &Settings) -> u64 {
 /// a schedule, and an older verdict says nothing of the source now.
 pub(crate) const FRESH_SOURCE_VERDICT: &str = "checked_at >= datetime('now', '-1 day')";
 
-/// The failures the last probe found, for the endpoints that may not probe themselves. A row
-/// whose instance was deleted since is dropped, never reported as an unnamed failure.
-async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResult<Vec<Warning>> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(format!(
-        "SELECT subject, detail FROM probe_results
+/// The failures the last probe found, for the endpoints that may not probe themselves, and the
+/// ids of the instances found unreachable. A row whose instance was deleted since is dropped,
+/// never reported as an unnamed failure, and so is one a sync reached the Arr after.
+async fn last_probe_warnings(
+    state: &AppState,
+    localizer: &Localizer,
+) -> AppResult<(Vec<Warning>, Vec<String>)> {
+    let rows: Vec<(String, Option<String>, String)> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT subject, detail, checked_at FROM probe_results
           WHERE reachable = 0 AND (subject NOT GLOB 'source:*' OR {FRESH_SOURCE_VERDICT})
           ORDER BY subject"
     )))
@@ -398,7 +429,8 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
     .await?;
 
     let mut warnings = Vec::new();
-    for (subject, detail) in rows {
+    let mut unreachable = Vec::new();
+    for (subject, detail, checked_at) in rows {
         if let Some(id) = subject.strip_prefix("source:") {
             if let Some(info) = metadata::info(id) {
                 let (code, key) =
@@ -410,12 +442,19 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
                 warnings.push(Warning::new(code, localizer.translate(key, &provider)));
             }
         } else if let Some(id) = subject.strip_prefix("instance:") {
-            let instance: Option<(String, String, String)> =
-                sqlx::query_as("SELECT name, instance_type, base_url FROM instances WHERE id = ?")
-                    .bind(id)
-                    .fetch_optional(&state.pool)
-                    .await?;
+            // A second's resolution: a sync and a probe of the same second count the sync later.
+            let instance: Option<(String, String, String)> = sqlx::query_as(
+                "SELECT name, instance_type, base_url FROM instances
+                  WHERE id = ?
+                    AND NOT (COALESCE(last_sync_status, '') = 'success'
+                             AND COALESCE(last_sync_at, '') >= ?)",
+            )
+            .bind(id)
+            .bind(&checked_at)
+            .fetch_optional(&state.pool)
+            .await?;
             if let Some((name, kind, base_url)) = instance {
+                unreachable.push(id.to_string());
                 let failure = Failure::read(detail.as_deref().unwrap_or_default());
                 let told = failure.told(&kind, &base_url, localizer);
                 warnings.push(Warning::new(
@@ -428,7 +467,7 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
             }
         }
     }
-    Ok(warnings)
+    Ok((warnings, unreachable))
 }
 
 /// What an Arr older than the oldest release Routarr supports loses, said of
@@ -658,21 +697,28 @@ fn provider_health(
 pub(crate) const UNMAPPED: &str =
     "NOT EXISTS (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)";
 
-/// The code and severity of each warning `/status` shows, which the metrics count.
+/// The code and severity of each warning `/status` shows the owner, which the metrics count.
 pub(crate) async fn warning_codes(
     state: &AppState,
 ) -> AppResult<Vec<(&'static str, &'static str)>> {
     let settings = state.settings().await;
-    let warnings = offline_warnings(state, &Localizer::new("en"), &settings).await?;
+    let warnings = offline_warnings(state, &Localizer::new("en"), &settings, None).await?;
     Ok(warnings.into_iter().map(|warning| (warning.code, warning.severity)).collect())
+}
+
+/// The application key reading the warnings, which sees no other key named.
+fn reader(identity: &crate::api::auth::Identity) -> Option<&str> {
+    identity.application.as_ref().map(|grant| grant.id.as_str())
 }
 
 /// Every warning known without the network, for the top bar and the diagnostics page alike,
 /// so the badge counts what the page lists. Probe findings are read back from `probe_results`.
+/// `reader`, an application key's id, keeps every other caller of an old path out.
 async fn offline_warnings(
     state: &AppState,
     localizer: &Localizer,
     settings: &Settings,
+    reader: Option<&str>,
 ) -> AppResult<Vec<Warning>> {
     let mut warnings = Vec::new();
 
@@ -702,7 +748,22 @@ async fn offline_warnings(
     }
 
     warnings.extend(metadata_warnings(state, localizer, settings));
-    warnings.extend(last_probe_warnings(state, localizer).await?);
+    let (probed, unreachable) = last_probe_warnings(state, localizer).await?;
+    warnings.extend(probed);
+
+    // A sync the scheduler runs reaches each Arr unasked. One found unreachable is said once.
+    let synced: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, name, last_sync_status FROM instances WHERE enabled = 1 ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for (_, name, status) in synced.into_iter().filter(|(id, ..)| !unreachable.contains(id)) {
+        if let Some(why) = crate::models::instance::sync_error_said(status.as_deref(), localizer) {
+            let said = [("name", name.as_str()), ("status", why.as_str())];
+            let message = localizer.translate("WarnInstanceSyncFailing", &said);
+            warnings.push(Warning::new("instance_sync_failing", message));
+        }
+    }
 
     let versions: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT name, instance_type, arr_version FROM instances
@@ -718,8 +779,8 @@ async fn offline_warnings(
 
     let (failed, total) = crate::services::rule_tests::failing(&state.pool).await?;
     if failed > 0 {
-        let holding = state.bool_setting("auto_apply_enabled").await
-            && !state.bool_setting("global_dry_run").await
+        let holding = settings.bool("auto_apply_enabled")
+            && !settings.bool("global_dry_run")
             && sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM instances WHERE enabled = 1 AND auto_apply = 1)",
             )
@@ -763,7 +824,7 @@ async fn offline_warnings(
         ));
     }
 
-    let known = crate::api::media::metadata_predicate(&state.settings().await);
+    let known = crate::api::library::metadata_predicate(settings);
     let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
             (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),
@@ -809,18 +870,19 @@ async fn offline_warnings(
         ));
     }
 
-    if state.bool_setting("backup_enabled").await {
+    let disk = on_disk(state).await;
+    if settings.bool("backup_enabled") {
         let last: Option<String> = sqlx::query_scalar(
             "SELECT status FROM jobs WHERE kind = 'backup'
               ORDER BY started_at DESC, rowid DESC LIMIT 1",
         )
         .fetch_optional(&state.pool)
         .await?;
-        let hours: i64 = state.setting::<i64>("backup_interval_hours").await.clamp(1, 24 * 7);
+        let hours: i64 = settings.get::<i64>("backup_interval_hours").clamp(1, 24 * 7);
         if last.as_deref() == Some("failed") {
             warnings
                 .push(Warning::new("backup_failed", localizer.translate("WarnBackupFailed", &[])));
-        } else if backup_overdue(state, hours).await? {
+        } else if backup_overdue(state, disk.last_backup, hours).await? {
             let message = localizer.translate("WarnBackupOverdue", &[]);
             warnings.push(Warning::new("backup_overdue", message));
         }
@@ -838,13 +900,12 @@ async fn offline_warnings(
             warnings.push(Warning::new("backup_copy_failed", message));
         }
     }
-    if let Some(pending) = crate::services::backup::pending_restore(&state.config) {
+    if let Some(pending) = &disk.pending_restore {
         let message = localizer.translate("WarnRestorePending", &[("name", &pending.name)]);
         warnings.push(Warning::new("restore_pending", message));
     }
-    if let Some(free) = data_disk_low(&state.config) {
-        let replaced = crate::services::backup::replaced_database(&state.config);
-        let message = disk_low_message(free, replaced.map(|kept| kept.size_bytes), localizer);
+    if let Some(free) = disk.free_when_low {
+        let message = disk_low_message(free, disk.replaced_bytes, localizer);
         warnings.push(Warning::new("data_disk_low", message));
     }
 
@@ -897,8 +958,7 @@ async fn offline_warnings(
 
     // An armed instance its Arr cannot reach leaves each new title to the next sync, unsaid. An
     // absent connection may hide behind a proxy rewriting the path, so only silence warns of it.
-    if state.bool_setting("auto_apply_enabled").await && !state.bool_setting("global_dry_run").await
-    {
+    if settings.bool("auto_apply_enabled") && !settings.bool("global_dry_run") {
         let armed: Vec<(String, bool, Option<String>)> = sqlx::query_as(
             "SELECT name,
                     last_webhook_at IS NULL
@@ -929,9 +989,13 @@ async fn offline_warnings(
     }
 
     let separator = localizer.translate("ListSeparator", &[]);
-    for caller in crate::api::deprecated::recent_callers(&state.pool).await? {
+    let callers = crate::api::deprecated::recent_callers(&state.pool).await?;
+    for caller in callers.into_iter().filter(|caller| reader.is_none_or(|id| caller.is(id))) {
         let paths = caller.routes.join(&separator);
-        let said = [("paths", paths.as_str()), ("date", caller.last_day.as_str())];
+        let day = crate::services::routing::parse_timestamp(&caller.last_called_at)
+            .map(|at| crate::localization::human_date(at, localizer))
+            .unwrap_or(caller.last_called_at);
+        let said = [("paths", paths.as_str()), ("date", day.as_str())];
         let message = match &caller.application {
             Some(name) => localizer
                 .translate("WarnDeprecatedApiCalled", &[said[0], said[1], ("name", name.as_str())]),
@@ -1145,6 +1209,10 @@ async fn counts_for(
             instance.last_sync_status.clone(),
             localizer,
         ),
+        last_sync_error: crate::models::instance::sync_error_said(
+            instance.last_sync_status.as_deref(),
+            localizer,
+        ),
         media_count,
         mapped_root_folders,
         last_webhook_at: instance.last_webhook_at.clone(),
@@ -1189,10 +1257,37 @@ async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
     })
 }
 
-/// No archive for twice the interval. An installation younger than that has not missed one yet.
-async fn backup_overdue(state: &AppState, hours: i64) -> AppResult<bool> {
+/// What the warnings read off the data folder, gathered off the async workers in one go.
+#[derive(Default)]
+struct OnDisk {
+    last_backup: Option<chrono::DateTime<chrono::Utc>>,
+    pending_restore: Option<crate::services::backup::PendingRestore>,
+    /// The bytes left on the data disk when too few, as [`data_disk_low`] weighs them.
+    free_when_low: Option<u64>,
+    replaced_bytes: Option<u64>,
+}
+
+async fn on_disk(state: &AppState) -> OnDisk {
+    let state = state.clone();
+    let read = move || OnDisk {
+        last_backup: crate::services::backup::last_taken_at(&state),
+        pending_restore: crate::services::backup::pending_restore(&state.config),
+        free_when_low: data_disk_low(&state.config),
+        replaced_bytes: crate::services::backup::replaced_database(&state.config)
+            .map(|kept| kept.size_bytes),
+    };
+    tokio::task::spawn_blocking(read).await.unwrap_or_default()
+}
+
+/// No archive for twice the interval since `last`. An installation younger than that has not
+/// missed one yet.
+async fn backup_overdue(
+    state: &AppState,
+    last: Option<chrono::DateTime<chrono::Utc>>,
+    hours: i64,
+) -> AppResult<bool> {
     let limit = chrono::Duration::hours(2 * hours);
-    let since = match crate::services::backup::last_taken_at(state) {
+    let since = match last {
         Some(taken) => taken,
         None => {
             let installed: Option<String> =

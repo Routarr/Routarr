@@ -160,8 +160,8 @@
               provider.reason === 'rate_limited' || provider.reason === 'quota_spent'}
             {@const broken = provider.connected === false && !heldBack}
             <div class="source-row{waiting ? ' waiting' : ''}">
-              <!-- Name only: this screen answers "is it working". What a source
-                   brings, and which variable it waits for, belongs to the Sources screen. -->
+              <!-- Name only: this screen answers "is it working". What a source brings, and
+                   which variable it waits for, belongs to the Metadata sources screen. -->
               <div class="source-name">{provider.display_name}</div>
               <span
                 class="badge {broken

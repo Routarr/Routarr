@@ -5,7 +5,7 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
 
-use crate::api::jobs::{answer, prefers_async};
+use crate::api::tasks::{answer, prefers_async};
 use crate::error::AppResult;
 use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::*;
@@ -132,7 +132,7 @@ async fn simulate(
                     summary["returned"] = serde_json::json!(0);
                 }
                 // Any key reads the task, and its row names who asked, as the
-                // reader may see it (`api::jobs`). Kept on each decision, the
+                // reader may see it (`api::tasks`). Kept on each decision, the
                 // name would reach every key whoever asked.
                 if let Some(decisions) = summary["decisions"].as_array_mut() {
                     for decision in decisions {

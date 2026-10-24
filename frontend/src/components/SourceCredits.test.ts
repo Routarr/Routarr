@@ -42,7 +42,7 @@ afterEach(() => vi.restoreAllMocks());
  */
 describe('SourceCredits', () => {
   it('credits every source as its terms ask, enabled or not, and links to it', async () => {
-    vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(CATALOGUE);
+    vi.spyOn(api, 'getSources').mockResolvedValue(CATALOGUE);
     renderWithI18n(SourceCredits);
 
     const tmdb = (
@@ -76,7 +76,7 @@ describe('SourceCredits', () => {
   });
 
   it('says a catalogue that could not be read', async () => {
-    vi.spyOn(api, 'getMetadataProviders').mockRejectedValue(
+    vi.spyOn(api, 'getSources').mockRejectedValue(
       new ApiError('The server is unreachable.', 0, 'network'),
     );
     renderWithI18n(SourceCredits);

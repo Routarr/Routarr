@@ -24,7 +24,7 @@
 
   const library = createAsync(
     (signal) =>
-      api.getMedia(
+      api.getLibrary(
         {
           search: search || undefined,
           media_type: mediaType || undefined,
@@ -51,7 +51,7 @@
     const mine = (asking = new AbortController());
     asked = media.id;
     try {
-      const answer = await api.explainMedia(media.id, mine.signal);
+      const answer = await api.explainTitle(media.id, mine.signal);
       if (mine.signal.aborted) return;
       explaining = answer;
       outcome.clear();

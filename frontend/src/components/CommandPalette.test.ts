@@ -33,7 +33,7 @@ afterEach(() => vi.restoreAllMocks());
 describe('CommandPalette', () => {
   /** "History" the screen and "History" the film are told apart by their group. */
   it('names each run of results by its heading', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media({ title: 'History' })],
       pagination: { page: 1, per_page: 5, total: 1, total_pages: 1 },
     });
@@ -93,7 +93,7 @@ describe('CommandPalette', () => {
    * request goes to somebody's own host, over their own network.
    */
   it('asks the library once, after the typing stops', async () => {
-    const getMedia = vi.spyOn(api, 'getMedia').mockResolvedValue({
+    const getLibrary = vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
       pagination: { page: 1, per_page: 5, total: 1 },
     } as never);
@@ -101,11 +101,11 @@ describe('CommandPalette', () => {
     await screen.findAllByRole('option');
 
     await userEvent.type(screen.getByRole('combobox'), 'spirited');
-    expect(getMedia).not.toHaveBeenCalled();
+    expect(getLibrary).not.toHaveBeenCalled();
 
     const row = await screen.findByText('Spirited Away');
-    expect(getMedia).toHaveBeenCalledTimes(1);
-    expect(getMedia).toHaveBeenCalledWith(
+    expect(getLibrary).toHaveBeenCalledTimes(1);
+    expect(getLibrary).toHaveBeenCalledWith(
       { search: 'spirited', per_page: 5 },
       expect.any(AbortSignal),
     );
@@ -115,14 +115,14 @@ describe('CommandPalette', () => {
 
   /** A search the typing has moved past is abandoned, not left to run on the server. */
   it('abandons the search a new term replaces', async () => {
-    const getMedia = vi.spyOn(api, 'getMedia').mockReturnValue(new Promise(() => {}));
+    const getLibrary = vi.spyOn(api, 'getLibrary').mockReturnValue(new Promise(() => {}));
     show();
     await screen.findAllByRole('option');
     const field = screen.getByRole('combobox');
 
     await userEvent.type(field, 'akira');
-    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(1));
-    const first = nthCall(getMedia)[1];
+    await waitFor(() => expect(getLibrary).toHaveBeenCalledTimes(1));
+    const first = nthCall(getLibrary)[1];
     expect(first?.aborted).toBe(false);
 
     await userEvent.type(field, ' 2');
@@ -130,7 +130,7 @@ describe('CommandPalette', () => {
   });
 
   it('says nothing rather than showing an empty box', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 5, total: 0 },
     } as never);
@@ -144,7 +144,7 @@ describe('CommandPalette', () => {
   /** "Nothing for" before the library answered is a claim it has not made yet. */
   it('says it is searching until the library answers, not that nothing matched', async () => {
     let answer = () => {};
-    vi.spyOn(api, 'getMedia').mockReturnValue(
+    vi.spyOn(api, 'getLibrary').mockReturnValue(
       new Promise((resolve) => {
         answer = () =>
           resolve({ data: [], pagination: { page: 1, per_page: 5, total: 0 } } as never);
@@ -207,11 +207,11 @@ describe('CommandPalette', () => {
    * someone to `/library` would be step one of the four steps this replaces.
    */
   it('answers "why is this here" without leaving the page', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
       pagination: { page: 1, per_page: 5, total: 1 },
     } as never);
-    const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
+    const explain = vi.spyOn(api, 'explainTitle').mockResolvedValue({
       media: explainedMedia({
         id: 'm-1',
         title: 'Spirited Away',
@@ -246,11 +246,11 @@ describe('CommandPalette', () => {
 
   /** The panel arrives a moment later, and the title asked about says so meanwhile. */
   it('marks the title being explained as busy', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
       pagination: { page: 1, per_page: 5, total: 1 },
     } as never);
-    vi.spyOn(api, 'explainMedia').mockReturnValue(new Promise(() => {}));
+    vi.spyOn(api, 'explainTitle').mockReturnValue(new Promise(() => {}));
     show();
     await screen.findAllByRole('option');
 
@@ -270,7 +270,7 @@ describe('CommandPalette', () => {
    * reopened.
    */
   it('keeps the destinations when the library cannot be reached', async () => {
-    vi.spyOn(api, 'getMedia').mockRejectedValue(new Error('unreachable'));
+    vi.spyOn(api, 'getLibrary').mockRejectedValue(new Error('unreachable'));
     show();
     await screen.findAllByRole('option');
 
@@ -293,7 +293,7 @@ describe('CommandPalette', () => {
    * dangling `aria-controls` and an axe failure at WCAG 2.1 A.
    */
   it('stops claiming a list once there is none', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 5, total: 0 },
     } as never);
@@ -321,11 +321,11 @@ describe('CommandPalette', () => {
       [...scope.querySelectorAll('button')].map(
         (button) => button.getAttribute('aria-label') ?? button.textContent?.trim() ?? '',
       );
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [media()],
       pagination: { page: 1, per_page: 5, total: 1, total_pages: 1 },
     });
-    vi.spyOn(api, 'explainMedia').mockResolvedValue({
+    vi.spyOn(api, 'explainTitle').mockResolvedValue({
       media: explainedMedia({
         id: 'm-1',
         title: 'Spirited Away',
@@ -356,7 +356,7 @@ describe('CommandPalette', () => {
 
   /** The help answers too, and opens on the screen it found. */
   it('offers what the help says, and opens it on that screen', async () => {
-    vi.spyOn(api, 'getMedia').mockResolvedValue({
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 5, total: 0, total_pages: 0 },
     });

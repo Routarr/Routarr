@@ -173,7 +173,12 @@ async fn a_folder_that_lost_its_marker_takes_nothing_until_taken_as_it_is() {
     let listed = app.get("/api/v1/backups").await;
     assert_eq!(listed.assert_ok()["copy"]["state"], "unmounted", "{}", listed.json);
 
-    app.post("/api/v1/backups/copy/adopt", json!({})).await.assert_status(StatusCode::ACCEPTED);
+    // A task as any other: a caller that does not wait follows it.
+    let adopting = super::preferring_async("/api/v1/backups/copy/adopt", json!({}));
+    let adopted = app.send(adopting).await;
+    adopted.assert_status(StatusCode::ACCEPTED);
+    let location = adopted.location().unwrap_or_default();
+    assert!(location.starts_with("/api/v1/tasks/"), "{location}");
     let ended = copies_ended(&app, 3).await;
 
     assert_eq!(ended[0].0, "success", "{ended:?}");
@@ -213,8 +218,6 @@ async fn a_folder_is_taken_as_it_is_only_where_there_is_one() {
     assert_eq!(refused.json["reason"], "backup_copy_unreachable", "{}", refused.json);
 }
 
-/// A copy cut short leaves a partial file, swept by the next, which also copies every archive
-/// a share asleep missed.
 #[tokio::test]
 async fn the_next_copy_sweeps_a_partial_one_and_catches_up_on_what_was_missed() {
     let (app, data, copies) = app_copying("catch-up", true).await;
@@ -261,7 +264,9 @@ async fn the_retention_count_prunes_the_copies_as_it_prunes_the_backups() {
     assert_eq!(listed.assert_ok()["copy"]["state"], "foreign", "{}", listed.json);
 
     archive(&data.join("backups"), "routarr-backup-20260903-020000.zip", b"this database's");
-    app.post("/api/v1/backups/copy/adopt", json!({})).await.assert_status(StatusCode::ACCEPTED);
+    // A caller that waits reads what the copy did.
+    let adopted = app.post("/api/v1/backups/copy/adopt", json!({})).await;
+    assert_eq!(adopted.assert_ok()["copied"], json!(["routarr-backup-20260903-020000.zip"]));
     copies_ended(&app, 2).await;
     let newest = take_backup(&app).await;
     copies_ended(&app, 3).await;

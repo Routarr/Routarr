@@ -64,7 +64,7 @@
       api.getSettings(signal),
       api.getCategories(signal),
       api.getLanguages(signal),
-      api.getMetadataProviders(signal),
+      api.getSources(signal),
     ]);
     const { values, sealed } = splitStored(answer);
     // An unstored list is the server's default: a copy kept here would be stored by the first
@@ -392,7 +392,8 @@
         report.instances +
         report.root_folders +
         report.rules +
-        report.overrides;
+        report.overrides +
+        report.rule_tests;
       const waiting = report.needs_key.length
         ? ` ${t('ConfigImportNeedsKey', { names: report.needs_key.join(t('ListSeparator')) })}`
         : '';
@@ -404,8 +405,9 @@
           folders: report.root_folders,
           rules: report.rules,
           overrides: report.overrides,
+          tests: report.rule_tests,
         }) + waiting;
-      // Never swallowed: a restore that quietly drops half a backup is worse than one that fails.
+      // Never swallowed: a partial restore lists what it skipped.
       const partial = `${summary} ${t('ConfigImportSkipped', { count: report.skipped.length })}`;
       if (report.skipped.length > 0 && restored === 0) outcome.fail(partial, report.skipped);
       else if (report.skipped.length > 0)

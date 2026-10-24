@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Request, StatusCode};
 use futures::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -177,7 +177,31 @@ async fn a_body_that_stops_arriving_is_refused() {
     let answered = tokio::time::timeout(crate::BODY_DEADLINE * 2, app.send(request))
         .await
         .expect("a request whose body never ended was still being read at twice the deadline");
-    assert!(answered.status.is_client_error(), "{}: {}", answered.status, answered.json);
+    assert_eq!(answered.status, StatusCode::REQUEST_TIMEOUT, "{}", answered.json);
+    assert_eq!(answered.json["error"], "request_timeout", "{}", answered.json);
+}
+
+/// The anime table may weigh 64 MiB: it is given ten minutes to arrive, past which it answers
+/// as any body that stops arriving.
+#[tokio::test]
+async fn the_anime_table_has_ten_minutes_to_arrive() {
+    let app = TestApp::new().await;
+    tokio::time::pause();
+    let trickle =
+        futures::stream::once(async { Ok::<_, std::io::Error>(axum::body::Bytes::from("[")) })
+            .chain(futures::stream::pending());
+    let request = Request::post("/api/v1/sources/anime-ids/import")
+        .header("content-type", "application/json")
+        .body(Body::from_stream(trickle))
+        .unwrap();
+
+    let started = tokio::time::Instant::now();
+    let answered = tokio::time::timeout(crate::IMPORT_BODY_DEADLINE * 2, app.send(request))
+        .await
+        .expect("the upload was still being read at twice its deadline");
+    assert!(started.elapsed() >= crate::IMPORT_BODY_DEADLINE, "refused at {:?}", started.elapsed());
+    assert_eq!(answered.status, StatusCode::REQUEST_TIMEOUT, "{}", answered.json);
+    assert_eq!(answered.json["error"], "request_timeout", "{}", answered.json);
 }
 
 /// An answer may carry a key, a webhook token or an archive holding the master key.

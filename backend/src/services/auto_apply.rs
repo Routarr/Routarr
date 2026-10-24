@@ -157,6 +157,7 @@ fn held_back(state: &AppState, instance: Option<&str>, outcome: &AutoApplyOutcom
             notify::send_later(
                 state,
                 notify::Event::AutoApplyHeld {
+                    instance_id: over.instance_id.clone(),
                     instance: over.instance.clone(),
                     candidates: over.candidates,
                     cap: over.cap,

@@ -332,26 +332,26 @@ const RETRY_IN_PROGRESS: u64 = 5;
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     /// A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,
-    /// `method_not_allowed`, `conflict`, `confirmation_required`,
-    /// `payload_too_large`, `unsupported_media_type`, `too_many_requests`,
-    /// `busy`, `reauthentication_required`, `passphrase_required`,
-    /// `external_api_error`, `insufficient_storage` (the data disk is full) or `internal_error`.
-    /// An open list.
+    /// `method_not_allowed`, `request_timeout` (the body did not arrive in time), `conflict`,
+    /// `confirmation_required`, `payload_too_large`, `unsupported_media_type`, `too_many_requests`,
+    /// `busy`, `reauthentication_required`, `passphrase_required`, `external_api_error`,
+    /// `insufficient_storage` (the data disk is full) or `internal_error`. An open list.
     pub error: String,
     /// A sentence for a person, in the interface language. Never part of the
     /// contract.
     pub message: String,
-    /// Why a `conflict` refuses, an open list. A job still running, with a
-    /// `Retry-After` header: `apply_running`, `simulation_running`,
-    /// `previews_full`, `sync_running`, `enrichment_running`, `backup_running`,
-    /// `backup_just_taken`, `restore_staging`, `purge_running`. A state that
-    /// stays until somebody changes it: `name_taken`, `in_use`,
-    /// `already_listed`, `not_declared`, `category_mapped`,
-    /// `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,
-    /// `only_credential`, `secret_unreadable`, `disk_full`. Beside `unauthorized`: `key_expired`, an
-    /// application key past its expiry. Beside `busy`: `database_busy`, another write held the
-    /// database past the wait. Beside `forbidden`: `proof_required`, a session that proves itself
-    /// again through the route the message names.
+    /// Why a `conflict` refuses, an open list. A job still running, with a `Retry-After` header:
+    /// `apply_running`, `simulation_running`, `previews_full`, `sync_running`,
+    /// `enrichment_running`, `backup_running`, `backup_just_taken`, `restore_staging`,
+    /// `purge_running`, `anime_ids_running`. A state that stays until somebody changes it:
+    /// `name_taken`, `in_use`, `fallback_category`, `already_listed`, `not_declared`,
+    /// `category_mapped`, `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,
+    /// `only_credential`, `secret_unreadable`, `disk_full`, `instance_disabled`,
+    /// `no_current_folder`, `folder_unmapped`, `template_added`, `backup_copy_unreachable`. Beside
+    /// `unauthorized`: `key_expired`, an application key past its expiry. Beside `busy`:
+    /// `database_busy`, another write held the database past the wait. Beside `forbidden`:
+    /// `proof_required`, a session that proves itself again through the route the message names,
+    /// and `read_only`, a person signed in to read alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
     /// The guardrail that asks, for `confirmation_required`. Sending it back
@@ -365,6 +365,30 @@ pub struct ErrorResponse {
     /// in `confirm` with it to accept the question whole.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes: Option<Vec<&'static str>>,
+}
+
+impl ErrorResponse {
+    /// The envelope of a refusal no [`AppError`] variant carries: a 404 or a 405 of the router,
+    /// a panic, or a refusal of the authentication middleware.
+    pub fn new(error: &str, message: impl Into<String>) -> Self {
+        Self {
+            error: error.to_string(),
+            message: message.into(),
+            reason: None,
+            confirm: None,
+            answerable: None,
+            includes: None,
+        }
+    }
+
+    pub fn with_reason(self, reason: &'static str) -> Self {
+        Self { reason: Some(reason), ..self }
+    }
+
+    /// The envelope as the body of a `status` answer.
+    pub fn answered(self, status: StatusCode) -> Response {
+        (status, axum::Json(self)).into_response()
+    }
 }
 
 impl AppError {

@@ -25,7 +25,7 @@
   /** OMDb's sentence cut around the licence's name, which becomes its link. */
   const omdbSentence = $derived(t('CreditOmdb').split(LICENCE_NAME));
 
-  const catalogue = createAsync((signal) => api.getMetadataProviders(signal));
+  const catalogue = createAsync((signal) => api.getSources(signal));
   const credited = $derived(
     (catalogue.data?.providers ?? []).filter(
       (provider) => provider.id in CREDIT_KEY && provider.website,

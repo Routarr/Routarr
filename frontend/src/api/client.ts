@@ -285,7 +285,7 @@ async function followed<T>(path: string, init: RequestInit, following: Following
   );
   if (first.job === undefined) return first.report as T;
   await pause(FOLLOW_FIRST_MS, signal);
-  return followJob<T>(first.job, following);
+  return followTask<T>(first.job, following);
 }
 
 /** What a caller following a job hears of it, and how it stops looking. */
@@ -340,7 +340,7 @@ function inFront(signal?: AbortSignal): Promise<void> {
 }
 
 /** A started job, looked at until it finishes, and the report it keeps. */
-async function followJob<T>(id: string, following: Following = {}): Promise<T> {
+async function followTask<T>(id: string, following: Following = {}): Promise<T> {
   const signal = following.signal instanceof AbortSignal ? following.signal : undefined;
   let failed = 0;
   for (let wait = FOLLOW_FIRST_MS; ; wait = Math.min(wait * 2, FOLLOW_EVERY_MS)) {
@@ -394,7 +394,7 @@ export const api = {
       `/health${query({ probe: options.probe === false ? false : undefined, fresh: options.fresh || undefined })}`,
       { signal },
     ),
-  getJobs: (params?: QueryParams, signal?: AbortSignal) =>
+  getTasks: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Job>>(`/tasks${query(params)}`, { signal }),
   purge: () => followed<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
 
@@ -444,9 +444,11 @@ export const api = {
   getFolderSuggestions: (signal?: AbortSignal) =>
     request<FolderSuggestion[]>('/root-folders/suggestions', { signal }),
   dismissFolderSuggestion: (id: string) =>
-    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'POST' }),
+    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'PUT' }),
   restoreFolderSuggestion: (id: string) =>
-    request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'DELETE' }),
+    request<{ deleted: boolean }>(`/root-folders/${encodeURIComponent(id)}/dismissal`, {
+      method: 'DELETE',
+    }),
   updateRootFolderCategory: (id: string, category: string | null, addToSet = false) =>
     request<unknown>(`/root-folders/${id}/category`, {
       method: 'PUT',
@@ -555,9 +557,9 @@ export const api = {
       body: body({ bundle, replace }),
     }),
 
-  getMedia: (params?: QueryParams, signal?: AbortSignal) =>
+  getLibrary: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<MediaListItem>>(`/library${query(params)}`, { signal }),
-  explainMedia: (id: string, signal?: AbortSignal) =>
+  explainTitle: (id: string, signal?: AbortSignal) =>
     request<Explanation>(`/library/${id}/explain`, { signal }),
 
   /** Pin a title to the category of the folder it is in, so no run proposes to move it. */
@@ -574,7 +576,7 @@ export const api = {
   runSimulation: (data?: unknown, following?: Following) =>
     followed<SimulationResult>('/simulate', { method: 'POST', body: body(data) }, following),
   /** A job someone else started, followed to its report from the screen that shows it. */
-  followJob: <T>(id: string, following?: Following) => followJob<T>(id, following),
+  followTask: <T>(id: string, following?: Following) => followTask<T>(id, following),
   getDecisions: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Decision>>(`/decisions${query(params)}`, { signal }),
   /** How many decisions `params` lists, read off a page of one. */
@@ -635,7 +637,7 @@ export const api = {
       following,
     ),
   /** Stop a running apply or revert before its next move. It answers before it stops. */
-  cancelJob: (id: string) =>
+  cancelTask: (id: string) =>
     request<void>(`/tasks/${id}/cancel`, { method: 'POST' }, () => Promise.resolve()),
 
   /** The contract other applications call, as the running version describes it. */
@@ -657,24 +659,23 @@ export const api = {
     }),
   revokeApplication: (id: string) => request<unknown>(`/applications/${id}`, { method: 'DELETE' }),
 
-  getOverrides: (params?: QueryParams, signal?: AbortSignal) =>
+  getExceptions: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<OverrideEntry>>(`/exceptions${query(params)}`, { signal }),
-  createOverride: (data: unknown) =>
+  createException: (data: unknown) =>
     request<OverrideEntry>('/exceptions', { method: 'POST', body: body(data) }),
-  deleteOverride: (id: string) => request<unknown>(`/exceptions/${id}`, { method: 'DELETE' }),
+  deleteException: (id: string) => request<unknown>(`/exceptions/${id}`, { method: 'DELETE' }),
 
-  getLogs: (params?: QueryParams, signal?: AbortSignal) =>
+  getMoveLog: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<LogEntry>>(`/move-log${query(params)}`, { signal }),
   /** A link the browser follows, since the sign-in has to leave this origin. */
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
-  exportLogs: (params?: QueryParams) => download(`/move-log/export${query(params)}`),
+  exportMoveLog: (params?: QueryParams) => download(`/move-log/export${query(params)}`),
   getSecurityLog: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<SecurityEvent>>(`/security-log${query(params)}`, { signal }),
   exportSecurityLog: (params?: QueryParams) => download(`/security-log/export${query(params)}`),
 
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
-  getMetadataProviders: (signal?: AbortSignal) =>
-    request<MetadataProviders>('/sources', { signal }),
+  getSources: (signal?: AbortSignal) => request<MetadataProviders>('/sources', { signal }),
   /** Ask every source again about one title at once, its search matches forgotten. */
   refreshTitleMetadata: (mediaId: string) =>
     followed<TitleRefresh>('/sources/refresh', {

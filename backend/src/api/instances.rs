@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::api::auth::{Client, Identity, allowed, audited};
-use crate::api::jobs::{answer, prefers_async};
+use crate::api::tasks::{answer, prefers_async};
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::{Detail, JobKind};

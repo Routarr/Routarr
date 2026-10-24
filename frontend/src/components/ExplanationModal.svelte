@@ -47,7 +47,7 @@
    * Each source named and linked to its site, as the sources' terms ask of
    * whoever shows their data. Until the catalogue answers, its id stands in.
    */
-  const catalogue = createAsync((signal) => api.getMetadataProviders(signal));
+  const catalogue = createAsync((signal) => api.getSources(signal));
   // The scales' names, which the condition catalogue holds.
   const conditions = createAsync((signal) => api.getConditionCatalog(signal));
   const providerOf = (id: string) => catalogue.data?.providers.find((p) => p.id === id);
@@ -174,7 +174,7 @@
     keeping = true;
     try {
       await api.keepTitle(view.media.id);
-      refreshed = await api.explainMedia(view.media.id);
+      refreshed = await api.explainTitle(view.media.id);
       invalidateStatus();
       onChanged?.();
       outcome.succeed(t('KeptHereOutcome', { category }));
@@ -196,7 +196,7 @@
     refreshing = true;
     try {
       const { answered } = await api.refreshTitleMetadata(view.media.id);
-      refreshed = await api.explainMedia(view.media.id);
+      refreshed = await api.explainTitle(view.media.id);
       invalidateStatus();
       if (answered > 0) {
         outcome.succeed(t('TitleRefreshed', { count: formatCount(answered, i18n.language) }));

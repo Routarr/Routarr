@@ -120,6 +120,7 @@ export function healthInstance(
     version: '5.0.0',
     last_sync: '2026-08-27 10:00:00',
     last_sync_status: 'success',
+    last_sync_error: null,
     media_count: 120,
     mapped_root_folders: 2,
     last_webhook_at: null,
@@ -153,6 +154,7 @@ export function instance(over: Partial<Instance> = {}): Instance {
     last_sync_at: null,
     last_sync_attempt_at: null,
     last_sync_status: null,
+    last_sync_error: null,
     webhook_url: null,
     webhook_path: null,
     webhook_token: null,
@@ -340,6 +342,8 @@ export function category(over: Partial<Category> = {}): Category {
     created_at: '2026-08-27 10:00:00',
     rule_count: 0,
     root_folder_count: 1,
+    exception_count: 0,
+    rule_test_count: 0,
     ...over,
   };
 }

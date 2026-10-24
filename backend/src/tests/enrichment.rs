@@ -158,7 +158,7 @@ async fn a_second_delivery_for_the_same_series_fetches_nothing() {
         let tmdb = FakeTmdb::with(missing, vec![]).await;
         let app = library(&tmdb, &[(1, "series", id)]).await;
 
-        let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+        let media = crate::api::library::load_media(&app.state, "m-1").await.unwrap();
         for _ in 0..2 {
             enrichment::enrich_one(&app.state, &media).await.unwrap();
         }

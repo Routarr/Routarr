@@ -1577,15 +1577,23 @@ async fn the_category_list_counts_each_categorys_rules_and_folders() {
     let mut second = anime_rule_body();
     second["name"] = serde_json::json!("Anime again");
     app.post("/api/v1/rules", second).await.assert_ok();
+    // The removal refuses on these too, so the list counts them.
+    app.execute(&[
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-a', 'm-1', 'anime')",
+        "INSERT INTO rule_tests (id, name, media_type, media_json, evaluated_at, expected_category)
+         VALUES ('t-a', 'Totoro is anime', 'movie', '{}', '2026-09-01 00:00:00', 'anime')",
+    ])
+    .await;
 
     let listed = app.get("/api/v1/categories").await.assert_ok().clone();
 
     let usage = |name: &str| {
         let entry = listed.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
-        (entry["rule_count"].clone(), entry["root_folder_count"].clone())
+        let counts = ["rule_count", "root_folder_count", "exception_count", "rule_test_count"];
+        counts.map(|count| entry[count].as_i64().unwrap_or(-1))
     };
-    assert_eq!(usage("anime"), (serde_json::json!(2), serde_json::json!(1)));
-    assert_eq!(usage("standard"), (serde_json::json!(0), serde_json::json!(1)));
+    assert_eq!(usage("anime"), [2, 1, 1, 1]);
+    assert_eq!(usage("standard"), [0, 1, 0, 0]);
 }
 
 /// Categories are joined by name with no foreign key, so each thing naming
@@ -2758,8 +2766,8 @@ async fn logs_are_listed_newest_first_and_filtered_as_asked() {
 async fn logs_can_be_exported_as_csv() {
     let app = TestApp::new().await;
     sqlx::query(
-        "INSERT INTO execution_logs (id, action, details, success, media_title)
-         VALUES ('log-1', 'move', 'a,b \"quoted\"', 1, 'Totoro')",
+        "INSERT INTO execution_logs (id, action, details, success, media_title, executed_at)
+         VALUES ('log-1', 'move', 'a,b \"quoted\"', 1, 'Totoro', '2026-10-05 21:26:14')",
     )
     .execute(&app.state.pool)
     .await
@@ -2772,6 +2780,9 @@ async fn logs_can_be_exported_as_csv() {
     let csv = app.text("/api/v1/move-log/export").await;
     // The comma and the quotes stay inside one field, the quotes doubled.
     assert!(csv.contains(r#","Totoro","a,b ""quoted""","#), "{csv}");
+    // Excel needs the mark for a title outside ASCII, and a stamp its zone, or reads it as local.
+    assert!(csv.starts_with("\u{feff}executed_at,"), "{csv}");
+    assert!(csv.lines().nth(1).unwrap().starts_with("\"2026-10-05T21:26:14Z\","), "{csv}");
 }
 
 /// An export past its row cap says so, rather than handing on a file that reads as the whole log.
@@ -2791,7 +2802,7 @@ async fn an_export_says_when_it_leaves_rows_out() {
     // between two pages, and the tests' pool has one.
     let csv = app.text("/api/v1/move-log/export").await;
     let mut lines = csv.lines();
-    assert!(lines.next().unwrap().starts_with("executed_at,"), "the header row");
+    assert!(lines.next().unwrap().starts_with("\u{feff}executed_at,"), "the header row");
     assert!(lines.next().unwrap().contains("\"Title 50001\""), "the newest first");
     assert_eq!(csv.lines().count(), 50_001, "the header and 50 000 rows");
     assert!(csv.lines().last().unwrap().contains("\"Title 2\""), "each page after the last");
@@ -2980,14 +2991,66 @@ async fn a_subject_that_answers_again_stops_being_reported() {
     app.get("/api/v1/health").await.assert_ok();
     assert!(unreachable().await, "the first probe recorded no failure to replace");
 
-    // The Arr comes back, and the next probe finds it.
+    // The Arr comes back, and a sync reaching it settles the verdict without a probe.
     sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'i-1'")
         .bind(&arr.base_url)
         .execute(&app.state.pool)
         .await
         .unwrap();
+    app.post("/api/v1/instances/i-1/sync", serde_json::json!({})).await.assert_ok();
+    assert!(!unreachable().await, "the verdict of the probe outlived a sync that reached it");
+
     app.get("/api/v1/health").await.assert_ok();
-    assert!(!unreachable().await, "the verdict of the first probe outlived the second");
+    let reachable = app.count("SELECT reachable FROM probe_results WHERE subject = 'instance:i-1'");
+    assert_eq!(reachable.await, 1, "the next probe kept the verdict of the first");
+}
+
+/// An Arr out of reach is the Arr's fault, said once as a warning with its cause: the request's
+/// 502 writes no ERROR line beside it, which an alert on ERROR lines would page for.
+#[tokio::test]
+async fn an_upstream_failure_logs_no_error_line() {
+    use tracing::instrument::WithSubscriber;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", "http://127.0.0.1:1").await;
+    let capture = super::LogCapture::default();
+
+    let synced = app
+        .post("/api/v1/instances/i-1/sync", serde_json::json!({}))
+        .with_subscriber(capture.as_the_process_logs())
+        .await;
+
+    assert_eq!(synced.status, StatusCode::BAD_GATEWAY, "{:?}", synced.json);
+    let log = capture.contents();
+    assert!(log.contains("status=502"), "the capture heard nothing of the request: {log}");
+    assert!(!log.contains("ERROR"), "{log}");
+}
+
+/// A sync the scheduler runs is the one look at an Arr nobody asked for: when it fails, the top
+/// bar and `/health` say so before anyone opens Diagnostics.
+#[tokio::test]
+async fn a_sync_that_fails_is_warned_without_a_probe() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", "http://127.0.0.1:1").await;
+    let failing = |body: &serde_json::Value| {
+        body["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|warning| warning["code"] == "instance_sync_failing")
+            .cloned()
+    };
+    assert!(failing(app.get("/api/v1/status").await.assert_ok()).is_none());
+
+    let synced = app.post("/api/v1/instances/i-1/sync", serde_json::json!({})).await;
+    assert_eq!(synced.status, StatusCode::BAD_GATEWAY, "{:?}", synced.json);
+
+    let status = app.get("/api/v1/status").await;
+    let warning = failing(status.assert_ok()).expect("a failing sync is warned of");
+    assert_eq!(warning["severity"], "error");
+    let message = warning["message"].as_str().unwrap();
+    assert!(message.contains("Fake radarr") && !message.contains("error: "), "{message}");
+    let health = app.get("/api/v1/health?probe=false").await;
+    assert_eq!(health.assert_ok()["status"], "degraded");
 }
 
 /// The dashboard opens `/health?probe=false`, and the difference is not
@@ -3798,4 +3861,18 @@ async fn the_fallback_category_is_named_as_typed_and_stored_as_categories_are() 
             .await
             .unwrap();
     assert_eq!(stored, "anime");
+}
+
+/// The United Kingdom is most often written `UK`, which ISO reserves for it, and every source
+/// rates it under `GB`: saved as `GB`, a British rating is found.
+#[tokio::test]
+async fn a_certification_region_written_uk_is_saved_as_gb() {
+    let app = TestApp::new().await;
+    app.save_setting("certification_regions", "uk, US").await.assert_ok();
+    let settings = app.get("/api/v1/settings").await;
+    assert_eq!(settings.assert_ok()["certification_regions"], "GB, US", "{}", settings.json);
+    // Any other list is stored as written.
+    app.save_setting("certification_regions", " FR,US ").await.assert_ok();
+    let settings = app.get("/api/v1/settings").await;
+    assert_eq!(settings.assert_ok()["certification_regions"], "FR,US", "{}", settings.json);
 }

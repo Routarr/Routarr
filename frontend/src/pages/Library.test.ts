@@ -16,11 +16,11 @@ function show(items: MediaListItem[], pages = 1) {
     conditions: [],
     score_scales: [],
   });
-  const getMedia = vi
-    .spyOn(api, 'getMedia')
+  const getLibrary = vi
+    .spyOn(api, 'getLibrary')
     .mockResolvedValue(paginated(items, { total_pages: pages, total: items.length * pages }));
   renderWithI18n(Library);
-  return getMedia;
+  return getLibrary;
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -95,7 +95,7 @@ describe('Library', () => {
    */
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi
-      .spyOn(api, 'explainMedia')
+      .spyOn(api, 'explainTitle')
       .mockResolvedValue(
         explanation({ media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }) }),
       );
@@ -109,7 +109,7 @@ describe('Library', () => {
   /** A question that runs for seconds says it is being answered. */
   it('marks the row being explained as busy until its answer arrives', async () => {
     let answer = () => {};
-    vi.spyOn(api, 'explainMedia').mockReturnValue(
+    vi.spyOn(api, 'explainTitle').mockReturnValue(
       new Promise((_, reject) => (answer = () => reject(new Error('refused')))),
     );
     show([media({ id: 'm7', title: 'Akira' })]);
@@ -127,13 +127,13 @@ describe('Library', () => {
    * would filter one page of fifty and present it as the whole answer.
    */
   it('asks the server for the filtered set rather than hiding rows on screen', async () => {
-    const getMedia = show([media()]);
+    const getLibrary = show([media()]);
     await screen.findByText('Akira');
 
     await userEvent.selectOptions(screen.getByLabelText('Filter by type'), 'series');
 
     await waitFor(() =>
-      expect(getMedia).toHaveBeenCalledWith(
+      expect(getLibrary).toHaveBeenCalledWith(
         expect.objectContaining({ media_type: 'series' }),
         expect.any(AbortSignal),
       ),
@@ -141,12 +141,12 @@ describe('Library', () => {
   });
 
   it('returns to the first page when the filter changes', async () => {
-    const getMedia = show([media()], 2);
+    const getLibrary = show([media()], 2);
     await screen.findByText('Akira');
     // From page 2, or the assertion below holds on a page that never moved.
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() =>
-      expect(getMedia).toHaveBeenLastCalledWith(
+      expect(getLibrary).toHaveBeenLastCalledWith(
         expect.objectContaining({ page: 2 }),
         expect.any(AbortSignal),
       ),
@@ -156,7 +156,7 @@ describe('Library', () => {
 
     // Else a narrower filter keeps a page past its end, which renders as an empty library.
     await waitFor(() =>
-      expect(getMedia).toHaveBeenLastCalledWith(
+      expect(getLibrary).toHaveBeenLastCalledWith(
         expect.objectContaining({ page: 1 }),
         expect.any(AbortSignal),
       ),
@@ -168,18 +168,18 @@ describe('Library', () => {
    * the first page, which the narrower list always has.
    */
   it('asks for a typed title once the typing stops, from the first page', async () => {
-    const getMedia = show([media()], 2);
+    const getLibrary = show([media()], 2);
     await screen.findByText('Akira');
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getLibrary).toHaveBeenCalledTimes(2));
 
     await userEvent.type(
       screen.getByRole('searchbox', { name: 'Search the library by title' }),
       'heat',
     );
 
-    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(3));
-    expect(getMedia).toHaveBeenLastCalledWith(
+    await waitFor(() => expect(getLibrary).toHaveBeenCalledTimes(3));
+    expect(getLibrary).toHaveBeenLastCalledWith(
       expect.objectContaining({ search: 'heat', page: 1 }),
       expect.any(AbortSignal),
     );
@@ -188,7 +188,7 @@ describe('Library', () => {
   /** An explanation that cannot be read is not a load of the list to retry. */
   it('reports an explanation it could not read without offering to reload the list', async () => {
     show([media({ title: 'Perfect Blue' })]);
-    vi.spyOn(api, 'explainMedia').mockRejectedValue(
+    vi.spyOn(api, 'explainTitle').mockRejectedValue(
       new ApiError('The rules could not be evaluated', 409, 'conflict'),
     );
 
@@ -204,7 +204,7 @@ describe('Library', () => {
     let first: (value: Explanation) => void = () => {};
     const explained = (id: string, title: string): Explanation =>
       explanation({ media: explainedMedia({ id, title }) });
-    vi.spyOn(api, 'explainMedia')
+    vi.spyOn(api, 'explainTitle')
       .mockReturnValueOnce(new Promise((resolve) => (first = resolve)))
       .mockResolvedValueOnce(explained('m8', 'Perfect Blue'));
 
@@ -221,8 +221,8 @@ describe('Library', () => {
   it('takes a failed explanation off screen once the next one is read', async () => {
     show([media({ id: 'm7', title: 'Perfect Blue' })]);
     // The panel names the sources from the catalogue it reads.
-    vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({ providers: [], order: [] });
-    vi.spyOn(api, 'explainMedia')
+    vi.spyOn(api, 'getSources').mockResolvedValue({ providers: [], order: [] });
+    vi.spyOn(api, 'explainTitle')
       .mockRejectedValueOnce(new ApiError('The rules could not be evaluated', 409, 'conflict'))
       .mockResolvedValueOnce(
         explanation({

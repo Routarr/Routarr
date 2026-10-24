@@ -8,24 +8,24 @@ pub mod config;
 pub mod contract;
 pub mod decisions;
 pub mod deprecated;
+pub mod exceptions;
 pub mod health;
 pub mod instances;
-pub mod jobs;
+pub mod library;
 pub mod localization;
-pub mod logs;
 pub mod maintenance;
-pub mod media;
-pub mod metadata;
 pub mod metrics;
+pub mod move_log;
 pub mod notifications;
 pub mod onboarding;
-pub mod overrides;
 pub mod root_folders;
 pub mod rule_tests;
 pub mod rules;
 pub mod security_log;
 pub mod settings;
 pub mod simulation;
+pub mod sources;
+pub mod tasks;
 pub mod templates;
 pub mod webhook;
 
@@ -50,9 +50,52 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         match axum::Json::<T>::from_request(req, state).await {
             Ok(axum::Json(value)) => Ok(Self(value)),
-            Err(rejection) => Err(envelope(rejection.status(), rejection.body_text())),
+            Err(rejection) => {
+                Err(body_refused(rejection.status(), rejection.body_text(), &rejection))
+            }
         }
     }
+}
+
+/// `axum::body::Bytes` with the application's error envelope on rejection, for a handler that
+/// reads its body whole and parses it itself.
+#[derive(Debug, Clone, Default)]
+pub struct Bytes(pub axum::body::Bytes);
+
+impl<S> FromRequest<S> for Bytes
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::body::Bytes::from_request(req, state).await {
+            Ok(bytes) => Ok(Self(bytes)),
+            Err(rejection) => {
+                Err(body_refused(rejection.status(), rejection.body_text(), &rejection))
+            }
+        }
+    }
+}
+
+/// A body that could not be read: 408 when it missed its deadline (`main::body_deadline`),
+/// which blames the link and not the request, the envelope otherwise.
+fn body_refused(
+    status: StatusCode,
+    message: String,
+    why: &(dyn std::error::Error + 'static),
+) -> Response {
+    let mut cause = Some(why);
+    while let Some(error) = cause {
+        if error.is::<tower_http::timeout::TimeoutError>() {
+            let message =
+                crate::localization::Localizer::new("en").translate("ErrorBodyTooSlow", &[]);
+            return crate::error::ErrorResponse::new("request_timeout", message)
+                .answered(StatusCode::REQUEST_TIMEOUT);
+        }
+        cause = error.source();
+    }
+    envelope(status, message)
 }
 
 /// `axum::extract::Query` with the application's error envelope on rejection, since the
@@ -104,7 +147,7 @@ fn envelope(status: StatusCode, message: String) -> Response {
         StatusCode::UNSUPPORTED_MEDIA_TYPE => (status, "unsupported_media_type"),
         _ => (StatusCode::BAD_REQUEST, "bad_request"),
     };
-    (status, axum::Json(serde_json::json!({ "error": error, "message": message }))).into_response()
+    crate::error::ErrorResponse::new(error, message).answered(status)
 }
 
 impl<T: Serialize> IntoResponse for Json<T> {
@@ -120,12 +163,18 @@ pub fn revalidated(headers: &axum::http::HeaderMap, json: String) -> Response {
     use axum::http::{HeaderValue, header};
     use sha2::Digest;
     let digest = sha2::Sha256::digest(json.as_bytes());
-    let tag: String = digest[..12].iter().map(|byte| format!("{byte:02x}")).collect();
-    let tag = format!("\"{tag}\"");
-    let held =
-        headers.get(header::IF_NONE_MATCH).and_then(|value| value.to_str().ok()).is_some_and(
-            |sent| sent.split(',').any(|each| matches!(each.trim(), "*") || each.trim() == tag),
-        );
+    let opaque: String = digest[..12].iter().map(|byte| format!("{byte:02x}")).collect();
+    let opaque = format!("\"{opaque}\"");
+    // Weak, compared weakly (RFC 9110 8.8.3): the compression layer encodes this one body two ways.
+    let tag = format!("W/{opaque}");
+    let held = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|sent| {
+            sent.split(',')
+                .map(str::trim)
+                .any(|each| each == "*" || each.strip_prefix("W/").unwrap_or(each) == opaque)
+        });
     let mut response = if held {
         StatusCode::NOT_MODIFIED.into_response()
     } else {
@@ -165,9 +214,8 @@ impl<T: Serialize> IntoResponse for Created<T> {
     }
 }
 
-/// The envelope of every paged list: the media, the decisions, the tasks and
-/// the move log.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+/// The envelope of every paged list.
+#[derive(Debug, Serialize)]
 pub struct Page<T> {
     pub data: Vec<T>,
     pub pagination: Pagination,
@@ -232,9 +280,6 @@ mod tests {
         assert_eq!(paginate(Some(3), Some(0)), (3, 1, 2));
     }
 
-    /// With `per_page` clamped and `page` not, the multiplication overflows: a
-    /// panic in debug and, in the binary that ships, a 200 carrying whatever
-    /// page the wrapped offset lands on.
     #[test]
     fn a_page_number_past_every_library_cannot_overflow_the_offset() {
         let (page, per_page, offset) = paginate(Some(u32::MAX), Some(200));
@@ -242,7 +287,6 @@ mod tests {
         assert_eq!(per_page, 200);
         assert_eq!(offset, 99_999 * 200, "the offset follows the clamped page");
 
-        // The whole product still fits, which is the property that matters.
         assert!(u32::checked_mul(page - 1, per_page).is_some());
     }
 

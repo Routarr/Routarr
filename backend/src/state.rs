@@ -106,9 +106,9 @@ impl Settings {
         self.raw(key).and_then(|v| v.trim().parse().ok()).unwrap_or_else(|| default_of(key))
     }
 
-    /// `true` or `1`, as `AppState::bool_setting` answers.
+    /// `true` or `false` in any case, the default otherwise, as `AppState::bool_setting` answers.
     pub fn bool(&self, key: &str) -> bool {
-        is_true(self.raw(key).unwrap_or(crate::services::settings::default_of(key)))
+        switch_or_default(key, self.raw(key))
     }
 }
 
@@ -118,9 +118,22 @@ fn default_of<T: std::str::FromStr + Default>(key: &str) -> T {
     crate::services::settings::default_of(key).parse().unwrap_or_default()
 }
 
-/// How a boolean setting is stored: `true` in any case, or `1`.
-fn is_true(value: &str) -> bool {
-    value.eq_ignore_ascii_case("true") || value == "1"
+/// A stored switch, or the setting's default when absent or unreadable, as a number reads.
+fn switch_or_default(key: &str, stored: Option<&str>) -> bool {
+    stored
+        .and_then(parse_switch)
+        .or_else(|| parse_switch(crate::services::settings::default_of(key)))
+        .unwrap_or(false)
+}
+
+/// A switch as Routarr reads one, a stored setting or a variable: `true` or `false` in any
+/// case. `None` for anything else, which no writer stores.
+pub fn parse_switch(value: &str) -> Option<bool> {
+    match value.trim() {
+        on if on.eq_ignore_ascii_case("true") => Some(true),
+        off if off.eq_ignore_ascii_case("false") => Some(false),
+        _ => None,
+    }
 }
 
 impl AppState {
@@ -413,15 +426,15 @@ impl AppState {
         Ok(stored.unwrap_or_else(|| DEFAULT_CATEGORY.to_string()))
     }
 
-    /// Read a boolean setting: `true` in any case, or `1`, is on.
+    /// Read a boolean setting: `true` or `false` in any case, the default otherwise.
     pub async fn bool_setting(&self, key: &str) -> bool {
-        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
+        let stored = sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(&self.pool)
             .await
             .ok()
-            .flatten()
-            .map_or_else(|| is_true(crate::services::settings::default_of(key)), |v| is_true(&v))
+            .flatten();
+        switch_or_default(key, stored.as_deref())
     }
 
     /// Load an instance by id, or 404.
@@ -504,15 +517,18 @@ mod settings_tests {
             ("confirmation_threshold", "many"),
             ("global_dry_run", "TRUE"),
             ("auto_apply_enabled", "1"),
+            ("backup_enabled", "0"),
             ("notify_sync_failed", "yes"),
         ]);
         assert_eq!(settings.get::<i64>("batch_limit"), 12);
         assert_eq!(settings.get::<i64>("confirmation_threshold"), 10, "unparseable is the default");
         assert_eq!(settings.get::<i64>("backup_retention_count"), 7, "absent is the default");
-        assert!(settings.bool("global_dry_run"));
-        assert!(settings.bool("auto_apply_enabled"));
+        assert!(settings.bool("global_dry_run"), "in any case");
+        // No writer stores `1` or `0`: read as anything unreadable, the setting's default.
+        assert!(!settings.bool("auto_apply_enabled"), "`1` is not a switch");
+        assert!(settings.bool("backup_enabled"), "`0` is not a switch");
         assert!(!settings.bool("notify_sync_failed"), "`yes` is not a switch");
-        assert!(settings.bool("backup_enabled"), "absent is the default");
+        assert!(stored(&[]).bool("backup_enabled"), "absent is the default");
         assert_eq!(settings.raw("batch_limit"), Some(" 12 "), "raw is as stored");
     }
 

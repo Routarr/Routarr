@@ -250,7 +250,12 @@ pub struct InstanceResponse {
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_sync_attempt_at: Option<String>,
+    /// How the last sync ended: `success`, or `error: ` and the reason. Deprecated: the reason
+    /// alone is `last_sync_error`.
+    #[schema(deprecated)]
     pub last_sync_status: Option<String>,
+    /// Why the last sync failed, in the interface language. Null when it succeeded or none ran.
+    pub last_sync_error: Option<String>,
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
     #[schema(format = DateTime)]
     pub created_at: String,
@@ -325,6 +330,7 @@ impl InstanceResponse {
             sync_interval_minutes: i.sync_interval_minutes,
             last_sync_at: i.last_sync_at,
             last_sync_attempt_at: i.last_sync_attempt_at,
+            last_sync_error: sync_error_said(i.last_sync_status.as_deref(), localizer),
             last_sync_status: sync_status_said(i.last_sync_status, localizer),
             created_at: i.created_at,
             updated_at: i.updated_at,
@@ -353,6 +359,15 @@ pub fn sync_status_said(
         Some(why) => format!("{SYNC_FAILED}{}", crate::localization::said(why, localizer)),
         None => status,
     })
+}
+
+/// Why the last sync failed, in `localizer`'s language, `None` when it did not.
+pub fn sync_error_said(
+    stored: Option<&str>,
+    localizer: &crate::localization::Localizer,
+) -> Option<String> {
+    let why = stored?.strip_prefix(SYNC_FAILED)?;
+    Some(crate::localization::said(why, localizer))
 }
 
 /// What the last sync's outcome starts with when it failed, which every

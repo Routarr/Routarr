@@ -137,7 +137,10 @@ async fn a_webhook_url_sealed_at_startup_still_delivers() {
 
     crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
 
-    let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
+    let event = crate::services::notify::Event::InstanceRecovered {
+        instance_id: "inst-1".into(),
+        instance: "Radarr".into(),
+    };
     crate::services::notify::send(&app.state, event).await;
     assert_eq!(receiver.messages().len(), 1, "the sealed address no longer delivers");
 }
@@ -467,7 +470,9 @@ async fn a_sweep_held_over_the_cap_is_announced_once_and_warned_of() {
     assert_eq!(held.len(), 1, "{messages:?}");
     assert_eq!(
         held[0]["data"],
-        serde_json::json!({ "instance": "Fake radarr", "candidates": 2, "cap": 1 })
+        serde_json::json!({
+            "instance_id": "inst-1", "instance": "Fake radarr", "candidates": 2, "cap": 1,
+        })
     );
 }
 
@@ -599,7 +604,7 @@ fn signed_with(secret: &str, delivery: &Delivery) -> bool {
 }
 
 fn recovered() -> Event {
-    Event::InstanceRecovered { instance: "Radarr".into() }
+    Event::InstanceRecovered { instance_id: "inst-1".into(), instance: "Radarr".into() }
 }
 
 /// The secret is shown once, and what it signs checks against it: the id,
@@ -944,8 +949,11 @@ async fn a_retried_notification_never_lands_after_a_newer_one() {
     let receiver = Receiver::answering(&[503]).await;
     let app = TestApp::new().await;
     listening(&app, &receiver).await;
-    let unreachable =
-        Event::InstanceUnreachable { instance: "Radarr".into(), error: "refused".into() };
+    let unreachable = Event::InstanceUnreachable {
+        instance_id: "inst-1".into(),
+        instance: "Radarr".into(),
+        error: "refused".into(),
+    };
 
     notify::send_later(&app.state, unreachable);
     notify::send_later(&app.state, recovered());
@@ -1205,6 +1213,10 @@ async fn a_key_about_to_expire_is_announced_once_a_week_before() {
     assert_eq!(body["data"]["name"], "soon", "{body}");
     assert!(body["data"]["expires_at"].as_str().unwrap().ends_with('Z'), "{body}");
     assert!(body["message"].as_str().unwrap().contains("soon"), "{body}");
+    let english = crate::localization::Localizer::new("en");
+    let day =
+        crate::localization::human_date(chrono::Utc::now() + chrono::Duration::days(5), &english);
+    assert!(body["message"].as_str().unwrap().contains(&format!("on {day}")), "{body}");
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert_eq!(receiver.deliveries().len(), 1, "announced twice, or another key announced");
 }

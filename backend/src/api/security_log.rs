@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
-use crate::api::logs::csv_field;
+use crate::api::move_log::csv_field;
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
 use crate::services::audit::{Kind, Outcome};
@@ -116,7 +116,10 @@ pub async fn export(
     let rows = list_query.fetch_all(&state.pool).await?;
     let localizer = state.localizer().await;
 
-    let mut csv = String::from("at,event,outcome,subject,client,repeated,message\n");
+    let mut csv = format!(
+        "{}at,event,outcome,subject,client,repeated,message\n",
+        crate::api::move_log::BYTE_ORDER_MARK
+    );
     for row in rows {
         let event = SecurityEvent::from(row);
         let params: Vec<(String, String)> = event
@@ -128,7 +131,7 @@ pub async fn export(
             params.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
         csv.push_str(&format!(
             "{},{},{},{},{},{},{}\n",
-            csv_field(&event.at),
+            csv_field(&crate::timestamp::written(&event.at)),
             csv_field(&event.kind),
             csv_field(&event.outcome),
             csv_field(event.subject.as_deref().unwrap_or("")),

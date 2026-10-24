@@ -145,7 +145,7 @@ proptest! {
         chars in prop::collection::vec(any::<char>(), 0..30),
     ) {
         let raw: String = chars.into_iter().collect();
-        let field = crate::api::logs::csv_field(&raw);
+        let field = crate::api::move_log::csv_field(&raw);
         let inner = field
             .strip_prefix('"')
             .and_then(|rest| rest.strip_suffix('"'))

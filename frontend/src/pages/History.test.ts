@@ -15,7 +15,7 @@ const show = () => renderWithI18n(History);
 // Nothing a revert of many could take, and nothing to filter, unless a test says otherwise.
 beforeEach(() => {
   vi.spyOn(api, 'countDecisions').mockResolvedValue(0);
-  vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
+  vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([]));
   vi.spyOn(api, 'getInstances').mockResolvedValue([]);
   vi.spyOn(api, 'getCategories').mockResolvedValue([]);
   vi.spyOn(api, 'getRules').mockResolvedValue([]);
@@ -442,7 +442,7 @@ describe('narrowing and reverting many', () => {
   it('asks the server for the instance, rule, simulation and days chosen', async () => {
     vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
     vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
-    vi.spyOn(api, 'getJobs').mockResolvedValue(
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([job({ kind: 'simulate', result: { simulation_id: 's9' } })]),
     );
     const getDecisions = vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));

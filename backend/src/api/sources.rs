@@ -8,7 +8,7 @@ use axum::response::Response;
 use serde::{Deserialize, Serialize};
 
 use crate::api::auth::Identity;
-use crate::api::jobs::{answer, prefers_async};
+use crate::api::tasks::{answer, prefers_async};
 use crate::error::{AppError, AppResult};
 use crate::services::{anime_ids, enrichment, metadata};
 use crate::state::AppState;
@@ -88,7 +88,7 @@ pub async fn import_anime_ids(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    crate::api::Bytes(body): crate::api::Bytes,
 ) -> AppResult<Response> {
     let entries = anime_ids::read_file(&state, body.into()).await?;
     let by = identity.attribution();
@@ -130,7 +130,7 @@ pub async fn refresh(
     let task_state = state.clone();
     match request.media_id {
         Some(id) => {
-            let media = crate::api::media::load_media(&state, &id).await?;
+            let media = crate::api::library::load_media(&state, &id).await?;
             let work =
                 async move { enrichment::refresh_title(&task_state, &by, &media, source).await };
             answer(&state, prefers_async(&headers), work).await

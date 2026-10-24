@@ -557,7 +557,7 @@ async fn facets_and_sweep_work(count: usize) -> (Duration, Duration, &'static st
 #[tokio::test]
 async fn the_profile_facet_counts_in_one_scan() {
     let pool = crate::db::test_pool().await;
-    let sql = format!("EXPLAIN QUERY PLAN {}", crate::api::media::PROFILE_FACETS);
+    let sql = format!("EXPLAIN QUERY PLAN {}", crate::api::library::PROFILE_FACETS);
     let plan: Vec<(i64, i64, i64, String)> =
         sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str())).fetch_all(&pool).await.unwrap();
     let steps: Vec<&str> = plan.iter().map(|step| step.3.as_str()).collect();

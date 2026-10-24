@@ -85,6 +85,19 @@ async fn an_old_path_answers_as_its_new_one_and_says_it_is_deprecated() {
         assert!(link.contains("rel=\"deprecation\""), "{old}: {link}");
         assert_eq!(now.header("deprecation"), None, "{new} is said deprecated");
     }
+
+    // A refusal of the key or of the method says so too: a script with a revoked key learns it.
+    let keyed = TestApp::with_api_key(OWNER).await;
+    let refused = keyed.get("/api/v1/jobs").await;
+    let wrong_method = as_key(&keyed, "PUT", "/api/v1/jobs", OWNER).await;
+    for (answer, status) in
+        [(refused, StatusCode::UNAUTHORIZED), (wrong_method, StatusCode::METHOD_NOT_ALLOWED)]
+    {
+        assert_eq!(answer.status, status, "{}", answer.json);
+        assert_eq!(answer.header("deprecation").as_deref(), Some("@1792540800"), "{status}");
+        let link = answer.header(header::LINK.as_str()).unwrap_or_default();
+        assert!(link.contains("rel=\"deprecation\""), "{status}: {link}");
+    }
 }
 
 /// A task started is located under `/tasks` whatever the path, its id under both names.
@@ -175,10 +188,15 @@ async fn an_application_key_reaches_an_old_path_as_it_reaches_its_new_one() {
     assert!(refused_somewhere > 0 && admitted_somewhere > 0, "the walk proves nothing");
 }
 
-/// The `deprecated_api_called` warnings `/status` holds.
+/// The `deprecated_api_called` warnings `/status` holds for the owner.
 async fn deprecation_warnings(app: &TestApp) -> Vec<serde_json::Value> {
+    deprecation_warnings_read_with(app, OWNER).await
+}
+
+/// The `deprecated_api_called` warnings `/status` holds for `key`.
+async fn deprecation_warnings_read_with(app: &TestApp, key: &str) -> Vec<serde_json::Value> {
     app.state.deprecated_calls.flush().await;
-    let status = as_key(app, "GET", "/api/v1/status", OWNER).await;
+    let status = as_key(app, "GET", "/api/v1/status", key).await;
     let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
     warnings.into_iter().filter(|w| w["code"] == "deprecated_api_called").collect()
 }
@@ -200,26 +218,54 @@ async fn a_key_calling_an_old_path_is_named_in_a_warning() {
     for named in ["homepage", "GET /api/v1/jobs", "GET /api/v1/overrides"] {
         assert!(message.contains(named), "{named} missing from: {message}");
     }
+
+    // Another key reads no other key's name, the key itself its own, the owner every one.
+    let dashboard = mint(&app, "dashboard", json!([])).await;
+    as_key(&app, "GET", "/api/v1/media", &dashboard).await.assert_ok();
+    let read_by = |key: &str| {
+        let (app, key) = (&app, key.to_owned());
+        async move {
+            let warnings = deprecation_warnings_read_with(app, &key).await;
+            warnings.iter().map(|w| w["message"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+        }
+    };
+    let seen = read_by(&dashboard).await;
+    assert!(seen.iter().all(|m| !m.contains("homepage")), "{seen:?}");
+    assert!(seen.iter().any(|m| m.contains("dashboard")), "its own: {seen:?}");
+    let seen = read_by(&token).await;
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(seen[0].contains("homepage"), "{seen:?}");
+    let seen = read_by(OWNER).await;
+    assert_eq!(seen.len(), 2, "the owner reads both: {seen:?}");
 }
 
 /// Read from the table alone, the warning stands after a restart.
 #[tokio::test]
 async fn the_warning_reads_the_calls_a_previous_run_stored() {
     let app = TestApp::with_api_key(OWNER).await;
-    app.execute(&["INSERT INTO deprecated_calls
+    app.execute(&[
+        "INSERT INTO api_keys (id, name, secret_hash) VALUES ('k-1', 'nightly', 'x'),
+                       ('k-3', 'revoked', 'x')",
+        "UPDATE api_keys SET revoked_at = datetime('now') WHERE id = 'k-3'",
+        "INSERT INTO deprecated_calls
                 (caller_kind, caller_id, caller_name, method, path, calls, last_called_at)
          VALUES ('application', 'k-1', 'nightly', 'GET', '/media', 4, datetime('now', '-2 days')),
                 ('application', 'k-2', 'retired', 'GET', '/logs', 9, datetime('now', '-31 days')),
-                ('person', '', 'apikey', 'POST', '/overrides', 1, datetime('now', '-1 day'))"])
-        .await;
+                ('application', 'k-3', 'revoked', 'GET', '/jobs', 2, datetime('now', '-1 day')),
+                ('application', 'k-4', 'deleted', 'GET', '/jobs', 2, datetime('now', '-1 day')),
+                ('person', '', 'apikey', 'POST', '/overrides', 1, datetime('now', '-1 day'))",
+    ])
+    .await;
 
     let messages: Vec<String> = deprecation_warnings(&app)
         .await
         .iter()
         .map(|warning| warning["message"].as_str().unwrap().to_owned())
         .collect();
-    let two_days_ago = (chrono::Utc::now() - chrono::Duration::days(2)).format("%Y-%m-%d");
-    assert_eq!(messages.len(), 2, "{messages:?}");
+    let english = crate::localization::Localizer::new("en");
+    let two_days_ago =
+        crate::localization::human_date(chrono::Utc::now() - chrono::Duration::days(2), &english);
+    assert_eq!(messages.len(), 2, "a key no longer live is still warned of: {messages:?}");
     assert!(messages[0].contains("nightly"), "{messages:?}");
     assert!(messages[0].contains(&format!("GET /api/v1/media. Last call on {two_days_ago}")));
     assert!(messages[1].starts_with("Routarr's own API key or a session"), "{messages:?}");

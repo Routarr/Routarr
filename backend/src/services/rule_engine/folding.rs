@@ -88,7 +88,7 @@ pub fn status_key(raw: &str) -> String {
 /// The form two spellings of one rating code share: case and the separator
 /// aside, every character counts. `R+` is MyAnimeList's rating for mild
 /// nudity, and folded as free text it would be every film rated `R`. The
-/// library's facets group codes the same way (`api::media`).
+/// library's facets group codes the same way (`api::library`).
 pub fn certification_key(raw: &str) -> String {
     raw.trim()
         .chars()

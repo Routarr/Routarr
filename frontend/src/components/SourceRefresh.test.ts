@@ -37,7 +37,7 @@ function report(over: Partial<EnrichmentReport> = {}): EnrichmentReport {
 }
 
 function show(catalogue: MetadataProviders = CATALOGUE) {
-  vi.spyOn(api, 'getMetadataProviders').mockResolvedValue(catalogue);
+  vi.spyOn(api, 'getSources').mockResolvedValue(catalogue);
   return renderWithI18n(SourceRefresh);
 }
 

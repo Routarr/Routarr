@@ -1414,9 +1414,18 @@ async fn the_restore_route_stages_and_asks_for_a_restart() {
     let created = app.post("/api/v1/backups", serde_json::json!({})).await;
     let name = created.assert_ok()["name"].as_str().unwrap().to_string();
 
+    // A misspelled field is refused by name: read as no passphrase, it stages the restore.
+    let typo = serde_json::json!({ "passphrse": "x" });
+    let refused = app.post(&format!("/api/v1/backups/{name}/restore"), typo).await;
+    refused.assert_status(axum::http::StatusCode::BAD_REQUEST);
+    assert!(refused.message().contains("passphrse"), "{}", refused.message());
+    assert!(!dir.join("routarr.db.restore-pending").exists(), "the typo staged the restore");
+
     let body = app.post(&format!("/api/v1/backups/{name}/restore"), serde_json::json!({})).await;
     let response = body.assert_ok();
     assert_eq!(response["restart_required"], true, "got {response}");
+    let taken = response["manifest"]["created_at"].as_str().unwrap_or_default();
+    assert!(taken.ends_with('Z'), "a time without its zone: {taken}");
 
     // Staged beside the database, never swapped under a live pool.
     assert!(dir.join("routarr.db.restore-pending").exists());

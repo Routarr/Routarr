@@ -1152,6 +1152,9 @@ async fn a_listed_origin_writes_and_follows_a_task_from_another_page() {
         .unwrap_or_default()
         .to_ascii_lowercase();
     assert!(exposed.contains("location"), "a 202's Location is hidden from the page: {exposed:?}");
+    for header in ["deprecation", "link", "x-routarr-truncated", "content-disposition"] {
+        assert!(exposed.contains(header), "{header} is hidden from the page: {exposed:?}");
+    }
 }
 
 /// Sends a write with the cookie and the given browser and proxy headers.
@@ -1928,7 +1931,10 @@ async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
     // For the thread, not the future: the retries run on a task of their own,
     // which the test's single-threaded runtime runs on this same thread.
     let _logging = tracing::subscriber::set_default(subscriber);
-    let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
+    let event = crate::services::notify::Event::InstanceRecovered {
+        instance_id: "inst-1".into(),
+        instance: "Radarr".into(),
+    };
     crate::services::notify::send(&app.state, event).await;
 
     // The control: the last line the retries write, so every attempt is in.
