@@ -42,10 +42,8 @@ async fn oidc_app_configured(
     TestApp::around(app.state.clone().with_config(config))
 }
 
-/// Not verifying the token's signature rests on the exchange happening over
-/// TLS, so a provider that describes its token endpoint as plain `http://`
-/// pulls that assumption out from under the flow. The issuer is checked at
-/// startup, and the endpoints are only known once the provider has been asked.
+/// The token's signature goes unverified because the exchange runs over TLS, so a token endpoint
+/// in plain `http://` is refused. The endpoints are only known once the provider is asked.
 #[tokio::test]
 async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -69,10 +67,8 @@ async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
     );
 }
 
-/// The authorization endpoint is the one a browser is sent to: served in the
-/// clear, the code and the state travel unencrypted, so it is refused as the
-/// token endpoint is. A document describing another issuer than the one it
-/// was fetched from is refused too: a redirect has moved the conversation.
+/// An authorization endpoint in the clear sends the code and state unencrypted, and a document
+/// naming another issuer than it was fetched from means a redirect moved the conversation.
 #[tokio::test]
 async fn a_provider_misdescribing_itself_is_refused_naming_what_to_fix() {
     let clear = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -121,9 +117,10 @@ async fn an_https_redirect_address_makes_the_session_cookie_secure() {
             .get_all(axum::http::header::SET_COOKIE)
             .iter()
             .map(|value| value.to_str().unwrap().to_string())
-            .find(|cookie| cookie.starts_with("routarr_session="))
+            .find(|cookie| cookie.contains("routarr_session="))
             .expect("no session cookie");
         assert_eq!(session.contains("; Secure"), secure, "{redirect}: {session}");
+        assert_eq!(session.starts_with("__Host-"), secure, "{redirect}: {session}");
     }
 }
 
@@ -220,24 +217,17 @@ async fn a_sign_in_carries_pkce_and_the_nonce_to_the_provider() {
     assert!(scopes.split(' ').any(|scope| scope == "openid"), "{location}");
 }
 
-/// The provider is asked to describe itself once, not once per request.
-///
-/// `/auth/oidc/start` sits in the *public* router (a browser with no session
-/// cannot be asked for one to learn it needs one), so anyone who reaches the
-/// port reaches this. Refetching the discovery document per call turns one
-/// cheap inbound request into one outbound request against the operator's own
-/// identity provider, which rate-limits by address: the flood locks them out
-/// of the thing they log in with, from their own host.
-///
-/// The document is static by specification, and `SignInThrottle` states the
-/// same rule: a public endpoint that costs something carries a bound.
+/// `/auth/oidc/start` is public, so a discovery fetched per call turns each inbound request into
+/// one against the operator's identity provider, which rate-limits by address and would lock them
+/// out from their own host.
 #[tokio::test]
 async fn the_provider_is_asked_to_describe_itself_once_until_the_description_ages() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
 
-    for _ in 0..12 {
-        let response = app.get("/api/v1/auth/oidc/start").await;
+    // At once, as many browsers reloading after a restart ask: the first read serves the others.
+    let burst = (0..12).map(|_| app.get("/api/v1/auth/oidc/start"));
+    for response in futures::future::join_all(burst).await {
         assert_eq!(response.status, StatusCode::SEE_OTHER);
     }
 
@@ -254,6 +244,22 @@ async fn the_provider_is_asked_to_describe_itself_once_until_the_description_age
     }
     app.get("/api/v1/auth/oidc/start").await.assert_status(StatusCode::SEE_OTHER);
     assert_eq!(idp.discoveries(), 2, "a description past its time was kept");
+}
+
+/// A provider down or describing itself wrongly is when browsers retry and a flood counts
+/// most, so a failure is kept a while too, rather than each start asking again.
+#[tokio::test]
+async fn a_provider_that_fails_to_describe_itself_is_asked_once_a_while() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    idp.call_itself("https://elsewhere.example");
+    let app = oidc_app(&idp).await;
+
+    for _ in 0..12 {
+        let response = app.get("/api/v1/auth/oidc/start").await;
+        assert_eq!(response.location().as_deref(), Some("/?signin=failed"));
+    }
+
+    assert_eq!(idp.discoveries(), 1, "twelve failed starts asked {}", idp.discoveries());
 }
 
 /// The route that starts an attempt is public, and anyone who reaches the
@@ -291,10 +297,7 @@ async fn a_sign_in_survives_ten_thousand_starts_from_elsewhere() {
     assert_eq!(response.location().as_deref(), Some("/"), "the attempt was lost");
 }
 
-/// And finishing one does not ask again either.
-///
-/// `start` and `finish` both need the endpoints, so an uncached document is two
-/// outbound requests per successful login rather than one.
+/// `start` and `finish` both need the endpoints, which one fetch serves.
 #[tokio::test]
 async fn finishing_a_sign_in_reuses_the_description_the_start_already_read() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -452,11 +455,8 @@ async fn a_token_naming_this_client_among_others_opens_a_session_named_after_its
     assert_eq!(subject, "user-42");
 }
 
-/// The browser that started the attempt carries its `state` in a cookie, and
-/// only that browser may finish it. A callback accepting any known `code` and
-/// `state` pair from whoever presents it would let a link carrying somebody
-/// else's pair sign the reader in as that somebody: login CSRF, with the
-/// attribution on every write theirs.
+/// Accepting any known `code` and `state` from whoever presents them would let a link carrying
+/// somebody else's sign the reader in as them: login CSRF.
 #[tokio::test]
 async fn a_callback_from_a_browser_that_did_not_start_the_attempt_opens_nothing() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -489,6 +489,37 @@ async fn a_callback_from_a_browser_that_did_not_start_the_attempt_opens_nothing(
         .await
         .unwrap();
     assert_eq!(sessions, 1);
+}
+
+/// A callback no attempt cookie came with is a request anyone sends in a loop: it is a
+/// refusal of the security log, summed per address and naming it, never a line per request.
+#[tokio::test]
+async fn a_callback_without_its_attempt_is_said_once_a_minute_with_its_address() {
+    use tracing::instrument::WithSubscriber;
+
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let capture = super::LogCapture::default();
+    for _ in 0..3 {
+        let mut request =
+            Request::get("/api/v1/auth/oidc/callback?code=x&state=y").body(Body::empty()).unwrap();
+        let peer = std::net::SocketAddr::from(([198, 51, 100, 7], 41000));
+        request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+        let answer = app.send(request).with_subscriber(capture.as_the_process_logs()).await;
+        assert_eq!(answer.location().as_deref(), Some("/?signin=failed"));
+    }
+
+    app.state.audit.flush().await;
+    let clients: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT client FROM security_events WHERE message = 'AuditOidcAttemptUnknown'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(clients, [Some("198.51.100.7".to_string())]);
+    let log = capture.contents();
+    let said = log.lines().filter(|line| line.contains("did not start")).count();
+    assert_eq!(said, 1, "{log}");
 }
 
 /// An authorisation code is single-use: the provider spends it at the first
@@ -594,32 +625,57 @@ async fn anyone_let_in_is_said_in_the_status() {
     assert!(codes.iter().any(|code| code == "oidc_open_to_anyone"), "{codes:?}");
 }
 
-/// A person who refused at the provider and a client the provider does not
-/// know look alike on screen. The log tells them apart, and never carries
-/// the code.
+/// A refusal at the provider and an unknown client look alike on screen, so the log tells them
+/// apart, never with the code. Anyone can send any reason, so a line break in it starts no line
+/// of its own, which a fail2ban filter would read as Routarr's.
 #[tokio::test]
 async fn a_provider_refusal_is_logged_with_its_reason() {
     use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::layer::SubscriberExt;
 
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
     let app = oidc_app(&idp).await;
     let flow = start_flow(&app).await;
 
     let capture = super::LogCapture::default();
-    let subscriber = tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
     let path = format!(
-        "/api/v1/auth/oidc/callback?error=access_denied&error_description=The+user+said+no&state={}",
+        "/api/v1/auth/oidc/callback?error=access_denied%0Aforged-line&\
+         error_description=The+user+said+no%0D%0Aforged-line&state={}",
         flow.state
     );
     let response = callback(&app, Some(&flow.cookie), &path)
-        .with_subscriber(tracing::Dispatch::new(subscriber))
+        .with_subscriber(capture.as_the_process_logs())
         .await;
 
     assert_eq!(response.location().as_deref(), Some("/?signin=failed"));
     let log = capture.contents();
     assert!(log.contains("access_denied") && log.contains("The user said no"), "{log}");
+    assert!(!log.lines().any(|line| line.starts_with("forged-line")), "a forged line:\n{log}");
+}
+
+/// Each failed callback is an exchange at the provider's token endpoint and a row of the
+/// security log, which an anonymous loop of starts and callbacks would set off at will. Five
+/// failures from one address hold it back as five wrong passwords do.
+#[tokio::test]
+async fn failed_callbacks_from_one_address_are_slowed() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    idp.will_claim(serde_json::json!({ "nonce": "another attempt" }));
+
+    let mut landed = None;
+    for _ in 0..6 {
+        let flow = start_flow(&app).await;
+        let path = format!("/api/v1/auth/oidc/callback?code={}&state={}", flow.code, flow.state);
+        let mut request = Request::get(&path)
+            .header(axum::http::header::COOKIE, &flow.cookie)
+            .body(Body::empty())
+            .unwrap();
+        let peer = std::net::SocketAddr::from(([198, 51, 100, 7], 41000));
+        request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+        landed = app.send(request).await.location();
+    }
+
+    assert_eq!(idp.exchanges().len(), 5, "the address went on spending exchanges");
+    assert_eq!(landed.as_deref(), Some("/?signin=failed"));
 }
 
 /// The callback answers a browser following a link, so a session that cannot
@@ -667,9 +723,16 @@ async fn an_old_oidc_session_signs_in_again_before_it_mints_a_key() {
         let age = age.to_string();
         async move {
             let full = crate::services::accounts::Reach::Full;
-            let id = crate::services::accounts::open_session(&app.state.pool, "u-42", "oidc", full)
-                .await
-                .unwrap();
+            let under = crate::api::auth::opened_under(&app.state).unwrap();
+            let id = crate::services::accounts::open_session(
+                &app.state.pool,
+                "u-42",
+                "oidc",
+                full,
+                &under,
+            )
+            .await
+            .unwrap();
             let shifted = format!("-{age}");
             sqlx::query("UPDATE sessions SET created_at = datetime('now', ?) WHERE id = ?")
                 .bind(shifted)
@@ -751,8 +814,83 @@ async fn a_sign_in_asked_again_needs_a_fresh_auth_time_and_lands_where_it_was_as
 fn a_sign_in_lands_only_under_the_mount_point() {
     use crate::services::oidc::screen;
     assert_eq!(screen("/settings").as_deref(), Some("/settings"));
-    for leaving in ["//evil.example", "https://evil.example", "/\\evil", "settings", "/a b"] {
+    for leaving in [
+        "//evil.example",
+        "https://evil.example",
+        "/\\evil",
+        "settings",
+        "/a b",
+        "/../other",
+        "/a/./b",
+        "/a/%2e%2e/b",
+    ] {
         assert_eq!(screen(leaving), None, "{leaving}");
+    }
+}
+
+/// The path a sign-in comes back to is sealed into the attempt's cookie, which a page of
+/// another site can make long: past what the interface ever sends, it lands home.
+#[tokio::test]
+async fn a_landing_path_past_its_length_lands_home() {
+    use tower::ServiceExt;
+
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let path = format!("/api/v1/auth/oidc/start?return=/{}", "a".repeat(600));
+    let started = app.router.clone().oneshot(Request::get(&path).body(Body::empty()).unwrap());
+    let started = started.await.unwrap();
+    let location = started.headers()[axum::http::header::LOCATION].to_str().unwrap().to_string();
+    let cookie = started.headers()[axum::http::header::SET_COOKIE].to_str().unwrap();
+    let cookie = cookie.split(';').next().unwrap().to_string();
+    let asked: std::collections::HashMap<_, _> =
+        reqwest::Url::parse(&location).unwrap().query_pairs().into_owned().collect();
+
+    let code = authorize(&location).await;
+    let back = format!("/api/v1/auth/oidc/callback?code={code}&state={}", asked["state"]);
+    assert_eq!(callback(&app, Some(&cookie), &back).await.location().as_deref(), Some("/"));
+}
+
+/// Each start sets a cookie of its own, which a page of another site can make a browser
+/// collect by sending it to the start again and again, until its cookies are too large for
+/// the proxy in front. Three attempts are kept, the oldest expired, and the kept still finish.
+#[tokio::test]
+async fn a_start_keeps_at_most_three_attempts_in_a_browser() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+
+    let mut jar: Vec<String> = Vec::new();
+    let mut attempts = Vec::new();
+    let mut expired = Vec::new();
+    for _ in 0..4 {
+        let mut request = Request::get("/api/v1/auth/oidc/start");
+        if !jar.is_empty() {
+            request = request.header(axum::http::header::COOKIE, jar.join("; "));
+        }
+        let response = app.send_raw(request.body(Body::empty()).unwrap()).await;
+        let set: Vec<String> = response
+            .headers()
+            .get_all(axum::http::header::SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().unwrap().split(';').next().unwrap().to_string())
+            .collect();
+        let location = response.headers()[axum::http::header::LOCATION].to_str().unwrap();
+        let asked: std::collections::HashMap<_, _> =
+            reqwest::Url::parse(location).unwrap().query_pairs().into_owned().collect();
+        expired =
+            set[1..].iter().map(|cleared| cleared.trim_end_matches('=').to_string()).collect();
+        jar.retain(|kept| !expired.iter().any(|name| kept.starts_with(&format!("{name}="))));
+        jar.push(set[0].clone());
+        attempts.push((set[0].clone(), asked["state"].clone(), location.to_string()));
+    }
+
+    let oldest = attempts[0].0.split_once('=').unwrap().0;
+    assert_eq!(expired, [oldest.to_string()], "the fourth start kept every attempt");
+    assert_eq!(jar.len(), 3, "{jar:?}");
+    for (_, state, location) in &attempts[1..] {
+        let code = authorize(location).await;
+        let path = format!("/api/v1/auth/oidc/callback?code={code}&state={state}");
+        let landed = callback(&app, Some(&jar.join("; ")), &path).await.location();
+        assert_eq!(landed.as_deref(), Some("/"), "a kept attempt did not finish");
     }
 }
 
@@ -834,6 +972,34 @@ async fn full_access_wins_over_a_read_group() {
     assert_eq!(reach, "full");
 }
 
+/// The lists change only at a restart, which is when they apply: a session they no longer grant
+/// ends then, rather than at the end of its day. Unchanged, they keep it open.
+#[tokio::test]
+async fn a_session_ends_when_the_lists_that_let_it_in_change() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let owner = signed_in_as(&app, &idp, serde_json::json!({ "sub": "user-42" }))
+        .await
+        .expect("the owner was refused");
+    let status = |app: TestApp, cookie: String| async move {
+        super::security::with_session(&app, "GET", "/api/v1/status", &cookie, json!({})).await.0
+    };
+    let restarted = |adjust: fn(&mut crate::config::Config)| {
+        let mut config = (*app.state.config).clone();
+        adjust(&mut config);
+        TestApp::around(app.state.clone().with_config(config))
+    };
+
+    assert_eq!(status(restarted(|_| {}), owner.clone()).await, StatusCode::OK);
+    let moved_to_read = restarted(|config| {
+        config.oidc_allowed_subjects = vec!["user-7".into()];
+        config.oidc_read_subjects = vec!["user-42".into()];
+    });
+    assert_eq!(status(moved_to_read, owner.clone()).await, StatusCode::UNAUTHORIZED);
+    let removed = restarted(|config| config.oidc_allowed_subjects = vec!["user-7".into()]);
+    assert_eq!(status(removed, owner).await, StatusCode::UNAUTHORIZED);
+}
+
 /// A token with no groups claim at all is the usual mistake, a provider keeping groups in
 /// userinfo or sending them under no mapper: refused, and the security log says why.
 #[tokio::test]
@@ -890,6 +1056,39 @@ async fn a_reader_reaches_what_the_read_scope_grants_and_nothing_else() {
         }
     }
     assert!(reached > 20, "the walk reached only {reached} route(s): it proves nothing");
+}
+
+/// A reader reads who acted as a key of the read scope does: their own name, and nobody
+/// else's, which in `oidc` is often an e-mail address.
+#[tokio::test]
+async fn a_reader_reads_no_one_elses_name() {
+    use axum::http::header;
+
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = readers_app(&idp).await;
+    app.execute(&["INSERT INTO execution_logs (id, action, success, actor, subject, executed_at)
+         VALUES ('l-owner', 'move', 1, 'manual', 'owner (user-42)', '2026-10-01 10:00:00'),
+                ('l-own', 'move', 1, 'manual', 'u7', '2026-10-01 11:00:00')"])
+        .await;
+    let reader = signed_in_as(&app, &idp, serde_json::json!({ "sub": "u7", "groups": ["family"] }))
+        .await
+        .expect("the reader was refused");
+
+    let (status, listed) =
+        super::security::with_session(&app, "GET", "/api/v1/move-log", &reader, json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let subject = |id: &str| {
+        let rows = listed["data"].as_array().expect("a page");
+        rows.iter().find(|row| row["id"] == id).expect("the row")["subject"].clone()
+    };
+    assert_eq!(subject("l-owner"), serde_json::Value::Null, "{listed}");
+    assert_eq!(subject("l-own"), "u7", "{listed}");
+
+    let request = Request::get("/api/v1/move-log/export").header(header::COOKIE, &reader);
+    let exported = app.send_raw(request.body(Body::empty()).unwrap()).await;
+    let bytes = axum::body::to_bytes(exported.into_body(), usize::MAX).await.unwrap();
+    let csv = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(!csv.contains("owner (user-42)") && csv.contains("u7"), "{csv}");
 }
 
 /// A reader reads the instances as a key does: no webhook token, which would post as the Arr.

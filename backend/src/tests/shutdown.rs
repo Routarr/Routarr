@@ -32,6 +32,7 @@ async fn serving_a_slow_request(
         },
         crate::listener::HEADER_READ_TIMEOUT,
         drain,
+        crate::listener::Limits::of(&crate::config::Config::for_tests()),
     ));
     let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
     client.write_all(b"GET /slow HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();

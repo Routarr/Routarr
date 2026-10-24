@@ -17,23 +17,32 @@ async fn every_response_carries_a_request_id() {
     assert!(uuid::Uuid::parse_str(id).is_ok(), "not a uuid: {id}");
 }
 
-/// An id the caller chose is kept: a proxy in front, or a client correlating
-/// its own retries, must be able to follow one id through.
+/// The id a response carries is the one its log lines carry. Chosen by any caller, two requests
+/// could share one, and a failure reported by its id match another's lines: only a listed proxy
+/// keeps the one it sets, when it is short.
 #[tokio::test]
-async fn a_request_id_supplied_by_the_caller_is_propagated() {
-    let app = TestApp::new().await;
-    let response = app
-        .router
-        .clone()
-        .oneshot(
-            Request::get("/api/v1/ping")
-                .header("x-request-id", "trace-4711")
+async fn a_request_id_from_an_untrusted_peer_is_replaced() {
+    let mut config = crate::config::Config::for_tests();
+    config.trusted_proxies = vec![crate::config::Network::parse("172.18.0.2").unwrap()];
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+    let answered = |peer: [u8; 4], id: String| {
+        let router = app.router.clone();
+        async move {
+            let mut request = Request::get("/api/v1/ping")
+                .header("x-request-id", &id)
                 .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.headers().get("x-request-id").unwrap(), "trace-4711");
+                .unwrap();
+            let peer = std::net::SocketAddr::from((peer, 41000));
+            request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+            let response = router.oneshot(request).await.unwrap();
+            response.headers()["x-request-id"].to_str().unwrap().to_string()
+        }
+    };
+
+    assert_ne!(answered([198, 51, 100, 7], "chosen".into()).await, "chosen");
+    assert_eq!(answered([172, 18, 0, 2], "chosen".into()).await, "chosen");
+    let long = "x".repeat(65);
+    assert_ne!(answered([172, 18, 0, 2], long.clone()).await, long);
 }
 
 #[tokio::test]

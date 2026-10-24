@@ -2,7 +2,6 @@
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::sync::Arc;
-use std::time::Instant;
 
 /// Where routing lands when nothing matched and no setting says otherwise.
 pub const DEFAULT_CATEGORY: &str = "standard";
@@ -53,10 +52,9 @@ pub struct AppState {
     pub api_key: Arc<std::sync::RwLock<Option<String>>>,
     /// What `/auth/login` may spend at once ([`crate::services::accounts::SignInThrottle`]).
     pub sign_in: Arc<crate::services::accounts::SignInThrottle>,
-    /// The provider's discovery document, and until when it is kept. `/auth/oidc/start` is public:
-    /// fetched on every call, the document turns each anonymous request into one against the
-    /// identity provider, which rate-limits by address and would lock the operator out.
-    pub oidc_provider: Arc<tokio::sync::RwLock<Option<(crate::services::oidc::Provider, Instant)>>>,
+    /// The provider's discovery document, or why it could not be read, and until when
+    /// (`oidc::DISCOVERY_TTL`).
+    pub oidc_provider: Arc<tokio::sync::RwLock<crate::services::oidc::Described>>,
     /// The work that follows a full sync (enrichment, simulation, auto-apply),
     /// whoever synced: one at a time, and waited for at shutdown
     /// (`jobs::scheduler::follow_sync`).

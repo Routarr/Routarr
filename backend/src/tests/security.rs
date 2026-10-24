@@ -1,11 +1,6 @@
-//! Dynamic penetration tests against the real router.
-//!
-//! Every case drives the assembled `Router` (middleware, extractors and
-//! handlers included) through `oneshot`, exactly as a remote client would. The
-//! point is not to test a function in isolation but to prove the *deployed*
-//! surface holds: that authentication cannot be walked around, that user text
-//! is data and never SQL, that a guessed webhook token fails closed, and that
-//! no response ever carries a decrypted secret.
+//! Penetration tests through the assembled router, as a remote client sends: authentication
+//! cannot be walked around, user text is data and never SQL, a guessed webhook token fails closed,
+//! and no answer carries a decrypted secret.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -41,26 +36,14 @@ async fn delete_with_key(app: &TestApp, path: &str, key: &str) -> super::TestRes
     app.send(Request::delete(path).header("x-api-key", key).body(Body::empty()).unwrap()).await
 }
 
-// ----------------------------------------------------- authentication
-
 /// The template a declared path was probed under, as `GRANTS` and the
 /// contract write it.
 pub(super) fn route_template(path: &str) -> String {
     path.strip_prefix("/api/v1").unwrap_or(path).replace("probe", "{id}")
 }
 
-/// Every route the API declares, read out of `main.rs` itself.
-///
-/// Both routers, not only `protected`: reading that one alone, a route *moved*
-/// into `public` leaves the enumeration with it and the walk below never
-/// notices. What has to be pinned is the small set that answers without a key,
-/// so the check is "everything refuses except these", and moving a route out of
-/// the protected block fails here until somebody adds it to the list on
-/// purpose, which is the review this exists to force.
-///
-/// A list of probes kept by hand goes stale in silence, which is why the e2e
-/// specs are selected by tag and the modal sweep is checked against the files
-/// rendering a `<Modal>`.
+/// Every route the API declares, read out of `main.rs`, both routers: a route moved into
+/// `public` must fail the walk until somebody adds it to `OPEN` on purpose.
 pub(super) fn declared_routes() -> Vec<(&'static str, String)> {
     let block = route_block();
 
@@ -126,14 +109,9 @@ fn the_route_walk_reads_every_declared_route() {
     assert_eq!(parsed.len(), declared, "the walk reads {} of {declared} routes", parsed.len());
 }
 
-/// What answers without a key, and why.
-///
-/// `/ping` is the liveness probe, and `/openapi.json` the contract a client
-/// reads before it holds a key. The shell needs its strings before it can
-/// render an authentication error, and it needs to know which gate to show
-/// before it has anything to show it with. The OIDC pair is outside by
-/// necessity: the browser has no session on the way out and the provider's
-/// redirect carries none on the way back.
+/// What answers without a key: `/ping` for liveness, `/openapi.json` read before a key is held,
+/// what the shell needs to show a gate, and the OIDC pair, since neither leg of the redirect
+/// carries a session.
 pub(super) const OPEN: &[(&str, &str)] = &[
     ("GET", "/api/v1/ping"),
     ("GET", "/api/v1/openapi.json"),
@@ -147,9 +125,6 @@ pub(super) const OPEN: &[(&str, &str)] = &[
     ("POST", "/api/v1/auth/key-session"),
 ];
 
-/// The whole point of the API key is that *every* library-touching route is
-/// behind it. A route reachable without one would be the worst kind of
-/// regression, whichever router it was declared in.
 #[tokio::test]
 async fn every_route_but_the_declared_few_refuses_a_request_with_no_key() {
     let app = TestApp::with_api_key("s3cret").await;
@@ -180,11 +155,8 @@ async fn every_route_but_the_declared_few_refuses_a_request_with_no_key() {
     }
 }
 
-/// And the open few are open, each in a mode that serves it: a list nothing
-/// checks would let one of them be quietly closed, which locks the shell out
-/// of the screen that says why. What the shell reads answers in full. A
-/// sign-in route answers 404 outside its own mode, which proves nothing, so
-/// the password's is asked in `forms` and the provider's pair in `oidc`.
+/// A list nothing checks would let one of them be quietly closed. A sign-in route answers 404
+/// outside its mode, so each is asked in its own.
 #[tokio::test]
 async fn the_open_routes_answer_without_a_key() {
     let keyed = TestApp::with_api_key("s3cret").await;
@@ -339,6 +311,9 @@ async fn a_cross_site_health_request_does_not_probe() {
 
     app.send(health("cross-site")).await.assert_ok();
     assert_eq!(app.count("SELECT COUNT(*) FROM probe_results").await, 0, "probed for another site");
+    // Another port of the same host is the same site, and its pages are another service's.
+    app.send(health("same-site")).await.assert_ok();
+    assert_eq!(app.count("SELECT COUNT(*) FROM probe_results").await, 0, "probed for a neighbour");
 
     app.send(health("same-origin")).await.assert_ok();
     assert!(app.count("SELECT COUNT(*) FROM probe_results").await > 0, "this site's probe ran");
@@ -355,8 +330,6 @@ async fn the_key_header_name_is_case_insensitive() {
         assert_eq!(app.send(request).await.status, StatusCode::OK, "header {name}");
     }
 }
-
-// -------------------------------------------------------- injection
 
 /// The search term flows into a `LIKE ? ESCAPE '\'`. A classic injection, a
 /// wildcard, and the escape character itself must all be treated as data: the
@@ -384,7 +357,6 @@ async fn the_search_parameter_cannot_inject_or_widen() {
         assert_eq!(count, 0, "{term:?} matched something it should not have");
     }
 
-    // And the table really still exists and still holds its row.
     let all = app.get("/api/v1/library").await;
     assert_eq!(all.json["pagination"]["total"], 1);
 }
@@ -448,8 +420,6 @@ async fn rule_condition_values_are_inert() {
     assert_eq!(app.get("/api/v1/library").await.json["pagination"]["total"], 1);
 }
 
-// ------------------------------------------------------ secret leakage
-
 /// An instance's API key is sealed at rest and appears in no answer, in the
 /// clear or sealed: not the creation's, the edit's or the token rotation's,
 /// not the list or the detail. The configuration export holds its own check.
@@ -486,10 +456,7 @@ async fn an_arr_key_never_appears_in_a_response() {
     }
 }
 
-// -------------------------------------------------------- body limit
-
-/// The 2 MiB body cap stops an unauthenticated party from making the server
-/// buffer unbounded input. Above the cap the request is refused, not OOM'd.
+/// The body cap stops an unauthenticated party from making the server buffer unbounded input.
 #[tokio::test]
 async fn an_oversized_body_is_refused() {
     let app = TestApp::new().await;
@@ -505,7 +472,44 @@ async fn an_oversized_body_is_refused() {
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 }
 
-// ------------------------------------------------------- modes
+/// A sign-in needs under a kilobyte, and a peer holding the 512 connections with bodies of the
+/// 2 MiB every other route takes would hold a gigabyte before the first is refused.
+#[tokio::test]
+async fn a_sign_in_body_past_its_size_is_refused() {
+    let (forms, _dir) = forms_app("sign-in-size").await;
+    let keyed = TestApp::with_api_key("a-key-long-enough-for-the-api-key-mode").await;
+    let padding = "A".repeat(32 * 1024);
+    for (app, path, body) in [
+        (&forms, "/api/v1/auth/login", serde_json::json!({ "username": padding, "password": "p" })),
+        (&keyed, "/api/v1/auth/key-session", serde_json::json!({ "key": padding })),
+    ] {
+        let request = Request::post(path)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        assert_eq!(app.send(request).await.status, StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+    }
+}
+
+/// The webhook is the route anyone reaches: its token is checked before its body is read, so
+/// a stranger's body costs nothing and a refusal says nothing about its shape.
+#[tokio::test]
+async fn a_webhook_with_a_wrong_token_is_refused_before_its_body() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let post = |path: &str, body: &'static str| {
+        let request = Request::post(path)
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        app.send(request)
+    };
+
+    let refused = post("/api/v1/webhook/inst-1/wrong-token", "this is not json").await;
+    assert_eq!(refused.status, StatusCode::NOT_FOUND, "{}", refused.json);
+    let read = post("/api/v1/webhook/inst-1/tok", "this is not json").await;
+    assert_eq!(read.status, StatusCode::BAD_REQUEST, "the control: the right token reads it");
+}
 
 /// Only `none` opens the door. Starting open is the one outcome a typo or a
 /// spelling no release documented must never produce: each falls back to the
@@ -548,8 +552,6 @@ async fn external_asks_for_nothing_and_says_so() {
     let warnings = app.get("/api/v1/status").await.assert_ok()["warnings"].to_string();
     assert!(warnings.contains("reverse proxy"), "{warnings}");
 }
-
-// ------------------------------------------------------- forms
 
 /// Each one gets its own data directory: the generated password is written to
 /// `data_dir`, and two of these sharing one would each overwrite the other's
@@ -879,11 +881,8 @@ async fn a_short_password_is_refused_before_it_queues_for_a_hash() {
     }
 }
 
-/// A flood of simultaneous sign-ins must not take the application down with it,
-/// and must not stop the operator signing in either. Unbounded, twenty at once
-/// would run twenty argon2 hashes in parallel, a core and about 19 MiB each,
-/// and a lockout would not bound them, since the failures it counts are
-/// recorded after the hashes they are meant to prevent.
+/// Unbounded, simultaneous sign-ins run as many argon2 hashes at once, a core and many MiB each,
+/// and a lockout counts failures only after their hashes.
 #[tokio::test]
 async fn a_burst_of_sign_ins_is_bounded_and_still_lets_the_password_through() {
     use axum::body::Body;
@@ -994,20 +993,19 @@ async fn a_session_is_honoured_only_by_the_mode_that_opened_it() {
 
     // And the other way: a provider's session presented once the operator has
     // gone back to the local account.
-    sqlx::query(
-        "INSERT INTO sessions (id, subject, source, expires_at)
-         VALUES (?, 'someone', 'oidc', datetime('now', '+1 day'))",
-    )
-    .bind(crate::services::accounts::stored("from-the-provider"))
-    .execute(&oidc.state.pool)
-    .await
-    .unwrap();
-    let provider_cookie = "routarr_session=from-the-provider";
+    let under = crate::api::auth::opened_under(&oidc.state).unwrap();
+    let full = crate::services::accounts::Reach::Full;
+    let id =
+        crate::services::accounts::open_session(&oidc.state.pool, "someone", "oidc", full, &under)
+            .await
+            .unwrap();
+    let provider_cookie = format!("routarr_session={id}");
     let (status, _) =
-        with_session(&oidc, "GET", "/api/v1/status", provider_cookie, serde_json::json!({})).await;
+        with_session(&oidc, "GET", "/api/v1/status", &provider_cookie, serde_json::json!({})).await;
     assert_eq!(status, StatusCode::OK, "the provider's session must work under oidc");
     let (status, _) =
-        with_session(&forms, "GET", "/api/v1/status", provider_cookie, serde_json::json!({})).await;
+        with_session(&forms, "GET", "/api/v1/status", &provider_cookie, serde_json::json!({}))
+            .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "an oidc session got through under forms");
 }
 
@@ -1176,12 +1174,9 @@ async fn write_from(
     app.send(request.body(Body::from("{}")).unwrap()).await.status
 }
 
-/// The mirror of the refusal above, without which "every write with an Origin
-/// is refused" would pass it. A browser on this application says so through
-/// `Origin`, and the write goes through, including behind the proxies people
-/// actually run: nginx sends the upstream's name as `Host` and the public one
-/// as `X-Forwarded-Host`, and a browser omits the default port that a proxy
-/// may write out.
+/// The control of the refusal above, behind the proxies people run: nginx sends the upstream's
+/// name as `Host` and the public one as `X-Forwarded-Host`, and a browser omits a default port a
+/// proxy may write out.
 #[tokio::test]
 async fn a_write_from_this_origin_goes_through_with_the_cookie() {
     let (app, _dir) = forms_app("origin-ok").await;
@@ -1222,11 +1217,8 @@ async fn a_foreign_or_opaque_origin_is_refused_through_a_proxy_too() {
     }
 }
 
-/// Behind a proxy that terminates TLS, a cookie without `Secure` also travels
-/// on a plain `http://` request to the same host. The proxy says which scheme
-/// the browser used through `X-Forwarded-Proto`, and the cookie follows it, on
-/// the way in and on the way out, since a browser will not let an insecure
-/// response clear a secure cookie.
+/// Behind a proxy terminating TLS, the cookie follows the scheme `X-Forwarded-Proto` names, both
+/// ways, since a browser will not let an insecure answer clear a secure cookie.
 #[tokio::test]
 async fn the_session_cookie_is_secure_when_the_browser_came_over_https() {
     use axum::http::header;
@@ -1266,6 +1258,47 @@ async fn the_session_cookie_is_secure_when_the_browser_came_over_https() {
     let cleared = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
     assert!(cleared.contains("; Secure"), "the clearing cookie lost Secure: {cleared}");
     assert!(cleared.contains("Max-Age=0"), "{cleared}");
+}
+
+/// Over TLS at the root of the host the session cookie is named `__Host-`, which no other
+/// subdomain and no plain http page can set, and is read under that name alone. Under a mount
+/// point the prefix cannot be, and the name stays.
+#[tokio::test]
+async fn a_session_over_tls_at_the_root_takes_the_host_prefix() {
+    use axum::http::header;
+
+    for (label, base, name) in [
+        ("host-prefix", "", "__Host-routarr_session"),
+        ("host-prefix-sub", "/r", "routarr_session"),
+    ] {
+        let (app, _dir) = forms_app_under(label, base).await;
+        let body = serde_json::json!({ "username": "admin", "password": generated_password(&app) });
+        let login = Request::post(format!("{base}/api/v1/auth/login"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-forwarded-proto", "https")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = app.send_raw(login).await;
+        let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
+        assert!(cookie.starts_with(&format!("{name}=")), "under {base:?}: {cookie}");
+        assert!(cookie.contains("; Secure") && !cookie.contains("Domain"), "{cookie}");
+        let id = cookie.split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+
+        let status = |cookie: String| {
+            let app = &app;
+            async move {
+                let request = Request::get(format!("{base}/api/v1/auth/me"))
+                    .header(header::COOKIE, cookie)
+                    .header("x-forwarded-proto", "https");
+                app.send(request.body(Body::empty()).unwrap()).await.status
+            }
+        };
+        assert_eq!(status(format!("{name}={id}")).await, StatusCode::OK, "under {base:?}");
+        if base.is_empty() {
+            let unprefixed = format!("routarr_session={id}");
+            assert_eq!(status(unprefixed).await, StatusCode::UNAUTHORIZED, "read unprefixed");
+        }
+    }
 }
 
 /// What the database holds of a session opens nothing: a copy of the file, a
@@ -1480,6 +1513,55 @@ async fn the_password_changes_only_against_the_current_one() {
     )
     .await
     .assert_ok();
+
+    // Outside `forms` no sign-in reads the account, whatever row an earlier run left behind.
+    let key = "a-key-long-enough-for-the-api-key-mode";
+    let keyed = TestApp::with_api_key(key).await;
+    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ('u-1', 'admin', ?)")
+        .bind(crate::services::accounts::hash_password("a much longer one").unwrap())
+        .execute(&keyed.state.pool)
+        .await
+        .unwrap();
+    let change =
+        serde_json::json!({ "current": "a much longer one", "new_password": "another long one" });
+    let request = Request::put("/api/v1/auth/password")
+        .header("x-api-key", key)
+        .header("content-type", "application/json")
+        .body(Body::from(change.to_string()))
+        .unwrap();
+    keyed.send(request).await.assert_status(StatusCode::NOT_FOUND);
+}
+
+/// Behind a session the current password is a guess like a sign-in's, from a cookie left on a
+/// shared machine or copied: five wrong ones hold the address back here and at the sign-in.
+#[tokio::test]
+async fn wrong_current_passwords_count_toward_the_wait_of_their_address() {
+    let (app, _dir) = forms_app("password-guesses").await;
+    let password = generated_password(&app);
+    let session = sign_in(&app, &password).await;
+    let change = |current: &str| {
+        let body = serde_json::json!({ "current": current, "new_password": "a guess of length" });
+        let mut request = Request::put("/api/v1/auth/password")
+            .header("content-type", "application/json")
+            .header("cookie", &session)
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([198, 51, 100, 7], 1))));
+        request
+    };
+    for _ in 0..5 {
+        app.send(change("not the password at all")).await.assert_status(StatusCode::FORBIDDEN);
+    }
+
+    let held = app.send_raw(change(&password)).await;
+    assert_eq!(held.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(held.headers().contains_key(axum::http::header::RETRY_AFTER));
+    let (_, hash) = crate::services::accounts::account(&app.state.pool).await.unwrap().unwrap();
+    assert!(crate::services::accounts::verify_password(&password, &hash), "it was changed");
+    let login = app.send(sign_in_from([198, 51, 100, 7], &password)).await;
+    assert_eq!(login.status, StatusCode::TOO_MANY_REQUESTS, "{}", login.json);
 }
 
 /// The shell has to learn which gate to show before it can show one.
@@ -1509,20 +1591,9 @@ async fn the_mode_says_whether_a_key_exists_at_all() {
     assert_eq!(mode["api_key_pinned"], true);
 }
 
-// ------------------------------------------------------- panics
-
-/// A handler that panics has to answer.
-///
-/// Without a catch layer the connection is dropped: no status, no body, and no
-/// `X-Request-Id`, so the caller cannot tell a bug from a cut cable, and the
-/// one identifier that ties a failure on screen to its line in the log never
-/// reaches them. The panic is still logged, and what changes is that somebody
-/// is told.
-///
-/// The handler sits inside `request_layers`, the stack `build_router` wraps
-/// every API route in, so what this pins is that stack's order: the catch
-/// layer inside the request-id layers, so the id still reaches a response the
-/// handler never produced.
+/// Without a catch layer a panic drops the connection, with no status and no `X-Request-Id` to
+/// find its line in the log. The handler sits inside `request_layers`, so this pins the catch
+/// layer inside the request-id layers.
 #[tokio::test]
 async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
     use axum::routing::get;
@@ -1534,7 +1605,7 @@ async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
         panic!("a handler that panics is a bug, not a disconnection")
     }
 
-    let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)));
+    let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)), &[]);
 
     let response = router
         .oneshot(Request::get("/boom").body(Body::empty()).unwrap())
@@ -1570,13 +1641,14 @@ async fn a_panicking_handler_is_logged_under_its_request_id() {
     let subscriber = tracing_subscriber::fmt().json().with_writer(captured.clone()).finish();
     let logging = tracing::subscriber::set_default(subscriber);
 
-    let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)));
-    let request = Request::get("/boom").header("x-request-id", "req-42").body(Body::empty());
+    let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)), &[]);
+    let request = Request::get("/boom").body(Body::empty());
     let response = router.oneshot(request.unwrap()).await.unwrap();
     // A failed assertion below panics through the same hook, and while the
     // capture is the default its message would go there instead of the report.
     drop(logging);
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let id = response.headers()["x-request-id"].to_str().unwrap().to_string();
 
     let log = captured.contents();
     let line = log
@@ -1585,10 +1657,8 @@ async fn a_panicking_handler_is_logged_under_its_request_id() {
         .unwrap_or_else(|| panic!("the panic is not in the log: {log}"));
     let line: serde_json::Value = serde_json::from_str(line).expect("a JSON line");
     assert_eq!(line["level"], "ERROR", "{line}");
-    assert_eq!(line["span"]["id"], "req-42", "{line}");
+    assert_eq!(line["span"]["id"], id.as_str(), "{line}");
 }
-
-// --------------------------------------------------- rotation
 
 /// An `apikey` installation whose key is the stored one rather than a pinned
 /// variable, which is the ordinary case, and the only one that can rotate.
@@ -1690,14 +1760,9 @@ async fn a_key_the_environment_pins_is_not_rotated_here() {
     assert_eq!(get_with_key(&app, "/api/v1/status", "pinned").await, StatusCode::OK);
 }
 
-// ------------------------------------------------------- webhook auth
-
-/// The webhook token is the only guard on the one unauthenticated route. It is
-/// compared in constant time. An empty stored token, a wrong token, a prefix
-/// of the right one or the right one extended, and a token for the wrong
-/// instance must all fail closed as a 404, which also refuses to confirm
-/// whether the instance exists. A prefix accepted would make the token one
-/// character long, found in a few dozen tries.
+/// The token is the one guard on the one unauthenticated route. A prefix accepted would make it
+/// one character long, found in a few dozen tries, and each refusal is a 404 that confirms no
+/// instance.
 #[tokio::test]
 async fn a_webhook_token_fails_closed() {
     let app = TestApp::new().await;
@@ -1756,8 +1821,6 @@ async fn a_webhook_token_fails_closed() {
     }
 }
 
-// ------------------------------------------------------------- helpers
-
 /// Percent-encode a query value. Small and dependency-free: only the bytes that
 /// actually break a query string are escaped.
 fn urlencode(input: &str) -> String {
@@ -1801,11 +1864,7 @@ async fn a_webhook_for_a_disabled_instance_changes_nothing() {
     assert!(arr.recorded().api_keys.is_empty(), "a disabled instance was contacted");
 }
 
-// -------------------------------------------------------- response headers
-
-/// The API key lives in the browser's `localStorage`, so an injected script is
-/// the one thing that could hand it to someone else. These headers are what
-/// stops that being a single point of failure.
+/// An injected script acts with the page's session, so the policy keeps scripts to the origin.
 #[tokio::test]
 async fn every_response_carries_a_content_security_policy() {
     let app = TestApp::new().await;
@@ -1819,7 +1878,6 @@ async fn every_response_carries_a_content_security_policy() {
         .unwrap()
         .to_string();
 
-    // The directive that actually protects the key.
     assert!(csp.contains("script-src 'self'"), "scripts are not locked to the origin: {csp}");
     // No framing, no plugin objects, no form posting elsewhere.
     assert!(csp.contains("frame-ancestors 'none'"));
@@ -1831,6 +1889,9 @@ async fn every_response_carries_a_content_security_policy() {
     // Severs `window.opener` both ways, so a page on either side of an
     // `open()` cannot reach into this one's window.
     assert_eq!(response.headers().get("cross-origin-opener-policy").unwrap(), "same-origin");
+    // Another port's page is same-site: its `<img>` would load an archive with the owner's cookie.
+    let resource = response.headers().get("cross-origin-resource-policy");
+    assert_eq!(resource.map(|v| v.to_str().unwrap()), Some("same-origin"));
 }
 
 /// A self-hosted application that fetches anything from a third party tells that
@@ -1846,8 +1907,6 @@ async fn the_policy_permits_no_external_origin() {
     assert!(!csp.contains("http://"), "an external origin is allowed: {csp}");
     assert!(!csp.contains("https://"), "an external origin is allowed: {csp}");
 }
-
-// ------------------------------------------------------------------ logging
 
 /// A Discord or Slack webhook URL carries its secret in the path: whoever reads
 /// it can post to the channel. A notification that fails is logged at every
@@ -1914,11 +1973,8 @@ async fn the_credentials_in_an_arr_address_never_reach_the_log() {
     assert!(!log.contains("proxy-pass-5f1c"), "the password is in the log:\n{log}");
 }
 
-/// The token is the only credential of the only unauthenticated route, and the
-/// request span is on every line logged while a delivery is served, the error
-/// line an operator pastes into a ticket included. With it, anyone reading the
-/// log can trigger a sync, an enrichment and a simulation, and a write when
-/// auto-apply is armed.
+/// The request span is on every line a delivery logs, so a token in it would let anyone reading
+/// the log trigger a sync, and a write when automatic application is armed.
 #[tokio::test]
 async fn the_webhook_token_never_reaches_the_log() {
     use tracing::instrument::WithSubscriber;

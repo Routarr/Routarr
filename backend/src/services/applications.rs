@@ -345,12 +345,7 @@ pub async fn revoke_all(pool: &SqlitePool) -> AppResult<u64> {
 }
 
 /// What a presented token allows. An expiry is told only once the secret matched, so a token
-/// guessed for a known id learns nothing.
-///
-/// The last use is written at most once a minute, off the request: a caller
-/// polling every second would otherwise put a write behind each read, and a
-/// read that waits on a sync's transaction for a timestamp is a read nobody
-/// asked to slow down.
+/// guessed for a known id learns nothing. The last use is written off the request.
 pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Resolved> {
     let Some((id, secret)) = token.strip_prefix(TOKEN_PREFIX).and_then(|rest| rest.split_once('_'))
     else {
@@ -459,8 +454,6 @@ fn last_use_due(last: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> bool 
 mod tests {
     use super::*;
 
-    /// A use within the minute of the last one recorded leaves it, and one
-    /// past it, or after none or one that does not read, is recorded.
     #[test]
     fn a_use_is_recorded_once_a_minute_at_most() {
         let now = crate::services::routing::parse_timestamp("2026-10-11 12:00:00").unwrap();

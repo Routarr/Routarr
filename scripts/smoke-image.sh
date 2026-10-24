@@ -177,8 +177,12 @@ fi
 ok "leaves /app read-only to uid 1000"
 
 # The way back in for a locked-out operator, run where the README says, with
-# the server still running: the image carries no sqlite3 to do it by hand.
-reset=$(docker exec "$NAME" /app/routarr reset-account) || fail "reset-account failed"
+# the server still running: the image carries no sqlite3 to do it by hand. The
+# image signs in with a key, where a reset needs --force.
+if docker exec "$NAME" /app/routarr reset-account >/dev/null 2>&1; then
+  fail "reset-account reset an account no sign-in reads, without --force"
+fi
+reset=$(docker exec "$NAME" /app/routarr reset-account --force) || fail "reset-account failed"
 grep -qF 'The account is reset' <<<"$reset" || fail "reset-account printed no new password"
 docker exec "$NAME" test -s /config/routarr.password || fail "reset-account wrote no password file"
 ok "\`/app/routarr reset-account\` gives the account a new password"

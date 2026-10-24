@@ -863,6 +863,13 @@ impl LogCapture {
     pub fn contents(&self) -> String {
         String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
     }
+
+    /// A dispatcher writing here the text log the process writes.
+    pub fn as_the_process_logs(&self) -> tracing::Dispatch {
+        use tracing_subscriber::layer::SubscriberExt;
+        let layer = crate::logging::text_layer(self.clone(), false);
+        tracing::Dispatch::new(tracing_subscriber::registry().with(layer))
+    }
 }
 
 impl std::io::Write for LogCapture {

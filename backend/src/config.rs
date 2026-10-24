@@ -187,6 +187,25 @@ impl Network {
     }
 }
 
+/// What a start says of the ranges `ROUTARR_TRUSTED_PROXIES` lists: every peer inside one
+/// chooses the address its sign-ins count against.
+fn proxy_range_notes(proxies: &[Network]) -> Vec<String> {
+    let ranges: Vec<String> = proxies
+        .iter()
+        .filter(|network| network.prefix < if network.base.is_ipv4() { 32 } else { 128 })
+        .map(|network| format!("{}/{}", network.base, network.prefix))
+        .collect();
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    vec![format!(
+        "ROUTARR_TRUSTED_PROXIES lists {}: every peer inside, each container of a shared Docker \
+         network included, chooses the address its sign-ins are counted against. List the \
+         proxy's own address instead",
+        ranges.join(", ")
+    )]
+}
+
 /// A metadata source's root, refused at start when it is no address a request
 /// can go to: a typo would only ever show as the source being unreachable.
 fn validate_source_root(variable: &str, root: &str) -> AppResult<()> {
@@ -564,6 +583,24 @@ impl Config {
         }
         let (log_filter, note) = log_filter_from(non_empty("RUST_LOG"));
         startup_notes.extend(note);
+        let trusted_proxies = non_empty("ROUTARR_TRUSTED_PROXIES")
+            .map(|v| {
+                v.split(',')
+                    .map(str::trim)
+                    .filter(|entry| !entry.is_empty())
+                    .map(|entry| {
+                        Network::parse(entry).ok_or_else(|| {
+                            AppError::Config(format!(
+                                "'{entry}' in ROUTARR_TRUSTED_PROXIES is neither an IP address \
+                                 nor a range such as 172.18.0.0/16"
+                            ))
+                        })
+                    })
+                    .collect::<AppResult<Vec<_>>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        startup_notes.extend(proxy_range_notes(&trusted_proxies));
         Ok(Self {
             host: env_or("ROUTARR_HOST", "0.0.0.0"),
             port: env_parse("ROUTARR_PORT", 9876)?,
@@ -591,23 +628,7 @@ impl Config {
             oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
             oidc_allow_anyone: env_parse("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
             cors_origins: origins_from(non_empty("ROUTARR_CORS_ORIGINS")),
-            trusted_proxies: non_empty("ROUTARR_TRUSTED_PROXIES")
-                .map(|v| {
-                    v.split(',')
-                        .map(str::trim)
-                        .filter(|entry| !entry.is_empty())
-                        .map(|entry| {
-                            Network::parse(entry).ok_or_else(|| {
-                                AppError::Config(format!(
-                                    "'{entry}' in ROUTARR_TRUSTED_PROXIES is neither an IP address \
-                                     nor a range such as 172.18.0.0/16"
-                                ))
-                            })
-                        })
-                        .collect::<AppResult<Vec<_>>>()
-                })
-                .transpose()?
-                .unwrap_or_default(),
+            trusted_proxies,
             allowed_hosts: non_empty("ROUTARR_ALLOWED_HOSTS")
                 .map(|v| {
                     v.split(',')
@@ -894,6 +915,29 @@ impl Config {
     /// one is copied into a client, the other never leaves the host.
     pub fn api_key_path(&self) -> PathBuf {
         self.data_dir.join("routarr.api_key")
+    }
+
+    /// A digest of who the OIDC settings let in and how far, which an OIDC session is bound
+    /// to: a restart that changes any of them ends the sessions opened before. The order a
+    /// list is written in lets nobody else in, so it is left out.
+    pub fn oidc_access_digest(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let sorted = |names: &[String]| {
+            let mut names = names.to_vec();
+            names.sort();
+            names
+        };
+        let access = serde_json::json!([
+            self.oidc_issuer,
+            sorted(&self.oidc_allowed_subjects),
+            sorted(&self.oidc_allowed_groups),
+            sorted(&self.oidc_read_subjects),
+            sorted(&self.oidc_read_groups),
+            self.oidc_groups_claim,
+            self.oidc_allow_anyone,
+        ]);
+        let digest = Sha256::digest(access.to_string().as_bytes());
+        digest.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     /// Config used by tests: in-memory database, no external calls.
@@ -1380,6 +1424,21 @@ mod tests {
         for refused in ["172.18.0.0/33", "fd00::/129", "proxy", "172.18.0.0/", ""] {
             assert!(Network::parse(refused).is_none(), "{refused}");
         }
+    }
+
+    /// A range trusts every peer inside it, each container of a shared Docker network among
+    /// them, to say which address a sign-in comes from: said at start, as an open mode is.
+    #[test]
+    fn a_trusted_range_is_said_at_start_and_one_address_is_not() {
+        let notes = |entries: &[&str]| {
+            proxy_range_notes(
+                &entries.iter().map(|e| Network::parse(e).unwrap()).collect::<Vec<_>>(),
+            )
+        };
+        let said = notes(&["172.18.0.2", "172.18.0.0/16"]);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("172.18.0.0/16") && said[0].contains("ROUTARR_TRUSTED_PROXIES"));
+        assert!(notes(&["172.18.0.2", "fd00::2/128"]).is_empty());
     }
 
     #[test]

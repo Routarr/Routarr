@@ -11,10 +11,8 @@ import type { SecurityEvent } from '../api/types';
 import SecurityLog from './SecurityLog.svelte';
 
 /**
- * Who signed in, who was refused, and who changed a key or a setting. The
- * server sends what happened as a key and its parameters, so the sentence is
- * read in the reader's language: rendered as sent, the screen would show
- * `AuditSignedIn`.
+ * The server sends what happened as a key and its parameters, read in the reader's language:
+ * rendered as sent, the screen would show `AuditSignedIn`.
  */
 
 function event(over: Partial<SecurityEvent> = {}): SecurityEvent {

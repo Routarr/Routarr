@@ -1,12 +1,13 @@
 //! Accepting connections, and serving each one with a deadline on its headers.
 //!
 //! The port is often published straight to the network: a peer that never finishes its
-//! headers would hold a task and a descriptor each until none are left. A slow body is
-//! bounded by [`crate::BODY_DEADLINE`].
+//! headers, or keeps its connections busy, would hold every place. A slow body is bounded by
+//! [`crate::BODY_DEADLINE`].
 
+use std::collections::HashMap;
 use std::future::Future;
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
@@ -19,6 +20,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tower::ServiceExt;
 
+use crate::services::accounts::{ClientShare, bucket};
+
 /// How long a client has to send a request's headers, the first one and each
 /// one after on a kept-alive connection.
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -28,9 +31,92 @@ pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// grace, which a runtime ends with SIGKILL.
 pub const DRAIN: Duration = Duration::from_secs(5);
 
-/// How many connections are served at once. The next one waits in the
-/// kernel's backlog rather than taking a descriptor of its own.
+/// How many connections are served at once.
 const MAX_CONNECTIONS: usize = 512;
+
+/// How many of them one client holds once half are taken, far above the six a browser opens.
+const PER_CLIENT_CONNECTIONS: usize = 32;
+
+/// The places kept for `routarr healthcheck` once every other is taken.
+const HEALTH_CHECK_PLACES: usize = 4;
+
+/// What the listener serves at once.
+#[derive(Debug, Clone)]
+pub struct Limits {
+    pub connections: usize,
+    /// What one address, an IPv6 one by its /64, holds once half the connections are taken.
+    pub per_client: usize,
+    /// The reverse proxies of `ROUTARR_TRUSTED_PROXIES`, which carry every client and hold
+    /// no share.
+    pub proxies: Vec<crate::config::Network>,
+}
+
+impl Limits {
+    pub fn of(config: &crate::config::Config) -> Self {
+        Self {
+            connections: MAX_CONNECTIONS,
+            per_client: PER_CLIENT_CONNECTIONS,
+            proxies: config.trusted_proxies.clone(),
+        }
+    }
+}
+
+/// The places a connection takes, and the share of its client.
+struct Places {
+    open: Arc<Semaphore>,
+    health_check: Arc<Semaphore>,
+    by_client: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    limits: Limits,
+}
+
+/// What a served connection holds until it ends.
+struct Place {
+    _permit: OwnedSemaphorePermit,
+    _share: Option<ClientShare>,
+}
+
+impl Places {
+    fn new(limits: Limits) -> Self {
+        Self {
+            open: Arc::new(Semaphore::new(limits.connections)),
+            health_check: Arc::new(Semaphore::new(HEALTH_CHECK_PLACES)),
+            by_client: Arc::default(),
+            limits,
+        }
+    }
+
+    /// The place `peer` is served in, or `None` to close it unanswered. Below half the places
+    /// taken nobody is held to a share, so where every client shows one address, as behind
+    /// Docker Desktop or rootless Docker, nobody is refused short of that.
+    fn admit(&self, permit: Permit, peer: IpAddr) -> Option<Place> {
+        let permit = match permit {
+            Permit::Open(permit) => permit,
+            Permit::HealthCheck(permit) => {
+                return health_check(peer).then_some(Place { _permit: permit, _share: None });
+            }
+        };
+        if self.limits.proxies.iter().any(|proxy| proxy.contains(peer)) {
+            return Some(Place { _permit: permit, _share: None });
+        }
+        let taken = self.limits.connections - self.open.available_permits() - 1;
+        let crowded = taken >= self.limits.connections / 2;
+        let at_most = if crowded { self.limits.per_client } else { usize::MAX };
+        let share = ClientShare::take(&self.by_client, bucket(peer), at_most)?;
+        Some(Place { _permit: permit, _share: Some(share) })
+    }
+}
+
+/// Where the image's health check comes from. It reaches the loopback only while the server
+/// binds every address (`Config::ping_url`), as the image does: bound to one address, the
+/// probe goes there.
+fn health_check(peer: IpAddr) -> bool {
+    matches!(peer.to_canonical(), IpAddr::V4(Ipv4Addr::LOCALHOST) | IpAddr::V6(Ipv6Addr::LOCALHOST))
+}
+
+enum Permit {
+    Open(OwnedSemaphorePermit),
+    HealthCheck(OwnedSemaphorePermit),
+}
 
 /// Serve `app` until `shutdown` resolves, then let the open connections
 /// finish, for `drain` at most or until `hurry` resolves. A probe of a host
@@ -46,8 +132,9 @@ pub async fn serve(
     hurry: impl Future<Output = ()>,
     header_read_timeout: Duration,
     drain: Duration,
+    limits: Limits,
 ) {
-    let open = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let places = Places::new(limits);
     let graceful = GracefulShutdown::new();
     let mut builder = http1::Builder::new();
     builder.timer(TokioTimer::new()).header_read_timeout(header_read_timeout);
@@ -55,10 +142,14 @@ pub async fn serve(
     tokio::pin!(shutdown);
     loop {
         let accepted = tokio::select! {
-            accepted = accept(&listener, &open) => accepted,
+            accepted = accept(&listener, &places) => accepted,
             () = &mut shutdown => break,
         };
         let Some((permit, stream, peer)) = accepted else { continue };
+        let Some(place) = places.admit(permit, peer.ip()) else {
+            tracing::debug!("A connection from {peer} was closed: its client holds its share");
+            continue;
+        };
 
         let service = app.clone().map_request(
             move |mut request: axum::http::Request<hyper::body::Incoming>| {
@@ -73,7 +164,7 @@ pub async fn serve(
             if let Err(e) = connection.await {
                 tracing::debug!("A connection from {peer} ended: {e}");
             }
-            drop(permit);
+            drop(place);
         });
     }
     let cut = async {
@@ -88,14 +179,20 @@ pub async fn serve(
     }
 }
 
-/// The next connection, once one of the places is free. `None` when the
-/// accept failed, after a pause when the failure is the process's and not the
-/// peer's: out of descriptors, accepting again at once only spins.
+/// The next connection, once a place is free, else one kept for the health check, which waits
+/// in the kernel's backlog meanwhile. `None` when the accept failed, after a pause when the
+/// failure is the process's: out of descriptors, accepting again at once only spins.
 async fn accept(
     listener: &TcpListener,
-    open: &Arc<Semaphore>,
-) -> Option<(OwnedSemaphorePermit, TcpStream, SocketAddr)> {
-    let permit = Arc::clone(open).acquire_owned().await.ok()?;
+    places: &Places,
+) -> Option<(Permit, TcpStream, SocketAddr)> {
+    let permit = tokio::select! {
+        biased;
+        permit = Arc::clone(&places.open).acquire_owned() => Permit::Open(permit.ok()?),
+        permit = Arc::clone(&places.health_check).acquire_owned() => {
+            Permit::HealthCheck(permit.ok()?)
+        }
+    };
     match listener.accept().await {
         Ok((stream, peer)) => Some((permit, stream, peer)),
         Err(e) if is_the_peers(&e) => None,
