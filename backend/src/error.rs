@@ -208,7 +208,7 @@ pub enum Upstream {
     Http,
     /// An answer of 200 whose body refuses.
     RefusedWith200,
-    /// The requests the source allows today are spent.
+    /// The source allows no more requests today: a daily quota spent, or an address it blocked.
     QuotaSpent,
     /// The Arr's answer to a write does not show it made.
     NotListed,

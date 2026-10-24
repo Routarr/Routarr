@@ -360,7 +360,7 @@ impl FetchingSource {
             {
                 Some((30, 2))
             }
-            // Tenrai publishes no rate: three a second and sixty a minute, the minute binding.
+            // Under Tenrai's four a second and 120 a minute per address, which others may share.
             Self::Tenrai(client)
                 if client.base_url() == crate::integrations::tenrai::DEFAULT_BASE_URL =>
             {
@@ -379,7 +379,10 @@ impl FetchingSource {
             {
                 Some((300, 10))
             }
-            // TMDB's forty a second is above what concurrency allows, and TheTVDB publishes none.
+            // TMDB states about forty a second, paced under it here, and TheTVDB states none.
+            Self::Tmdb(client) if client.base_url() == crate::config::DEFAULT_TMDB_BASE_URL => {
+                Some((2_000, 20))
+            }
             _ => None,
         }
     }
@@ -394,6 +397,27 @@ impl FetchingSource {
             }
             _ => None,
         }
+    }
+
+    /// Whether this source refuses Routarr until the next UTC day: Tenrai once it blocked the
+    /// address. A spent quota is read from its count, by [`FetchingSource::daily_quota`].
+    pub async fn is_held_today(&self, pool: &SqlitePool) -> bool {
+        match self {
+            Self::Tenrai(_) => crate::services::quota::DayHold::new(TENRAI).holds(pool).await,
+            _ => false,
+        }
+    }
+
+    /// Close today for this source, which refused for the rest of it
+    /// ([`crate::integrations::is_quota_spent`]): OMDb's quota counted spent, Tenrai held back.
+    pub async fn close_the_day(&self, pool: &SqlitePool) -> AppResult<()> {
+        if let Some(quota) = self.daily_quota() {
+            quota.exhaust(pool).await?;
+        }
+        if let Self::Tenrai(_) = self {
+            crate::services::quota::DayHold::new(TENRAI).begin(pool).await?;
+        }
+        Ok(())
     }
 
     /// Pace `pace` after an answer of this source: to the wait a refusal named,
@@ -430,32 +454,25 @@ impl FetchingSource {
         }
     }
 
-    /// [`FetchingSource::resolve`], a search the source refuses for this
-    /// title read as one that found nothing ([`is_a_miss`]).
+    /// [`FetchingSource::resolve`], a search the source refuses for this title ([`is_a_miss`])
+    /// told apart from one that matched nothing.
     pub async fn find(
         &self,
         title: &str,
         year: Option<i64>,
         media_type: &str,
-    ) -> AppResult<Option<String>> {
-        match self.resolve(title, year, media_type).await {
-            Err(error) if is_a_miss(&error) => Ok(None),
-            other => other,
-        }
+    ) -> AppResult<Answer<Option<String>>> {
+        answered(self.resolve(title, year, media_type).await)
     }
 
-    /// [`FetchingSource::fetch`], a title the source refuses ([`is_a_miss`]) answered `None`, which
-    /// is stored as an empty answer.
+    /// [`FetchingSource::fetch`], a title the source refuses ([`is_a_miss`]) told apart, which is
+    /// stored as an empty answer.
     pub async fn fetched(
         &self,
         external_id: &str,
         media_type: &str,
-    ) -> AppResult<Option<ProviderMetadata>> {
-        match self.fetch(external_id, media_type).await {
-            Ok(answer) => Ok(Some(answer)),
-            Err(error) if is_a_miss(&error) => Ok(None),
-            Err(error) => Err(error),
-        }
+    ) -> AppResult<Answer<ProviderMetadata>> {
+        answered(self.fetch(external_id, media_type).await)
     }
 
     /// This source's identifier for an item it shares no id with. `None` when nothing matched,
@@ -466,9 +483,10 @@ impl FetchingSource {
         year: Option<i64>,
         media_type: &str,
     ) -> AppResult<Option<String>> {
+        let searched = searched_title(title, year);
         match self {
             Self::AniList(client) => {
-                let candidates = client.search(title, media_type).await?;
+                let candidates = client.search(searched, media_type).await?;
                 Ok(pick_candidate(
                     title,
                     year,
@@ -476,7 +494,7 @@ impl FetchingSource {
                 ))
             }
             Self::Tenrai(client) => {
-                let candidates = client.search(title, media_type).await?;
+                let candidates = client.search(searched, media_type).await?;
                 Ok(pick_candidate(
                     title,
                     year,
@@ -484,7 +502,7 @@ impl FetchingSource {
                 ))
             }
             Self::MyAnimeList(client) => {
-                let candidates = client.search(title, media_type).await?;
+                let candidates = client.search(searched, media_type).await?;
                 Ok(pick_candidate(
                     title,
                     year,
@@ -601,10 +619,42 @@ pub fn is_a_miss(error: &AppError) -> bool {
     matches!(error, AppError::ExternalApi { status: 400 | 404 | 410 | 422, .. })
 }
 
+/// What a source answered about one title. A refusal reads as about the title only while the
+/// source answers other requests: a pass holds it until then (`enrichment`).
+#[derive(Debug)]
+pub enum Answer<T> {
+    Said(T),
+    /// A refusal [`is_a_miss`] reads as about this title, with its status.
+    Refused(u16),
+}
+
+fn answered<T>(outcome: AppResult<T>) -> AppResult<Answer<T>> {
+    match outcome {
+        Ok(said) => Ok(Answer::Said(said)),
+        Err(error) => match (&error, is_a_miss(&error)) {
+            (AppError::ExternalApi { status, .. }, true) => Ok(Answer::Refused(*status)),
+            _ => Err(error),
+        },
+    }
+}
+
 fn numeric(external_id: &str, service: &str) -> AppResult<i64> {
     external_id.parse().map_err(|_| {
         crate::error::AppError::BadRequest(format!("'{external_id}' is not a {service} identifier"))
     })
+}
+
+/// The title a source is searched by: without the year in parentheses an Arr adds to tell a
+/// remake from its namesake, "Dororo (2019)", which no source writes, when it agrees with the
+/// library year within one.
+fn searched_title(title: &str, year: Option<i64>) -> &str {
+    let disambiguated = title.trim_end().strip_suffix(')').and_then(|rest| rest.rsplit_once('('));
+    let Some((bare, suffix)) = disambiguated else { return title };
+    let bare = bare.trim_end();
+    let agrees = suffix.len() == 4
+        && suffix.bytes().all(|digit| digit.is_ascii_digit())
+        && year.is_none_or(|year| suffix.parse::<i64>().is_ok_and(|said| (year - said).abs() <= 1));
+    if agrees && !bare.is_empty() { bare } else { title }
 }
 
 /// Accept a candidate only on an exact title match and a year that agrees. A search is where a
@@ -618,9 +668,11 @@ where
     if wanted.is_empty() {
         return None;
     }
+    let bare = normalise_value(searched_title(title, year));
 
     for (id, candidate_year, titles) in candidates {
-        let title_matches = titles.iter().any(|t| normalise_value(t) == wanted);
+        let title_matches =
+            titles.iter().map(|t| normalise_value(t)).any(|t| t == wanted || t == bare);
         // A year drifts by one between databases: a December film is a January one elsewhere.
         let year_matches = match (year, candidate_year) {
             (Some(wanted), Some(found)) => (wanted - found).abs() <= 1,
@@ -741,7 +793,7 @@ pub async fn load_identifiers_of(
 /// How long a search that found nothing for `key` holds: thirty days and up to ten more, the
 /// same for a key each time. A work is often listed late, but every miss searched each pass would
 /// hold a paced enrichment for hours, and one shared lifetime would bring them all due at once.
-fn miss_lifetime(key: &str) -> chrono::Duration {
+pub(crate) fn miss_lifetime(key: &str) -> chrono::Duration {
     use sha2::Digest;
     let spread = sha2::Sha256::digest(key.as_bytes())[0] % 11;
     chrono::Duration::days(30 + i64::from(spread))
@@ -1241,6 +1293,16 @@ mod tests {
             totoro("second", Some(1988)),
         ];
         assert_eq!(pick_candidate("Totoro", Some(1988), several), Some("first".into()));
+
+        // The Arr marks a remake by its year in parentheses, which no source's title carries.
+        let dororo = |year| [("a-1".to_string(), year, vec!["Dororo".to_string()])];
+        assert_eq!(
+            pick_candidate("Dororo (2019)", Some(2019), dororo(Some(2019))),
+            Some("a-1".into())
+        );
+        assert_eq!(pick_candidate("Dororo (2019)", Some(2019), dororo(Some(1969))), None);
+        assert_eq!(pick_candidate("Dororo (2019)", Some(1969), dororo(Some(1969))), None);
+        assert_eq!(pick_candidate("Dororo (2019)", None, dororo(Some(2019))), Some("a-1".into()));
     }
 
     #[test]

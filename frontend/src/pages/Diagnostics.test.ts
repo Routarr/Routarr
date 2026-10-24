@@ -129,6 +129,38 @@ describe('Diagnostics', () => {
     expect(within(rows[2] as HTMLElement).getByText('Connected')).toBeTruthy();
   });
 
+  /** A source its pace or its day's quota holds back answers again on its own: no error. */
+  it('reads a source held back by its pace or its quota apart from a broken one', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      withProviders([
+        {
+          id: 'tenrai',
+          display_name: 'Tenrai (MyAnimeList)',
+          needs_key: false,
+          configured: true,
+          connected: false,
+          reason: 'rate_limited',
+        },
+        {
+          id: 'omdb',
+          display_name: 'OMDb',
+          needs_key: true,
+          configured: true,
+          connected: false,
+          reason: 'quota_spent',
+        },
+      ]),
+    );
+    const { container } = show();
+
+    await screen.findByText('OMDb');
+    for (const row of container.querySelectorAll('.source-row')) {
+      const badge = within(row as HTMLElement).getByText('Held back');
+      expect(badge.classList.contains('badge-warning')).toBe(true);
+    }
+    expect(screen.queryByText('Error')).toBeNull();
+  });
+
   /**
    * A source that is configured and was never probed is active, not connected:
    * `arr` answers from the row the sync already wrote and makes no request, so

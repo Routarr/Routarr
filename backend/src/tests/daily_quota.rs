@@ -1,10 +1,6 @@
-//! OMDb's daily quota: one count every caller takes from, and what the
-//! interface says once it is spent.
-//!
-//! A free key answers 1,000 requests a UTC day and refuses every one after,
-//! until midnight. A library larger than that is covered only if each day's
-//! requests go to the titles never asked first, and only if the probes and
-//! the lookups do not spend them.
+//! OMDb's daily quota: one count every caller takes from, and what the interface says once spent.
+//! A free key answers 1,000 requests a UTC day, so a larger library is covered only if each day
+//! goes first to the titles never asked.
 
 use std::collections::HashSet;
 
@@ -52,9 +48,7 @@ async fn enrich(app: &TestApp) -> EnrichmentReport {
     enrichment::enrich_all_media(&app.state, &Attribution::manual(None)).await.unwrap()
 }
 
-/// A day's quota goes to the titles never asked, then to the stalest answers:
-/// asked in the order the table happens to hold them, the same titles would be
-/// refreshed each day and the rest never reached.
+/// In table order, the same titles would be refreshed each day and the rest never reached.
 #[tokio::test]
 async fn titles_never_asked_come_before_refreshes_the_stalest_first() {
     let sources = FakeSources::start().await;
@@ -79,8 +73,6 @@ async fn titles_never_asked_come_before_refreshes_the_stalest_first() {
     assert_eq!(omdb_asked(&sources), never_asked.chain(stalest).collect::<HashSet<_>>());
 }
 
-/// The count stops a pass before OMDb refuses anything, the next pass of the
-/// day asks nothing, and the next day starts a count of its own.
 #[tokio::test]
 async fn a_pass_stops_at_the_daily_quota_and_the_rest_waits_for_the_next_day() {
     let sources = FakeSources::start().await;
@@ -100,9 +92,7 @@ async fn a_pass_stops_at_the_daily_quota_and_the_rest_waits_for_the_next_day() {
     assert_eq!(omdb_requests(&sources), 20);
 }
 
-/// OMDb refusing for its quota closes the day before the count does, as when
-/// another program shares the key: the requests already sent are the last,
-/// nothing is cached as a miss, and the diagnostics name the quota.
+/// OMDb can refuse before the count is spent, as when another program shares the key.
 #[tokio::test]
 async fn a_spent_omdb_quota_closes_the_day_and_caches_nothing() {
     let sources = FakeSources::start().await;
@@ -123,9 +113,7 @@ async fn a_spent_omdb_quota_closes_the_day_and_caches_nothing() {
     assert_eq!(omdb_requests(&sources), asked, "the closed day was asked again");
 }
 
-/// A probe asks OMDb once a day, from the same quota. A new key or a new
-/// quota is probed afresh the same day, whichever way it is written, and a
-/// spent quota is said rather than taken for a refused key.
+/// A new key or quota is probed again the same day, and a spent quota is not taken for a bad key.
 #[tokio::test]
 async fn omdb_is_probed_once_a_day_from_its_quota() {
     let sources = FakeSources::start().await;
@@ -149,8 +137,6 @@ async fn omdb_is_probed_once_a_day_from_its_quota() {
     assert_eq!(warning["message"], said);
 }
 
-/// The lookups of `GET /route` and of the webhook spend the same day as the
-/// enrichment.
 #[tokio::test]
 async fn a_lookup_takes_from_the_same_daily_quota() {
     let sources = FakeSources::start().await;
@@ -165,9 +151,7 @@ async fn a_lookup_takes_from_the_same_daily_quota() {
     assert_eq!(report.deferred, 1);
 }
 
-/// What a pass reserves counts at once, and what it leaves unsent is given
-/// back. A raised quota opens a day the count had closed, and the first
-/// reservation of a day starts a new count.
+/// A reservation counts at once, and what a pass leaves unsent is given back.
 #[tokio::test]
 async fn the_count_is_kept_per_day_and_a_raised_quota_opens_it_again() {
     let app = TestApp::new().await;
@@ -188,8 +172,6 @@ async fn the_count_is_kept_per_day_and_a_raised_quota_opens_it_again() {
     assert_eq!(app.count("SELECT spent FROM source_requests").await, 1);
 }
 
-/// A pass the breaker stops gives the requests it never sent back to the day,
-/// which counts only what reached the source.
 #[tokio::test]
 async fn requests_a_stopped_pass_never_sent_are_given_back() {
     let sources = FakeSources::failing(503).await;
@@ -200,4 +182,29 @@ async fn requests_a_stopped_pass_never_sent_are_given_back() {
     assert!(report.skipped > 0, "the breaker never opened");
     let sent = i64::try_from(omdb_requests(&sources)).unwrap();
     assert_eq!(app.count("SELECT spent FROM source_requests WHERE source = 'omdb'").await, sent);
+}
+
+/// A pass takes the day's requests a slice at a time, so one stopped mid-way, by a restart,
+/// leaves at most a slice counted that it never sent: reserved whole at its start, the requests
+/// it never sent would close the day.
+#[tokio::test]
+async fn a_pass_stopped_mid_way_leaves_at_most_a_slice_counted() {
+    let sources = FakeSources::start().await;
+    let app = films(&sources, 119).await;
+    let omdb = app.state.metadata_sources().await.into_iter().next().expect("OMDb");
+    app.state.paces.of(&omdb).penalise(std::time::Duration::from_secs(60)).await;
+    let reserved =
+        || async { app.count("SELECT COALESCE(SUM(spent), 0) FROM source_requests").await };
+
+    let state = app.state.clone();
+    let pass = tokio::spawn(async move {
+        enrichment::enrich_all_media(&state, &Attribution::manual(None)).await
+    });
+    super::until(|| async { reserved().await > 0 }).await;
+    pass.abort();
+
+    assert_eq!(omdb_requests(&sources), 0, "the control: the pass was stopped before sending");
+    let spent = reserved().await;
+    let slice = i64::try_from(enrichment::QUOTA_SLICE).unwrap();
+    assert!(spent > 0 && spent <= slice, "{spent} requests counted for none sent");
 }

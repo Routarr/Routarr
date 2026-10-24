@@ -6,13 +6,15 @@ use futures::stream::{self, StreamExt};
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tokio::time::Instant;
 use tracing::{debug, info, warn};
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, Upstream};
+use crate::integrations::is_quota_spent;
 use crate::jobs::{Attribution, Detail, JobHandle, JobKind};
 use crate::models::{Media, ProviderMetadata};
 use crate::services::anime_ids;
-use crate::services::metadata::{self, Addressing, FetchingSource};
+use crate::services::metadata::{self, Addressing, Answer, FetchingSource};
 use crate::services::rate_limit::RateLimiter;
 use crate::services::routing;
 use crate::state::AppState;
@@ -35,7 +37,7 @@ pub struct EnrichmentReport {
 enum NotAsked {
     /// The breaker had opened.
     Skipped,
-    /// Today's quota is spent, by the count or by the source's refusal.
+    /// Today is closed for the source: its quota spent, or the address blocked.
     Deferred,
 }
 
@@ -46,19 +48,25 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
     run_pass(state, by).await
 }
 
-/// Ask `source`, or every source, again for each answer it gave, then run a pass reading them.
-/// Refused while a pass runs, before anything is marked: that pass has counted its titles, and
-/// the refresh would wait for the next.
+/// Ask `source`, or every source, again for each answer it gave, the anime table's ids it refused
+/// included, then run a pass reading them. Refused while a pass runs, before anything is marked:
+/// that pass has counted its titles, and the refresh would wait for the next.
 pub async fn refresh(
     state: &AppState,
     by: &Attribution,
     source: Option<&'static str>,
 ) -> AppResult<EnrichmentReport> {
     let _pass = pass_lock(state).await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     sqlx::query("UPDATE metadata_cache SET stale = 1 WHERE ?1 IS NULL OR source = ?1")
         .bind(source)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM anime_ids_refused WHERE ?1 IS NULL OR source = ?1")
+        .bind(source)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     run_pass(state, by).await
 }
 
@@ -97,7 +105,7 @@ async fn run_pass(state: &AppState, by: &Attribution) -> AppResult<EnrichmentRep
             }
             // An unreachable source must not cancel the sources ranked below it.
             Err(e) => {
-                warn!("Source '{}' failed: {e}", source.id());
+                warn!(source = %source.id(), "Source '{}' failed: {e}", source.id());
                 outcome = Err(e);
             }
         }
@@ -121,137 +129,160 @@ async fn run_pass(state: &AppState, by: &Attribution) -> AppResult<EnrichmentRep
     outcome.map(|()| report)
 }
 
+/// The requests a pass takes from a daily quota at a time: a pass stopped mid-way, by a restart,
+/// leaves at most this many counted that it never sent.
+pub(crate) const QUOTA_SLICE: usize = 50;
+
 async fn run_enrichment(
     state: &AppState,
     source: &FetchingSource,
     job: &JobHandle,
 ) -> AppResult<EnrichmentReport> {
-    let limiter = state.paces.of(source);
-    let breaker = Breaker::new();
-    let name = metadata::info(source.id()).map_or(source.id(), |info| info.display_name);
+    let id = source.id();
+    let stage = Stage::new(state.paces.of(source));
+    let mut held = Held::default();
+    let name = metadata::info(id).map_or(id, |info| info.display_name);
+    let held_back = source.is_held_today(&state.pool).await;
 
-    let mut searched = 0;
+    let mut report = EnrichmentReport::default();
     // Found identifiers are kept, and misses for about a month (`metadata::resolved_keys`), so
     // the search costs the first pass, not every run.
-    if source.addressing() == Addressing::Search {
+    if source.addressing() == Addressing::Search && !held_back {
         job.stage(Detail::new("JobDetailIdentifying").with("source", name)).await;
-        searched = resolve_identifiers(state, source, job, &limiter, &breaker).await?;
+        report.searched = resolve_identifiers(state, source, job, &stage, &mut held).await?;
     }
     job.stage(Detail::new("JobDetailFetching").with("source", name)).await;
 
     let ttl_days: i64 = state.setting("metadata_cache_ttl_days").await;
-    let targets =
-        pending_targets(&state.pool, source, metadata::cache_days(source.id(), ttl_days)).await?;
+    let targets = pending_targets(&state.pool, source, metadata::cache_days(id, ttl_days)).await?;
+    let total = targets.len();
+    report.considered = total;
     if targets.is_empty() {
-        info!("The {} cache is up to date", source.id());
-        return Ok(EnrichmentReport { searched, ..Default::default() });
+        info!(source = %id, "The {id} cache is up to date");
+    } else if held_back {
+        info!(source = %id, "{id} blocks this address until the next UTC day: {total} wait");
+        report.deferred = total;
+    } else {
+        info!(source = %id, "{total} item(s) need enrichment from {id}");
+        fetch_targets(state, source, job, &stage, &mut held, targets, &mut report).await?;
     }
 
-    info!("{} item(s) need enrichment from {}", targets.len(), source.id());
+    finish(state, source, &stage, held, &mut report).await;
+    info!(
+        source = %id,
+        "{} item(s) enriched, {} failed, {} skipped, {} deferred",
+        report.enriched, report.failed, report.skipped, report.deferred
+    );
+    Ok(report)
+}
+
+/// The fetch stage: each target asked at the source's pace and stored as its answer arrives. A
+/// daily quota is taken a slice of [`QUOTA_SLICE`] at a time, before the slice's requests leave:
+/// taken by a request in flight, it would wait on the database while this loop writes to it.
+async fn fetch_targets(
+    state: &AppState,
+    source: &FetchingSource,
+    job: &JobHandle,
+    stage: &Stage,
+    held: &mut Held,
+    targets: Vec<(String, String)>,
+    report: &mut EnrichmentReport,
+) -> AppResult<()> {
+    let id = source.id();
     let total = targets.len();
-
-    // The pass reserves its share of a daily quota at once and gives back what goes unsent: a
-    // count per request in flight would wait on the database while this loop writes to it.
     let quota = source.daily_quota();
-    let granted = match &quota {
-        Some(quota) => quota.reserve(&state.pool, total).await?,
-        None => total,
-    };
-    let targets: Vec<_> = targets.into_iter().take(granted).collect();
-    // Set once the source refuses for its quota, which closes the day early.
-    let closed = Arc::new(AtomicBool::new(false));
-    let sent = Arc::new(AtomicUsize::new(0));
-
-    // Each future carries its own (external_id, media_type) out, since results arrive in
-    // completion order: paired by position, a movie's answer would be filed under a series.
-    let mut results = stream::iter(targets)
-        .map(|(external_id, media_type)| {
-            let source = source.clone();
-            let breaker = breaker.clone();
-            let limiter = limiter.clone();
-            let (closed, sent) = (Arc::clone(&closed), Arc::clone(&sent));
-            async move {
-                // Checked as each future starts, `buffer_unordered` holding every item already,
-                // so the ones still queued send nothing.
-                if breaker.is_open() {
-                    return (external_id, media_type, Err(NotAsked::Skipped));
-                }
-                if closed.load(Ordering::Relaxed) {
-                    return (external_id, media_type, Err(NotAsked::Deferred));
-                }
-
-                // Paced before the request, so a 429 is never earned.
-                limiter.acquire().await;
-                sent.fetch_add(1, Ordering::Relaxed);
-                let outcome = source.fetched(&external_id, &media_type).await;
-                if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent) {
-                    closed.store(true, Ordering::Relaxed);
-                    return (external_id, media_type, Err(NotAsked::Deferred));
-                }
-                source.paced_after(&limiter, &outcome).await;
-                breaker.record(&outcome);
-                (external_id, media_type, Ok(outcome))
-            }
-        })
-        .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
-
-    let mut report = EnrichmentReport {
-        searched,
-        considered: total,
-        deferred: total - granted,
-        ..Default::default()
-    };
+    let slice = if quota.is_some() { QUOTA_SLICE } else { total };
     let mut rate_limited = false;
     let mut index = 0;
 
-    // Stored as each answer arrives: a pass over a large library takes hours, and a restart
-    // before its end would lose everything fetched, a day of a keyed source's quota included.
-    while let Some((external_id, media_type, asked)) = results.next().await {
-        index += 1;
-        let result = match asked {
-            Ok(result) => result,
-            Err(NotAsked::Skipped) => {
-                report.skipped += 1;
-                continue;
-            }
-            Err(NotAsked::Deferred) => {
-                report.deferred += 1;
-                continue;
-            }
+    for slice in targets.chunks(slice) {
+        let granted = match &quota {
+            Some(_) if stage.is_closed() => 0,
+            Some(quota) => quota.reserve(&state.pool, slice.len()).await?,
+            None => slice.len(),
         };
-        match result {
-            Ok(data) => {
-                // Refused, an id the table named is set aside and the title searched instead.
-                if data.is_none()
-                    && let Err(e) = anime_ids::refuse(&state.pool, source.id(), &external_id).await
-                {
-                    warn!("Could not set aside {} {external_id}: {e}", source.id());
-                }
-                let data = data.unwrap_or_default();
-                let stored =
-                    store_metadata(&state.pool, source.id(), &external_id, &media_type, &data)
-                        .await;
-                match stored {
-                    Ok(()) => report.enriched += 1,
-                    Err(e) => {
-                        warn!("Could not store {} {external_id} ({media_type}): {e}", source.id());
-                        report.failed += 1;
+        report.deferred += slice.len() - granted;
+        index += slice.len() - granted;
+        if granted == 0 {
+            continue;
+        }
+        let sent = Arc::new(AtomicUsize::new(0));
+
+        // Each future carries its own (external_id, media_type) out, since results arrive in
+        // completion order: paired by position, a movie's answer would be filed under a series.
+        let mut results = stream::iter(slice[..granted].to_vec())
+            .map(|(external_id, media_type)| {
+                let (source, stage, sent) = (source.clone(), stage.clone(), Arc::clone(&sent));
+                async move {
+                    // Checked as each future starts, `buffer_unordered` holding every item
+                    // already, so the ones still queued send nothing.
+                    if stage.breaker.is_open() {
+                        return (external_id, media_type, Err(NotAsked::Skipped));
                     }
+                    if stage.is_closed() {
+                        return (external_id, media_type, Err(NotAsked::Deferred));
+                    }
+
+                    // Paced before the request, so a 429 is never earned.
+                    stage.limiter.acquire().await;
+                    sent.fetch_add(1, Ordering::Relaxed);
+                    let outcome = source.fetched(&external_id, &media_type).await;
+                    if outcome.as_ref().is_err_and(is_quota_spent) {
+                        stage.close();
+                        return (external_id, media_type, Err(NotAsked::Deferred));
+                    }
+                    source.paced_after(&stage.limiter, &outcome).await;
+                    stage.breaker.record(&outcome);
+                    (external_id, media_type, Ok(outcome))
+                }
+            })
+            .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
+
+        // Stored as each answer arrives: a pass over a large library takes hours, and a restart
+        // before its end would lose everything fetched, a day of a keyed source's quota included.
+        while let Some((external_id, media_type, asked)) = results.next().await {
+            index += 1;
+            if stage.breaker.has_answered() {
+                held.flush(state, source, report).await;
+            }
+            match asked {
+                Err(NotAsked::Skipped) => report.skipped += 1,
+                Err(NotAsked::Deferred) => report.deferred += 1,
+                Ok(Ok(Answer::Said(data))) => {
+                    let stored =
+                        store_metadata(&state.pool, id, &external_id, &media_type, &data).await;
+                    count(report, stored, id, &external_id, &media_type);
+                }
+                Ok(Ok(Answer::Refused(status))) if stage.breaker.has_answered() => {
+                    let stored =
+                        store_refusal(state, source, &external_id, &media_type, status).await;
+                    count(report, stored, id, &external_id, &media_type);
+                }
+                Ok(Ok(Answer::Refused(status))) => {
+                    held.fetches.push((external_id, media_type, status));
+                }
+                Ok(Err(AppError::ExternalApi { status: 429, .. })) => {
+                    rate_limited = true;
+                    report.failed += 1;
+                }
+                Ok(Err(e)) => {
+                    warn!(source = %id, "Failed to enrich {id} {external_id} ({media_type}): {e}");
+                    report.failed += 1;
                 }
             }
-            Err(AppError::ExternalApi { status: 429, .. }) => {
-                rate_limited = true;
-                report.failed += 1;
-            }
-            Err(e) => {
-                warn!("Failed to enrich {} {external_id} ({media_type}): {e}", source.id());
-                report.failed += 1;
+
+            // Coarse steps: an UPDATE per item would cost more than the work it reports on.
+            if index % 25 == 1 {
+                job.progress(index, total).await;
             }
         }
 
-        // Coarse steps: an UPDATE per item would cost more than the work it reports on.
-        if index % 25 == 1 {
-            job.progress(index, total).await;
+        if let Some(quota) = &quota
+            && !stage.is_closed()
+            && let Err(e) =
+                quota.give_back(&state.pool, granted - sent.load(Ordering::Relaxed)).await
+        {
+            warn!(source = %id, "Could not count the requests {id} sent today: {e}");
         }
     }
 
@@ -259,45 +290,96 @@ async fn run_enrichment(
 
     if rate_limited {
         warn!(
-            "{} rate-limited part of this pass. The remainder is retried on the next run",
-            source.id()
+            source = %id,
+            "{id} rate-limited part of this pass. The remainder is retried on the next run"
         );
     }
-
     if report.skipped > 0 {
         warn!(
-            "{} looks unavailable: gave up after {} failures and skipped {} item(s), \
+            source = %id,
+            "{id} looks unavailable: gave up after {} failures and skipped {} item(s), \
              which the next pass retries",
-            source.id(),
             Breaker::LIMIT,
             report.skipped
         );
     }
-
-    if let Some(quota) = &quota {
-        let given_back = if closed.load(Ordering::Relaxed) {
-            quota.exhaust(&state.pool).await
-        } else {
-            quota.give_back(&state.pool, granted - sent.load(Ordering::Relaxed)).await
-        };
-        if let Err(e) = given_back {
-            warn!("Could not count the requests {} sent today: {e}", source.id());
-        }
-    }
     if let Some(quota) = quota.as_ref().filter(|_| report.deferred > 0) {
         info!(
-            "{} has spent the {} requests it may send today: {} item(s) wait for a later pass",
-            source.id(),
+            source = %id,
+            "{id} has spent the {} requests it may send today: {} item(s) wait for a later pass",
             quota.limit(),
             report.deferred
         );
     }
+    Ok(())
+}
 
-    info!(
-        "{} item(s) enriched, {} failed, {} skipped",
-        report.enriched, report.failed, report.skipped
-    );
-    Ok(report)
+/// Counts one stored answer in `report`.
+fn count(
+    report: &mut EnrichmentReport,
+    stored: AppResult<()>,
+    source: &str,
+    external_id: &str,
+    media_type: &str,
+) {
+    match stored {
+        Ok(()) => report.enriched += 1,
+        Err(e) => {
+            warn!(source = %source, "Could not store {source} {external_id} ({media_type}): {e}");
+            report.failed += 1;
+        }
+    }
+}
+
+/// Settles what a source's pass leaves: the refusals held written down, or dropped when the
+/// source refused everything, and the day closed when the source refused for the rest of it.
+async fn finish(
+    state: &AppState,
+    source: &FetchingSource,
+    stage: &Stage,
+    mut held: Held,
+    report: &mut EnrichmentReport,
+) {
+    let id = source.id();
+    if stage.breaker.refused_everything() && !held.is_empty() {
+        warn!(
+            source = %id,
+            "{id} refused all {} request(s) it was sent and answered none, a fault of the source \
+             rather than of each title: nothing is written down, and the next pass asks again",
+            held.searches.len() + held.fetches.len()
+        );
+        report.failed += held.fetches.len();
+    } else {
+        held.flush(state, source, report).await;
+    }
+    if stage.is_closed()
+        && let Err(e) = source.close_the_day(&state.pool).await
+    {
+        warn!(source = %id, "Could not record that {id} refuses until tomorrow: {e}");
+    }
+}
+
+/// What one source's stages of a pass share: its pace, its breaker, and whether the source
+/// closed the day by refusing for the rest of it.
+#[derive(Clone)]
+struct Stage {
+    limiter: RateLimiter,
+    breaker: Breaker,
+    closed: Arc<AtomicBool>,
+}
+
+impl Stage {
+    fn new(limiter: RateLimiter) -> Self {
+        Self { limiter, breaker: Breaker::new(), closed: Arc::new(AtomicBool::new(false)) }
+    }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
 }
 
 /// Stops a pass from hammering a source that is plainly down. One per source and pass, shared
@@ -305,6 +387,9 @@ async fn run_enrichment(
 #[derive(Clone)]
 struct Breaker {
     failures: Arc<AtomicUsize>,
+    /// Refusals of a title and answers that do not decode, counted while nothing was answered.
+    unanswered: Arc<AtomicUsize>,
+    answered: Arc<AtomicBool>,
 }
 
 impl Breaker {
@@ -312,35 +397,180 @@ impl Breaker {
     const LIMIT: usize = 5;
 
     fn new() -> Self {
-        Self { failures: Arc::new(AtomicUsize::new(0)) }
+        Self {
+            failures: Arc::new(AtomicUsize::new(0)),
+            unanswered: Arc::new(AtomicUsize::new(0)),
+            answered: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     fn is_open(&self) -> bool {
-        self.failures.load(Ordering::Relaxed) >= Self::LIMIT
+        self.failures.load(Ordering::Relaxed) >= Self::LIMIT || self.refused_everything()
     }
 
-    /// Count only the failures that say something about the *source*, and only in a row: one
-    /// answer starts the count again, or scattered errors over hours would abandon a source that
-    /// answers nearly every request.
-    fn record<T>(&self, outcome: &AppResult<T>) {
-        if is_source_level_failure(outcome) {
-            self.failures.fetch_add(1, Ordering::Relaxed);
-        } else {
-            self.failures.store(0, Ordering::Relaxed);
+    fn has_answered(&self) -> bool {
+        self.answered.load(Ordering::Relaxed)
+    }
+
+    /// Whether the source refused [`Breaker::LIMIT`] titles and answered none: a wrong base path
+    /// or a retired query earns every request the same refusal, which says nothing of a title.
+    fn refused_everything(&self) -> bool {
+        !self.has_answered() && self.unanswered.load(Ordering::Relaxed) >= Self::LIMIT
+    }
+
+    /// Count only the failures that say something about the *source*, and only in a row, or
+    /// scattered errors over hours would abandon a source that answers nearly every request. A
+    /// refused title, or an answer that does not decode, counts until the source answers anything.
+    fn record<T>(&self, outcome: &AppResult<Answer<T>>) {
+        match outcome {
+            Ok(Answer::Said(_)) => {
+                self.answered.store(true, Ordering::Relaxed);
+                self.failures.store(0, Ordering::Relaxed);
+            }
+            Ok(Answer::Refused(_))
+            | Err(AppError::ExternalApi { kind: Upstream::Unreadable, .. }) => {
+                self.failures.store(0, Ordering::Relaxed);
+                self.unanswered.fetch_add(1, Ordering::Relaxed);
+            }
+            outcome if is_source_level_failure(outcome) => {
+                self.failures.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => self.failures.store(0, Ordering::Relaxed),
         }
     }
 }
 
 /// Whether a failure is the *source* being unavailable rather than one item unknown to it. A 404
-/// or an answer that does not decode says nothing of the next item, while a 429, a 5xx, a
+/// or an answer that does not decode says nothing of the next item, while a 408, a 429, a 5xx, a
 /// transport failure, a 401 or a 403 (a refused key, a spent quota) meets every item alike.
 fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
-    use crate::error::Upstream;
     matches!(
         outcome,
-        Err(AppError::ExternalApi { status: 401 | 403 | 429 | 500 | 502..=504, .. })
+        Err(AppError::ExternalApi { status: 401 | 403 | 408 | 429 | 500..=599, .. })
             | Err(AppError::ExternalApi { kind: Upstream::Transport(_), .. })
     )
+}
+
+/// Refusals a source gave before it answered anything this pass. Written down as the misses they
+/// are once it answers, and at the end of the pass, unless it refused [`Breaker::LIMIT`] and
+/// answered none.
+#[derive(Default)]
+struct Held {
+    /// `(local_key, media_type)` of each search refused.
+    searches: Vec<(String, String)>,
+    /// `(external_id, media_type, status)` of each fetch refused.
+    fetches: Vec<(String, String, u16)>,
+}
+
+impl Held {
+    fn is_empty(&self) -> bool {
+        self.searches.is_empty() && self.fetches.is_empty()
+    }
+
+    async fn flush(
+        &mut self,
+        state: &AppState,
+        source: &FetchingSource,
+        report: &mut EnrichmentReport,
+    ) {
+        for (key, media_type) in std::mem::take(&mut self.searches) {
+            remember_search(state, source.id(), &key, &media_type, None).await;
+        }
+        for (external_id, media_type, status) in std::mem::take(&mut self.fetches) {
+            let stored = store_refusal(state, source, &external_id, &media_type, status).await;
+            count(report, stored, source.id(), &external_id, &media_type);
+        }
+    }
+}
+
+/// Writes down what a search answered for `key`, a miss included, so the next passes search
+/// again only once it is old enough.
+async fn remember_search(
+    state: &AppState,
+    source: &str,
+    key: &str,
+    media_type: &str,
+    external_id: Option<&str>,
+) {
+    let remembered = metadata::remember_identifier(
+        &state.pool,
+        source,
+        media_type,
+        key,
+        external_id,
+        metadata::BY_SEARCH,
+    )
+    .await;
+    if let Err(e) = remembered {
+        warn!(source = %source, "Could not record what {key} is on {source}: {e}");
+    }
+}
+
+/// A title the source refuses, stored as the answer it is: an empty one, and the anime table's id
+/// set aside when the source does not hold the work.
+async fn store_refusal(
+    state: &AppState,
+    source: &FetchingSource,
+    external_id: &str,
+    media_type: &str,
+    status: u16,
+) -> AppResult<()> {
+    set_aside(state, source.id(), external_id, status, false).await;
+    store_metadata(&state.pool, source.id(), external_id, media_type, &Default::default()).await
+}
+
+/// Whether a refusal says the source does not hold the work: a 404 or a 410. A 400 or a 422
+/// speaks of the request, and sets nothing aside.
+fn is_gone(status: u16) -> bool {
+    matches!(status, 404 | 410)
+}
+
+/// An id `source` refused as a work it does not hold, set aside if the anime table named it, so
+/// the title is searched instead. `named` is an id the table gave a title asked about alone.
+async fn set_aside(state: &AppState, source: &str, external_id: &str, status: u16, named: bool) {
+    if is_gone(status)
+        && let Err(e) = anime_ids::refuse(&state.pool, source, external_id, named).await
+    {
+        warn!(source = %source, "Could not set aside {source} {external_id}: {e}");
+    }
+}
+
+/// How a source is asked about one title, which a pass and a title asked about alone (a webhook,
+/// a refresh of the title, `GET /route`) decide alike through [`address`].
+#[derive(Debug, PartialEq, Eq)]
+enum Address {
+    /// By the id the library or an earlier resolution holds.
+    Known(String),
+    /// By an id read without a request, the anime table's or the one the source naming works by
+    /// the same ids found, with how it was found.
+    Read(String, &'static str),
+    /// By a search on the title and its year.
+    Search,
+    /// Not at all.
+    Skip,
+}
+
+/// How `source` is asked about a title: by `known`, its id on record, else, for a source that
+/// searches, by the table's id not refused (`mapped`), the id its namespace's other source found
+/// (`shared`), or a search, unless a miss is on record or the title is not `searchable`.
+fn address(
+    source: &FetchingSource,
+    known: Option<String>,
+    missed: bool,
+    mapped: Option<String>,
+    shared: Option<String>,
+    searchable: bool,
+) -> Address {
+    match (known, source.addressing()) {
+        (Some(external), _) => Address::Known(external),
+        (None, Addressing::Search) => match (mapped, shared) {
+            (Some(external), _) => Address::Read(external, metadata::BY_MAPPING),
+            (None, Some(external)) => Address::Read(external, metadata::BY_SHARING),
+            (None, None) if missed || !searchable => Address::Skip,
+            (None, None) => Address::Search,
+        },
+        (None, _) => Address::Skip,
+    }
 }
 
 /// One media row, reduced to what identifying it and telling whether it may
@@ -364,12 +594,14 @@ async fn resolve_identifiers(
     state: &AppState,
     source: &FetchingSource,
     job: &JobHandle,
-    limiter: &RateLimiter,
-    breaker: &Breaker,
+    stage: &Stage,
+    held: &mut Held,
 ) -> AppResult<usize> {
-    let known = metadata::resolved_keys(&state.pool, source.id()).await?;
+    let id = source.id();
+    let resolved = metadata::resolved_keys(&state.pool, id).await?;
+    let found = metadata::found_identifiers(&state.pool, id).await?;
     let table = anime_ids::Table::load(&state.pool).await?;
-    let shared = match metadata::sharing_ids_with(source.id()) {
+    let shared = match metadata::sharing_ids_with(id) {
         Some(other) => metadata::found_identifiers(&state.pool, other).await?,
         None => Default::default(),
     };
@@ -395,42 +627,41 @@ async fn resolve_identifiers(
             row.year,
         );
         let dedup = metadata::resolution_key(&row.media_type, &key);
-        if known.contains(&dedup) || seen.contains(&dedup) {
+        if seen.contains(&dedup) {
             continue;
         }
         // Read whatever the title's genres say: the table holds anime alone, and costs no request.
         let mapped = table
             .find(&row.media_type, row.tmdb_id, row.tvdb_id, row.imdb_id.as_deref())
-            .and_then(|ids| ids.of(source.id()))
-            .filter(|external| !table.refused(source.id(), external));
-        let found = match (mapped, shared.get(&dedup)) {
-            (Some(external), _) => Some((external, metadata::BY_MAPPING)),
-            (None, Some(external)) => Some((external.clone(), metadata::BY_SHARING)),
-            (None, None) => None,
-        };
-        if let Some((external, found_by)) = found {
-            seen.insert(dedup);
-            let source = source.id();
-            if let Err(e) = metadata::remember_identifier(
-                &state.pool,
-                source,
-                &row.media_type,
-                &key,
-                Some(&external),
-                found_by,
-            )
-            .await
-            {
-                warn!("Could not record what {key} is on {source}: {e}");
-            }
-            continue;
-        }
+            .and_then(|ids| ids.of(id))
+            .filter(|external| !table.refused(id, external));
         let genres = crate::models::genres_from(row.genres.as_deref());
-        if !metadata::may_search(&scope, &genres, row.series_type.as_deref()) {
-            continue;
+        let searchable = metadata::may_search(&scope, &genres, row.series_type.as_deref());
+        let missed = resolved.contains(&dedup) && !found.contains_key(&dedup);
+        let known = found.get(&dedup).cloned();
+        match address(source, known, missed, mapped, shared.get(&dedup).cloned(), searchable) {
+            // A found id is the fetch stage's to read.
+            Address::Known(_) | Address::Skip => {}
+            Address::Read(external, found_by) => {
+                seen.insert(dedup);
+                let remembered = metadata::remember_identifier(
+                    &state.pool,
+                    id,
+                    &row.media_type,
+                    &key,
+                    Some(&external),
+                    found_by,
+                )
+                .await;
+                if let Err(e) = remembered {
+                    warn!(source = %id, "Could not record what {key} is on {id}: {e}");
+                }
+            }
+            Address::Search => {
+                seen.insert(dedup);
+                pending.push((key, row.media_type, row.title, row.year));
+            }
         }
-        seen.insert(dedup);
-        pending.push((key, row.media_type, row.title, row.year));
     }
 
     if pending.is_empty() {
@@ -438,57 +669,56 @@ async fn resolve_identifiers(
     }
 
     let total = pending.len();
-    info!("{total} item(s) still to identify on {}", source.id());
+    info!(source = %id, "{total} item(s) still to identify on {id}");
     job.progress(0, total).await;
 
     // Written down as each search answers, for the reason the fetch stage is.
     let mut results = stream::iter(pending)
         .map(|(key, media_type, title, year)| {
-            let source = source.clone();
-            let breaker = breaker.clone();
-            let limiter = limiter.clone();
+            let (source, stage) = (source.clone(), stage.clone());
             async move {
                 // A failed search is not written down, so the storm would repeat every pass.
-                if breaker.is_open() {
-                    return (key, media_type, None);
+                if stage.breaker.is_open() {
+                    return (key, media_type, Err(NotAsked::Skipped));
+                }
+                if stage.is_closed() {
+                    return (key, media_type, Err(NotAsked::Deferred));
                 }
 
-                limiter.acquire().await;
+                stage.limiter.acquire().await;
                 let outcome = source.find(&title, year, &media_type).await;
-                source.paced_after(&limiter, &outcome).await;
-                breaker.record(&outcome);
-                (key, media_type, Some(outcome))
+                if outcome.as_ref().is_err_and(is_quota_spent) {
+                    stage.close();
+                    return (key, media_type, Err(NotAsked::Deferred));
+                }
+                source.paced_after(&stage.limiter, &outcome).await;
+                stage.breaker.record(&outcome);
+                (key, media_type, Ok(outcome))
             }
         })
         .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
 
     let mut abandoned = 0usize;
     let mut index = 0;
-    while let Some((key, media_type, outcome)) = results.next().await {
+    let mut unused = EnrichmentReport::default();
+    while let Some((key, media_type, asked)) = results.next().await {
         index += 1;
-        let Some(outcome) = outcome else {
-            abandoned += 1;
-            continue;
-        };
-
-        match outcome {
-            Ok(external_id) => {
-                let remembered = metadata::remember_identifier(
-                    &state.pool,
-                    source.id(),
-                    &media_type,
-                    &key,
-                    external_id.as_deref(),
-                    metadata::BY_SEARCH,
-                )
-                .await;
-                if let Err(e) = remembered {
-                    warn!("Could not record what {key} is on {}: {e}", source.id());
-                }
+        if stage.breaker.has_answered() {
+            held.flush(state, source, &mut unused).await;
+        }
+        match asked {
+            Err(NotAsked::Skipped) => abandoned += 1,
+            Err(NotAsked::Deferred) => {}
+            Ok(Ok(Answer::Said(external_id))) => {
+                remember_search(state, id, &key, &media_type, external_id.as_deref()).await;
             }
+            Ok(Ok(Answer::Refused(_))) if stage.breaker.has_answered() => {
+                remember_search(state, id, &key, &media_type, None).await;
+            }
+            Ok(Ok(Answer::Refused(_))) => held.searches.push((key, media_type)),
             // Not written down: a failure says nothing of the title, and a miss on record would
             // keep the next passes from trying again.
-            Err(e) => warn!("Could not identify {key} on {}: {e}", source.id()),
+            Ok(Err(e)) => warn!(source = %id, "Could not identify {key} on {id}: {e}"),
         }
 
         if index % 25 == 1 {
@@ -500,8 +730,8 @@ async fn resolve_identifiers(
 
     if abandoned > 0 {
         warn!(
-            "{} looks unavailable: gave up identifying {abandoned} item(s), retried next pass",
-            source.id()
+            source = %id,
+            "{id} looks unavailable: gave up identifying {abandoned} item(s), retried next pass"
         );
     }
 
@@ -566,19 +796,18 @@ async fn pending_targets(
     }
 }
 
-/// How long a webhook delivery spends asking the sources about its title:
-/// every one it can address, at its own pace, within this. What is not
-/// reached is left to the next full pass.
-pub const WEBHOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a title asked about alone waits for the sources, a webhook delivery's and a
+/// `GET /route?enrich=true` alike: every one it can address, at its own pace, within this. What
+/// is not reached is left to the next full pass.
+pub const ASK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The same for a refresh of one title, a task nobody waits on.
+const TITLE_REFRESH_BUDGET: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// What each source able to answer says now about `media` where the cache holds none, each at
 /// its own pace until `deadline`: the webhook stores it, the placement only reads it. A failing
 /// source is skipped, and a search finding nothing or a refusal of the title alone is an answer.
-pub async fn ask_now(
-    state: &AppState,
-    media: &Media,
-    deadline: Option<tokio::time::Instant>,
-) -> routing::Fresh {
+pub async fn ask_now(state: &AppState, media: &Media, deadline: Instant) -> routing::Fresh {
     let mut fresh = routing::Fresh::default();
     let providers = state.metadata_order().await;
     // Given back before any source is asked: held through their answers, it
@@ -609,10 +838,13 @@ pub async fn ask_now(
     let mapped_ids =
         table.find(&media.media_type, media.tmdb_id, media.tvdb_id, media.imdb_id.as_deref());
     for source in state.metadata_sources().await {
-        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+        if Instant::now() >= deadline {
             break;
         }
         let Some(provider) = metadata::info(source.id()) else { continue };
+        if source.is_held_today(&state.pool).await {
+            continue;
+        }
         let known = metadata::external_id(provider, media, &identifiers);
         let key = |external: &str| {
             (source.id().to_string(), external.to_string(), media.media_type.clone())
@@ -637,37 +869,39 @@ pub async fn ask_now(
             continue;
         }
         let pace = state.paces.of(&source);
-        let external = match (known, shared, source.addressing()) {
-            (Some(external), _, _) => external,
-            (None, _, Addressing::Search) if mapped.is_some() => {
-                let external = mapped.unwrap_or_default();
-                fresh.found_by.insert(searched.clone(), metadata::BY_MAPPING);
-                fresh.identifiers.insert(searched, Some(external.clone()));
+        let external = match address(&source, known, missed, mapped, shared, searchable) {
+            Address::Known(external) => external,
+            Address::Read(external, found_by) => {
+                fresh.found_by.insert(searched.clone(), found_by);
+                fresh.identifiers.insert(searched.clone(), Some(external.clone()));
                 external
             }
-            (None, Some(external), Addressing::Search) => {
-                fresh.found_by.insert(searched.clone(), metadata::BY_SHARING);
-                fresh.identifiers.insert(searched, Some(external.clone()));
-                external
-            }
-            (None, None, Addressing::Search) if missed || !searchable => continue,
-            (None, None, Addressing::Search) => {
-                pace.acquire().await;
-                let resolved = source.find(&media.title, media.year, &media.media_type).await;
+            Address::Skip => continue,
+            Address::Search => {
+                if !pace.acquire_by(deadline).await {
+                    continue;
+                }
+                let finding = source.find(&media.title, media.year, &media.media_type);
+                let Ok(resolved) = tokio::time::timeout_at(deadline, finding).await else {
+                    continue;
+                };
+                if resolved.as_ref().is_err_and(is_quota_spent) {
+                    close_the_day(state, &source).await;
+                    continue;
+                }
                 source.paced_after(&pace, &resolved).await;
                 match resolved {
-                    Ok(Some(external)) => {
-                        fresh.identifiers.insert(searched, Some(external.clone()));
+                    Ok(Answer::Said(Some(external))) => {
+                        fresh.identifiers.insert(searched.clone(), Some(external.clone()));
                         external
                     }
-                    Ok(None) => {
+                    Ok(Answer::Said(None) | Answer::Refused(_)) => {
                         fresh.identifiers.insert(searched, None);
                         continue;
                     }
                     Err(_) => continue,
                 }
             }
-            (None, _, _) => continue,
         };
         let quota = source.daily_quota();
         if let Some(quota) = &quota
@@ -675,25 +909,36 @@ pub async fn ask_now(
         {
             continue;
         }
-        pace.acquire().await;
-        let fetched = source.fetched(&external, &media.media_type).await;
-        if let (Some(quota), Err(error)) = (&quota, &fetched)
-            && crate::integrations::is_quota_spent(error)
-        {
-            if let Err(e) = quota.exhaust(&state.pool).await {
-                warn!("Could not record that {} spent its quota: {e}", source.id());
+        if !pace.acquire_by(deadline).await {
+            if let Some(quota) = &quota
+                && let Err(e) = quota.give_back(&state.pool, 1).await
+            {
+                let id = source.id();
+                warn!(source = %id, "Could not give back a request of {id}: {e}");
             }
+            continue;
+        }
+        let fetching = source.fetched(&external, &media.media_type);
+        let Ok(fetched) = tokio::time::timeout_at(deadline, fetching).await else {
+            continue;
+        };
+        if fetched.as_ref().is_err_and(is_quota_spent) {
+            close_the_day(state, &source).await;
             continue;
         }
         source.paced_after(&pace, &fetched).await;
         match fetched {
-            Ok(Some(answer)) => {
+            Ok(Answer::Said(answer)) => {
                 fresh.metadata.insert(key(&external), answer);
             }
-            Ok(None) => {
-                if let Err(e) = anime_ids::refuse(&state.pool, source.id(), &external).await {
-                    warn!("Could not set aside {} {external}: {e}", source.id());
+            Ok(Answer::Refused(status)) => {
+                let named = fresh.found_by.get(&searched) == Some(&metadata::BY_MAPPING);
+                // Set aside rather than kept as the title's, as a pass leaves it.
+                if named && is_gone(status) {
+                    fresh.identifiers.remove(&searched);
+                    fresh.found_by.remove(&searched);
                 }
+                set_aside(state, source.id(), &external, status, named).await;
                 fresh.metadata.insert(key(&external), Default::default());
             }
             Err(_) => {}
@@ -702,12 +947,19 @@ pub async fn ask_now(
     fresh
 }
 
+async fn close_the_day(state: &AppState, source: &FetchingSource) {
+    if let Err(e) = source.close_the_day(&state.pool).await {
+        let id = source.id();
+        warn!(source = %id, "Could not record that {id} refuses until tomorrow: {e}");
+    }
+}
+
 /// Enrich one title now, before the webhook's rules run, so the right root folder is known while
-/// the folder is still empty: every source the row can address, within [`WEBHOOK_BUDGET`], stored
+/// the folder is still empty: every source the row can address, within [`ASK_BUDGET`], stored
 /// as a full pass stores it.
 pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
-    let deadline = tokio::time::Instant::now() + WEBHOOK_BUDGET;
-    store_fresh(state, &ask_now(state, media, Some(deadline)).await).await.map(|_| ())
+    let deadline = Instant::now() + ASK_BUDGET;
+    store_fresh(state, &ask_now(state, media, deadline).await).await.map(|_| ())
 }
 
 /// What asking the sources again about one title found.
@@ -718,8 +970,8 @@ pub struct TitleRefresh {
 }
 
 /// Ask the sources again about `media`, or `source` alone: its answers are marked stale and its
-/// search match forgotten, so a wrong AniList or MyAnimeList match is searched anew. An answer a
-/// source does not give stays stale for the next pass.
+/// search match and refusals of the table's ids forgotten, so a wrong AniList or MyAnimeList match
+/// is searched anew. An answer a source does not give stays stale for the next pass.
 pub async fn refresh_title(
     state: &AppState,
     by: &Attribution,
@@ -731,7 +983,8 @@ pub async fn refresh_title(
         state.jobs.start(JobKind::Enrich, by, None, detail("JobDetailRefreshingTitle")).await?;
     let outcome = async {
         forget_title(state, media, source).await?;
-        store_fresh(state, &ask_now(state, media, None).await).await
+        let deadline = Instant::now() + TITLE_REFRESH_BUDGET;
+        store_fresh(state, &ask_now(state, media, deadline).await).await
     }
     .await;
     match outcome {
@@ -748,8 +1001,8 @@ pub async fn refresh_title(
     }
 }
 
-/// Mark `media`'s answers stale, `source`'s alone when named, and forget
-/// what each searched source found for it.
+/// Mark `media`'s answers stale, `source`'s alone when named, and forget what each searched
+/// source found for it and which of the table's ids for it each refused.
 async fn forget_title(
     state: &AppState,
     media: &Media,
@@ -760,6 +1013,15 @@ async fn forget_title(
         let mut connection = state.pool.acquire().await?;
         metadata::load_identifiers_of(&mut connection, title).await?
     };
+    let mapped = anime_ids::Table::for_title(
+        &state.pool,
+        &media.media_type,
+        media.tmdb_id,
+        media.tvdb_id,
+        media.imdb_id.as_deref(),
+    )
+    .await?
+    .find(&media.media_type, media.tmdb_id, media.tvdb_id, media.imdb_id.as_deref());
     let asked = metadata::PROVIDERS
         .iter()
         .filter(|provider| provider.fetched && source.is_none_or(|id| id == provider.id));
@@ -786,6 +1048,13 @@ async fn forget_title(
             .bind(metadata::local_key(media))
             .execute(&mut *tx)
             .await?;
+        }
+        if let Some(external) = mapped.and_then(|ids| ids.of(provider.id)) {
+            sqlx::query("DELETE FROM anime_ids_refused WHERE source = ? AND external_id = ?")
+                .bind(provider.id)
+                .bind(&external)
+                .execute(&mut *tx)
+                .await?;
         }
     }
     tx.commit().await?;
@@ -909,6 +1178,9 @@ mod tests {
             failed(0, Upstream::Transport(Transport::TimedOut)),
             failed(0, Upstream::Transport(Transport::Failed)),
             failed(503, Upstream::Http),
+            failed(522, Upstream::Http),
+            failed(501, Upstream::Http),
+            failed(408, Upstream::Http),
             failed(401, Upstream::RefusedWith200),
             failed(429, Upstream::QuotaSpent),
         ] {

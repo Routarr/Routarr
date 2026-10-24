@@ -48,9 +48,8 @@ async fn every_family_declares_its_help_and_type() {
     assert!(names.contains(&"routarr_deprecated_api_requests_total"), "no counter is emitted");
 }
 
-/// The category gauge counts each title where the last run sends it, a title
-/// already there included, and the status gauge each title's latest standing
-/// decision, not the applied history an apply leaves standing.
+/// A title already in its category counts there, and only a title's latest decision counts,
+/// not the applied one before it.
 #[tokio::test]
 async fn the_decision_gauges_count_where_each_title_stands_now() {
     let app = TestApp::new().await;
@@ -134,9 +133,8 @@ async fn instance_health_is_a_gauge_worth_alerting_on() {
     );
 }
 
-/// An instance switched off is told apart from one that is down, one kept to proposals from one
-/// automatic application may write to, and each job outcome is a series of its own, so a run
-/// of failed applies can alert.
+/// Switched off is told apart from down, and kept to proposals from armed. Each job outcome is
+/// its own series, so a run of failed applies can alert.
 #[tokio::test]
 async fn the_instance_switches_and_each_job_outcome_are_series() {
     let app = TestApp::new().await;
@@ -165,9 +163,8 @@ async fn the_instance_switches_and_each_job_outcome_are_series() {
     }
 }
 
-/// Prometheus sets `instance` on every scraped series to the target it
-/// scraped, so a label of that name is renamed `exported_instance` on the way
-/// in. Each instance is its own series, by its id.
+/// Prometheus sets `instance` on every series to the target it scraped, so a label of that
+/// name is renamed `exported_instance` on the way in.
 #[tokio::test]
 async fn each_instance_is_a_series_of_its_own() {
     let app = TestApp::new().await;
@@ -208,8 +205,8 @@ async fn the_guardrail_switches_are_exposed() {
 }
 
 /// A source down, a quota spent and titles nothing describes are watched as an instance down
-/// is. A source never probed has no health sample, an instance's probe is not a source's, and
-/// a source without a quota reports none.
+/// is. A source not probed within a day has no health sample, though its probe time is said,
+/// an instance's probe is not a source's, and a source without a quota reports none.
 #[tokio::test]
 async fn each_metadata_source_reports_its_health_cache_and_quota() {
     let sources = super::fake_sources::FakeSources::start().await;
@@ -218,6 +215,7 @@ async fn each_metadata_source_reports_its_health_cache_and_quota() {
         "INSERT INTO probe_results (subject, reachable, detail, checked_at)
          VALUES ('source:anilist', 1, NULL, datetime('now')),
                 ('source:omdb', 0, 'quota spent', datetime('now')),
+                ('source:tenrai', 0, NULL, datetime('now', '-2 days')),
                 ('instance:inst-1', 0, 'HTTP 503', datetime('now'))",
         "INSERT INTO metadata_cache (source, external_id, media_type, genres)
          VALUES ('omdb', 'tt0096283', 'movie', '[\"Animation\"]'),
@@ -242,6 +240,15 @@ async fn each_metadata_source_reports_its_health_cache_and_quota() {
     ] {
         assert!(body.contains(&format!("{series} {value}\n")), "no {series} {value} in:\n{body}");
     }
+    let checked = source("routarr_metadata_source_checked_timestamp_seconds", "tenrai");
+    let two_days = (chrono::Utc::now() - chrono::Duration::days(2)).timestamp();
+    let said: f64 = body
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("{checked} ")))
+        .unwrap_or_else(|| panic!("no {checked} in:\n{body}"))
+        .parse()
+        .unwrap();
+    assert!((said - two_days as f64).abs() < 60.0, "{checked} {said}, not two days ago");
     for absent in [
         source("routarr_metadata_source_up", "tenrai"),
         source("routarr_metadata_source_up", "inst-1"),
@@ -296,9 +303,8 @@ async fn the_content_type_is_the_one_prometheus_expects() {
     assert!(content_type.contains("version=0.0.4"), "got {content_type}");
 }
 
-/// The date of the newest archive is a series an alert reads against the
-/// interval, and the free space of the data disk another, neither of which a
-/// count of failed jobs, trimmed by the retention, can stand for.
+/// An alert reads these against the interval and the disk, which a count of failed jobs
+/// trimmed by the retention cannot stand for.
 #[tokio::test]
 async fn the_newest_archive_and_the_free_space_are_series() {
     let (app, _dir) = super::backup::app_with_files("metrics-backup").await;
@@ -322,9 +328,8 @@ async fn the_newest_archive_and_the_free_space_are_series() {
     assert_well_formed(&body);
 }
 
-/// Every warning the interface raises is a series an alert reads, by code and severity, with the
-/// threshold the application itself applies. The version, the database's size and each
-/// instance's sync interval are series too, which a dashboard and a stale-sync rule read.
+/// An alert reads each warning with the threshold the application applies, and a stale-sync
+/// rule reads each instance's interval.
 #[tokio::test]
 async fn the_warnings_the_version_the_database_and_the_sync_intervals_are_series() {
     let (app, _dir) = super::backup::app_with_files("metrics-warnings").await;

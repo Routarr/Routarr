@@ -18,7 +18,7 @@ use crate::state::AppState;
 pub const DEFAULT_URL: &str =
     "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-mini.json";
 
-/// The largest table read: the default one weighs about 6 MB.
+/// The largest table read, with room for the default one to grow.
 pub const MAX_BYTES: usize = 64 << 20;
 
 /// The sources a mapped id is written for, each in the namespace it reads.
@@ -37,6 +37,9 @@ pub struct Entry {
     #[serde(default)]
     imdb_id: OneOrMany<String>,
     season: Option<Season>,
+    /// How many episodes of its season come before the entry's first: past 0 for a part
+    /// numbered on from another.
+    episode_offset: Option<Season>,
 }
 
 #[derive(Deserialize, Default)]
@@ -108,6 +111,9 @@ fn rows_of(entries: Vec<Entry>) -> (Vec<Row>, usize) {
         };
         let tmdb = entry.tmdb.unwrap_or_default();
         let season = entry.season.as_ref();
+        // An entry past its season's first episode leaves the season to the entry that starts it.
+        let offset = entry.episode_offset.as_ref();
+        let starts = |offset: Option<i64>| offset.is_none_or(|offset| offset <= 0);
         for id in tmdb.movie.into_vec() {
             rows.push(row("movie", "tmdb", id.to_string(), None));
         }
@@ -117,10 +123,10 @@ fn rows_of(entries: Vec<Entry>) -> (Vec<Row>, usize) {
                 rows.push(row("movie", "imdb", id, None));
             }
         }
-        if let Some(id) = entry.tvdb_id {
+        if let Some(id) = entry.tvdb_id.filter(|_| starts(offset.and_then(|o| o.tvdb))) {
             rows.push(row("series", "tvdb", id.to_string(), season.and_then(|s| s.tvdb)));
         }
-        if let Some(id) = tmdb.tv {
+        if let Some(id) = tmdb.tv.filter(|_| starts(offset.and_then(|o| o.tmdb))) {
             rows.push(row("series", "tmdb", id.to_string(), season.and_then(|s| s.tmdb)));
         }
     }
@@ -165,13 +171,7 @@ impl Table {
 
     /// The whole table, for a pass over the library.
     pub async fn load(pool: &SqlitePool) -> AppResult<Self> {
-        let rows = sqlx::query_as(
-            "SELECT media_type, id_kind, id_value, season, entry_kind, anilist_id, mal_id
-               FROM anime_ids",
-        )
-        .fetch_all(pool)
-        .await?;
-        Ok(Self::from_rows(rows, refused(pool).await?))
+        Ok(Self::from_rows(rows(pool).await?, refused(pool).await?))
     }
 
     /// The rows one title's ids name, for a title asked about alone.
@@ -196,10 +196,6 @@ impl Table {
         .fetch_all(pool)
         .await?;
         Ok(Self::from_rows(rows, refused(pool).await?))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
     }
 
     /// The work a title is, by its ids in the order they are trusted: a film by its TMDB id,
@@ -268,10 +264,33 @@ fn pick(media_type: &str, rows: &[Row]) -> Option<Ids> {
     (alike.len() == 1).then(|| alike[0])
 }
 
-async fn refused(pool: &SqlitePool) -> AppResult<HashSet<(String, String)>> {
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT source, external_id FROM anime_ids_refused").fetch_all(pool).await?;
-    Ok(rows.into_iter().collect())
+async fn rows<'c>(executor: impl sqlx::SqliteExecutor<'c>) -> AppResult<Vec<Row>> {
+    Ok(sqlx::query_as(
+        "SELECT media_type, id_kind, id_value, season, entry_kind, anilist_id, mal_id
+           FROM anime_ids",
+    )
+    .fetch_all(executor)
+    .await?)
+}
+
+/// The refusals younger than a miss's lifetime (`metadata::miss_lifetime`): a refusal is a
+/// judgement about an answer, and the source may list the work later.
+async fn refused<'c>(
+    executor: impl sqlx::SqliteExecutor<'c>,
+) -> AppResult<HashSet<(String, String)>> {
+    let rows: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT source, external_id, refused_at FROM anime_ids_refused")
+            .fetch_all(executor)
+            .await?;
+    let now = chrono::Utc::now();
+    Ok(rows
+        .into_iter()
+        .filter(|(source, external_id, at)| {
+            let lifetime = metadata::miss_lifetime(&format!("{source}:{external_id}"));
+            crate::services::routing::parse_timestamp(at).is_some_and(|at| at + lifetime > now)
+        })
+        .map(|(source, external_id, _)| (source, external_id))
+        .collect())
 }
 
 /// The table's state, for the Metadata sources screen.
@@ -281,9 +300,9 @@ pub struct AnimeIdsState {
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     pub loaded_at: Option<String>,
     pub entries: Option<i64>,
-    /// The address it was downloaded from, or `file`.
+    /// The address it was downloaded from, or `file`, without credentials or query.
     pub origin: Option<String>,
-    /// Where a download asks.
+    /// Where a download asks, without credentials or query.
     pub address: String,
 }
 
@@ -296,7 +315,8 @@ pub async fn state(state: &AppState) -> AppResult<AnimeIdsState> {
         Some((at, entries, origin)) => (Some(at), Some(entries), Some(origin)),
         None => (None, None, None),
     };
-    Ok(AnimeIdsState { loaded_at, entries, origin, address: state.config.anime_ids_url.clone() })
+    let address = crate::http::for_display(&state.config.anime_ids_url);
+    Ok(AnimeIdsState { loaded_at, entries, origin, address })
 }
 
 /// Whether the weekly download is due: the table is a week old or was never loaded, and no load
@@ -327,9 +347,13 @@ pub enum Origin {
     File(Vec<Entry>),
 }
 
-/// The entries of a file a person handed in, or the refusal they read under its field.
-pub async fn read_file(state: &AppState, body: &[u8]) -> AppResult<Vec<Entry>> {
-    match serde_json::from_slice(body) {
+/// The entries of a file a person handed in, or the refusal they read under its field. Decoded
+/// on the blocking pool: a table of many MiB would hold a runtime worker for the whole decode.
+pub async fn read_file(state: &AppState, body: Vec<u8>) -> AppResult<Vec<Entry>> {
+    let read = tokio::task::spawn_blocking(move || serde_json::from_slice(&body))
+        .await
+        .map_err(|e| AppError::Internal(format!("reading the table stopped: {e}")))?;
+    match read {
         Ok(entries) => Ok(entries),
         Err(_) => {
             let message = state.localizer().await.translate("AnimeIdsUnreadable", &[]);
@@ -346,8 +370,9 @@ pub async fn load(state: &AppState, by: &Attribution, origin: Origin) -> AppResu
         return Err(AppError::InProgress { reason: "anime_ids_running", message });
     };
     let address = state.config.anime_ids_url.clone();
+    let shown = crate::http::for_display(&address);
     let detail = match &origin {
-        Origin::Address => Detail::new("JobDetailDownloadingAnimeIds").with("address", &address),
+        Origin::Address => Detail::new("JobDetailDownloadingAnimeIds").with("address", &shown),
         Origin::File(_) => Detail::new("JobDetailImportingAnimeIds"),
     };
     let mut job = state.jobs.start(JobKind::AnimeIds, by, None, detail).await?;
@@ -357,7 +382,7 @@ pub async fn load(state: &AppState, by: &Attribution, origin: Origin) -> AppResu
             match crate::integrations::send_json_capped("Anime identifiers", request, MAX_BYTES)
                 .await
             {
-                Ok(entries) => store(state, entries, &address).await,
+                Ok(entries) => store(state, entries, &shown).await,
                 Err(e) => Err(e),
             }
         }
@@ -432,11 +457,11 @@ struct Title {
 }
 
 /// Writes for every title of the library the ids the table names, for each anime source, over
-/// what a search or the other source found: the table is what a work is, a search a guess.
-/// Answers how many identifiers changed.
+/// what a search or the other source found: the table is what a work is, a search a guess. A
+/// mapping the table stops giving is removed. Answers how many identifiers changed.
 pub async fn apply(pool: &SqlitePool) -> AppResult<usize> {
-    let table = Table::load(pool).await?;
-    if table.is_empty() {
+    let rows = rows(pool).await?;
+    if rows.is_empty() {
         return Ok(0);
     }
     let titles: Vec<Title> = sqlx::query_as(
@@ -446,6 +471,9 @@ pub async fn apply(pool: &SqlitePool) -> AppResult<usize> {
     .await?;
     let mut changed = 0;
     let mut tx = crate::db::write_transaction(pool).await?;
+    // Inside the write: a refusal recorded meanwhile would otherwise be written back as a mapping.
+    let table = Table::from_rows(rows, refused(&mut *tx).await?);
+    let mut kept: Vec<(&'static str, String, String)> = Vec::new();
     for Title { media_type, title, tmdb_id, tvdb_id, imdb_id, year } in titles {
         let Some(ids) = table.find(&media_type, tmdb_id, tvdb_id, imdb_id.as_deref()) else {
             continue;
@@ -472,15 +500,33 @@ pub async fn apply(pool: &SqlitePool) -> AppResult<usize> {
             .execute(&mut *tx)
             .await?
             .rows_affected() as usize;
+            kept.push((source, media_type.clone(), key.clone()));
         }
     }
+    changed += sqlx::query(
+        "DELETE FROM source_identifiers
+          WHERE found_by = 'mapping'
+            AND NOT EXISTS (SELECT 1 FROM json_each(?) k
+                             WHERE k.value ->> 0 = source AND k.value ->> 1 = media_type
+                               AND k.value ->> 2 = local_key)",
+    )
+    .bind(serde_json::to_string(&kept)?)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected() as usize;
     tx.commit().await?;
     Ok(changed)
 }
 
-/// `source` refused an id the table named: it is never read from the table again, and the
-/// titles holding it are searched at the next pass.
-pub async fn refuse(pool: &SqlitePool, source: &str, external_id: &str) -> AppResult<()> {
+/// `source` refused an id the table named: it is not read from the table for a miss's lifetime,
+/// and the titles holding it are searched at the next pass. `named` is an id the table gave a
+/// title asked about alone, whose mapping is not stored yet.
+pub async fn refuse(
+    pool: &SqlitePool,
+    source: &str,
+    external_id: &str,
+    named: bool,
+) -> AppResult<()> {
     let mut tx = crate::db::write_transaction(pool).await?;
     // Set aside only what the table named: an id a search found is the search's to forget.
     let mapped = sqlx::query(
@@ -492,12 +538,16 @@ pub async fn refuse(pool: &SqlitePool, source: &str, external_id: &str) -> AppRe
     .execute(&mut *tx)
     .await?
     .rows_affected();
-    if mapped > 0 {
-        sqlx::query("INSERT OR IGNORE INTO anime_ids_refused (source, external_id) VALUES (?, ?)")
-            .bind(source)
-            .bind(external_id)
-            .execute(&mut *tx)
-            .await?;
+    if named || mapped > 0 {
+        sqlx::query(
+            "INSERT INTO anime_ids_refused (source, external_id, refused_at)
+             VALUES (?, ?, datetime('now'))
+             ON CONFLICT(source, external_id) DO UPDATE SET refused_at = excluded.refused_at",
+        )
+        .bind(source)
+        .bind(external_id)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(())
@@ -507,11 +557,15 @@ pub async fn refuse(pool: &SqlitePool, source: &str, external_id: &str) -> AppRe
 mod tests {
     use super::*;
 
-    /// Two entries of Fribb's table as it reads: the first season of a series, its second, its
-    /// special, and a film with two TMDB ids.
+    /// Entries of Fribb's table as it reads: the first season of a series, the second part of
+    /// that season numbered on from the first, its second season, its special, and a film with
+    /// two TMDB ids.
     const SAMPLE: &str = r#"[
       {"type":"TV","anidb_id":1,"anilist_id":290,"mal_id":290,"imdb_id":["tt0286390"],
        "themoviedb_id":{"tv":26209},"tvdb_id":72025,"season":{"tvdb":1,"tmdb":1}},
+      {"type":"TV","anidb_id":2,"anilist_id":291,"mal_id":291,"imdb_id":["tt0286390"],
+       "themoviedb_id":{"tv":26209},"tvdb_id":72025,"season":{"tvdb":1,"tmdb":1},
+       "episode_offset":{"tvdb":12,"tmdb":12}},
       {"type":"TV","anidb_id":4,"anilist_id":396,"mal_id":396,"imdb_id":["tt0286390"],
        "themoviedb_id":{"tv":26209},"tvdb_id":72025,"season":{"tvdb":2,"tmdb":2}},
       {"type":"SPECIAL","anidb_id":6,"anilist_id":1124,"mal_id":1124,"imdb_id":["tt0286390"],
@@ -524,7 +578,7 @@ mod tests {
     fn table() -> Table {
         let entries: Vec<Entry> = serde_json::from_str(SAMPLE).unwrap();
         let (rows, counted) = rows_of(entries);
-        assert_eq!(counted, 4, "an entry naming neither id is no work");
+        assert_eq!(counted, 5, "an entry naming neither id is no work");
         Table::from_rows(rows, HashSet::new())
     }
 
