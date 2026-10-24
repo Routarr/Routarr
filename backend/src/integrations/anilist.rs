@@ -66,7 +66,8 @@ pub struct AniListDetails {
     pub ratings: std::collections::BTreeMap<String, crate::models::Rating>,
 }
 
-/// AniList answers a failure with a 200, `data: null` and an `errors` list.
+/// The body AniList sends with a failure, whatever its status: `data: null` and an `errors` list,
+/// a 200 included.
 #[derive(Debug, Deserialize)]
 struct GraphQlResponse<T> {
     data: Option<T>,
@@ -183,7 +184,7 @@ impl AniListClient {
     }
 
     /// The answer to one query, the limit stated beside it kept for the pace.
-    async fn ask<T: serde::de::DeserializeOwned>(
+    async fn ask<T: serde::de::DeserializeOwned + Send + 'static>(
         &self,
         query: &str,
         variables: serde_json::Value,

@@ -1,16 +1,8 @@
-//! TheTVDB v4.
+//! TheTVDB v4, the source Sonarr is built on. `POST /login` answers a bearer token valid for
+//! about a month, kept in `AppState` so one login serves every pass.
 //!
-//! The source Sonarr itself is built on, and the only one in the set that
-//! authenticates with a **login** rather than a query parameter: `POST /login`
-//! returns a bearer token valid for about a month. The token is fetched on first
-//! use and kept in `AppState`, so one login serves every enrichment pass until
-//! it expires, not one per item.
-//!
-//! Its key is free for a project earning under $50,000 a year that shows its
-//! attribution to whoever reads the metadata, which the Sources screen does. A
-//! *user-supported* key additionally needs the subscriber PIN its owner was
-//! given, which is why the PIN is a separate optional setting rather than being
-//! folded into the key.
+//! Its key is free for a project earning under $50,000 a year that credits it, as the Sources
+//! screen does. A user-supported key also needs its subscriber PIN, a setting of its own.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -43,8 +35,6 @@ pub struct TvdbClient {
     /// Only user-supported keys need one.
     pin: Option<String>,
     base_url: String,
-    /// Owned by `AppState`, so the token outlives the client and one login
-    /// serves every pass until it expires.
     token: TokenCache,
 }
 
@@ -169,15 +159,13 @@ impl TvdbClient {
 
     /// A read, logged in again once if the token has expired.
     ///
-    /// TheTVDB documents a month's validity and the token lives for the life
-    /// of the process, so past the month every read would answer 401, one per
-    /// pending title per pass, with nothing naming the cause. A 401 drops the
-    /// token it was sent with and the read is made once more with a fresh one.
-    /// Only that token: the reads in flight beside it fail with it too, and
-    /// each dropping whatever the cache holds would throw away the token the
-    /// first of them just logged in for. A second 401 is the key's problem,
-    /// and is reported as such.
-    async fn read<T: serde::de::DeserializeOwned>(&self, path: &str) -> AppResult<T> {
+    /// A 401 drops the token it was sent with and no other: the reads in flight beside it fail
+    /// too, and must not throw away the token the first of them just logged in for. A second 401
+    /// is the key's problem.
+    async fn read<T: serde::de::DeserializeOwned + Send + 'static>(
+        &self,
+        path: &str,
+    ) -> AppResult<T> {
         let (request, sent) = self.get(path).await?;
         match send_json(SERVICE, request).await {
             Err(crate::error::AppError::ExternalApi { status: 401, .. }) => {
@@ -257,8 +245,6 @@ mod tests {
         pairs.iter().map(|(country, rating)| (country.to_string(), rating.to_string())).collect()
     }
 
-    /// A blank rating, or one for a code no country has, rates nothing, and
-    /// a country rated twice keeps its first.
     #[test]
     fn each_country_keeps_its_first_rating() {
         let rating = |name: &str, country: &str| ContentRating {
@@ -276,10 +262,8 @@ mod tests {
         assert_eq!(ratings_by_country(&ratings), by_country(&[("FR", "-12"), ("US", "TV-14")]));
     }
 
-    /// A captured-shape TheTVDB v4 `/series/{id}/extended` response through the
-    /// real types. The v4 API wraps everything in `data`, names country and
-    /// language in three letters, and returns dozens of fields the client does
-    /// not read. This pins down all three.
+    /// A captured-shape TheTVDB v4 `/series/{id}/extended` response through the real types:
+    /// wrapped in `data`, country and language in three letters, many fields unread.
     #[test]
     fn a_real_shape_extended_record_deserialises_and_normalises() {
         let json = r#"{
@@ -319,8 +303,7 @@ mod tests {
         );
     }
 
-    /// The login response, which is the only reason this client differs from
-    /// the others: the token lives one level down under `data`.
+    /// The login response, its token under `data`.
     #[test]
     fn a_real_shape_login_response_yields_the_token() {
         let json = r#"{ "status": "success", "data": { "token": "eyJhbGciOi.stub.token" } }"#;

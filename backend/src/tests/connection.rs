@@ -1,11 +1,6 @@
-//! What the interface says when an Arr cannot be reached.
-//!
-//! A raw failure names the transport, "connection refused" or "HTTP 401", and
-//! leaves the operator to work out which of the address, the port, the key or
-//! the type they typed is wrong. Each case here is served from a real socket,
-//! the way a wrong address, a wrong port or a proxy answers, so what gets
-//! explained is the client's own reading of the failure. The expected sentence
-//! is read from the dictionary by its key, never through the code that picks it.
+//! What the interface says when an Arr cannot be reached: the address, port, key or type the
+//! operator typed, never the bare transport error. Each case is served from a real socket, and
+//! the expected sentence is read from the dictionary by its key.
 
 use std::time::Duration;
 
@@ -106,6 +101,13 @@ async fn probe_as(app: &TestApp, instance_type: &str, base_url: &str) -> TestRes
 /// What `key` says with `params`, in the language the application speaks.
 async fn said(app: &TestApp, key: &str, params: &[(&str, &str)]) -> String {
     app.state.localizer().await.translate(key, params)
+}
+
+/// The sync status the instances list shows for `id`.
+async fn sync_status(app: &TestApp, id: &str) -> String {
+    let instances = app.get("/api/v1/instances").await.assert_ok().clone();
+    let instance = instances.as_array().unwrap().iter().find(|instance| instance["id"] == id);
+    instance.expect("the instance is listed")["last_sync_status"].as_str().unwrap().to_string()
 }
 
 /// A refusal of what the operator typed, a 400: trying again changes nothing.
@@ -514,10 +516,8 @@ async fn a_redirect_loop_is_named_as_one() {
     assert_eq!(message, expected);
 }
 
-/// A cloud host's metadata service answers with the machine's credentials,
-/// and never where an Arr runs. Routarr does not connect there, written as a
-/// literal address or behind a name, and says why rather than waiting out a
-/// timeout.
+/// A cloud host's metadata service answers with the machine's credentials and never runs an Arr,
+/// so Routarr refuses it, as a literal address or behind a name, rather than wait out a timeout.
 #[tokio::test]
 async fn a_metadata_address_is_refused_before_any_connection() {
     let app = TestApp::new().await;
@@ -629,9 +629,7 @@ async fn an_arr_that_is_down_answers_a_gateway_error() {
     assert_eq!(outage(&response), expected);
 }
 
-/// A sync started without waiting fails with the same explanation the
-/// waited call answers, read from its task: a script polling the task gets
-/// the sentence a person would have been shown.
+/// A script polling the task gets the sentence a person would have been shown.
 #[tokio::test]
 async fn a_sync_not_waited_for_keeps_the_explanation_on_its_task() {
     let app = TestApp::new().await;
@@ -712,8 +710,11 @@ async fn a_library_slower_than_the_timeout_is_not_blamed_on_the_address() {
         let response = app.post(&format!("/api/v1/instances/{id}/sync"), json!({})).await;
 
         let named = [("service", "Radarr"), ("variable", "ROUTARR_LIBRARY_TIMEOUT_SECS")];
-        assert_eq!(outage(&response), said(&app, "InstanceSyncTimedOut", &named).await, "{id}");
+        let explained = said(&app, "InstanceSyncTimedOut", &named).await;
+        assert_eq!(outage(&response), explained, "{id}");
         assert!(outage(&response).contains("ROUTARR_LIBRARY_TIMEOUT_SECS"), "{id}");
+        let stored = sync_status(&app, id).await;
+        assert!(stored.ends_with(&explained), "{id}: the list says {stored}");
     }
 }
 
@@ -746,7 +747,10 @@ async fn a_library_past_the_size_cap_names_the_variable_that_raises_it() {
         let response = app.post(&format!("/api/v1/instances/{kind}-beyond/sync"), json!({})).await;
 
         let named = [("service", service), ("variable", "ROUTARR_MAX_LIBRARY_MIB")];
-        assert_eq!(outage(&response), said(&app, "InstanceSyncTooLarge", &named).await);
+        let explained = said(&app, "InstanceSyncTooLarge", &named).await;
+        assert_eq!(outage(&response), explained);
+        let stored = sync_status(&app, &format!("{kind}-beyond")).await;
+        assert!(stored.ends_with(&explained), "{service}: the list says {stored}");
     }
 }
 
@@ -843,10 +847,8 @@ async fn the_form_is_answered_in_the_readers_language() {
     );
 }
 
-/// Sonarr 3 sends no `SeriesAdd` and knows no series language: Routarr works
-/// with it, and says what is lost, in the test of the form and in the
-/// diagnostics once a sync has read the version. A release at the minimum
-/// is not warned of.
+/// Sonarr 3 sends no `SeriesAdd` and knows no series language: Routarr works with it and says
+/// what is lost, in the form's test and once a sync has read the version.
 #[tokio::test]
 async fn an_arr_older_than_the_minimum_is_named_with_what_it_lacks() {
     let arr = FakeArr::start().await;

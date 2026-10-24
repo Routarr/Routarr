@@ -8,7 +8,7 @@ pub fn read(raw: &str, media_type: &str) -> Option<&'static str> {
     let film = media_type == "movie";
     let folded = raw.trim().to_ascii_lowercase().replace(['_', '-'], " ");
     Some(match folded.as_str() {
-        // TMDb and TheTVDB, AniList, MyAnimeList through Tenrai.
+        // TMDB and TheTVDB, AniList, MyAnimeList itself and through Tenrai.
         "released" | "ended" | "finished" | "finished airing" => {
             if film {
                 "released"
@@ -49,7 +49,6 @@ pub fn read(raw: &str, media_type: &str) -> Option<&'static str> {
 mod tests {
     use super::read;
 
-    /// Every source's words for one state read as one, for a film or a series.
     #[test]
     fn each_source_s_status_reads_as_the_arrs_word() {
         for raw in ["Released", "FINISHED", "Finished Airing"] {
@@ -71,7 +70,6 @@ mod tests {
         assert_eq!(read("RELEASING", "movie"), Some("inCinemas"));
     }
 
-    /// A state the Arrs have no word for is no status rather than a wrong one.
     #[test]
     fn a_state_the_arrs_cannot_say_is_no_status() {
         assert_eq!(read("Canceled", "movie"), None);

@@ -382,12 +382,18 @@ fn configuration_of(instances: &[Instance], settings: &Settings) -> u64 {
     hasher.finish()
 }
 
+/// A source's probe verdict counts a day, as a condition over `probe_results`: nothing probes on
+/// a schedule, and an older verdict says nothing of the source now.
+pub(crate) const FRESH_SOURCE_VERDICT: &str = "checked_at >= datetime('now', '-1 day')";
+
 /// The failures the last probe found, for the endpoints that may not probe themselves. A row
 /// whose instance was deleted since is dropped, never reported as an unnamed failure.
 async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResult<Vec<Warning>> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT subject, detail FROM probe_results WHERE reachable = 0 ORDER BY subject",
-    )
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT subject, detail FROM probe_results
+          WHERE reachable = 0 AND (subject NOT GLOB 'source:*' OR {FRESH_SOURCE_VERDICT})
+          ORDER BY subject"
+    )))
     .fetch_all(&state.pool)
     .await?;
 
@@ -444,7 +450,8 @@ pub(crate) fn below_version(
     Some(localizer.translate(key, &params))
 }
 
-/// Replaces the last probe's verdicts with this one's. Nothing expires them, which is why the
+/// Replaces the last probe's verdicts with this one's. A source's counts a day
+/// ([`FRESH_SOURCE_VERDICT`]) and an instance's until the next probe, which is why the
 /// diagnostics page probes live.
 async fn record_probe(state: &AppState, probe: &Probe) -> AppResult<()> {
     let rows: Vec<(String, bool, Option<String>)> = probe
@@ -527,11 +534,12 @@ impl Probed {
         code.strip_prefix("source_")
     }
 
-    /// The verdict on `outcome`. A refusal blames the key only for a source that takes one.
-    fn of(outcome: &crate::error::AppResult<bool>, needs_key: bool) -> Self {
+    /// The verdict on `outcome`. A refusal blames the key only for a source that takes one, and a
+    /// closed day is a spent quota only for a source that `counts` one: Tenrai's is a block.
+    fn of(outcome: &crate::error::AppResult<bool>, needs_key: bool, counts: bool) -> Self {
         let detail = match outcome {
             Ok(true) => return Self { connected: true, detail: None },
-            Err(error) if crate::integrations::is_quota_spent(error) => QUOTA_SPENT,
+            Err(error) if counts && crate::integrations::is_quota_spent(error) => QUOTA_SPENT,
             Err(AppError::ExternalApi { status: 429, .. }) => RATE_LIMITED,
             Ok(false) | Err(AppError::ExternalApi { status: 401 | 403, .. }) if needs_key => {
                 KEY_REFUSED
@@ -543,6 +551,10 @@ impl Probed {
 
     fn quota_spent() -> Self {
         Self { connected: false, detail: Some(QUOTA_SPENT.to_string()) }
+    }
+
+    fn rate_limited() -> Self {
+        Self { connected: false, detail: Some(RATE_LIMITED.to_string()) }
     }
 }
 
@@ -557,13 +569,19 @@ async fn probe_sources(state: &AppState) -> HashMap<String, Probed> {
     join_all(probes).await.into_iter().collect()
 }
 
-/// One source's probe, at the source's pace, or its 429 during a pass would read as the source
-/// down. A source with a daily quota is asked once a day, and the verdict stands until the day
-/// ends or a new key or quota is saved (the `*_forgets_probe` triggers).
+/// One source's probe, at its pace, or its 429 during a pass would read as the source down. One
+/// with a daily quota is asked once a day, again once a key or quota is saved (`*_forgets_probe`).
+/// One held past [`PROBE_PACE_WAIT`], or until tomorrow, is reported rate limited, no request sent.
 async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Probed {
     let needs_key = metadata::info(source.id()).is_some_and(|info| info.needs_key);
+    if source.is_held_today(&state.pool).await {
+        return Probed::rate_limited();
+    }
     let Some(quota) = source.daily_quota() else {
-        return Probed::of(&paced_probe(state, source).await, needs_key);
+        return match paced_probe(state, source).await {
+            Some(outcome) => Probed::of(&outcome, needs_key, false),
+            None => Probed::rate_limited(),
+        };
     };
     let today: Option<(bool, Option<String>)> = sqlx::query_as(
         "SELECT reachable, detail FROM probe_results
@@ -580,28 +598,39 @@ async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Pr
     if quota.reserve(&state.pool, 1).await.unwrap_or(0) == 0 {
         return Probed::quota_spent();
     }
-    let outcome = paced_probe(state, source).await;
-    if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent)
-        && let Err(e) = quota.exhaust(&state.pool).await
-    {
-        tracing::warn!("Could not record that {} spent its quota: {e}", source.id());
-    }
-    Probed::of(&outcome, needs_key)
+    let Some(outcome) = paced_probe(state, source).await else {
+        if let Err(e) = quota.give_back(&state.pool, 1).await {
+            tracing::warn!("Could not give back a request of {}: {e}", source.id());
+        }
+        return Probed::rate_limited();
+    };
+    Probed::of(&outcome, needs_key, true)
 }
 
-/// The source's connection test, paced like every other request to it.
+/// How long a probe waits for its source's pace: a hold past it is what the source said.
+const PROBE_PACE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The source's connection test, paced like every other request to it, or `None` when the pace
+/// holds it past [`PROBE_PACE_WAIT`]. A refusal for the rest of the day closes it.
 async fn paced_probe(
     state: &AppState,
     source: &metadata::FetchingSource,
-) -> crate::error::AppResult<bool> {
+) -> Option<crate::error::AppResult<bool>> {
     let pace = state.paces.of(source);
-    pace.acquire().await;
+    if !pace.acquire_by(tokio::time::Instant::now() + PROBE_PACE_WAIT).await {
+        return None;
+    }
     let outcome = source.test_connection().await;
     source.paced_after(&pace, &outcome).await;
     if let Err(e) = &outcome {
         tracing::warn!(source = source.id(), "The probe of a metadata source failed: {e}");
     }
-    outcome
+    if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent)
+        && let Err(e) = source.close_the_day(&state.pool).await
+    {
+        tracing::warn!("Could not record that {} refuses until tomorrow: {e}", source.id());
+    }
+    Some(outcome)
 }
 
 /// The configured order, annotated with what each source can do right now.

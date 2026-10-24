@@ -428,8 +428,6 @@ mod tests {
         assert!(series_has_files(json!({ "id": 20, "title": "Cowboy Bebop" })));
     }
 
-    /// Sonarr writes a series with no TMDB id as `"tmdbId": 0`. Taken for an id, every such
-    /// series shares the key `tmdb:0` and the one answer a search gave the first.
     #[test]
     fn an_id_the_arr_writes_as_zero_is_no_id() {
         let series = series_to_media(

@@ -1,6 +1,6 @@
 //! Near-real-time routing through Radarr and Sonarr webhooks, authenticated by a per-instance
-//! token. Radarr 5.16 and Sonarr 4.0.11 send it in a header (a Basic password or
-//! `X-Routarr-Token`), an older Arr in the URL, where every proxy and the Arr's own log keep it.
+//! token: a Basic password from any release, `X-Routarr-Token` from Radarr 5.16 and Sonarr 4.0.11,
+//! else the URL, where every proxy and the Arr's own log keep it.
 
 use super::Json;
 use axum::extract::{FromRequest, Request, State};

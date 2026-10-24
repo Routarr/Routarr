@@ -7,9 +7,10 @@ use tracing::{error, info, warn};
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::{Attribution, Detail, JobKind};
+use crate::localization::Told;
 use crate::models::Instance;
 use crate::models::instance::SYNC_FAILED;
-use crate::services::connection::Said;
+use crate::services::connection::{self, Cause, Said};
 use crate::services::{notify, webhook_check};
 use crate::state::AppState;
 
@@ -39,15 +40,14 @@ pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult
 
     let localizer = &state.localizer().await;
     let reports = futures::stream::iter(instances.into_iter().map(|instance| async move {
-        match sync_instance_inner(state, &instance, by, Removal::Bounded).await {
+        match sync_instance_inner(state, &instance, by, Removal::Bounded, localizer).await {
             Ok(report) => report,
-            Err(e) => {
-                error!("Failed to sync instance '{}': {e}", instance.name);
-                let said = Said::of(&e, Some(&instance), localizer).said;
+            Err(failed) => {
+                error!("Failed to sync instance '{}': {}", instance.name, failed.error);
                 SyncReport {
                     instance_id: instance.id,
                     instance_name: instance.name,
-                    error: Some(said),
+                    error: Some(failed.said),
                     ..Default::default()
                 }
             }
@@ -68,17 +68,93 @@ pub async fn sync_instance(
     by: &Attribution,
 ) -> AppResult<SyncReport> {
     let instance = state.instance(instance_id).await?;
-    sync_instance_inner(state, &instance, by, Removal::Bounded).await
+    let localizer = state.localizer().await;
+    sync_instance_inner(state, &instance, by, Removal::Bounded, &localizer)
+        .await
+        .map_err(|failed| failed.error)
 }
 
-/// Synchronize one instance and remove every title its Arr no longer reports, however many.
+/// [`sync_instance`] for a person waiting on it, a failure answered as what to change.
+pub async fn sync_instance_explained(
+    state: &AppState,
+    instance_id: &str,
+    by: &Attribution,
+) -> AppResult<SyncReport> {
+    let instance = state.instance(instance_id).await?;
+    let localizer = state.localizer().await;
+    sync_instance_inner(state, &instance, by, Removal::Bounded, &localizer)
+        .await
+        .map_err(|failed| failed.told())
+}
+
+/// Synchronize one instance and remove every title its Arr stopped reporting, however many, a
+/// failure answered as what to change.
 pub async fn sync_removing_missing(
     state: &AppState,
     instance_id: &str,
     by: &Attribution,
 ) -> AppResult<SyncReport> {
     let instance = state.instance(instance_id).await?;
-    sync_instance_inner(state, &instance, by, Removal::Asked).await
+    let localizer = state.localizer().await;
+    sync_instance_inner(state, &instance, by, Removal::Asked, &localizer)
+        .await
+        .map_err(|failed| failed.told())
+}
+
+/// A sync that failed: the error as it came, which the log keeps, and what a person reads of it.
+struct Failed {
+    error: AppError,
+    said: String,
+    /// The refusal a caller reads, when the address, the key or a limit explains the failure.
+    refusal: Option<AppError>,
+}
+
+impl Failed {
+    fn told(self: Box<Self>) -> AppError {
+        self.refusal.unwrap_or(self.error)
+    }
+}
+
+/// What a failed sync says to change, as a row keeps it, and whether a retry may clear it: the
+/// address or the key that explains `error`, or the variable to raise when the Arr answers its
+/// status but its listing timed out, outgrew its cap or did not decode. `None` when nothing does.
+async fn explanation(
+    state: &AppState,
+    instance: &Instance,
+    error: &AppError,
+) -> Option<(Told, bool)> {
+    let kind = instance.instance_type.as_str();
+    let explained = |cause: Cause| {
+        let outage = cause.is_outage();
+        (connection::told(&cause, kind, &instance.base_url), outage)
+    };
+    let cause = connection::cause_of(error)?;
+    if !matches!(cause, Cause::TimedOut | Cause::TooLarge | Cause::NotTheApi) {
+        return Some(explained(cause));
+    }
+    // A probe of the address tells a wrong type or port from a listing the sync could not read.
+    let adapter = state.adapter(instance).ok()?;
+    let status = match adapter.test_connection().await {
+        Ok(status) => status,
+        Err(failed) => return connection::cause_of(&failed).map(explained),
+    };
+    if let Some(cause) = connection::wrong_app(kind, status.app_name.as_deref()) {
+        return Some(explained(cause));
+    }
+    if let Err(failed) = adapter.get_root_folders().await {
+        return connection::cause_of(&failed).map(explained);
+    }
+    let service = connection::service_name(kind);
+    let told = match cause {
+        Cause::TimedOut => Told::new("InstanceSyncTimedOut")
+            .with("service", service)
+            .with("variable", "ROUTARR_LIBRARY_TIMEOUT_SECS"),
+        Cause::TooLarge => Told::new("InstanceSyncTooLarge")
+            .with("service", service)
+            .with("variable", "ROUTARR_MAX_LIBRARY_MIB"),
+        _ => Told::new("InstanceSyncUnreadable").with("service", service),
+    };
+    Some((told, true))
 }
 
 /// Whether a sync may remove most of an instance's library on one read.
@@ -96,12 +172,16 @@ async fn sync_instance_inner(
     instance: &Instance,
     by: &Attribution,
     removal: Removal,
-) -> AppResult<SyncReport> {
+    localizer: &crate::localization::Localizer,
+) -> Result<SyncReport, Box<Failed>> {
+    let unexplained = |error: AppError| {
+        let said = Said::of(&error, Some(instance), localizer).said;
+        Box::new(Failed { error, said, refusal: None })
+    };
     // The scheduler and a click on Sync must not fight over the same rows.
-    let localizer = state.localizer().await;
     let Some(_lock) = state.jobs.try_lock(&format!("sync:{}", instance.id)) else {
         let message = localizer.translate("ErrorSyncInProgress", &[("name", &instance.name)]);
-        return Err(AppError::InProgress { reason: "sync_running", message });
+        return Err(unexplained(AppError::InProgress { reason: "sync_running", message }));
     };
 
     let mut job = state
@@ -112,7 +192,8 @@ async fn sync_instance_inner(
             Some(&instance.id),
             Detail::new("JobDetailSyncing").with("instance", &instance.name),
         )
-        .await?;
+        .await
+        .map_err(unexplained)?;
 
     // Read before writing: a notification fires on the transition, never on every failing tick.
     let was_failing =
@@ -126,6 +207,7 @@ async fn sync_instance_inner(
         warn!(instance = %instance.name, "The moves left requested could not be settled: {e}");
     }
 
+    let mut failed = None;
     // On their own task: awaited here, a slow receiver would hold the sync's answer and lock.
     match &outcome {
         Ok(report) => {
@@ -145,7 +227,11 @@ async fn sync_instance_inner(
             }
         }
         Err(e) => {
-            let said = Said::of(e, Some(instance), &localizer);
+            let explained = explanation(state, instance, e).await;
+            let said = match &explained {
+                Some((told, _)) => Said::told(told, localizer),
+                None => Said::of(e, Some(instance), localizer),
+            };
             update_sync_status(&state.pool, instance, &format!("{SYNC_FAILED}{}", said.stored))
                 .await;
             notify::send_later(
@@ -156,7 +242,31 @@ async fn sync_instance_inner(
                     error: said.stored.clone(),
                 },
             );
+            let (task, told) = (job.id.clone(), said.said.clone());
             job.fail(e).await;
+            let refusal = explained.map(|(_, outage)| {
+                if outage {
+                    AppError::UpstreamDown(told.clone())
+                } else {
+                    AppError::BadRequest(told.clone())
+                }
+            });
+            // The task says what the caller reads, its log line the error as it came.
+            if let Some(refusal) = &refusal
+                && let Err(e) = sqlx::query(
+                    "UPDATE jobs SET error_message = ?, error_code = ?
+                      WHERE id = ? AND status = 'failed'",
+                )
+                .bind(refusal.public_message())
+                .bind(refusal.code())
+                .bind(&task)
+                .execute(&state.pool)
+                .await
+            {
+                let name = &instance.name;
+                warn!(instance = %name, "Could not explain the failed sync on its task: {e}");
+            }
+            failed = Some((told, refusal));
             // A database refusal or a key that cannot be opened is no Arr out of reach.
             let unreachable = matches!(e, AppError::ExternalApi { .. } | AppError::UpstreamDown(_));
             if !was_failing && unreachable {
@@ -171,7 +281,10 @@ async fn sync_instance_inner(
         }
     }
 
-    outcome
+    outcome.map_err(|error| match failed {
+        Some((said, refusal)) => Box::new(Failed { error, said, refusal }),
+        None => unexplained(error),
+    })
 }
 
 /// Whether somebody asked for this sync, through the interface or the API,

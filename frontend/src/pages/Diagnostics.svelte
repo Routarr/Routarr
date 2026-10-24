@@ -156,7 +156,9 @@
         <div class="source-list">
           {#each health.metadata.providers as provider (provider.id)}
             {@const waiting = !provider.configured}
-            {@const broken = provider.connected === false}
+            {@const heldBack =
+              provider.reason === 'rate_limited' || provider.reason === 'quota_spent'}
+            {@const broken = provider.connected === false && !heldBack}
             <div class="source-row{waiting ? ' waiting' : ''}">
               <!-- Name only: this screen answers "is it working". What a source
                    brings, and which variable it waits for, belongs to the Sources screen. -->
@@ -164,18 +166,20 @@
               <span
                 class="badge {broken
                   ? 'badge-danger'
-                  : waiting
+                  : waiting || heldBack
                     ? 'badge-warning'
                     : 'badge-success'}"
               >
                 {t(
                   broken
                     ? 'Error'
-                    : waiting
-                      ? 'ProviderNeedsKey'
-                      : provider.connected === true
-                        ? 'Connected'
-                        : 'ProviderActive',
+                    : heldBack
+                      ? 'ProviderHeldBack'
+                      : waiting
+                        ? 'ProviderNeedsKey'
+                        : provider.connected === true
+                          ? 'Connected'
+                          : 'ProviderActive',
                 )}
               </span>
             </div>

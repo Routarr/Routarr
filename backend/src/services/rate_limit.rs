@@ -1,6 +1,5 @@
-//! Pacing for outbound calls to one metadata source. The breaker in `enrichment` stops a pass
-//! hammering a source that is down, and a concurrency cap is not a rate: unpaced, a first pass
-//! over a large library trips its own breaker on a source that is up and has a limit.
+//! Pacing for outbound calls to one metadata source: unpaced, a first pass over a large library
+//! trips the `enrichment` breaker on a source that is up and has a limit.
 //!
 //! A reservation token bucket: a caller takes its token under the lock, then sleeps outside
 //! it. The balance goes negative so each waiter is told a different instant, in arrival order.
@@ -70,6 +69,25 @@ impl RateLimiter {
             tokio::time::sleep(wait).await;
             if self.state.lock().await.last_refill <= Instant::now() {
                 return;
+            }
+        }
+    }
+
+    /// [`RateLimiter::acquire`] for a caller with a deadline: `false` at once, its turn given
+    /// back, when the turn falls past `deadline`, a hold placed while it slept included.
+    pub async fn acquire_by(&self, deadline: Instant) -> bool {
+        loop {
+            let wait = self.reserve().await;
+            if wait.is_zero() {
+                return true;
+            }
+            if Instant::now() + wait > deadline {
+                self.state.lock().await.tokens += 1.0;
+                return false;
+            }
+            tokio::time::sleep(wait).await;
+            if self.state.lock().await.last_refill <= Instant::now() {
+                return true;
             }
         }
     }
@@ -156,9 +174,8 @@ fn hold(state: &mut State, until: Instant) {
     }
 }
 
-/// Pace `limiter` after an answer of its source. A refusal states the limit pacing guesses:
-/// held back for its `Retry-After`, or a back-off when it names none, later requests wait
-/// rather than spend their budget learning it again.
+/// Pace `limiter` after an answer of its source: a `Retry-After` holds every request back for
+/// its wait, and a 429 naming none backs off.
 pub async fn after_answer<T>(limiter: &RateLimiter, outcome: &crate::error::AppResult<T>) {
     use crate::error::AppError;
     match outcome {
@@ -185,7 +202,6 @@ mod tests {
     async fn a_burst_is_allowed_before_any_pacing_begins() {
         let limiter = RateLimiter::new(60, 3);
 
-        // A three-item library is not paced to a rate it never reaches.
         for _ in 0..3 {
             assert_eq!(limiter.reserve().await, Duration::ZERO);
         }
@@ -196,7 +212,6 @@ mod tests {
         let limiter = RateLimiter::new(60, 1);
         assert_eq!(limiter.reserve().await, Duration::ZERO);
 
-        // 60 a minute is one a second.
         let second = limiter.reserve().await;
         assert!(
             (second.as_secs_f64() - 1.0).abs() < 0.01,
@@ -209,7 +224,6 @@ mod tests {
         let limiter = RateLimiter::new(60, 1);
         limiter.reserve().await;
 
-        // Without a negative balance, every waiter would be told one second and stampede.
         let first = limiter.reserve().await;
         let second = limiter.reserve().await;
         let third = limiter.reserve().await;
@@ -244,8 +258,6 @@ mod tests {
         assert!(wait >= Duration::from_secs(29), "the source's own delay was ignored: {wait:?}");
     }
 
-    /// After a `Retry-After`, the waiters leave one at a time at the source's
-    /// rate, from the moment it named, not all together at that moment.
     #[tokio::test(start_paused = true)]
     async fn the_waiters_held_by_a_retry_after_leave_paced() {
         let limiter = RateLimiter::new(60, 5);
@@ -269,8 +281,6 @@ mod tests {
         assert!(wait >= Duration::from_secs(59), "a second 429 cut the first one short: {wait:?}");
     }
 
-    /// The rate a source states replaces the one assumed, no more requests
-    /// go out than it says remain, and none before its reset once none do.
     #[tokio::test(start_paused = true)]
     async fn the_limit_a_source_states_is_followed() {
         let limiter = RateLimiter::new(30, 5);
@@ -286,8 +296,6 @@ mod tests {
         assert!(held >= Duration::from_secs(38), "the reset was not waited for: {held:?}");
     }
 
-    /// A request whose turn came before a refusal still waits for the hold
-    /// the refusal asked: sent at its turn, it earns the same refusal again.
     #[tokio::test(start_paused = true)]
     async fn a_waiter_reserved_before_a_penalty_waits_for_its_end() {
         let limiter = RateLimiter::new(60, 1);
@@ -308,6 +316,20 @@ mod tests {
         assert!(sent - refused >= Duration::from_secs(30), "sent {:?} in", sent - refused);
     }
 
+    /// A caller with a deadline gives up at once when its turn falls past it, and the turn it
+    /// gave up goes to the next caller.
+    #[tokio::test(start_paused = true)]
+    async fn acquire_by_gives_up_at_once_past_its_deadline() {
+        let limiter = RateLimiter::new(60, 1);
+        limiter.penalise(Duration::from_secs(60)).await;
+        let start = Instant::now();
+
+        assert!(!limiter.acquire_by(start + Duration::from_secs(1)).await, "waited past it");
+        assert_eq!(Instant::now(), start, "time passed while it gave up");
+        assert_eq!(limiter.reserve().await.as_secs(), 60, "the turn given up was kept");
+        assert!(limiter.acquire_by(start + Duration::from_secs(120)).await);
+    }
+
     fn too_many() -> crate::error::AppResult<()> {
         Err(crate::integrations::upstream(
             "AniList",
@@ -317,8 +339,7 @@ mod tests {
         ))
     }
 
-    /// A 429 naming no wait still slows the source, longer each time it refuses once the hold
-    /// is over, and from the start once it answers. Refusals already in flight lengthen nothing.
+    /// The second refusal of each round lands during the hold and lengthens nothing.
     #[tokio::test(start_paused = true)]
     async fn a_429_without_retry_after_still_slows_the_source() {
         let limiter = RateLimiter::unlimited();
