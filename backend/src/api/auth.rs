@@ -1,16 +1,9 @@
 //! Authentication, one mode at a time.
 //!
-//! Routarr sits in a homelab, often behind a reverse proxy, but its API can
-//! move files on disk, so a protected call carries a credential unless the
-//! operator asked for none. Every mode ends at the same place: an [`Identity`]
-//! in the request's extensions, which is what the rest of the application
-//! reads. Nothing downstream knows which mode produced it, and that is the
-//! point: adding a mode is one arm here, not a change everywhere.
-//!
-//! People have two levels at most. A person has full access, except one the OIDC read lists
-//! let in, who reaches what the read scope of an application key reaches. Forms keeps one
-//! account, and the other modes name nobody. An application key reaches only what its scopes
-//! grant, whatever the mode (`api::applications`).
+//! Every mode ends in an [`Identity`] in the request's extensions, all the rest of the
+//! application reads. A person has full access, or reads alone when an OIDC read list let them
+//! in, and then reads no one's name but their own. An application key reaches only what its
+//! scopes grant, whatever the mode (`api::applications`).
 
 use std::net::IpAddr;
 
@@ -25,19 +18,21 @@ use crate::AppState;
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
 use crate::jobs::Attribution;
-use crate::services::accounts::Reach;
+use crate::services::accounts::{OpenedUnder, Reach};
 use crate::services::applications::{self, Grant, Resolved, Scope, TOKEN_PREFIX};
 use crate::services::executor::Confirmed;
 use crate::services::{accounts, audit};
 
-/// The cookie the `forms` mode sets. Named for the application, since a browser
+/// The cookie a session travels in. Named for the application, since a browser
 /// pointed at several homelab services holds all of their cookies at once.
-pub const SESSION_COOKIE: &str = "routarr_session";
-/// Carries an OIDC attempt from the browser that left to the browser that
-/// comes back, one cookie per attempt under this prefix. The callback accepts
-/// a `code` for the attempt it names only from that browser: without it, a
-/// link carrying someone else's `code` and `state` would sign the reader in as
-/// that someone (login CSRF).
+const SESSION_COOKIE: &str = "routarr_session";
+/// The same over TLS at the root of the host: a browser takes a `__Host-` cookie only over
+/// TLS, from this host and for every path of it, so no other subdomain and no plain `http://`
+/// page can set one or write over it (RFC 6265bis §4.1.3.2).
+const HOST_SESSION_COOKIE: &str = "__Host-routarr_session";
+/// Prefix of the cookie carrying one OIDC attempt. The callback takes a `code` only from the
+/// browser holding it, so a link with someone else's `code` cannot sign the reader in as them
+/// (login CSRF).
 pub const OIDC_COOKIE: &str = "routarr_oidc";
 
 /// The cookie one attempt travels in, named after its `state`, so two
@@ -47,12 +42,41 @@ fn attempt_cookie(state: &str) -> String {
     format!("{OIDC_COOKIE}_{tag}")
 }
 
+/// How many earlier attempts a browser keeps beside the one it starts: each cookie is close to
+/// half a kilobyte, and a page of another site sending the browser to the start again and
+/// again would otherwise make its cookies larger than the proxy in front takes.
+const ATTEMPTS_KEPT: usize = 2;
+
+/// The attempt cookies a start clears: all but the [`ATTEMPTS_KEPT`] most recent, and any
+/// that is no attempt. A browser sends cookies of one path oldest first, which orders
+/// attempts started within one second.
+fn attempts_to_clear(state: &AppState, headers: &HeaderMap) -> Vec<String> {
+    let prefix = format!("{OIDC_COOKIE}_");
+    let sent = headers
+        .get_all(axum::http::header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .filter(|(name, _)| name.starts_with(&prefix));
+    let mut attempts: Vec<(Option<i64>, usize, String)> = sent
+        .enumerate()
+        .map(|(at, (name, value))| {
+            let expiry = crate::services::oidc::Attempt::expiry(&state.secrets, value.trim());
+            (expiry, at, name.to_string())
+        })
+        .collect();
+    attempts.sort();
+    let kept = attempts.iter().filter(|(expiry, ..)| expiry.is_some()).count().min(ATTEMPTS_KEPT);
+    attempts.truncate(attempts.len() - kept);
+    attempts.into_iter().map(|(.., name)| name).collect()
+}
+
 /// Who is making a request, once a mode has decided.
 ///
-/// A person reaches everything, or reads alone ([`Reach`]). An application carries its
-/// [`Grant`]. The subject
-/// is what the `subject` column of `jobs`, `decisions`, `execution_logs` and
-/// `overrides` records, when anybody is named (see [`Identity::actor`]).
+/// A person reaches everything or reads alone ([`Reach`]), an application carries its [`Grant`].
+/// The subject fills the `subject` column of `jobs`, `decisions`, `execution_logs` and
+/// `overrides` when anybody is named ([`Identity::actor`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub subject: String,
@@ -80,18 +104,16 @@ impl Identity {
         Self { subject, source, application: Some(grant), reach: Reach::Full, signed_in_at: None }
     }
 
-    /// A person with full access, who reads what no application key or reader may: the
-    /// webhook address of an instance, the default flag of a category.
+    /// A person with full access: the one caller who reads an instance's webhook address and
+    /// who makes a category the fallback.
     pub fn is_owner(&self) -> bool {
         self.application.is_none() && self.reach == Reach::Full
     }
 
     /// The name worth recording on a write, if anybody vouched for one.
     ///
-    /// `none` and `external` let everybody through under one shared subject, so
-    /// storing it would fill an audit column with a word that names nobody,
-    /// and that reads, on the History screen, exactly like an attribution. An
-    /// application key names its application in every mode.
+    /// `None` under `none` and `external`, whose one shared subject names nobody and would read
+    /// like an attribution on the History screen.
     pub fn actor(&self) -> Option<&str> {
         match (&self.application, self.source) {
             (Some(grant), _) => Some(&grant.name),
@@ -139,15 +161,15 @@ impl Identity {
         }
     }
 
-    /// Who asked, as this caller may read it. An application reads its own
-    /// name and no one else's: `subject` holds a person's user name in `forms`
-    /// and often an e-mail address in `oidc`, and a key handed to another
-    /// application must not learn who runs Routarr. Its own is what its key
-    /// wrote (`key`), never what carries its name: a revoked key's records
-    /// are not the next one's, under the same name or a person's.
+    /// Who asked, as this caller may read it. An application and a reader read their own name
+    /// and no one else's, often an e-mail address in `oidc`. An application's own is what its
+    /// key wrote (`key`): a revoked key's records are not the next one's, under its name.
     pub fn shown_subject(&self, subject: Option<String>, key: Option<&str>) -> Option<String> {
         match &self.application {
             Some(grant) => subject.filter(|_| key == Some(grant.id.as_str())),
+            None if self.reach == Reach::Read => {
+                subject.filter(|named| key.is_none() && *named == self.subject)
+            }
             None => subject,
         }
     }
@@ -201,21 +223,16 @@ fn client_of(state: &AppState, request: &Request<Body>) -> Option<IpAddr> {
     client_address(peer, request.headers(), &state.config.trusted_proxies)
 }
 
-/// Resolve an identity for the request, or refuse it.
-///
-/// The one place a mode is consulted. A handler that needs to know who called
-/// reads `Extension<Identity>`, and nothing needs to ask how they proved it.
+/// Resolve an identity for the request, or refuse it. The one place a mode is consulted.
 pub async fn authenticate(
     State(state): State<AppState>,
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let client = client_of(&state, &request);
-    // An application key, in every mode: held to its scopes, and refused
-    // outright when it names no live key. Letting a revoked key fall through to
-    // a mode that asks nothing would hand it more than it ever had. The master
-    // key is looked at first, so one that happens to share the prefix is still
-    // the master key.
+    // An application key, in every mode, refused outright when it names no live key: a revoked
+    // key falling through to `none` would gain reach. The master key is checked first, in case
+    // it shares the prefix.
     if api_key_identity(&state, request.headers()).is_none()
         && let Some(token) =
             extract_key(request.headers()).filter(|key| key.starts_with(TOKEN_PREFIX))
@@ -266,11 +283,8 @@ pub async fn authenticate(
 
     let mut renewal = None;
     let identity = match state.config.auth_mode {
-        // Nothing is asked for, and no name a proxy sends is read: the proxy in
-        // front has already decided, and reading one would only invent a trust
-        // boundary where none is enforceable. A page of another site can then
-        // post here as easily as this application, so a write that carries no
-        // API key is refused when its Origin says another site asked.
+        // No credential and no proxy-sent name is read. Another site's page can post here as
+        // easily, so a keyless write whose Origin is another site is refused.
         mode @ (AuthMode::None | AuthMode::External) => {
             let keyless = api_key_identity(&state, request.headers()).is_none();
             if keyless
@@ -279,8 +293,7 @@ pub async fn authenticate(
                 refused(&state, client, refused_origin(request.headers()));
                 return foreign_origin();
             }
-            // A page of another site can make its own name resolve to this
-            // address, and the browser then calls it same-origin. Under
+            // DNS rebinding: another site can make its own name resolve to this address. Under
             // `external` the proxy in front decides which names reach here.
             if keyless
                 && mode == AuthMode::None
@@ -296,17 +309,12 @@ pub async fn authenticate(
             }
             Some(Identity::anonymous(mode))
         }
-        // The session, or the API key beside it. A machine client cannot hold
-        // a cookie, and Servarr keeps the two the same way. OIDC resolves the
-        // same way once the provider has answered: the session is the session.
+        // The session, or the API key beside it for a machine client, as Servarr does.
         AuthMode::Forms | AuthMode::Oidc => match api_key_identity(&state, request.headers()) {
             Some(identity) => Some(identity),
             None => match session_identity(&state, request.headers()).await {
-                // A cookie travels on a cross-site request whether or not the
-                // page meant to send it. `SameSite=Lax` already refuses the
-                // dangerous shapes and the JSON extractor refuses a form's
-                // content type, so this is the third of three: an Origin that
-                // is present and foreign is not this application asking.
+                // A cookie travels on a cross-site request. After `SameSite=Lax` and the JSON
+                // extractor's content type, a foreign Origin is the third guard.
                 Some(_)
                     if !same_origin(
                         request.method(),
@@ -363,15 +371,15 @@ pub async fn authenticate(
             read_only(&message)
         }
         Some(identity) => {
+            let name = session_cookie_name(&state, request.headers());
             request.extensions_mut().insert(identity);
             let mut response = next.run(request).await;
-            // Not over a cookie the handler set itself, as a password change
-            // clears the session it ends.
+            // Never over a session cookie the handler set itself, as `change_password` does.
             let sets_its_own = response
                 .headers()
                 .get_all(axum::http::header::SET_COOKIE)
                 .iter()
-                .any(|value| value.as_bytes().starts_with(SESSION_COOKIE.as_bytes()));
+                .any(|value| value.as_bytes().starts_with(format!("{name}=").as_bytes()));
             if let Some(cookie) = renewal.filter(|_| !sets_its_own) {
                 response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
             }
@@ -459,6 +467,24 @@ fn api_key_identity(state: &AppState, headers: &HeaderMap) -> Option<Identity> {
         .map(|_| Identity::person("apikey".to_string(), AuthMode::ApiKey))
 }
 
+/// What a session opened now is bound to under the mode in force, `None` in a mode that opens
+/// none or with no API key to open one.
+pub(crate) fn opened_under(state: &AppState) -> Option<OpenedUnder> {
+    match state.config.auth_mode {
+        AuthMode::Forms => Some(OpenedUnder::Account),
+        AuthMode::Oidc => Some(OpenedUnder::Lists(state.config.oidc_access_digest())),
+        AuthMode::ApiKey => state.api_key().map(OpenedUnder::Key),
+        AuthMode::None | AuthMode::External => None,
+    }
+}
+
+/// The session a request carries, when the mode in force opened it under what is in force now.
+async fn live_session(state: &AppState, headers: &HeaderMap) -> Option<accounts::Session> {
+    let id = cookie(headers, session_cookie_name(state, headers))?;
+    let (mode, under) = (state.config.auth_mode.as_str(), opened_under(state)?);
+    accounts::live_session(&state.pool, &id, mode, &under).await.ok().flatten()
+}
+
 /// The identity a live session cookie names, when the mode in force opened it,
 /// and the cookie to give again when answering it moved its expiry: the
 /// browser keeps a cookie only as long as the `Max-Age` it was last given.
@@ -466,9 +492,9 @@ async fn session_identity(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Option<(Identity, Option<axum::http::HeaderValue>)> {
-    let id = cookie(headers, SESSION_COOKIE)?;
+    let id = cookie(headers, session_cookie_name(state, headers))?;
     let mode = state.config.auth_mode;
-    let session = accounts::live_session(&state.pool, &id, mode.as_str()).await.ok().flatten()?;
+    let session = live_session(state, headers).await?;
     let renewal = session
         .renewed
         .map(|seconds| session_cookie(state, headers, &id, seconds))
@@ -497,14 +523,8 @@ pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
 
 /// Whether a mutating request states an origin, and states this one.
 ///
-/// A read cannot forge anything, and an absent `Origin` is what a same-origin
-/// GET and every non-browser client look like. What this refuses is a browser
-/// saying plainly that another site asked.
-///
-/// "This one" is the host the browser addressed, which behind a reverse proxy
-/// is `X-Forwarded-Host` rather than `Host`: nginx sends the upstream's own
-/// name as `Host` unless told otherwise, and compared against that, every
-/// write of every session behind it would be refused.
+/// An absent `Origin` (a same-origin GET, a non-browser client) passes. "This one" is
+/// `X-Forwarded-Host` behind a proxy, since nginx sends the upstream's own name as `Host`.
 fn same_origin(method: &Method, headers: &HeaderMap, listed: &[String]) -> bool {
     if !matches!(*method, Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
         return true;
@@ -512,8 +532,7 @@ fn same_origin(method: &Method, headers: &HeaderMap, listed: &[String]) -> bool 
     let Some(origin) = headers.get(axum::http::header::ORIGIN) else {
         return true;
     };
-    // An origin the operator listed in `ROUTARR_CORS_ORIGINS` calls as this
-    // application's own pages do: that is what listing it means.
+    // An origin listed in `ROUTARR_CORS_ORIGINS` writes as this application's own pages do.
     if origin.to_str().is_ok_and(|origin| listed.iter().any(|allowed| allowed == origin)) {
         return true;
     }
@@ -616,22 +635,13 @@ pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// What the shell needs before it can render anything, including a refusal.
 ///
-/// Public, and deliberately thin: the mode decides which gate to show, and a
-/// browser that has not signed in yet must be able to learn that much.
-///
-/// It also says whether a key exists at all. In `forms` and `oidc` one is only
-/// present when the operator set `ROUTARR_API_KEY` or generated one, so without
-/// this the interface would offer a field that cannot work. Saying so tells an
-/// unauthenticated caller nothing the mode had not already told them, and
-/// nothing that shortens a 256-bit key.
+/// Public: a browser not signed in yet learns the mode and whether a key exists, which
+/// shortens no 256-bit key.
 pub async fn mode(State(state): State<AppState>) -> super::Json<serde_json::Value> {
     super::Json(serde_json::json!({
         "mode": state.config.auth_mode.as_str(),
         "api_key_configured": state.api_key().is_some(),
-        // A key the environment supplies cannot be rotated: the new one would
-        // live until the next restart and then be replaced by the variable
-        // again. The interface says so rather than offering a button that
-        // quietly expires.
+        // A key from the environment cannot be rotated: the variable replaces it at restart.
         "api_key_pinned": state.config.api_key.is_some(),
     }))
 }
@@ -643,9 +653,8 @@ pub struct Credentials {
     pub password: String,
 }
 
-/// One answer for a wrong name, a wrong length and a wrong password alike.
-///
-/// Saying which was wrong tells an attacker that the others were right.
+/// One answer for a wrong name, length or password: naming which tells an attacker the
+/// others were right.
 fn unauthorized() -> Response {
     unauthorized_because("Wrong username or password.")
 }
@@ -670,11 +679,9 @@ impl axum::extract::FromRequestParts<AppState> for Client {
     }
 }
 
-/// The client behind `peer`. Each proxy appends the address it saw to
-/// `X-Forwarded-For`, so the entries are read from the last while the one
-/// that wrote each is a proxy the operator listed: the first address no
-/// listed proxy stands behind is the client. Anyone else writing the header
-/// would choose whose share of the sign-in queue they fill.
+/// The client behind `peer`: `X-Forwarded-For` read from its last entry while a listed proxy
+/// wrote it. Trusting anyone else's header lets them pick whose share of the sign-in queue
+/// they fill.
 fn client_address(
     peer: Option<IpAddr>,
     headers: &HeaderMap,
@@ -701,9 +708,6 @@ fn client_address(
 }
 
 /// Exchange a username and a password for a session cookie.
-///
-/// One message for a wrong name and a wrong password alike: saying which was
-/// wrong tells an attacker that the other was right.
 pub async fn login(
     State(state): State<AppState>,
     Client(client): Client,
@@ -738,22 +742,15 @@ pub async fn login(
         return refuse();
     };
 
-    // One cheap refusal before the expensive one. A password shorter than the
-    // minimum cannot be the stored one, since `change_password` refuses to set
-    // one, so hashing it would spend a whole argon2 check proving what its
-    // length already says. The minimum is public: the refusal above states it.
+    // Shorter than `change_password` accepts, so not the stored password: no argon2 check
+    // needed. The minimum is public, the refusal above states it.
     if credentials.password.chars().count() < MIN_PASSWORD_LENGTH {
         return refuse();
     }
-    // The username is *not* checked first: answering at once on a wrong name
-    // and only after a hash on the right one tells a caller which name
-    // exists. The hash is verified either way and the name is required to
-    // match too.
+    // The hash runs whatever the name, so the timing does not tell which name exists.
     let name_matches = username == credentials.username.trim();
 
-    // Bounded, and off the runtime. See `SignInThrottle`: argon2id is what
-    // makes this endpoint expensive to serve as well as hard to guess, and it
-    // is the machine that needs defending rather than the password.
+    // Bounded and off the runtime (`SignInThrottle`): argon2id makes this endpoint costly to serve.
     let matched = match state.sign_in.verify(&credentials.password, &hash, client).await {
         Ok(matched) => matched,
         Err(accounts::Busy) => {
@@ -779,6 +776,7 @@ pub async fn login(
         credentials.username.trim(),
         AuthMode::Forms.as_str(),
         Reach::Full,
+        &OpenedUnder::Account,
     )
     .await
     {
@@ -831,18 +829,18 @@ pub async fn key_session(
             .translate("ErrorSignInHeldBack", &[("seconds", &seconds.to_string())]);
         return AppError::TooManyRequests { message, retry_after: seconds }.into_response();
     }
-    let matched =
-        state.api_key().is_some_and(|expected| constant_time_eq(sent.key.trim(), &expected));
-    if !matched {
+    let Some(key) = state.api_key().filter(|expected| constant_time_eq(sent.key.trim(), expected))
+    else {
         let event = refusal(audit::Kind::SignIn, "AuditKeySessionRefused");
         state.audit.record(event.by(None, client));
         state.sign_in.failed(client);
         return unauthorized_because("This key opens nothing.");
-    }
+    };
     state.sign_in.succeeded(client);
 
     let source = AuthMode::ApiKey.as_str();
-    match accounts::open_session(&state.pool, "apikey", source, Reach::Full).await {
+    let under = OpenedUnder::Key(key);
+    match accounts::open_session(&state.pool, "apikey", source, Reach::Full, &under).await {
         Ok(id) => {
             let person = Identity::person("apikey".to_string(), AuthMode::ApiKey);
             let event = allowed(audit::Kind::SignIn, "AuditKeySessionOpened");
@@ -873,9 +871,8 @@ pub async fn logout(
         refused(&state, client, refused_origin(&headers));
         return foreign_origin();
     }
-    if let Some(id) = cookie(&headers, SESSION_COOKIE) {
-        let mode = state.config.auth_mode.as_str();
-        if let Ok(Some(session)) = accounts::live_session(&state.pool, &id, mode).await {
+    if let Some(id) = cookie(&headers, session_cookie_name(&state, &headers)) {
+        if let Some(session) = live_session(&state, &headers).await {
             let person = Identity::person(session.subject, state.config.auth_mode);
             audited(&state, &person, client, allowed(audit::Kind::SignOut, "AuditSignedOut"));
         }
@@ -912,14 +909,6 @@ pub async fn me(axum::Extension(identity): axum::Extension<Identity>) -> super::
     super::Json(Me { subject: identity.subject, expires_at, read_only })
 }
 
-/// Send the browser to the provider.
-///
-/// A redirect rather than a JSON URL the shell would follow: the browser has to
-/// leave, and the one thing that cannot go wrong here is a fetch that stays.
-/// A failure is a redirect too, back to the sign-in screen with the marker the
-/// shell shows, since the caller is a browser following a link. The reason goes
-/// to the log, where a configuration fault is fixed, and never to an anonymous
-/// caller.
 #[derive(serde::Deserialize)]
 pub struct StartQuery {
     /// `0` to have the provider sign the person in again (`api::account::prove`).
@@ -930,6 +919,8 @@ pub struct StartQuery {
     pub return_to: Option<String>,
 }
 
+/// Send the browser to the provider. A failure redirects too, back to the sign-in screen,
+/// its reason logged and never shown to an anonymous caller.
 pub async fn oidc_start(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -941,22 +932,25 @@ pub async fn oidc_start(
         .await
         .and_then(|start| Ok((start.attempt.sealed(&state.secrets)?, start)));
     match started {
-        Ok((sealed, start)) => (
-            [(
-                axum::http::header::SET_COOKIE,
-                cookie_header(
-                    &state,
-                    &headers,
-                    &attempt_cookie(&start.attempt.state),
-                    &sealed,
-                    FLOW_MINUTES * 60,
-                ),
-            )],
-            axum::response::Redirect::to(&start.redirect_to),
-        )
-            .into_response(),
+        Ok((sealed, start)) => {
+            let name = attempt_cookie(&start.attempt.state);
+            let opened = cookie_header(&state, &headers, &name, &sealed, FLOW_MINUTES * 60);
+            let cleared = attempts_to_clear(&state, &headers)
+                .into_iter()
+                .map(|old| cookie_header(&state, &headers, &old, "", 0));
+            let cookies = std::iter::once(opened)
+                .chain(cleared)
+                .map(|cookie| (axum::http::header::SET_COOKIE, cookie))
+                .collect::<Vec<_>>();
+            (
+                axum::response::AppendHeaders(cookies),
+                axum::response::Redirect::to(&start.redirect_to),
+            )
+                .into_response()
+        }
+        // Logged where the provider is read, once while its failure is kept.
         Err(e) => {
-            tracing::error!("An OpenID Connect sign-in could not start: {e}");
+            tracing::debug!("An OpenID Connect sign-in could not start: {e}");
             axum::response::Redirect::to(&format!("{}?signin=failed", home(&state))).into_response()
         }
     }
@@ -984,11 +978,8 @@ pub struct Callback {
     pub error_description: Option<String>,
 }
 
-/// Where the provider sends the browser back.
-///
-/// It answers with a redirect in every case, because the caller is a browser
-/// following a link and not a client reading JSON. A failure lands on the
-/// application with a marker the shell can show.
+/// Where the provider sends the browser back. Every outcome is a redirect, a failure with
+/// the marker the shell shows.
 pub async fn oidc_callback(
     State(state): State<AppState>,
     Client(client): Client,
@@ -1011,12 +1002,16 @@ pub async fn oidc_callback(
         }
     };
 
-    // A person who refused and a client the provider does not know look alike
-    // on screen, so the reason goes to the log. The code never does.
+    // A refusal and an unknown client look alike on screen, so the reason goes to the log,
+    // summed per address since anyone can send one. The code never does.
     if let Some(error) = callback.error.as_deref() {
+        // RFC 6749 §4.1.2.1 codes are short words: anything longer is not the provider's.
+        let error: String = error.chars().take(64).collect();
         let described: String =
             callback.error_description.as_deref().unwrap_or_default().chars().take(200).collect();
-        tracing::warn!("The OpenID Connect provider refused the sign-in: {error} {described}");
+        let reason = format!("{error} {described}");
+        let event = refusal(audit::Kind::SignIn, "AuditOidcProviderRefused");
+        refused(&state, client, event.with("reason", reason.trim_end()));
         return failed();
     }
     let (Some(code), Some(flow_state), Some(cookie_name)) =
@@ -1024,15 +1019,17 @@ pub async fn oidc_callback(
     else {
         return failed();
     };
+    // Before the exchange each attempt sets off at the provider's token endpoint.
+    if state.sign_in.held_back(client).is_some() {
+        refused(&state, client, refusal(audit::Kind::SignIn, "AuditSignInHeldBack"));
+        return failed();
+    }
 
     // Only the browser that started the attempt may finish it.
     let Some(attempt) = cookie(&headers, &cookie_name)
         .and_then(|sealed| Attempt::opened(&state.secrets, &sealed, &flow_state))
     else {
-        tracing::warn!(
-            "An OpenID Connect callback arrived for an attempt this browser did not start, or \
-             one past its ten minutes"
-        );
+        refused(&state, client, refusal(audit::Kind::SignIn, "AuditOidcAttemptUnknown"));
         return failed();
     };
 
@@ -1046,14 +1043,19 @@ pub async fn oidc_callback(
         Err(e) => {
             let event = refusal(audit::Kind::SignIn, "AuditOidcRefused").with("reason", e);
             state.audit.record(event.by(None, client));
+            state.sign_in.failed(client);
             return failed();
         }
     };
 
-    match accounts::open_session(&state.pool, &subject, AuthMode::Oidc.as_str(), reach).await {
+    let under = OpenedUnder::Lists(state.config.oidc_access_digest());
+    match accounts::open_session(&state.pool, &subject, AuthMode::Oidc.as_str(), reach, &under)
+        .await
+    {
         // Appended: an array of headers inserts each one, so the second cookie
         // would replace the session the browser is being handed.
         Ok(id) => {
+            state.sign_in.succeeded(client);
             let person = Identity { reach, ..Identity::person(subject.clone(), AuthMode::Oidc) };
             let signed_in = match reach {
                 Reach::Full => "AuditOidcSignedIn",
@@ -1084,24 +1086,31 @@ pub async fn oidc_callback(
     }
 }
 
-/// Short enough not to argue with, long enough to be worth hashing.
+/// The shortest password accepted, the minimum OWASP ASVS 2.1.1 sets.
 pub(crate) const MIN_PASSWORD_LENGTH: usize = 12;
 
 /// The `Set-Cookie` value, scoped to the mount point.
 ///
-/// `Path` follows `base_path`: a cookie set at `/` would be sent to every other
-/// application behind the same proxy. `SameSite=Lax` is what stops a
-/// cross-site form from acting, and `HttpOnly` keeps it out of reach of any
-/// script that ever slips past the CSP. `Secure` follows the scheme the browser
-/// used: without it a cookie issued over TLS also travels on a plain `http://`
-/// request to the same host, and a proxy that terminates TLS answers both.
+/// `Path` follows `base_path`, so an application a proxy serves under another path does not
+/// receive it. A service on another port of the same host name does (RFC 6265 §8.5).
+/// `Secure` follows the scheme the browser used, so a cookie issued over TLS never travels
+/// over `http://`.
 pub(crate) fn session_cookie(
     state: &AppState,
     headers: &HeaderMap,
     id: &str,
     max_age: i64,
 ) -> String {
-    cookie_header(state, headers, SESSION_COOKIE, id, max_age)
+    cookie_header(state, headers, session_cookie_name(state, headers), id, max_age)
+}
+
+/// The name the session cookie of this request goes by, set and read under it alone.
+pub(crate) fn session_cookie_name(state: &AppState, headers: &HeaderMap) -> &'static str {
+    if state.config.base_path.is_empty() && came_over_tls(state, headers) {
+        HOST_SESSION_COOKIE
+    } else {
+        SESSION_COOKIE
+    }
 }
 
 /// Every cookie this application sets, with the same scope and the same
@@ -1118,12 +1127,8 @@ fn cookie_header(
     format!("{name}={value}; Path={path}; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}")
 }
 
-/// Whether the browser reached this request over TLS.
-///
-/// Routarr itself serves plain HTTP, and the proxy that terminates TLS says so
-/// through `X-Forwarded-Proto`. An OIDC redirect registered as `https://` is
-/// the same fact stated in the configuration, for a proxy that forwards
-/// nothing.
+/// Whether the browser reached this request over TLS: `X-Forwarded-Proto`, or an OIDC
+/// redirect registered as `https://` for a proxy that forwards nothing.
 fn came_over_tls(state: &AppState, headers: &HeaderMap) -> bool {
     headers
         .get("x-forwarded-proto")
@@ -1138,21 +1143,16 @@ mod tests {
     use super::*;
     use axum::http::HeaderValue;
 
-    /// A subject worth storing, and the three cases where there is none.
     #[test]
     fn only_a_mode_that_names_somebody_produces_an_actor() {
         let named = Identity::person("alice".to_string(), AuthMode::Forms);
         assert_eq!(named.actor(), Some("alice"));
 
-        // `none` and `external` share one subject that names nobody, and storing
-        // it would read on the History screen exactly like an attribution.
         for source in [AuthMode::None, AuthMode::External] {
             assert_eq!(Identity::anonymous(source).actor(), None);
         }
     }
 
-    /// Every method that writes is held to the Origin, and no read is: a read
-    /// forges nothing.
     #[test]
     fn every_writing_method_is_held_to_the_origin_and_no_read_is() {
         let from = |origin: &'static str| {
@@ -1174,9 +1174,6 @@ mod tests {
         }
     }
 
-    /// nginx's usual `proxy_set_header X-Forwarded-Host $host` carries no port,
-    /// and a site on a port of its own gets every write refused. The port the
-    /// proxy states beside it, in `X-Forwarded-Port`, completes the host.
     #[test]
     fn a_forwarded_port_completes_a_forwarded_host_without_one() {
         let write = |port: Option<&str>| {
@@ -1195,12 +1192,8 @@ mod tests {
         assert!(!same(write(None)));
     }
 
-    /// Only a proxy the operator names in `ROUTARR_TRUSTED_PROXIES` names the
-    /// client it forwards. Any other peer writing the header, a neighbour on
-    /// the same network included, would choose a new address on every attempt
-    /// and fill every place of the sign-in queue alone. A range holds a proxy
-    /// recreated with a new address, and behind two listed proxies the client
-    /// is the address the first of them saw.
+    /// A range holds a proxy recreated with a new address, and behind two listed proxies the
+    /// client is the address the first of them saw.
     #[test]
     fn only_a_trusted_proxy_names_the_client_it_forwards() {
         let network = |entry: &str| crate::config::Network::parse(entry).unwrap();

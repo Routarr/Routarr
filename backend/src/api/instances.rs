@@ -8,13 +8,14 @@ use axum::http::HeaderMap;
 use axum::response::Response;
 use uuid::Uuid;
 
-use crate::api::auth::Identity;
+use crate::api::auth::{Client, Identity, allowed, audited};
 use crate::api::jobs::{answer, prefers_async};
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::{Detail, JobKind};
 use crate::localization::Localizer;
 use crate::models::*;
+use crate::services::audit::Kind;
 use crate::services::connection::{self, Cause};
 use crate::services::{sync, webhook_check};
 use crate::state::AppState;
@@ -84,6 +85,8 @@ fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Local
 
 pub async fn create(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<super::Created<InstanceResponse>> {
     let localizer = state.localizer().await;
@@ -109,6 +112,8 @@ pub async fn create(
     .execute(&state.pool)
     .await
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
+    let event = allowed(Kind::Instance, "AuditInstanceAdded").with("instance", req.name.trim());
+    audited(&state, &identity, client, event);
 
     let instance = state.instance(&id).await?;
     let key_set = key_set(&state, &instance);
@@ -119,8 +124,8 @@ pub async fn create(
 
 pub async fn update(
     State(state): State<AppState>,
-    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
-    crate::api::auth::Client(client): crate::api::auth::Client,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
     Path(id): Path<String>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
@@ -131,7 +136,8 @@ pub async fn update(
 
     // A blank key keeps the stored one, which the form never shows back, on the address it
     // was saved with only, or the next sync carries it to whatever address was typed.
-    let api_key = if req.api_key.trim().is_empty() {
+    let new_key = !req.api_key.trim().is_empty();
+    let api_key = if !new_key {
         saved_for_this_address(
             &existing.base_url,
             &base_url,
@@ -189,13 +195,13 @@ pub async fn update(
     if req.auto_apply != existing.auto_apply {
         let message =
             if req.auto_apply { "AuditInstanceAutoApplyOn" } else { "AuditInstanceAutoApplyOff" };
-        let event = crate::api::auth::allowed(crate::services::audit::Kind::Settings, message);
-        crate::api::auth::audited(
-            &state,
-            &identity,
-            client,
-            event.with("instance", req.name.trim()),
-        );
+        let event = allowed(Kind::Settings, message);
+        audited(&state, &identity, client, event.with("instance", req.name.trim()));
+    }
+    // An Arr's address and key are what reaches it: either changed is said, the key never.
+    if new_key || base_url != existing.base_url {
+        let event = allowed(Kind::Instance, "AuditInstanceCredentialChanged");
+        audited(&state, &identity, client, event.with("instance", req.name.trim()));
     }
 
     let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
@@ -214,6 +220,8 @@ const DELIVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub async fn remove(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     // Not under a sync or a delivery, which would fail on rows gone and notify a deleted instance.
@@ -285,6 +293,8 @@ pub async fn remove(
         }
     }
     tx.commit().await?;
+    let event = allowed(Kind::Instance, "AuditInstanceRemoved").with("instance", &name);
+    audited(&state, &identity, client, event);
 
     Ok(Json(serde_json::json!({ "deleted": true, "rules_switched_off": switched_off })))
 }
@@ -585,9 +595,11 @@ fn keep_saved_credentials(typed: String, saved: &str, localizer: &Localizer) -> 
 /// Issue a fresh webhook token, invalidating the previous URL.
 pub async fn rotate_webhook_token(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
     Path(id): Path<String>,
 ) -> AppResult<Json<InstanceResponse>> {
-    state.instance(&id).await?;
+    let name = state.instance(&id).await?.name;
 
     sqlx::query(
         "UPDATE instances SET webhook_token = ?, webhook_token_at = datetime('now'),
@@ -599,6 +611,9 @@ pub async fn rotate_webhook_token(
     .bind(&id)
     .execute(&state.pool)
     .await?;
+    // The Arr is cut off until its webhook carries the new token.
+    let event = allowed(Kind::Webhook, "AuditWebhookTokenRotated").with("instance", &name);
+    audited(&state, &identity, client, event);
 
     let (instance, localizer) = (state.instance(&id).await?, state.localizer().await);
     let key_set = key_set(&state, &instance);

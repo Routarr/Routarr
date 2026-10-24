@@ -1,6 +1,5 @@
-//! The security log: each decision about who may do what, and each change to
-//! a credential or a setting, leaves a line and a row of the security log
-//! screen naming who and from where, and never the credential itself.
+//! Each decision about who may do what, and each change to a credential or a setting, leaves a
+//! line and a security log row naming who and from where, never the credential itself.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -40,8 +39,7 @@ fn from(address: [u8; 4], request: axum::http::request::Builder, body: Body) -> 
     request
 }
 
-/// A guessing run against the master key leaves a line per address, which a
-/// fail2ban filter reads, and the key tried is in none of them.
+/// A fail2ban filter reads the address off the line.
 #[tokio::test]
 async fn a_wrong_key_is_logged_with_its_address_and_without_the_key() {
     let app = TestApp::with_api_key(MASTER).await;
@@ -67,8 +65,7 @@ async fn a_wrong_key_is_logged_with_its_address_and_without_the_key() {
     assert!(!kept.to_string().contains(tried), "the key tried is in the table: {kept}");
 }
 
-/// A revoked key retried is told apart from noise by its id, which names the
-/// row, and never by its secret.
+/// The id tells a revoked key retried from noise, since it names the key's row.
 #[tokio::test]
 async fn a_revoked_application_key_is_logged_by_its_id() {
     let app = TestApp::new().await;
@@ -90,8 +87,7 @@ async fn a_revoked_application_key_is_logged_by_its_id() {
     assert!(!log.contains(secret), "the key's secret is in the log:\n{log}");
 }
 
-/// Making a credential is the change worth knowing who made: the line names
-/// the caller and what the key may do, and not its token.
+/// A new credential is the change worth knowing who made.
 #[tokio::test]
 async fn minting_a_key_is_logged_with_who_asked() {
     let app = TestApp::with_api_key(MASTER).await;
@@ -120,8 +116,7 @@ async fn minting_a_key_is_logged_with_who_asked() {
     assert!(!kept.contains(&token) && !kept.contains(MASTER), "a key is in the table: {kept}");
 }
 
-/// An archive carries the master key, so taking one away is a line: who and
-/// from where.
+/// An archive carries the master key.
 #[tokio::test]
 async fn downloading_a_backup_is_logged() {
     let (app, _dir) = super::backup::app_with_files("audit-download").await;
@@ -140,9 +135,109 @@ async fn downloading_a_backup_is_logged() {
     assert!(log.contains("client=192.168.1.41"), "{log}");
 }
 
-/// A refusal anyone can send as fast as they like is summed per address in
-/// the table as in the log: a guessing run is one row a minute, not one a
-/// request.
+/// An Arr's credentials, its webhook token and the archives are credentials like the keys:
+/// each change leaves a row, and a webhook sent with a wrong token one naming its address, the
+/// one a fail2ban jail bans. None names the key or the token.
+#[tokio::test]
+async fn credential_changes_and_webhook_refusals_are_logged() {
+    let (app, _dir) = super::backup::app_with_files("audit-credentials").await;
+    let instance = json!({
+        "name": "Radarr", "instance_type": "radarr", "base_url": "http://127.0.0.1:1",
+        "api_key": "the-arr-key",
+    });
+    let created = app.post("/api/v1/instances", instance.clone()).await;
+    let id = created.assert_ok()["id"].as_str().unwrap().to_string();
+    let mut changed = instance;
+    changed["api_key"] = json!("another-arr-key");
+    app.put(&format!("/api/v1/instances/{id}"), changed).await.assert_ok();
+    let rotated = app.post(&format!("/api/v1/instances/{id}/webhook-token"), json!({})).await;
+    let token = rotated.assert_ok()["webhook_token"].as_str().unwrap().to_string();
+    let guessed = from(
+        [198, 51, 100, 7],
+        Request::post(format!("/api/v1/webhook/{id}/a-guessed-token"))
+            .header("content-type", "application/json"),
+        Body::from(json!({ "eventType": "Test" }).to_string()),
+    );
+    app.send(guessed).await.assert_status(StatusCode::NOT_FOUND);
+    let taken = app.post("/api/v1/backups", json!({})).await;
+    let name = taken.assert_ok()["name"].as_str().unwrap().to_string();
+    app.delete(&format!("/api/v1/backups/{name}")).await.assert_ok();
+    app.delete(&format!("/api/v1/instances/{id}")).await.assert_ok();
+    app.state.audit.flush().await;
+
+    let rows: Vec<(String, String, Option<String>, String)> =
+        sqlx::query_as("SELECT kind, message, client, params FROM security_events ORDER BY id")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    let said = |message: &str| rows.iter().filter(|row| row.1 == message).count();
+    for message in [
+        "AuditInstanceAdded",
+        "AuditInstanceCredentialChanged",
+        "AuditWebhookTokenRotated",
+        "AuditWebhookTokenRefused",
+        "AuditBackupDeleted",
+        "AuditInstanceRemoved",
+    ] {
+        assert_eq!(said(message), 1, "{message}: {rows:?}");
+    }
+    let refused = rows.iter().find(|row| row.1 == "AuditWebhookTokenRefused").unwrap();
+    assert_eq!((refused.0.as_str(), refused.2.as_deref()), ("webhook", Some("198.51.100.7")));
+    let all = format!("{rows:?}");
+    assert!(!all.contains("arr-key") && !all.contains(&token), "a credential is logged: {all}");
+}
+
+/// A value an event carries may come from a provider or a person, and a line break in it
+/// would start a line a fail2ban filter reads as an audit line of its own.
+#[test]
+fn an_event_is_one_line_whatever_its_values_hold() {
+    let capture = LogCapture::default();
+    let event =
+        crate::api::auth::refusal(crate::services::audit::Kind::Settings, "AuditSettingsSaved")
+            .with("names", "a\nb\r\nc");
+    tracing::dispatcher::with_default(&capture.as_the_process_logs(), || {
+        crate::services::audit::Log::default().record(event.by(Some("x\ny"), None));
+    });
+
+    let log = capture.contents();
+    assert_eq!(log.lines().count(), 1, "{log}");
+    assert!(log.contains(r"a\nb\r\nc"), "the value is no longer readable: {log}");
+}
+
+/// The refused sign-in `SECURITY.md` shows is the line the text log writes, its time and its
+/// request id aside: `scripts/check-fail2ban.py` holds the documented filter to that line.
+#[tokio::test]
+async fn the_refusal_security_md_shows_is_the_line_a_refused_sign_in_writes() {
+    let (app, _dir) = super::security::forms_app("documented-line").await;
+    let body = json!({ "username": "admin", "password": "not the password at all" });
+    let request = from(
+        [203, 0, 113, 9],
+        Request::post("/api/v1/auth/login").header("content-type", "application/json"),
+        Body::from(body.to_string()),
+    );
+    let capture = LogCapture::default();
+    app.send(request).with_subscriber(capture.as_the_process_logs()).await;
+    let log = capture.contents();
+    let written = log.lines().find(|line| line.contains("routarr::audit:")).expect("no audit line");
+
+    let documented = include_str!("../../../SECURITY.md")
+        .lines()
+        .find(|line| line.contains("routarr::audit:") && line.contains("outcome=\"refused\""))
+        .expect("SECURITY.md shows no refusal");
+    let (stamp, _) = documented.split_once(' ').unwrap();
+    assert!(
+        chrono::DateTime::parse_from_rfc3339(stamp).is_ok() && !stamp.ends_with('Z'),
+        "the log writes no time as {stamp}"
+    );
+    let shape = |line: &str| {
+        let (_, rest) = line.split_once(' ').unwrap();
+        let (before, after) = rest.split_once("id=\"").unwrap();
+        format!("{before}id=\"{}", after.split_once('"').unwrap().1)
+    };
+    assert_eq!(shape(documented), shape(written));
+}
+
+/// Anyone can send a refusal as fast as they like, so a guessing run is one row a minute.
 #[tokio::test]
 async fn a_refusal_sent_again_within_the_minute_is_one_row() {
     let app = TestApp::with_api_key(MASTER).await;
@@ -159,8 +254,6 @@ async fn a_refusal_sent_again_within_the_minute_is_one_row() {
     assert_eq!(kept["pagination"]["total"], 1, "{kept}");
 }
 
-/// The screen narrows the log to one kind of event, one outcome, or a name or
-/// an address.
 #[tokio::test]
 async fn the_security_log_narrows_to_a_kind_an_outcome_or_an_address() {
     let app = TestApp::with_api_key(MASTER).await;
@@ -221,8 +314,7 @@ async fn the_export_says_each_event_in_the_configured_language() {
     assert!(csv.contains("203.0.113.21"), "{csv}");
 }
 
-/// An expired key retried is logged by its name and id, so the owner sees which application
-/// still runs on it, and never by its secret.
+/// The name shows the owner which application still runs on the expired key.
 #[tokio::test]
 async fn an_expired_application_key_is_logged_by_its_name() {
     let app = TestApp::new().await;

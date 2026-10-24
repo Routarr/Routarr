@@ -1,8 +1,5 @@
-//! Shared outbound HTTP client.
-//!
-//! One client is built at startup and cloned everywhere: it carries the
-//! connection pool, so a client per request costs a TCP and TLS handshake on
-//! every sync, health check and metadata fetch.
+//! Shared outbound HTTP client, built once and cloned everywhere: it carries the connection
+//! pool, so a client per request costs a TCP and TLS handshake each time.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -20,13 +17,9 @@ const ALIBABA_METADATA: Ipv4Addr = Ipv4Addr::new(100, 100, 100, 200);
 /// Where AWS's answers over IPv6, a unique local address.
 const AWS_METADATA_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254);
 
-/// Whether a cloud host's metadata service can answer at an address: the
-/// link-local ranges (169.254.0.0/16, fe80::/10), where most of them do, and
-/// the two that answer elsewhere, each also written inside an IPv6 address as
-/// a mapped address or through a NAT64 gateway. It hands out the machine's own
-/// credentials, and no Arr, metadata source, identity provider or
-/// notification receiver answers there, so nothing Routarr sends goes there,
-/// whoever typed the address.
+/// Whether a cloud host's metadata service can answer at an address: the link-local ranges
+/// (169.254.0.0/16, fe80::/10) and the two that answer elsewhere, each also written inside an
+/// IPv6 address. It hands out the machine's credentials, and nothing Routarr calls answers there.
 pub(crate) fn is_metadata_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => is_metadata_v4(v4),
@@ -91,24 +84,12 @@ impl reqwest::dns::Resolve for NoMetadataAddresses {
     }
 }
 
-/// Whether a redirect stays on the service the user configured.
+/// Whether a redirect stays on the service the user configured, so `X-Api-Key`, which reqwest
+/// cannot know is sensitive, never follows it elsewhere.
 ///
-/// The Arr credential travels in a custom `X-Api-Key` header. reqwest strips
-/// `Authorization` and `Cookie` across hosts but cannot know a custom header is
-/// sensitive, so a redirect would forward the key verbatim.
-///
-/// **All three of scheme, host and port.** Host alone is not enough:
-/// self-hosted services commonly share one host on different ports, where
-/// host-only matching would carry the key between them. The scheme counts too:
-/// `port_or_known_default()` answers `Some(8080)` for both `https://arr:8080`
-/// and `http://arr:8080`, so without it a downgrade to cleartext on an explicit
-/// port reads as the same origin and the key goes out unencrypted. The one
-/// exception is an `http` → `https` upgrade that keeps the port, or goes from
-/// 80 to 443, the two shapes an upgrade takes. Any other port change is another
-/// service on the same host, however the scheme reads.
-///
-/// A free function rather than a closure so it can be tested without a TLS
-/// server: the property is about three fields of two URLs, and nothing else.
+/// Scheme, host and port all count: homelab services share a host on different ports, and
+/// `port_or_known_default()` reads `https://arr:8080` and `http://arr:8080` alike. The one
+/// exception is an `http` to `https` upgrade, below.
 pub(crate) fn stays_on_origin(previous: &reqwest::Url, to: &reqwest::Url) -> bool {
     let same_host = match (previous.host_str(), to.host_str()) {
         (Some(from), Some(to)) => from.eq_ignore_ascii_case(to),
@@ -120,12 +101,8 @@ pub(crate) fn stays_on_origin(previous: &reqwest::Url, to: &reqwest::Url) -> boo
 
     let (from_port, to_port) = (previous.port_or_known_default(), to.port_or_known_default());
 
-    // The exception, and only the two shapes it actually describes: the
-    // canonical 80 → 443, and the same explicit port served both ways. Read as
-    // "any http → any https", it would let `http://nas:7878` reach
-    // `https://nas:8384`, a *different service on the same host*, which is
-    // exactly the hazard the port comparison exists for, and which the word
-    // "upgrade" makes look safe.
+    // Only the canonical 80 to 443 and the same explicit port served both ways: any http to any
+    // https would let `http://nas:7878` reach `https://nas:8384`, another service.
     let tls_upgrade = previous.scheme() == "http"
         && to.scheme() == "https"
         && (from_port == to_port || (from_port == Some(80) && to_port == Some(443)));
@@ -153,16 +130,10 @@ fn same_origin_only() -> reqwest::redirect::Policy {
     })
 }
 
-/// Build the process-wide HTTP client.
+/// Build the process-wide HTTP client, bounded by `ROUTARR_HTTP_TIMEOUT_SECS`.
 ///
-/// Bounded by `ROUTARR_HTTP_TIMEOUT_SECS`: an unresponsive Arr would otherwise
-/// hang a request handler, and with it the health page.
-///
-/// Fails rather than falling back. `Client::new()` carries reqwest's defaults
-/// (follow up to ten redirects anywhere, and no timeout at all), so a fallback
-/// would quietly discard both properties this function exists to set, on the
-/// one path that sends an Arr credential. A server that cannot build its HTTP
-/// client has nothing useful to do afterwards.
+/// Fails rather than falling back to `Client::new()`, which follows ten redirects anywhere
+/// with no timeout, on the path that sends an Arr credential.
 pub fn build_client(config: &Config) -> AppResult<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(config.http_timeout)
@@ -178,12 +149,9 @@ pub fn build_client(config: &Config) -> AppResult<reqwest::Client> {
         .map_err(|e| AppError::Config(format!("cannot build the HTTP client: {e}")))
 }
 
-/// What an address shows in place of the `user:pass` it carries.
-///
-/// reqwest sends those as Basic auth, which is how Routarr reaches an Arr
-/// behind a proxy that asks for one, so a stored address may carry a password.
-/// It is answered, quoted and logged masked, and the instance form sends the
-/// mask back to mean "keep the stored ones".
+/// What an address shows in place of the `user:pass` it carries, which reqwest sends as Basic
+/// auth to a proxy in front of an Arr. The instance form sends the mask back to mean "keep the
+/// stored ones".
 pub const MASKED_CREDENTIALS: &str = "***";
 
 /// An address cut around its `user:pass`: what comes before, the credentials,
@@ -233,9 +201,6 @@ mod tests {
         without_credentials,
     };
 
-    /// The link-local ranges and the two metadata services outside them, each
-    /// written inside an IPv6 address too, and none of the loopback, private
-    /// and shared ranges where Arrs live.
     #[test]
     fn metadata_addresses_and_only_those_are_refused() {
         for refused in [
@@ -270,9 +235,6 @@ mod tests {
         );
     }
 
-    /// Credentials sit in the authority only: an `@` further on is part of a
-    /// path or a query, and an address the URL parser refuses, with a port out
-    /// of range here, is masked all the same.
     #[test]
     fn only_the_authority_carries_credentials() {
         assert_eq!(masked("http://user:pw@nas:7878/radarr"), "http://***@nas:7878/radarr");
@@ -298,18 +260,12 @@ mod tests {
         stays_on_origin(&from.parse().expect("from"), &to.parse().expect("to"))
     }
 
-    /// `port_or_known_default()` answers `Some(8080)` on both sides, so only the
-    /// scheme tells them apart. Read as the same origin, the redirect sends
-    /// `X-Api-Key` in cleartext.
     #[test]
     fn a_downgrade_to_cleartext_on_the_same_port_is_refused() {
         assert!(!judge("https://arr:8080/a", "http://arr:8080/b"));
         assert!(!judge("https://arr/a", "http://arr/b"));
     }
 
-    /// The one exception: it strengthens the channel.
-    /// Only where the upgrade is one: the default pair, or the same explicit
-    /// port served both ways.
     #[test]
     fn an_upgrade_to_tls_is_followed() {
         assert!(judge("http://arr/a", "https://arr/b"));
@@ -317,9 +273,6 @@ mod tests {
         assert!(judge("http://arr:8080/a", "https://arr:8080/b"));
     }
 
-    /// "Upgrade" is not a licence to change service. Any http → any https would
-    /// carry `X-Api-Key` from an Arr on one port to whatever answers on another,
-    /// on the host where every homelab service lives.
     #[test]
     fn an_upgrade_to_another_port_is_not_an_upgrade() {
         assert!(!judge("http://nas:7878/a", "https://nas:8384/b"));
@@ -333,8 +286,6 @@ mod tests {
         assert!(judge("https://arr:8080/a", "https://ARR:8080/b"));
     }
 
-    /// Every homelab service is on one host behind a different port, so the
-    /// port is the boundary that matters most here.
     #[test]
     fn another_host_or_another_port_stops() {
         assert!(!judge("http://arr:7878/a", "http://evil.example/b"));

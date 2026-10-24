@@ -25,6 +25,7 @@ mod integrations;
 mod jobs;
 mod listener;
 mod localization;
+mod logging;
 mod models;
 mod paths;
 mod process;
@@ -77,7 +78,54 @@ pub(crate) async fn open_storage(
         &config.secret_key_path(),
         Some(salt.as_bytes()),
     )?;
+    refuse_a_foreign_master_key(config, &pool, &secrets).await?;
     Ok((api_key, pool, secrets))
+}
+
+/// Refuse a start whose master key opens none of the sealed values tried, one per store, as when
+/// `routarr.db` was copied beside the key a first start made. Some opening is a value damaged
+/// on its own, which `maintenance::reseal_secrets` names, and the start goes on.
+async fn refuse_a_foreign_master_key(
+    config: &config::Config,
+    pool: &sqlx::SqlitePool,
+    secrets: &crypto::SecretBox,
+) -> error::AppResult<()> {
+    let sealed: Vec<String> = sqlx::query_scalar(
+        "SELECT value FROM (SELECT api_key AS value FROM instances WHERE api_key LIKE 'enc:v%'
+                             LIMIT 1)
+         UNION ALL
+         SELECT value FROM (SELECT value FROM settings WHERE value LIKE 'enc:v%' LIMIT 1)
+         UNION ALL
+         SELECT value FROM (SELECT secret AS value FROM webhook_secrets WHERE secret LIKE 'enc:v%'
+                             LIMIT 1)",
+    )
+    .fetch_all(pool)
+    .await?;
+    let closed = sealed.iter().filter(|value| secrets.open(value).is_err()).count();
+    if closed == 0 {
+        return Ok(());
+    }
+    if closed < sealed.len() {
+        warn!("{closed} of the {} sealed values tried at start do not open", sealed.len());
+        return Ok(());
+    }
+    if config.allow_new_master_key {
+        warn!(
+            "The master key opens none of the credentials the database holds: every Arr key, \
+             source key, notification address and signing secret stored before it has to be \
+             entered again"
+        );
+        return Ok(());
+    }
+    let key = match config.secret_key {
+        Some(_) => "ROUTARR_SECRET_KEY".to_string(),
+        None => config.secret_key_path().display().to_string(),
+    };
+    Err(error::AppError::Config(format!(
+        "{key} does not open the credentials this database holds. Put back the key they were \
+         sealed with, or set ROUTARR_PREVIOUS_SECRET_KEY to it beside the new one. To start with \
+         this key and enter every credential again, set ROUTARR_ALLOW_NEW_MASTER_KEY=true"
+    )))
 }
 
 /// Refuse a start that would make a new master key while the database holds values sealed
@@ -178,14 +226,18 @@ fn build_router(state: AppState) -> Router {
         // The contract describes the software, and a client reads it before it holds a key.
         .route("/openapi.json", get(api::contract::serve));
     // Each way in exists in its own mode only, or `/auth/login` checks a stale `forms` password.
+    // A sign-in body is small, so an anonymous caller cannot send the size other routes take.
+    let signing_in = DefaultBodyLimit::max(SIGN_IN_BODY_MAX);
     let public = match config.auth_mode {
-        AuthMode::Forms => public.route("/auth/login", post(api::auth::login)),
+        AuthMode::Forms => public.route("/auth/login", post(api::auth::login).layer(signing_in)),
         // Both ends outside the middleware: no session on the way out, none on the redirect back.
         AuthMode::Oidc => public
             .route("/auth/oidc/start", get(api::auth::oidc_start))
             .route("/auth/oidc/callback", get(api::auth::oidc_callback)),
         // The key sent once for a session cookie, kept nowhere a page script could read it.
-        AuthMode::ApiKey => public.route("/auth/key-session", post(api::auth::key_session)),
+        AuthMode::ApiKey => {
+            public.route("/auth/key-session", post(api::auth::key_session).layer(signing_in))
+        }
         AuthMode::None | AuthMode::External => public,
     };
 
@@ -325,7 +377,8 @@ fn build_router(state: AppState) -> Router {
     // Authenticated by their own per-instance token, outside the API-key middleware.
     let webhooks = Router::new()
         .route(WEBHOOK_ROUTE, post(api::webhook::receive))
-        .route("/webhook/{instance_id}", post(api::webhook::receive_with_header));
+        .route("/webhook/{instance_id}", post(api::webhook::receive_with_header))
+        .layer(DefaultBodyLimit::max(api::webhook::BODY_MAX));
 
     // A JSON 404 for any miss under the API prefix, or a typo answers `index.html` with a 200.
     let api_routes = public
@@ -341,7 +394,7 @@ fn build_router(state: AppState) -> Router {
         let lead_in = move || async move { axum::response::Redirect::temporary(&mounted) };
         api = api.route("/", get(lead_in));
     }
-    let app = request_layers(api)
+    let app = request_layers(api, &config.trusted_proxies)
         // 2 MiB fits rules and import bundles, and bounds what an unauthenticated request buffers.
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(cors_layer(&config))
@@ -356,6 +409,9 @@ fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(security_headers))
 }
 
+/// The largest sign-in body read, far above a name and a password.
+const SIGN_IN_BODY_MAX: usize = 16 * 1024;
+
 /// How long a request body may take to arrive, whole. A body sent a byte at a
 /// time would otherwise hold its connection open as long as the sender likes.
 /// The largest body taken is 2 MiB, seconds on the slowest link.
@@ -363,10 +419,11 @@ pub(crate) const BODY_DEADLINE: std::time::Duration = std::time::Duration::from_
 
 /// The layers every API request passes through, around `routes`, shared with the tests
 /// that make a handler panic, since a `.layer()` wraps only the routes registered before it.
-pub(crate) fn request_layers<S>(routes: Router<S>) -> Router<S>
+pub(crate) fn request_layers<S>(routes: Router<S>, proxies: &[config::Network]) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
+    let proxies: Arc<[config::Network]> = proxies.into();
     routes
         // The span carries the request id, set outermost, so a logged failure matches its click.
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
@@ -376,6 +433,32 @@ where
         .layer(middleware::map_response(not_stored))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        .layer(middleware::from_fn(move |request, next| {
+            only_a_proxys_request_id(Arc::clone(&proxies), request, next)
+        }))
+}
+
+/// The longest request id a proxy may set, as long as a UUID with room to spare.
+const REQUEST_ID_LENGTH: usize = 64;
+
+/// The `X-Request-Id` a request arrived with, kept only from a proxy `ROUTARR_TRUSTED_PROXIES`
+/// lists and when short: chosen by any caller, two requests could share one, and a failure
+/// reported by its id would match another caller's lines. Without it, one is made.
+async fn only_a_proxys_request_id(
+    proxies: Arc<[config::Network]>,
+    mut request: axum::extract::Request,
+    next: middleware::Next,
+) -> Response {
+    let peer = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|axum::extract::ConnectInfo(address)| address.ip());
+    let from_a_proxy = peer.is_some_and(|ip| proxies.iter().any(|proxy| proxy.contains(ip)));
+    let short = |id: &axum::http::HeaderValue| id.len() <= REQUEST_ID_LENGTH;
+    if !(from_a_proxy && request.headers().get("x-request-id").is_some_and(short)) {
+        request.headers_mut().remove("x-request-id");
+    }
+    next.run(request).await
 }
 
 /// An API answer may carry a key, a webhook token or an archive holding the
@@ -463,6 +546,7 @@ async fn security_headers(request: axum::extract::Request, next: middleware::Nex
         (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         (axum::http::header::REFERRER_POLICY, "same-origin"),
         (HeaderName::from_static("cross-origin-opener-policy"), "same-origin"),
+        (HeaderName::from_static("cross-origin-resource-policy"), "same-origin"),
         (
             HeaderName::from_static("permissions-policy"),
             "accelerometer=(), camera=(), geolocation=(), microphone=(), payment=(), usb=()",

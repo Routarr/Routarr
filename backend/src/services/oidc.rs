@@ -1,10 +1,9 @@
 //! OpenID Connect, authorization code flow with PKCE.
 //!
-//! One level of access, for the people the operator names: by their `sub`, or
-//! by a group the provider says they belong to (`ROUTARR_OIDC_ALLOWED_*`).
-//! Routarr keeps no user table. The subject is stored beside every decision
-//! and every write it causes, and that is the whole of what an identity buys
-//! here.
+//! Full access for the people the operator names, by their `sub` or a group the provider puts
+//! them in (`ROUTARR_OIDC_ALLOWED_*`), read access for those the read lists name
+//! (`ROUTARR_OIDC_READ_*`). Routarr keeps no user table: the subject is stored beside every
+//! write it causes.
 //!
 //! An attempt keeps nothing on the server. Its `state`, nonce, PKCE verifier
 //! and expiry travel in a cookie sealed with the master key, so the public
@@ -12,16 +11,10 @@
 //! attempt. A code presented twice is refused by the provider, which spends it
 //! at the first exchange (RFC 6749 §4.1.2), and the callback clears the cookie.
 //!
-//! **On not verifying the ID token's signature.** This is a confidential client
-//! running the authorization code flow, so the token arrives in the body of a
-//! response to a request *this server* made to the token endpoint over TLS,
-//! authenticated with the client secret. OpenID Connect Core §3.1.3.7 says that
-//! in exactly this case "the TLS server validation MAY be used to validate the
-//! issuer in place of checking the token signature". The claims are still
-//! checked (issuer, audience, expiry and the nonce this flow generated). What
-//! is skipped is JWKS fetching, key rotation and a JWT crypto dependency, none
-//! of which would add anything a compromised TLS channel had not already taken
-//! away.
+//! The ID token's signature is not verified. A confidential client receives the token from the
+//! token endpoint over TLS, in answer to its own request authenticated with the client secret,
+//! and OpenID Connect Core §3.1.3.7 lets "the TLS server validation" stand in for the signature
+//! then. The issuer, audience, expiry and nonce are still checked.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
@@ -31,10 +24,8 @@ use sha2::{Digest, Sha256};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-/// How long a sign-in attempt may sit unfinished.
-///
-/// Long enough to type a password and answer a second factor, short enough that
-/// an abandoned attempt is not a row waiting to be replayed.
+/// How long a sign-in attempt may sit unfinished, long enough to type a password and answer a
+/// second factor.
 pub const FLOW_MINUTES: i64 = 10;
 
 /// What sets this cookie apart from any other value sealed with the master
@@ -59,15 +50,28 @@ pub struct Attempt {
     pub return_to: Option<String>,
 }
 
+/// The longest screen a sign-in comes back to, far past what the interface sends: it is sealed
+/// into the attempt's cookie, which a page of another site can otherwise make as large as a
+/// browser keeps.
+const SCREEN_LENGTH: usize = 512;
+
 /// A screen a sign-in may land on: a path under the mount point, and nothing
-/// that leaves it.
+/// that leaves it, which a dot segment would.
 pub fn screen(path: &str) -> Option<String> {
     let path = path.trim();
+    let dot = |segment: &str| {
+        matches!(
+            segment.to_ascii_lowercase().as_str(),
+            "." | ".." | "%2e" | "%2e%2e" | ".%2e" | "%2e."
+        )
+    };
     let inside = path.starts_with('/')
+        && path.len() <= SCREEN_LENGTH
         && !path.starts_with("//")
         && !path.contains('\\')
         && !path.contains("://")
-        && path.chars().all(|c| c.is_ascii_graphic());
+        && path.chars().all(|c| c.is_ascii_graphic())
+        && !path.split(['/', '?', '#']).any(dot);
     inside.then(|| path.to_string())
 }
 
@@ -75,6 +79,15 @@ impl Attempt {
     /// The attempt sealed for its cookie.
     pub fn sealed(&self, secrets: &crate::crypto::SecretBox) -> AppResult<String> {
         secrets.seal(&serde_json::to_string(self)?)
+    }
+
+    /// Until when the attempt a cookie carries is live, in Unix seconds, when it is one.
+    pub fn expiry(secrets: &crate::crypto::SecretBox, sealed: &str) -> Option<i64> {
+        if !crate::crypto::SecretBox::is_sealed(sealed) {
+            return None;
+        }
+        let attempt: Self = serde_json::from_str(&secrets.open(sealed).ok()?).ok()?;
+        (attempt.purpose == PURPOSE).then_some(attempt.expires)
     }
 
     /// The attempt a cookie carries, when it is one, it is still live and it
@@ -114,20 +127,21 @@ impl Provider {
     }
 }
 
-/// How long the provider's description is trusted without asking again.
-///
-/// A static document by specification, and the endpoint that reads it is
-/// public: refetched per call, one cheap inbound request becomes one outbound
-/// request against the operator's own identity provider, which is an amplifier
-/// pointed at the thing they log in with. Fifteen minutes is short enough that
-/// a provider moving an endpoint is picked up within a deploy window.
+/// How long the provider's description is trusted without asking again. The route that reads it
+/// is public: refetched per call, each anonymous request would become one against the identity
+/// provider, which rate-limits by address and would lock the operator out.
 const DISCOVERY_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
-/// Read the provider's own description of itself.
-///
-/// Discovery rather than four configured endpoints: a provider states its own
-/// addresses, and copying them by hand is four more values to keep in step with
-/// somebody else's deployment.
+/// How long a provider that could not be read is answered from that failure. A provider down
+/// is when browsers retry, and each start asking it again would be the flood the cache bounds.
+const FAILURE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The provider's description as last read, or why it could not be, and until when either is
+/// kept.
+pub type Described = Option<(Result<Provider, String>, std::time::Instant)>;
+
+/// Read the provider's own description of itself (OpenID Connect Discovery). Starts that find
+/// nothing kept wait for the one reading it, and a failure is logged once per [`FAILURE_TTL`].
 pub async fn discover(state: &AppState) -> AppResult<Provider> {
     let issuer = state
         .config
@@ -137,12 +151,32 @@ pub async fn discover(state: &AppState) -> AppResult<Provider> {
 
     // Read under a shared lock, so concurrent sign-ins do not queue behind each
     // other for a document they all already have.
-    if let Some((provider, fresh_until)) = state.oidc_provider.read().await.as_ref()
-        && std::time::Instant::now() < *fresh_until
-    {
-        return Ok(provider.clone());
+    if let Some(kept) = kept(&*state.oidc_provider.read().await) {
+        return kept;
     }
+    let mut described = state.oidc_provider.write().await;
+    if let Some(kept) = kept(&described) {
+        return kept;
+    }
+    let read = describe(state, issuer).await;
+    let kept = match &read {
+        Ok(provider) => (Ok(provider.clone()), DISCOVERY_TTL),
+        Err(e) => {
+            tracing::error!("The OpenID Connect provider could not be read: {e}");
+            (Err(e.to_string()), FAILURE_TTL)
+        }
+    };
+    *described = Some((kept.0, std::time::Instant::now() + kept.1));
+    read
+}
 
+/// What `described` still answers, if it is fresh.
+fn kept(described: &Described) -> Option<AppResult<Provider>> {
+    let (answer, fresh_until) = described.as_ref()?;
+    (std::time::Instant::now() < *fresh_until).then(|| answer.clone().map_err(AppError::Config))
+}
+
+async fn describe(state: &AppState, issuer: &str) -> AppResult<Provider> {
     let url = format!("{issuer}/.well-known/openid-configuration");
     let provider: Provider = crate::integrations::send_json("oidc", state.http.get(&url)).await?;
 
@@ -154,10 +188,8 @@ pub async fn discover(state: &AppState) -> AppResult<Provider> {
             provider.issuer
         )));
     }
-    // The flow trusts the channel in place of a token signature (see the
-    // module doc), and the endpoints are only known once the provider has
-    // described itself: one served in the clear is refused here, as the
-    // issuer is at startup.
+    // The flow trusts the channel in place of a token signature (see the module doc), so an
+    // endpoint served in the clear is refused, as the issuer is at startup.
     for (name, endpoint) in [
         ("token_endpoint", &provider.token_endpoint),
         ("authorization_endpoint", &provider.authorization_endpoint),
@@ -168,17 +200,13 @@ pub async fn discover(state: &AppState) -> AppResult<Provider> {
             )));
         }
     }
-    let fresh_until = std::time::Instant::now() + DISCOVERY_TTL;
-    *state.oidc_provider.write().await = Some((provider.clone(), fresh_until));
     Ok(provider)
 }
 
 /// Everything the browser has to be sent to, for one attempt.
 pub struct Start {
     pub redirect_to: String,
-    /// The attempt, which the browser that left carries back in a cookie:
-    /// without it, any browser presenting a known `code` and `state` pair is
-    /// signed in as whoever started the attempt.
+    /// The attempt, which the browser that left carries back in its cookie.
     pub attempt: Attempt,
 }
 
@@ -390,10 +418,9 @@ fn reach_of(config: &crate::config::Config, claims: &Claims) -> AppResult<super:
     )))
 }
 
-/// The name a session and every write it makes record. The `sub` is what the
-/// provider guarantees unique and constant, and a `preferred_username` is
-/// neither (OpenID Connect Core §5.7): many providers let a person change it.
-/// So a name shown beside the `sub`, never in place of it.
+/// The name a session and every write it makes record: the `sub`, which the provider keeps
+/// unique and constant, with a `preferred_username` beside it, which a person may change
+/// (OpenID Connect Core §5.7).
 fn recorded_subject(name: Option<String>, sub: String) -> String {
     match name.filter(|name| !name.is_empty() && *name != sub) {
         Some(name) => format!("{name} ({sub})"),
@@ -401,11 +428,8 @@ fn recorded_subject(name: Option<String>, sub: String) -> String {
     }
 }
 
-/// The payload of a JWT, without verifying its signature.
-///
-/// See the module note: the token came from the token endpoint over TLS, which
-/// §3.1.3.7 accepts in place of the signature. What this must still do is
-/// refuse anything that is not a JWT rather than reading a fragment of one.
+/// The payload of a JWT, without verifying its signature (see the module doc). Anything that
+/// is not a JWT is refused.
 fn decode_claims(token: &str) -> AppResult<Claims> {
     let payload = token
         .split('.')
@@ -462,7 +486,6 @@ mod tests {
         assert!(!none.aud.contains("routarr"));
     }
 
-    /// Anything that is not a JWT must be refused rather than read in part.
     #[test]
     fn a_token_that_is_not_one_is_refused() {
         assert!(decode_claims("not a jwt").is_err());
@@ -470,8 +493,6 @@ mod tests {
         assert!(decode_claims(&format!("header.{}.sig", B64URL.encode("not json"))).is_err());
     }
 
-    /// A name a person can change is shown beside the `sub`, which they
-    /// cannot, and never in its place.
     #[test]
     fn the_recorded_subject_carries_the_sub_beside_any_name() {
         assert_eq!(recorded_subject(Some("alice".into()), "u-42".into()), "alice (u-42)");
@@ -480,9 +501,7 @@ mod tests {
         assert_eq!(recorded_subject(Some("u-42".into()), "u-42".into()), "u-42");
     }
 
-    /// An attempt opens within its ten minutes, for the state it names, from
-    /// a value sealed as one and nothing else: a cookie written in clear
-    /// would let its writer choose the nonce and the verifier.
+    /// A cookie written in clear would let its writer choose the nonce and the verifier.
     #[test]
     fn an_attempt_opens_only_while_live_for_its_state_and_sealed_as_one() {
         use crate::crypto::SecretBox;
@@ -516,8 +535,6 @@ mod tests {
         assert!(Attempt::opened(&secrets, &clear, &state).is_none(), "written in clear");
     }
 
-    /// A list of groups, or one written as a string, under the claim the
-    /// operator named.
     #[test]
     fn groups_are_read_under_the_claim_named() {
         let claims = decode_claims(&jwt(serde_json::json!({

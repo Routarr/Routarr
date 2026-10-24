@@ -1,13 +1,10 @@
-//! Encryption of secrets at rest: the Arr and metadata source keys, the
-//! notification address and the signing secrets.
+//! Encryption of secrets at rest: the Arr and metadata source keys, the notification address
+//! and the signing secrets.
 //!
-//! A value is stored as `enc:v2:<base64(nonce || ciphertext)>`, sealed with
-//! the master key. A passphrase given as the master key is stretched with
-//! Argon2id and the installation's salt, which the database holds and every
-//! backup carries. `enc:v1:` is the same seal under a passphrase stretched
-//! with SHA-256, still opened. A value without either prefix is plaintext,
-//! returned as it is. `maintenance::reseal_secrets` seals both again as
-//! `enc:v2:` at the next start.
+//! A value is stored as `enc:v2:<base64(nonce || ciphertext)>`, sealed with the master key. A
+//! passphrase given as the master key is stretched with Argon2id and the installation's salt.
+//! `enc:v1:`, a passphrase stretched with SHA-256, and plaintext are opened as well, and
+//! `maintenance::reseal_secrets` seals both as `enc:v2:` at the next start.
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -19,24 +16,15 @@ use tracing::{info, warn};
 
 use crate::error::{AppError, AppResult};
 
-/// Operating-system randomness, or a refusal rather than a panic.
-///
-/// `getrandom` directly rather than `rand`'s `OsRng.fill_bytes`, which panics
-/// when the system cannot supply entropy. For a key generator that is the wrong
-/// shape: the one case where it matters is the one where the process should
-/// stop and say so. It is also what `rand` calls underneath, so this costs a
-/// dependency rather than a change of source.
+/// Operating-system randomness, or a refusal where `rand`'s `OsRng.fill_bytes` panics
+/// when the system cannot supply entropy.
 pub(crate) fn random_bytes(buffer: &mut [u8]) -> AppResult<()> {
     getrandom::fill(buffer).map_err(|e| {
         AppError::Internal(format!("the operating system refused to supply randomness: {e}"))
     })
 }
 
-/// The nonce type, taken from the cipher rather than restated.
-///
-/// `Nonce` is generic over its size. Naming the size here would be a second
-/// place to keep in step with `NONCE_LEN` below, and asking the cipher removes
-/// the question.
+/// The nonce type, taken from the cipher rather than restated beside `NONCE_LEN`.
 type GcmNonce = Nonce<<Aes256Gcm as AeadCore>::NonceSize>;
 
 const PREFIX: &str = "enc:v2:";
@@ -69,17 +57,11 @@ impl std::fmt::Debug for SecretBox {
 }
 
 impl SecretBox {
-    /// Build from a user-supplied key, or from a key file generated on first run.
+    /// Build from a user-supplied key, or from a key file generated on first run with `0600`.
     ///
-    /// The key file is written with `0600` so the secrets are no more readable
-    /// than the database file itself.
-    ///
-    /// `previous` is a superseded key kept readable during a rotation. Values
-    /// are opened with either key but always re-sealed with the current one.
-    ///
-    /// `salt` is the installation's ([`installation_salt`]), which a
-    /// passphrase is stretched with. Without one a passphrase is stretched as
-    /// `enc:v1:` was, for a database that holds no salt yet.
+    /// `previous` is a superseded key kept readable during a rotation. `salt` is the
+    /// installation's ([`installation_salt`]): without one a passphrase is stretched as
+    /// `enc:v1:`.
     pub fn load(
         configured: Option<&str>,
         previous: Option<&str>,
@@ -203,14 +185,11 @@ impl SecretBox {
     }
 }
 
-/// The master key the file beside the database holds, or a new one written
-/// there when there is no file, or an empty one.
+/// The master key the file beside the database holds, or a new one written there when there
+/// is no file, or an empty one.
 ///
-/// A file that cannot be read, or holds bytes that are not text, is somebody's
-/// key: written over, it would take every credential sealed under it. An empty
-/// file is what a power cut leaves of a key written moments before, and a start
-/// only gets here with one once `main` has made sure no value in the database
-/// was sealed with the key it held.
+/// A file that cannot be read is somebody's key and is never written over. An empty one is
+/// what a power cut leaves, and `main` has checked that nothing was sealed with it.
 fn key_from_file(key_path: &Path) -> AppResult<String> {
     match std::fs::read_to_string(key_path) {
         Ok(stored) if !stored.trim().is_empty() => return Ok(stored.trim().to_string()),
@@ -254,11 +233,7 @@ pub async fn installation_salt(pool: &sqlx::SqlitePool) -> AppResult<String> {
         })
 }
 
-/// 32 bytes of OS randomness, hex-encoded.
-///
-/// URL-safe, shell-safe, and easy to copy out of a log without the ambiguity
-/// base64 padding invites. Shared by the API key, the session ids and the
-/// generated password, which want the same properties for the same reasons.
+/// 32 bytes of OS randomness, hex-encoded: URL-safe, shell-safe and easy to copy out of a log.
 pub fn generate_secret() -> AppResult<String> {
     let mut bytes = [0u8; 32];
     random_bytes(&mut bytes)?;
@@ -284,14 +259,8 @@ pub fn signing_key(secret: &str) -> Option<Vec<u8>> {
     (key.len() >= 24).then_some(key)
 }
 
-/// Load the API key from `path`, generating one on first run.
-///
-/// An API that can move files on disk must not be open by omission, and the
-/// Arrs set the same default. Generating one keeps the zero-configuration first
-/// run: the key appears in the startup log and in a file beside the database.
-///
-/// Returns the key and whether it had to be created, so the caller can make the
-/// first run loud and later ones quiet.
+/// Load the API key from `path`, generating one on first run, as the Arrs do: an API that
+/// moves files is never open by omission. Returns the key and whether it was created.
 pub fn load_or_generate_api_key(path: &Path) -> AppResult<(String, bool)> {
     if let Some(existing) = read_api_key(path) {
         return Ok((existing, false));
@@ -302,11 +271,7 @@ pub fn load_or_generate_api_key(path: &Path) -> AppResult<(String, bool)> {
     Ok((key, true))
 }
 
-/// The stored key, if there is one worth reading.
-///
-/// An empty or whitespace-only file is not a key: it is what a truncated write
-/// or a hand-emptied file leaves behind, and honouring it would mean accepting
-/// an empty credential.
+/// The stored key, if there is one: an empty or blank file is not a key.
 pub fn read_api_key(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
@@ -319,18 +284,9 @@ pub fn write_api_key(path: &Path, key: &str) -> AppResult<()> {
     })
 }
 
-/// Write a file that holds a secret, private from the moment it exists, and
-/// whole or not at all.
-///
-/// `std::fs::write` then `chmod` opens it under the umask first (0644 under
-/// the usual 022), and the chmod that follows only warns when the filesystem
-/// refuses it, which a bind mount from SMB or NFS does. Created with the mode
-/// instead, there is no window and nothing to warn about. Where modes are not
-/// honoured the file is exactly as private as it can be there.
-///
-/// Written beside, flushed to the disk, then renamed over the old one: written
-/// in place, a power cut between the truncation and the write leaves an empty
-/// key, and the previous one gone.
+/// Write a file that holds a secret, private from the moment it exists, and whole or not at
+/// all: created with mode 0600 rather than chmodded after, which an SMB or NFS mount refuses,
+/// and written beside, flushed, then renamed over the old one, so a power cut cannot empty it.
 pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(parent) = path.parent() {
@@ -435,12 +391,8 @@ fn stretched_v1(input: &str) -> [u8; 32] {
     out
 }
 
-/// Lock down a database file *and* its write-ahead sidecars.
-///
-/// `routarr.db-wal` holds every commit not yet checkpointed and `-shm` its
-/// index: between checkpoints they contain exactly what the database contains,
-/// including the sealed Arr credentials. Restricting only the `.db` would
-/// leave the most recent data readable to anyone on the host.
+/// Lock down a database file and its `-wal` and `-shm` sidecars, which hold every commit not
+/// yet checkpointed, sealed credentials included.
 pub fn restrict_database_permissions(path: &Path) {
     restrict_permissions(path);
     for suffix in ["-wal", "-shm"] {
@@ -469,8 +421,6 @@ pub fn restrict_permissions(path: &Path) {
 
 #[cfg(test)]
 mod tests {
-    /// Radarr and Sonarr generate their key at first start, and this API can
-    /// move files: starting open with a warning is not the posture to ship.
     #[test]
     fn an_api_key_is_generated_on_first_run_and_reused_afterwards() {
         let dir = crate::tests::TempDir::new("key");
@@ -488,7 +438,6 @@ mod tests {
         assert!(!generated_again);
     }
 
-    /// Two installations must not share a key.
     #[test]
     fn each_generated_key_is_unique() {
         let dir = crate::tests::TempDir::new("key-uniq");
@@ -501,9 +450,6 @@ mod tests {
         assert_ne!(first, second);
     }
 
-    /// A secret file is born 0600 rather than locked down after: with the
-    /// usual umask, `write` then `chmod` would leave it readable for the
-    /// instant in between.
     #[cfg(unix)]
     #[test]
     fn a_private_file_is_created_with_its_mode_and_truncated_on_rewrite() {
@@ -522,8 +468,6 @@ mod tests {
         assert!(create_private(&path, true).is_err(), "an existing file must not be reopened");
     }
 
-    /// A key is written beside its file and renamed over it: a write that
-    /// fails leaves the previous key whole, and nothing behind.
     #[test]
     fn a_failed_key_write_leaves_the_previous_key_whole() {
         let dir = crate::tests::TempDir::new("key-durable");
@@ -536,7 +480,6 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"the key of before");
     }
 
-    /// The key file is as readable as the database, and no more.
     #[cfg(unix)]
     #[test]
     fn the_generated_key_file_is_not_world_readable() {
@@ -552,9 +495,8 @@ mod tests {
 
     use super::*;
 
-    /// The key generated at first start is the key every later start reads. A
-    /// key written in one form and read back in another opens none of the
-    /// sealed Arr and metadata keys after a restart, and nothing else warns.
+    /// A key written in one form and read back in another would open nothing after a restart,
+    /// and nothing else warns.
     #[test]
     fn a_generated_master_key_opens_what_it_sealed_after_a_restart() {
         let dir = crate::tests::TempDir::new("master-key");

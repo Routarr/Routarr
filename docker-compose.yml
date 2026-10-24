@@ -14,7 +14,7 @@ services:
       # The container runs as uid 1000, and Docker creates a missing bind-mount
       # directory owned by root, which the container then cannot write. Run
       # `mkdir -p config && chown 1000:1000 config` before the first start, or
-      # use a named volume. A volume mounted at /data instead keeps working.
+      # use a named volume.
       - ./config:/config
       # The folder ROUTARR_BACKUP_COPY_DIR names below, on a NAS or another disk
       # and writable by uid 1000, for instance:
@@ -32,13 +32,10 @@ services:
       # With a certificate authority mounted at /certs. Each folder named
       # replaces the image's store, which therefore comes first.
       # - SSL_CERT_DIR=/etc/ssl/certs:/certs
-      # Protects every /api/v1 route but the few a signed-out browser needs
-      # (/ping, the languages, the sign-in) and the webhook, which carries a
-      # token of its own. Left unset, Routarr generates one into
-      # /config/routarr.api_key on first start, where the log names the file
-      # but never the key (`docker exec routarr cat /config/routarr.api_key`),
-      # and Settings can replace it later without a restart. Setting it here pins it instead: this value wins, and
-      # changing the key then means changing this line and restarting.
+      # Protects every /api/v1 route but the few a signed-out browser needs, and the webhook,
+      # which carries its own token. Unset, a key is generated into /config/routarr.api_key on
+      # first start (`docker exec routarr cat /config/routarr.api_key`), and Settings can replace
+      # it. Set, this value wins, and changing the key means changing this line and restarting.
       - ROUTARR_API_KEY=${ROUTARR_API_KEY:-}
       # `external` delegates to a reverse proxy and asks for nothing, so bind
       # the port to that proxy alone. `none` turns authentication off entirely:
@@ -66,18 +63,23 @@ services:
     # database closes, which can take Routarr up to 20 seconds. Docker's
     # default 10 would kill it halfway.
     stop_grace_period: 30s
-    # Routarr opens a socket, reads and writes /config, and makes outbound HTTPS
-    # calls. None of that needs a Linux capability, so it drops all of them.
-    # The image already runs as uid 1000, and this is what stops a future
-    # dependency from quietly using one. `no-new-privileges` closes the other
-    # half: no setuid binary in the image can raise what this line lowered.
+    # Docker's default driver keeps a log without end: five files of 10 MB at most here.
+    # For the fail2ban jail of SECURITY.md, the journald driver instead, where `docker logs`
+    # still reads it, in place of the two lines under `logging`:
+    #   driver: journald
+    #   options:
+    #     tag: routarr
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # Nothing Routarr does needs a Linux capability, so all are dropped, and `no-new-privileges`
+    # stops a setuid binary from raising them again.
     #
-    #
-    # The root filesystem is read-only: code running inside the process can
-    # neither drop a program somewhere and run it nor change one in place.
-    # Everything Routarr writes is under /config and the backup copy folder,
-    # and /tmp, where SQLite may spill a large sort, is a small tmpfs nothing
-    # can be run from.
+    # The root filesystem is read-only, so code running inside the process cannot change the
+    # program or the page it serves. What it can write is /config, the backup copy folder and
+    # /tmp, a small tmpfs nothing can be run from.
     cap_drop:
       - ALL
     security_opt:

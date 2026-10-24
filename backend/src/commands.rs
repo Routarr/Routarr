@@ -2,7 +2,8 @@
 //! health check, and the ways back for an operator locked out, or facing a
 //! database a start refuses.
 
-use crate::config::{self, Config};
+use crate::config::{self, AuthMode, Config};
+use crate::services::audit::{Kind, Outcome};
 use crate::{crypto, db, error, services};
 
 /// What `routarr --help` prints.
@@ -12,8 +13,10 @@ pub const USAGE: &str = "Routarr, a routing layer for Radarr and Sonarr.
   routarr healthcheck                      ask the server of this configuration whether it answers
   routarr restore <archive>                stage a backup, applied at the next start
   routarr decrypt-backup <archive> <zip>   write an encrypted backup opened
-  routarr reset-account [--revoke-keys]    give the account a new password, and with the flag
-                                           revoke every application key
+  routarr reset-account [--revoke-keys] [--force]
+                                           give the account a new password, with --revoke-keys
+                                           revoke every application key and replace the API key,
+                                           with --force outside ROUTARR_AUTH=forms too
   routarr --version                        print the version
 
 The configuration is read from the environment, as the README describes.";
@@ -26,7 +29,7 @@ const SEE_HELP: &str = "`routarr --help` lists the commands";
 pub enum Invocation {
     Serve,
     Healthcheck,
-    ResetAccount { revoke_keys: bool },
+    ResetAccount { revoke_keys: bool, force: bool },
     Restore(Option<String>),
     DecryptBackup(Option<String>, Option<String>),
     Help,
@@ -52,11 +55,17 @@ pub fn invocation(args: &[String]) -> Result<Invocation, String> {
         "-h" | "--help" | "help" => alone(Invocation::Help),
         "-V" | "--version" | "version" => alone(Invocation::Version),
         "healthcheck" => alone(Invocation::Healthcheck),
-        "reset-account" => match rest.as_slice() {
-            [] => Ok(Invocation::ResetAccount { revoke_keys: false }),
-            ["--revoke-keys"] => Ok(Invocation::ResetAccount { revoke_keys: true }),
-            [extra, ..] => Err(unexpected(extra)),
-        },
+        "reset-account" => {
+            let (mut revoke_keys, mut force) = (false, false);
+            for flag in &rest {
+                match *flag {
+                    "--revoke-keys" if !revoke_keys => revoke_keys = true,
+                    "--force" if !force => force = true,
+                    extra => return Err(unexpected(extra)),
+                }
+            }
+            Ok(Invocation::ResetAccount { revoke_keys, force })
+        }
         "restore" => match rest.as_slice() {
             [] => Ok(Invocation::Restore(None)),
             [archive] => Ok(Invocation::Restore(Some((*archive).to_string()))),
@@ -164,24 +173,51 @@ where
     }
 }
 
-/// `routarr reset-account`, for an operator locked out of the `forms` account:
-/// `docker exec routarr /app/routarr reset-account`. The image carries no
-/// `sqlite3`, and the server can keep running, since a sign-in reads the
-/// account each time.
-///
-/// With `--revoke-keys`, every application key is revoked and a new API key is
-/// written, for an operator who believes keys leaked with the password.
+/// `routarr reset-account`, for an operator locked out of the `forms` account, with the server
+/// running or not: a sign-in reads the account each time. Outside `forms` only `force` resets
+/// it. `--revoke-keys` also revokes every application key and replaces the API key, if any.
 pub async fn reset_account(
     config: &Config,
     revoke_keys: bool,
+    force: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if config.auth_mode != AuthMode::Forms && !force {
+        return Err(format!(
+            "ROUTARR_AUTH is {}, where no sign-in reads the account. Add --force to reset it \
+             anyway, for a switch to forms later",
+            config.auth_mode.as_str()
+        )
+        .into());
+    }
     let pool = db::init_pool(config).await?;
     let password = services::accounts::reset_account(&pool, &config.password_path()).await?;
     let revoked =
         if revoke_keys { Some(services::applications::revoke_all(&pool).await?) } else { None };
+    let log = services::audit::Log::storing(pool.clone());
+    let said = |message| services::audit::Event::new(Kind::Password, Outcome::Allowed, message);
+    log.record(said("AuditAccountReset"));
+    if revoke_keys {
+        let revoked =
+            services::audit::Event::new(Kind::ApiKey, Outcome::Allowed, "AuditEveryKeyRevoked");
+        log.record(revoked);
+    }
+    // A key replaced only where there is one: an owner who withdrew it keeps it withdrawn.
+    let path = config.api_key_path();
+    let replaced = revoke_keys && config.api_key.is_none() && crypto::read_api_key(&path).is_some();
+    if replaced {
+        crypto::write_api_key(&path, &crypto::generate_secret()?)?;
+        let key = services::backup::Credential::MasterApiKey;
+        services::backup::set_withdrawn(&pool, key, false).await?;
+    }
+    log.flush().await;
     pool.close().await;
+    let when = if config.auth_mode == AuthMode::Forms {
+        "Sign in"
+    } else {
+        "Under ROUTARR_AUTH=forms, sign in"
+    };
     println!(
-        "The account is reset. Sign in as '{}' with: {password}",
+        "The account is reset. {when} as '{}' with: {password}",
         services::accounts::DEFAULT_USERNAME
     );
     println!(
@@ -192,11 +228,10 @@ pub async fn reset_account(
         println!("Every application key was revoked: {revoked}.");
         if config.api_key.is_some() {
             println!("ROUTARR_API_KEY pins the API key: change the variable and restart.");
-        } else {
-            let path = config.api_key_path();
-            crypto::write_api_key(&path, &crypto::generate_secret()?)?;
+        } else if replaced {
             println!(
-                "A new API key is in {}. Restart Routarr for it to replace the old one.",
+                "A new API key is in {}. The running server accepts the old API key until it \
+                 restarts.",
                 path.display()
             );
         }
@@ -212,8 +247,6 @@ mod tests {
         invocation(&args.iter().map(ToString::to_string).collect::<Vec<_>>())
     }
 
-    /// `--version` once started a server on the library of the working
-    /// directory, with its scheduler, instead of printing anything.
     #[test]
     fn an_unknown_argument_is_refused_rather_than_starting_the_server() {
         assert_eq!(read(&[]), Ok(Invocation::Serve));
@@ -222,6 +255,7 @@ mod tests {
             &["--verbose"],
             &["healthcheck", "now"],
             &["reset-account", "--revoke-key"],
+            &["reset-account", "--force", "--force"],
             &["restore", "a.zip", "b.zip"],
             &["decrypt-backup", "a.zip", "out.zip", "more"],
         ] {
@@ -246,9 +280,16 @@ mod tests {
         assert_eq!(read(&["healthcheck"]), Ok(Invocation::Healthcheck));
         assert_eq!(
             read(&["reset-account", "--revoke-keys"]),
-            Ok(Invocation::ResetAccount { revoke_keys: true })
+            Ok(Invocation::ResetAccount { revoke_keys: true, force: false })
         );
-        assert_eq!(read(&["reset-account"]), Ok(Invocation::ResetAccount { revoke_keys: false }));
+        assert_eq!(
+            read(&["reset-account", "--force", "--revoke-keys"]),
+            Ok(Invocation::ResetAccount { revoke_keys: true, force: true })
+        );
+        assert_eq!(
+            read(&["reset-account"]),
+            Ok(Invocation::ResetAccount { revoke_keys: false, force: false })
+        );
         assert_eq!(read(&["restore", "a.zip"]), Ok(Invocation::Restore(Some("a.zip".into()))));
         assert_eq!(read(&["restore"]), Ok(Invocation::Restore(None)));
         assert_eq!(

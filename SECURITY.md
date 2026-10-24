@@ -76,7 +76,8 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   `apikey` mode where it is the only way in. Both are refused while
   `ROUTARR_API_KEY` is set: the variable wins, so a key minted here would live
   until the next restart and no further. A leaked key is therefore revoked in a
-  click rather than a maintenance window, and the sessions it opened end with it.
+  click rather than a maintenance window, and the sessions it opened end with it,
+  as they do whenever the key changes, by the variable or its file at a restart.
 - **A session proves itself again before it makes a key.** Replacing or
   withdrawing the API key, making an application key and downloading a backup
   archive, which carries the master key and the API key, ask for the current
@@ -153,25 +154,38 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   this and for its share of the queue. A lockout of the account itself would
   hand anybody who reaches the port a way to deny sign-in to the only account
   there is: the owner signing in from another address does not wait. Behind a
-  reverse proxy, list it in `ROUTARR_TRUSTED_PROXIES`, an address or a range
-  such as `172.18.0.0/16`, or every client shares the proxy's address and its
-  wait.
+  reverse proxy, list it in `ROUTARR_TRUSTED_PROXIES`, or every client shares
+  the proxy's address and its wait. List the proxy's own address, fixed on its
+  network: every peer inside a listed range, such as `172.18.0.0/16`, chooses
+  the address its sign-ins count against, each container of a shared Docker
+  network included, which the start says.
 - **The `forms` mode stores its single password with argon2id** and opens
   opaque server-side sessions, never signed tokens: revoking one is a delete,
   which a self-validating token cannot offer. A session is stored by the
   SHA-256 digest of its id, so a copy of the database opens none. The cookie is
-  `HttpOnly`, `SameSite=Lax` and scoped to the mount point, and a write carrying
-  it is refused when the request states an origin that is not this one.
+  `HttpOnly`, `SameSite=Lax` and scoped to the mount point, and named `__Host-`
+  over TLS at the root of a host, so no other subdomain and no plain `http://`
+  page can set it. A write carrying it is refused when the request states an
+  origin that is not this one. A browser sends it to every service of the same
+  host name whatever its port, whose pages are the same site: give Routarr a
+  host name of its own when the other services of the host are not trusted. A
+  request another origin sets off, the same site included, never starts a probe.
 - **A session ends on its own, in use or not.** About a week without a request,
   and at the latest thirty days after it opened, or twenty-four hours through
   an OpenID Connect provider, so a provider that removes a person is followed
-  within a day. The Settings screen lists every live session, how it was
-  opened and when it was last used, and ends one or all of them.
+  within a day. It ends at once when what opened it changes: a start with other
+  OIDC lists ends every session the earlier ones opened, and a new API key the
+  sessions the old one opened, however it was replaced. The Settings screen
+  lists every live session, how it was opened and when it was last used, and
+  ends one or all of them.
 - **Changing the password asks for the current one** and ends every session
   the old one opened, the browser that changed it given a new one. It removes
   `routarr.password`, which held the first one, and can revoke every
   application key and replace the API key with it, for a password that leaked.
-  `routarr reset-account --revoke-keys` does the same for an owner locked out.
+  `routarr reset-account --revoke-keys` does the same for an owner locked out,
+  replacing the API key only where there is one, which the running server
+  accepts until it restarts. Outside `forms` the command refuses, unless
+  `--force` resets the account for a later switch to `forms`.
 - **In `none` and `external` modes a write with no API key is refused when the
   request states an origin that is not this one.** Nothing else stands between
   a page of another site and the API there: `none` asks for nothing, and in
@@ -191,6 +205,13 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   `ROUTARR_OIDC_ALLOW_ANYONE=true` says that every account of the provider may
   sign in, which Diagnostics then states. A session records the person's name
   beside their `sub`, since many providers let a person change the name.
+- **The `oidc` mode can let people in to read alone.** The people
+  `ROUTARR_OIDC_READ_SUBJECTS` and `ROUTARR_OIDC_READ_GROUPS` name reach the
+  routes the read scope of an application key reaches (the library, the
+  proposals, the history, the tasks) and are refused everything else with `403`
+  and `read_only`. Like such a key, a reader reads no one's name but their own
+  where a screen says who acted. Someone the full lists name too has full
+  access.
 - **The `oidc` mode runs the authorization code flow with PKCE**, checks the
   issuer, the audience, the expiry and the nonce it generated. An attempt
   travels in a cookie sealed with the master key, so the public route that
@@ -220,7 +241,9 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   caller, which costs exactly what a real import costs: rotate the token from
   the Instances screen if one is suspected.
 - **Arr API keys are sealed with AES-256-GCM** and never returned. The interface
-  shows `•••• (encrypted)`. A passphrase given as `ROUTARR_SECRET_KEY` is
+  shows `•••• (encrypted)`. Webhook tokens are the exception, stored in clear,
+  since the Instances screen shows each webhook address: once a copy of the
+  database or an unencrypted archive leaves your hands, rotate them there. A passphrase given as `ROUTARR_SECRET_KEY` is
   stretched with Argon2id and a salt the installation keeps in its database, so
   a copy of the database or of a backup costs an Argon2id computation per
   phrase guessed, and one phrase is another key on another installation.
@@ -313,19 +336,24 @@ Every decision about who may do what, and every change to a credential or a
 setting, leaves one line at the target `routarr::audit`: a sign-in made,
 refused or held back, a session ended, a key sent that opens nothing, an
 application key made, revoked, unknown or past its scopes, a write from
-another site, the API key replaced, the password changed, an archive
-downloaded or staged for a restore, a configuration imported, settings saved,
-the signing secret replaced. A line names the event, its outcome, who asked
-and the client's address, never a key, a token, a password or a code:
+another site, the API key replaced, the password changed, the account reset
+from the command line, an archive downloaded, deleted or staged for a
+restore, a configuration imported, settings saved, the signing secret
+replaced, an instance added, removed or given another address or key, a
+webhook token replaced, a webhook sent with a wrong one. A line names the
+event, its outcome, who asked and the client's address, never a key, a token,
+a password or a code:
 
 ```text
-2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused: wrong name or password. event="sign_in" outcome="refused" subject="-" client=203.0.113.9
+2026-10-06T23:04:23.117345918+02:00  WARN request{method=POST uri=/api/v1/auth/login id="5b0f6c1e-3a52-4f7e-9d2c-8e1a4b7c9d03"}: routarr::audit: A sign-in was refused: wrong name or password. event="sign_in" outcome="refused" subject="-" client=203.0.113.9
 ```
 
-A refused key, an unknown application key and a write from another site,
-which anyone can send as fast as they like, are written once a minute per
-address with how many came since (`repeated=`). Every refused sign-in is
-written, since Routarr slows them itself.
+A refused key, an unknown application key, a write from another site, a
+webhook with a wrong token and an OpenID Connect callback no sign-in of this
+browser started, which anyone can send as fast as they like, are written once
+a minute per address, an IPv6 one by its /64, with how many came since
+(`repeated=`). Every refused sign-in is written, since Routarr slows them
+itself.
 
 The same events are kept in the database for the **Security log** screen,
 which only the owner reads: no application key reaches it, whatever its
@@ -333,24 +361,40 @@ scopes. It filters by event, outcome, name or address, and exports what it
 shows as CSV. They are kept 365 days by default (`security_log_retention_days`
 in the settings, 0 keeps them all), and the log lines are not affected.
 
-To ban an address at the firewall, point fail2ban at the container's log. With
-Docker's default `json-file` driver and the text log format:
+To ban an address at the firewall, point fail2ban at Routarr's lines and no
+other container's, in the text log format. With Docker's `journald` log
+driver, whose block `docker-compose.yml` holds commented, the jail reads the
+journal entries of the container by its name:
 
 ```ini
 # /etc/fail2ban/filter.d/routarr.conf
 [Definition]
-failregex = routarr::audit: .* outcome="refused" .* client=<HOST>
+failregex = routarr::audit: .* outcome=\\?"refused\\?" .* client=<HOST>
 
 # /etc/fail2ban/jail.d/routarr.local
 [routarr]
-enabled  = true
-filter   = routarr
-logpath  = /var/lib/docker/containers/*/*-json.log
-maxretry = 10
-findtime = 10m
-bantime  = 1h
+enabled      = true
+filter       = routarr
+backend      = systemd
+journalmatch = CONTAINER_NAME=routarr
+maxretry     = 10
+findtime     = 10m
+bantime      = 1h
 # A port Docker publishes is filtered in the DOCKER-USER chain.
-action   = iptables-multiport[name=routarr, port="9876", protocol=tcp, chain=DOCKER-USER]
+action       = iptables-multiport[name=routarr, port="9876", protocol=tcp, chain=DOCKER-USER]
+```
+
+With Docker's default `json-file` driver, the jail reads the file of this one
+container instead, where every quote is written `\"`, which the filter reads
+too. A glob over every container's directory would let any other container
+that logs a stranger's text, a proxy or an Arr, ban an address of the
+stranger's choosing. The directory is named by the container's id, which
+`docker inspect --format '{{.Id}}' routarr` prints and which changes when the
+container is recreated, so the jail is set again after that:
+
+```ini
+# In the jail above, in place of backend and journalmatch:
+logpath = /var/lib/docker/containers/<id>/<id>-json.log
 ```
 
 Behind a reverse proxy, run the jail where the proxy runs, and list the proxy
@@ -382,8 +426,11 @@ Not vulnerabilities to report, but decisions, with reasons.
 - **Routarr trusts the Arrs it is pointed at.** It reads what they return and
   acts on it. Pointing it at a hostile server is pointing it at a hostile
   server.
-- **There is no user model.** One operator, and the application keys they
-  issue, each limited to its scopes. It is a self-hosted tool for a household,
+- **One operator, readers, and application keys.** There is one operator.
+  Through an OpenID Connect provider, the people `ROUTARR_OIDC_READ_SUBJECTS`
+  and `ROUTARR_OIDC_READ_GROUPS` name sign in to read what an application key's
+  read scope reaches, and are refused everything else. Each application key is
+  limited to its scopes. It is a self-hosted tool for a household,
   not a multi-tenant service. What a session mode adds is
   a *name*: the account or the provider's subject is stored beside every
   decision and every write it causes, so "who moved this" has an answer past

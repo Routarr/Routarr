@@ -202,8 +202,9 @@ A few things hold every language together:
 
 Not because they are bad ideas, but because they are outside what this is:
 
-- A permission model: no user roles beyond the owner and application keys
-  limited to their scopes.
+- A permission model beyond the three levels there are: the owner, people an
+  OpenID Connect provider signs in to read alone, and application keys limited
+  to their scopes. Roles per screen, per instance or per person are out.
 - Anything that phones home, including opt-in telemetry.
 - A second database engine.
 - Fetching anything from a third party at run time, fonts included.

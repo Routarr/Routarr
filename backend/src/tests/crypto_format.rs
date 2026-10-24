@@ -1,21 +1,11 @@
-//! The stored format, pinned against the library that produces it, and the
-//! master key a start opens it with.
-//!
-//! Sealed values live in the user's database and outlive any dependency
-//! upgrade. A round-trip test proves the current build agrees with itself,
-//! which an upgrade that silently changed the format would also satisfy. The
-//! values below therefore come from earlier builds and are checked rather than
-//! recomputed.
-//!
-//! They carry no secret: the key, the salt and the plaintext are all invented
-//! here.
+//! The stored format of sealed values, and the master key a start opens it with. The fixtures
+//! come from earlier builds and are checked, not recomputed: a round trip would pass an upgrade
+//! that changed the format. They carry no secret, the key, salt and plaintext invented here.
 
 use crate::crypto::SecretBox;
 
-/// Sealed by aes-gcm 0.10 with `rand` 0.8, older than the aes-gcm 0.11 and
-/// `getrandom` this build uses. Regenerating it defeats the purpose: if it
-/// stops opening, an upgrade broke every database in the field, and that is the
-/// finding.
+/// Sealed by aes-gcm 0.10 with `rand` 0.8, an older build than this one. If it stops opening,
+/// an upgrade broke every database in the field: never regenerate it.
 const SEALED_BY_AN_OLDER_BUILD: &str =
     "enc:v1:I+41qjR2qs5HaE4sSs5wIenO54BViu+hly5MWxF10qBY48O5ed3/22Whhw==";
 const ITS_KEY: &str = "routarr-format-fixture-key";
@@ -44,10 +34,8 @@ async fn a_value_sealed_by_an_older_build_still_opens() {
     assert_eq!(opened, ITS_PLAINTEXT, "the stretch of a passphrase moved under an upgrade");
 }
 
-/// A copy of the database lets anyone test passphrases offline, and the tag
-/// of any sealed value confirms a right guess. Stretched with Argon2id and the
-/// installation's own salt, one phrase is another key on another
-/// installation, and a guess costs what Argon2id costs.
+/// A copy of the database lets anyone test passphrases offline, the tag of a sealed value
+/// confirming a right guess.
 #[test]
 fn a_passphrase_is_stretched_with_the_installations_salt() {
     let here = salted(ITS_KEY, ITS_SALT);
@@ -58,8 +46,7 @@ fn a_passphrase_is_stretched_with_the_installations_salt() {
     assert!(secrets(ITS_KEY).open(&sealed).is_err(), "the salt changed nothing");
 }
 
-/// A value sealed under the passphrase as SHA-256 stretched it still opens
-/// once a salt is there, and is sealed again under Argon2id at the next start.
+/// The older stretch is SHA-256 of the passphrase.
 #[test]
 fn a_value_sealed_under_the_older_stretch_opens_and_is_sealed_again() {
     let salted = salted(ITS_KEY, ITS_SALT);
@@ -71,11 +58,8 @@ fn a_value_sealed_under_the_older_stretch_opens_and_is_sealed_again() {
     assert!(!salted.needs_reseal(&resealed));
 }
 
-/// A start with the database and without its master key: `routarr.db`
-/// copied alone to a new volume, the key file deleted, or emptied by a power
-/// cut. A new key opens none of what the database holds, so the start stops
-/// and names the file, leaving it as it found it, unless the operator says to
-/// make a new key.
+/// As when `routarr.db` is copied alone to a new volume, or the key file deleted or emptied by a
+/// power cut: a new key would open none of what the database holds.
 #[tokio::test]
 async fn a_database_with_sealed_values_refuses_a_fresh_master_key() {
     for emptied in [false, true] {
@@ -115,9 +99,50 @@ async fn a_database_with_sealed_values_refuses_a_fresh_master_key() {
     }
 }
 
-/// A key made at the first start, with nothing sealed yet, is a key nobody
-/// depends on: an empty file then is a power cut moments after it was
-/// written, and a new key is made in its place.
+/// A database beside a master key not its own, a first start's on an empty volume or a mistyped
+/// `ROUTARR_SECRET_KEY`, opens none of what it holds: the start stops and names the key, unless
+/// the operator says to start with it.
+#[tokio::test]
+async fn a_master_key_that_opens_nothing_of_the_database_refuses_to_start() {
+    let sealed_with = |label: &str| {
+        let dir = super::TempDir::new(label);
+        let mut config = crate::config::Config::for_tests();
+        config.set_db_path(dir.join("routarr.db"));
+        config.secret_key = None;
+        async move {
+            let (_, pool, secrets) = crate::open_storage(&config).await.unwrap();
+            sqlx::query(
+                "INSERT INTO instances (id, name, instance_type, base_url, api_key)
+                 VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', ?)",
+            )
+            .bind(secrets.seal("arr-key").unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+            pool.close().await;
+            (dir, config)
+        }
+    };
+    let (_dir, mut config) = sealed_with("foreign-master-key").await;
+    let (_other, elsewhere) = sealed_with("foreign-master-key-elsewhere").await;
+    std::fs::copy(elsewhere.secret_key_path(), config.secret_key_path()).unwrap();
+
+    let refused = crate::open_storage(&config).await.err().map(|e| e.to_string());
+    let refused = refused.expect("started with a key that opens nothing");
+    assert!(refused.contains("routarr.key"), "{refused}");
+    assert!(refused.contains("ROUTARR_ALLOW_NEW_MASTER_KEY"), "{refused}");
+    config.allow_new_master_key = true;
+    let (_, pool, _) = crate::open_storage(&config).await.unwrap();
+    pool.close().await;
+
+    let (_dir, mut config) = sealed_with("mistyped-master-key").await;
+    config.secret_key = Some("a passphrase this database was never sealed with".into());
+    let refused = crate::open_storage(&config).await.err().map(|e| e.to_string());
+    let refused = refused.expect("started with a mistyped ROUTARR_SECRET_KEY");
+    assert!(refused.contains("ROUTARR_SECRET_KEY"), "{refused}");
+}
+
+/// With nothing sealed yet, an empty key file is a power cut moments after the first start.
 #[tokio::test]
 async fn an_empty_key_file_with_nothing_sealed_is_made_again() {
     let dir = super::TempDir::new("empty-master-key");
@@ -131,8 +156,7 @@ async fn an_empty_key_file_with_nothing_sealed_is_made_again() {
     assert!(!std::fs::read_to_string(config.secret_key_path()).unwrap().trim().is_empty());
 }
 
-/// The key and the password a first start makes are in their files, and the
-/// log says where: a log shipper keeps every line it is sent.
+/// A log shipper keeps every line it is sent.
 #[tokio::test]
 async fn the_generated_key_and_password_stay_out_of_the_log() {
     use tracing::instrument::WithSubscriber;
@@ -161,9 +185,8 @@ async fn the_generated_key_and_password_stay_out_of_the_log() {
     assert!(!log.contains(password.trim()), "the password is in the log:\n{log}");
 }
 
-/// A key file that cannot be read as text, as `openssl rand 32 > routarr.key`
-/// writes it, is refused by name. Replaced by a new key, it would take every
-/// credential sealed under it, and the old key with them.
+/// As `openssl rand 32 > routarr.key` writes it. Replaced by a new key, it would take every
+/// credential sealed under it with the old key.
 #[test]
 fn a_master_key_file_that_cannot_be_read_is_refused_and_left_as_it_is() {
     let dir = super::TempDir::new("unreadable-master-key");
@@ -181,9 +204,8 @@ fn a_master_key_file_that_cannot_be_read_is_refused_and_left_as_it_is() {
     assert!(path.exists());
 }
 
-/// Every value a passphrase sealed is opened with the installation's salt.
-/// A database without it has been edited by hand, and a new salt would leave
-/// all of them unreadable: the start stops instead.
+/// A database without its salt was edited by hand, and a new salt would leave every value a
+/// passphrase sealed unreadable.
 #[tokio::test]
 async fn a_database_without_its_salt_refuses_to_start() {
     let dir = super::TempDir::new("no-salt");

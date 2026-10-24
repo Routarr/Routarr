@@ -36,6 +36,8 @@
     'settings',
     'signing_secret',
     'security_log',
+    'instance',
+    'webhook',
   ];
 
   /** `sign_in` reads `SecurityKindSignIn`. */

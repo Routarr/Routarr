@@ -1058,7 +1058,8 @@ mod tests {
     }
 
     /// What 0.2.0 wrote reads the same after the upgrade: its MyAnimeList answers under the
-    /// source they moved to, a move it left requested, its salt and its sessions.
+    /// source they moved to, a move it left requested and its salt. Its sessions end, since none
+    /// says which OIDC lists or which API key opened it, and everyone signs in again once.
     #[tokio::test]
     async fn a_database_0_2_0_left_upgrades_with_what_it_wrote() {
         let pool = crate::tests::database_of_0_2_0().await;
@@ -1093,7 +1094,9 @@ mod tests {
         );
         assert_eq!(read("SELECT status FROM decisions WHERE id = 'd-1'").await, "requested");
         assert_eq!(read("SELECT salt FROM secret_salt").await, salt);
-        assert_eq!(read("SELECT reach FROM sessions WHERE id = 's-1'").await, "full");
+        let sessions: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sessions").fetch_one(pool).await.unwrap();
+        assert_eq!(sessions, 0, "a session 0.2.0 opened outlived the upgrade");
     }
 
     #[tokio::test]

@@ -27,8 +27,7 @@ pub fn main() -> std::process::ExitCode {
         match run().await {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
-                // In one sentence, never Rust's dump of the error: through the log
-                // once it is set up, so a JSON log keeps the line, else on stderr.
+                // One sentence, in the log once set up so a JSON log keeps it, else on stderr.
                 if tracing::dispatcher::has_been_set() {
                     log_error!("{error}");
                 } else {
@@ -64,8 +63,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     match invocation {
         commands::Invocation::Healthcheck => return commands::healthcheck(&config).await,
-        commands::Invocation::ResetAccount { revoke_keys } => {
-            return commands::reset_account(&config, revoke_keys).await;
+        commands::Invocation::ResetAccount { revoke_keys, force } => {
+            return commands::reset_account(&config, revoke_keys, force).await;
         }
         commands::Invocation::Restore(archive) => return commands::restore(&config, archive).await,
         commands::Invocation::DecryptBackup(archive, out) => {
@@ -155,6 +154,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     state.jobs.close_when(fired(stopping.clone()));
 
     let bind_addr = state.config.bind_address();
+    let limits = listener::Limits::of(&state.config);
     // Kept past `build_router`, which consumes the state: the pool closes once the server and
     // the work in flight have stopped.
     let pool = state.pool.clone();
@@ -177,6 +177,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         fired(hurrying.clone()),
         listener::HEADER_READ_TIMEOUT,
         listener::DRAIN,
+        limits,
     )
     .await;
 
@@ -229,17 +230,15 @@ fn init_tracing(config: &Config) {
         });
 
     let registry = tracing_subscriber::registry().with(filter);
-    // The time of the place the operator set in `TZ`, as Radarr and Sonarr log
-    // it, its offset written so the line reads the same anywhere.
-    let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339();
 
     if config.log_format.eq_ignore_ascii_case("json") {
+        let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339();
         registry.with(tracing_subscriber::fmt::layer().json().with_timer(local)).init();
     } else {
         // Colours only on a terminal: in `docker logs` and in a file the
         // escape codes stand between a fail2ban filter and the address.
         let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
-        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours).with_timer(local)).init();
+        registry.with(crate::logging::text_layer(std::io::stdout, colours)).init();
     }
 }
 

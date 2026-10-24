@@ -218,6 +218,34 @@ async fn a_key_session_proves_itself_with_the_key_and_a_new_key_ends_the_others(
     assert_eq!(still(other).await, StatusCode::UNAUTHORIZED, "the old key's session lives on");
 }
 
+/// A pinned key is replaced by a new variable and a restart, a generated one by deleting its
+/// file or by `reset-account`: whichever way, the sessions the old key opened end with it.
+#[tokio::test]
+async fn a_key_session_ends_with_a_key_the_environment_replaced() {
+    let app = TestApp::with_api_key(KEY).await;
+    let opened = app
+        .send_raw(
+            Request::post("/api/v1/auth/key-session")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "key": KEY }).to_string()))
+                .unwrap(),
+        )
+        .await;
+    let cookie = handed(&opened);
+    let restarted_with = |key: &str| {
+        let mut config = (*app.state.config).clone();
+        config.api_key = Some(key.to_string());
+        TestApp::around(app.state.clone().with_config(config))
+    };
+
+    let same = restarted_with(KEY);
+    let (status, _) = with_session(&same, "GET", "/api/v1/status", &cookie, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "the control: a restart with the same key keeps it");
+    let replaced = restarted_with("another-api-key-of-this-installation-long");
+    let (status, _) = with_session(&replaced, "GET", "/api/v1/status", &cookie, json!(null)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "the old key's session outlived it");
+}
+
 #[tokio::test]
 async fn the_sessions_are_listed_ended_one_by_one_and_all_at_once() {
     let (app, _dir) = forms_app("sessions").await;

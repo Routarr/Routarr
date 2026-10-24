@@ -823,7 +823,9 @@ export type SecurityEventKind =
   | 'configuration'
   | 'settings'
   | 'signing_secret'
-  | 'security_log';
+  | 'security_log'
+  | 'instance'
+  | 'webhook';
 
 /** One event of the security log, which only the owner reads. */
 export interface SecurityEvent {

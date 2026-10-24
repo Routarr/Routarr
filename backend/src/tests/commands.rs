@@ -6,8 +6,7 @@ use super::{TempDir, TestApp, listen, serve_on};
 use crate::commands;
 use crate::config::Config;
 
-/// A configuration whose probe asks `address`, as the image's health check
-/// asks the server it runs beside.
+/// A configuration whose health probe asks `address`.
 fn probing(address: &str) -> Config {
     let url = reqwest::Url::parse(address).unwrap();
     let mut config = Config::for_tests();
@@ -16,10 +15,7 @@ fn probing(address: &str) -> Config {
     config
 }
 
-/// The image's HEALTHCHECK passes on the API's own ping alone: a page that
-/// answers 200 at its address, as the interface's page does under a mount
-/// point the probe got wrong, fails it, and so do an answer without the
-/// ping's status and an address nothing answers.
+/// Under a wrong mount point the interface's page still answers 200, so only the ping passes.
 #[tokio::test]
 async fn the_health_check_passes_on_the_api_and_nothing_else() {
     let app = TestApp::new().await;
@@ -42,24 +38,62 @@ async fn the_health_check_passes_on_the_api_and_nothing_else() {
     assert!(commands::healthcheck(&probing("http://127.0.0.1:1")).await.is_err());
 }
 
-/// With `--revoke-keys`, the reset writes a new API key beside the new
-/// password, for an operator who believes the keys leaked with it.
 #[tokio::test]
 async fn a_reset_that_revokes_the_keys_writes_a_new_api_key() {
     let dir = TempDir::new("reset-account");
     let mut config = Config::for_tests();
     config.set_db_path(dir.join("routarr.db"));
     config.api_key = None;
+    config.auth_mode = crate::config::AuthMode::Forms;
     std::fs::write(config.api_key_path(), "the-old-key").unwrap();
 
-    commands::reset_account(&config, true).await.unwrap();
+    commands::reset_account(&config, true, false).await.unwrap();
 
     let key = std::fs::read_to_string(config.api_key_path()).unwrap();
     assert!(!key.trim().is_empty() && key.trim() != "the-old-key", "the old key stayed");
     assert!(config.password_path().exists(), "no password was written");
+    // The security log says what the command did, as it says what Settings does.
+    let pool = crate::db::init_pool(&config).await.unwrap();
+    let said: Vec<String> = sqlx::query_scalar("SELECT message FROM security_events ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(said, ["AuditAccountReset", "AuditEveryKeyRevoked"]);
 }
 
-/// A subcommand called without what it works on says how to call it.
+/// An owner who withdrew the API key from Settings keeps it withdrawn: revoking every key
+/// replaces a key there is, and makes none where there was none.
+#[tokio::test]
+async fn a_reset_makes_no_api_key_where_there_was_none() {
+    let dir = TempDir::new("reset-account-no-key");
+    let mut config = Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    config.api_key = None;
+    config.auth_mode = crate::config::AuthMode::Forms;
+
+    commands::reset_account(&config, true, false).await.unwrap();
+
+    assert!(!config.api_key_path().exists(), "a key the owner withdrew is back");
+    assert!(config.password_path().exists(), "no password was written");
+}
+
+/// Outside `forms` no sign-in reads the account, and a password printed for a sign-in screen
+/// that does not exist would read as a way in.
+#[tokio::test]
+async fn a_reset_outside_forms_writes_no_account() {
+    let dir = TempDir::new("reset-account-apikey");
+    let mut config = Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    config.auth_mode = crate::config::AuthMode::ApiKey;
+
+    let refused = commands::reset_account(&config, false, false).await;
+
+    assert!(refused.is_err_and(|e| e.to_string().contains("--force")));
+    assert!(!config.password_path().exists(), "a password was written");
+    commands::reset_account(&config, false, true).await.unwrap();
+    assert!(config.password_path().exists(), "--force reset nothing");
+}
+
 #[tokio::test]
 async fn a_subcommand_without_its_arguments_says_how_to_call_it() {
     let config = Config::for_tests();

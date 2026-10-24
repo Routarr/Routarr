@@ -1,12 +1,9 @@
-//! The security log: every decision about who may do what, and every change
-//! to a credential or a setting, as one line each at target `routarr::audit`
-//! and one row of `security_events`, which the security log screen reads.
+//! The security log: every decision about who may do what, and every change to a credential
+//! or a setting, as a line at target `routarr::audit` and a row of `security_events`.
 //!
-//! A line names the event, its outcome, who asked and from which address,
-//! and never a credential: not a key, a token, a password or a code. A refusal
-//! is a warning, which a fail2ban filter reads (`SECURITY.md`). The refusals an
-//! anonymous caller can send as fast as it likes are written once a minute per
-//! address, with how many came since.
+//! A line never carries a credential. A refusal is a warning, which a fail2ban filter reads
+//! (`SECURITY.md`), and one an anonymous caller can repeat at will is written once a minute
+//! per address, an IPv6 one by its /64, with how many came since.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -51,6 +48,8 @@ pub enum Kind {
     Settings,
     SigningSecret,
     SecurityLog,
+    Instance,
+    Webhook,
 }
 
 impl Kind {
@@ -70,6 +69,8 @@ impl Kind {
             Kind::Settings => "settings",
             Kind::SigningSecret => "signing_secret",
             Kind::SecurityLog => "security_log",
+            Kind::Instance => "instance",
+            Kind::Webhook => "webhook",
         }
     }
 }
@@ -137,7 +138,7 @@ impl<'a> Event<'a> {
     }
 }
 
-/// One refusal from one address: since when it is summed, and how many.
+/// One refusal from one client, an IPv6 one by its /64: since when it is summed, and how many.
 type Sums = HashMap<(Kind, IpAddr), (Instant, u64)>;
 
 /// A row on its way to `security_events`.
@@ -252,8 +253,10 @@ impl Log {
     }
 
     /// `None` while the same refusal from `client` is being summed, else how
-    /// many were summed since the last line.
+    /// many were summed since the last line. Keyed by the full IPv6 address, one
+    /// subscriber's block would be as many first sightings as it has addresses.
     fn held_back(&self, kind: Kind, client: IpAddr) -> Option<u64> {
+        let client = crate::services::accounts::bucket(client);
         let now = Instant::now();
         let mut sums = self.sums.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((since, count)) = sums.get_mut(&(kind, client)) {
@@ -341,9 +344,6 @@ async fn insert(pool: &SqlitePool, rows: &[Row]) -> sqlx::Result<()> {
 mod tests {
     use super::*;
 
-    /// The first refusal from an address is written, the ones within the
-    /// minute after it are summed, and the first after the minute carries
-    /// the sum. Another address is written at once.
     #[tokio::test(start_paused = true)]
     async fn refusals_from_one_address_are_summed_once_a_minute() {
         let log = Log::default();
@@ -360,6 +360,12 @@ mod tests {
         tokio::time::advance(QUIET).await;
         assert_eq!(log.held_back(Kind::ApiKey, client), Some(41));
         assert_eq!(log.held_back(Kind::ApiKey, client), None);
+
+        // One subscriber holds a whole IPv6 /64, and a new address of it is the same client.
+        let (first, second): (IpAddr, IpAddr) =
+            ("2001:db8::1".parse().unwrap(), "2001:db8::2".parse().unwrap());
+        assert_eq!(log.held_back(Kind::ApiKey, first), Some(0));
+        assert_eq!(log.held_back(Kind::ApiKey, second), None, "a new address of the block");
     }
 
     /// A full queue never holds the request that records: what does not fit
