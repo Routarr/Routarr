@@ -184,7 +184,7 @@ function table(node, base) {
 }
 
 /** A page's `<main>` as Markdown, its links absolute against `address`. */
-export function toMarkdown(html, address) {
+function toMarkdown(html, address) {
   const main = html.match(/<main\b[^>]*>([\s\S]*)<\/main>/)?.[1] ?? '';
   return `${blocks(parse(main).children, address).join('\n\n').replace(/\n +\n/g, '\n\n')}\n`;
 }

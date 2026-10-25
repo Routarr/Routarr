@@ -138,10 +138,6 @@ describe('GettingStarted', () => {
     await waitFor(() => expect(outcome.error).toBe('The settings could not be written'));
   });
 
-  /**
-   * Skipping removes the block that held the pressed button, so the focus goes to Resume,
-   * which carries the sentence it answers.
-   */
   it('puts the focus on Resume once the guide is skipped', async () => {
     vi.spyOn(api, 'setOnboarding').mockResolvedValue(
       onboardingStatus(['instance'], { state: 'dismissed' }),

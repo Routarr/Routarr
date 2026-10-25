@@ -6,6 +6,7 @@ import { renderWithI18n } from '../test/render';
 import type { ConditionSpec } from '../api/types';
 import ConditionValue from './ConditionValue.svelte';
 import ConditionValueHarness from '../test/ConditionValueHarness.svelte';
+import { backendConstant } from '../test/backend';
 
 const spec = (over: Partial<ConditionSpec> = {}): ConditionSpec => ({
   type: 'genre_contains',
@@ -25,6 +26,10 @@ const spec = (over: Partial<ConditionSpec> = {}): ConditionSpec => ({
 });
 
 const show = (props: Record<string, unknown>) => renderWithI18n(ConditionValue, { props });
+
+/** The rule engine's bounds, which the fields repeat so the browser offers nothing it refuses. */
+const VALIDATION = 'backend/src/services/rule_engine/validation.rs';
+const bound = (name: string) => String(backendConstant(VALIDATION, name));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -70,10 +75,6 @@ describe('ConditionValue', () => {
     expect(onChange).toHaveBeenCalledWith(['Animation', 'Drama'], false);
   });
 
-  /**
-   * The field holds what is typed. Rewritten from the parsed list, a list typed without spaces
-   * would come back spaced under the cursor, which would jump to the end.
-   */
   it.each([
     ['number_list', 'Years', '2019,2020', '[2019,2020]'],
     ['string_list', 'Genre contains', 'anime,kids', '["anime","kids"]'],
@@ -92,10 +93,6 @@ describe('ConditionValue', () => {
     },
   );
 
-  /**
-   * An id added mid-list stays where it is typed. With the cursor sent to the
-   * end at each rewrite, its digits would run into the last id of the list.
-   */
   it('a corrected id list keeps its separator', async () => {
     renderWithI18n(ConditionValueHarness, {
       props: { spec: spec({ value_type: 'number_list', label: 'Years' }), initial: [2019, 2020] },
@@ -117,10 +114,6 @@ describe('ConditionValue', () => {
     expect(onChange).toHaveBeenCalledWith('/anime', false);
   });
 
-  /**
-   * Named by the caption alone, a screen reader would offer two spin buttons called
-   * "Year between" with no way to tell which end is which.
-   */
   it('tells the two ends of a year range apart', async () => {
     const onChange = vi.fn();
     show({
@@ -195,6 +188,50 @@ describe('ConditionValue', () => {
     expect(from).toHaveAccessibleDescription('Enter a number.');
   });
 
+  /** The editor holds Save exactly while a field on screen holds text it could not read. */
+  describe('a scale changed under a bound it could not read', () => {
+    const scales = [
+      { id: 'imdb', name: 'IMDb', max: 10, votes: true },
+      { id: 'metacritic', name: 'Metacritic', max: 100, votes: false },
+    ];
+    const mount = () =>
+      renderWithI18n(ConditionValueHarness, {
+        props: {
+          spec: spec({ value_type: 'score_range', label: 'Score between' }),
+          initial: { scale: 'imdb', min: null, max: null, min_votes: null },
+          scales,
+        },
+      });
+    const held = () => screen.getByTestId('unreadable').textContent;
+
+    it('forgets a vote count the new scale takes away', async () => {
+      mount();
+      await fireEvent.input(screen.getByLabelText('Score between – Minimum votes'), {
+        target: { value: '1.5' },
+      });
+      expect(held()).toBe('true');
+
+      await userEvent.selectOptions(screen.getByLabelText('Score between – Scale'), 'metacritic');
+      expect(screen.queryByLabelText('Score between – Minimum votes')).toBeNull();
+      await fireEvent.input(screen.getByLabelText('Score between – from'), {
+        target: { value: '60' },
+      });
+
+      expect(held()).toBe('false');
+    });
+
+    it('still holds a bound left on screen', async () => {
+      mount();
+      await fireEvent.input(screen.getByLabelText('Score between – from'), {
+        target: { value: '1e2' },
+      });
+
+      await userEvent.selectOptions(screen.getByLabelText('Score between – Scale'), 'metacritic');
+
+      expect(held()).toBe('true');
+    });
+  });
+
   it('draws a score range with no value before the catalogue lists its scales', () => {
     show({
       spec: spec({ value_type: 'score_range', label: 'Score between' }),
@@ -264,12 +301,11 @@ describe('ConditionValue', () => {
 
     const from = screen.getByLabelText('Runtime in minutes between – from');
     expect(from).toHaveAttribute('min', '0');
-    expect(from).toHaveAttribute('max', '1440');
+    expect(from).toHaveAttribute('max', bound('MAX_RUNTIME'));
     await fireEvent.input(from, { target: { value: '40' } });
     expect(onChange).toHaveBeenLastCalledWith({ min: 40, max: null }, false);
   });
 
-  /** Dropped without a word, `603, 6O4` saves one id and the second title is never routed. */
   it('names an entry it cannot read as an id, and marks the field', async () => {
     const onChange = vi.fn();
     show({ spec: spec({ value_type: 'number_list', label: 'TMDB id' }), value: [], onChange });
@@ -300,17 +336,15 @@ describe('ConditionValue', () => {
     expect(onChange).toHaveBeenLastCalledWith({ min: null, max: null }, false);
   });
 
-  /**
-   * The engine refuses anything outside these. The field says so before the
-   * server has to, and the browser's own stepper stops at them.
-   */
   it('bounds both year fields to what the engine accepts', () => {
     show({ spec: spec({ value_type: 'year_range', label: 'Year between' }), value: {} });
 
-    const ceiling = String(new Date().getFullYear() + 5);
-    for (const bound of ['from', 'to']) {
-      const field = screen.getByLabelText(`Year between – ${bound}`);
-      expect(field).toHaveAttribute('min', '1888');
+    const ceiling = String(
+      new Date().getFullYear() + backendConstant(VALIDATION, 'MAX_YEARS_AHEAD'),
+    );
+    for (const end of ['from', 'to']) {
+      const field = screen.getByLabelText(`Year between – ${end}`);
+      expect(field).toHaveAttribute('min', bound('MIN_YEAR'));
       expect(field).toHaveAttribute('max', ceiling);
     }
   });

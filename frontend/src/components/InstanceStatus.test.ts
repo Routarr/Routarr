@@ -8,7 +8,6 @@ const badge = (status: string, detail: string | null = null) =>
     props: { status, detail },
   }).container.querySelector('.badge');
 
-/** One badge for one question, on every screen that lists instances. */
 describe('InstanceStatus', () => {
   /**
    * What it ran into is written out: a title shows to a mouse alone, and a
@@ -22,7 +21,6 @@ describe('InstanceStatus', () => {
     expect(failed?.parentElement?.textContent).toContain('Nothing answers at the address');
   });
 
-  /** Neither a probe still running nor a disabled instance is a failure. */
   it('draws a state that is not a verdict without an alarm colour', () => {
     for (const [status, text] of [
       ['unchecked', 'Checking…'],

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { nthCall } from '../test/spy';
 import { captureDownloads } from '../test/downloads';
 import { answerConfirmation } from '../test/confirm';
 import { answerProof } from '../test/proof';
@@ -310,6 +311,17 @@ describe('taking a backup', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Back up now' }));
 
     await waitFor(() => expect(outcome.error).toBeNull());
+  });
+
+  /** A backup of a large library runs long, and the card gone has nobody to tell. */
+  it('stops following the backup once the card is gone', async () => {
+    const taken = vi.spyOn(api, 'createBackup').mockReturnValue(new Promise(() => {}));
+    mount();
+    await userEvent.click(await screen.findByRole('button', { name: 'Back up now' }));
+
+    cleanup();
+
+    expect(nthCall(taken)[0]?.signal?.aborted).toBe(true);
   });
 
   it('reports a backup that failed', async () => {

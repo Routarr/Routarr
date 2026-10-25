@@ -6,39 +6,22 @@
   import HelpToggle from './HelpToggle.svelte';
 
   /**
-   * What the library actually holds, beside the rules that read it.
-   *
-   * Without it, writing a rule means guessing which genres and languages the
-   * library holds, and a rule written against a value it does not carry matches
-   * nothing, which reads on screen exactly like a rule that correctly matches
-   * nothing.
-   *
-   * Small multiples, one card per axis: the bar carries the proportion, the
-   * figure carries the value. Rows of identical pills would give a value seen 27
-   * times and one seen once the same weight, and put the only number that
-   * matters in the smallest element on screen.
+   * What the library holds, beside the rules that read it, one card per axis: a rule written
+   * against a value the library lacks matches nothing, which looks like a rule rightly matching
+   * nothing. The bar carries the proportion, the figure the value.
    */
   let {
     facets,
     captionOf = () => undefined,
   }: {
     facets: LibraryFacets;
-    /**
-     * The caption of a condition, from the catalogue the rule editor reads:
-     * a card names the condition that reads its axis in the reader's words,
-     * never by the engine's identifier.
-     */
+    /** A condition's caption from the catalogue, so a card names it in the reader's words. */
     captionOf?: (type: string) => string | undefined;
   } = $props();
 
   /**
-   * Folded by default, and it remembers.
-   *
-   * This is reference data consulted *while* writing a rule. Open above the
-   * rule table, it takes most of a laptop screen and more than a phone's, so
-   * the screen whose subject is the rule list would open on something else.
-   * Folded it is one click away, and the summary still says how much library it
-   * is counting.
+   * Folded by default, and remembered per viewer: open above the rule table, it takes most of a
+   * laptop screen. The folded summary still says how much it counts.
    */
   const STORE = 'routarr.facetsOpen';
   let open = $state(read());
@@ -47,8 +30,7 @@
     try {
       return localStorage.getItem(STORE) === '1';
     } catch {
-      // A private window, or a browser told to block site data: the panel is
-      // simply folded, which is the default anyway.
+      // Storage refused, as in a private window: folded, the default.
       return false;
     }
   }
@@ -80,20 +62,15 @@
   const named = $derived(localFacets(facets, i18n.language));
   const cards = $derived(
     AXES.map((axis) => {
-      // Named from the closed vocabulary where there is one: the counts say
-      // `ja`, and only the vocabulary knows that is Japanese.
-      // Only two axes have a closed vocabulary, so the index is partial by
-      // design. `facets[axis.key]` needs no assertion, since `AXES` is typed by
-      // the payload.
+      // Named from the closed vocabulary of the two axes that have one: the counts say `ja`,
+      // and only the vocabulary knows that is Japanese.
       const vocabulary = named.vocabularies[axis.key as keyof Vocabularies];
       const values = nameFacets(named[axis.key], vocabulary ?? []);
       return {
         ...axis,
         values: values.slice(0, SHOWN),
         hidden: Math.max(0, values.length - SHOWN),
-        // Relative to the commonest value in *this* axis, not to the library:
-        // a language seen 30 times and a certification seen 20 are each the top
-        // of their own question, and scaling them together would flatten both.
+        // Relative to the commonest value of this axis: each axis answers its own question.
         max: values[0]?.count ?? 1,
       };
     }).filter((axis) => axis.values.length > 0),
@@ -105,14 +82,8 @@
      reach on its own. -->
 <div class="facet-wrap">
   <details class="card facet-panel" bind:open>
-    <!-- A native disclosure: the keyboard handling, the toggle semantics and the
-       announced state come from the browser rather than from three hand-written
-       approximations. -->
     <summary class="card-header">
-      <!-- The count belongs to the heading, not beside it: two elements for one
-         phrase leave a bureaucratic caption floating next to a title. A bare
-         figure in parentheses because the number would otherwise have to agree
-         with a noun, which is wrong at one in every language that inflects. -->
+      <!-- A bare figure in parentheses, which agrees with no noun in any language. -->
       <h2 class="card-title" id="facets-title">
         {t('InYourLibrary', { count: facets.total_media })}
       </h2>

@@ -7,6 +7,7 @@ import type {
   Facet,
   FacetAxis,
   LibraryFacets,
+  ValidationIssue,
   Vocabularies,
 } from './types';
 import { localName } from './format';
@@ -77,24 +78,26 @@ export function canonicalKey(value: string): string {
 /**
  * The form two spellings of one rating code share: `certification_key` in the
  * rule engine. Case and the separator aside, every character counts, so `R+`
- * stays apart from `R`.
+ * stays apart from `R`. Exported for the tests, which hold it to the engine's cases.
  */
-export function certificationKey(value: string): string {
+export function foldCertification(value: string): string {
   return value
     .trim()
     .replace(/[-_]/g, ' ')
     .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
-/** An Arr's status as one word, folded: `status_key` in the rule engine. */
-export function statusKey(value: string): string {
+/**
+ * An Arr's status as one word, folded: `status_key` in the rule engine. Exported for the tests.
+ */
+export function foldStatus(value: string): string {
   return canonicalKey(value).replaceAll(' ', '');
 }
 
 /** How the values of a condition of this kind are told apart. */
 export function keyOfKind(kind: string): (value: string) => string {
-  if (kind === 'certification_in') return certificationKey;
-  if (kind === 'status_is') return statusKey;
+  if (kind === 'certification_in') return foldCertification;
+  if (kind === 'status_is') return foldStatus;
   return canonicalKey;
 }
 
@@ -270,4 +273,27 @@ export function localFacets(facets: LibraryFacets, language: string): LibraryFac
       origin_countries: rename('region', facets.vocabularies.origin_countries),
     },
   };
+}
+
+const ISSUE_FIELDS: Record<string, string> = {
+  name: 'rules-rule-name',
+  description: 'rules-description',
+  target_category: 'rules-target-category',
+  media_type: 'rules-applies-to',
+  priority: 'rules-priority',
+};
+
+/**
+ * The id of the rule editor's control `issue` is about: a condition's row when it names the
+ * condition's place, from 1, the list's add picker when it names the list alone. Null for a field
+ * the editor does not draw.
+ */
+export function issueField(issue: Pick<ValidationIssue, 'field' | 'params'>): string | null {
+  if (issue.field === 'conditions' || issue.field === 'exclusions') {
+    const place = Number(issue.params.index);
+    return Number.isInteger(place) && place > 0
+      ? `rules-${issue.field}-${place - 1}`
+      : `rules-${issue.field}-add`;
+  }
+  return ISSUE_FIELDS[issue.field] ?? null;
 }

@@ -96,15 +96,11 @@
                    the link, and the title shows it to a pointer. -->
               <item.icon size={18} />
               <span class="nav-label">{t(item.key)}</span>
-              <!-- The count of what waits behind this entry. In the rail,
-                   where the label is hidden, the badge is the only thing that
-                   says something is waiting, so it carries the sentence as its
-                   accessible name. -->
+              <!-- In the rail the badge alone says something waits here: the figure is for the
+                   eye and the sentence for the reader, since ARIA refuses `aria-label` on a
+                   `<span>`. -->
               {#if item.badge && counts[item.badge] > 0}
                 {@const count = counts[item.badge]}
-                <!-- The figure for the eye, the sentence for the reader. An
-                     `aria-label` on a `<span>` names a generic element, which
-                     ARIA prohibits and readers honour unevenly. -->
                 <span class="nav-badge {TONE[item.badge]}" aria-hidden="true"
                   >{formatCount(count, i18n.language)}</span
                 >
@@ -117,10 +113,7 @@
     {/each}
   </nav>
 
-  <!-- The foot of the navigation, which is where an operations tool puts its
-       version. It answers no question anyone asks while working, so it stays
-       out of the bar, where the two things that say what a click will do
-       sit. -->
+  <!-- The version at the foot, out of the bar, which says what a click will do. -->
   {#if version}
     <button type="button" class="sidebar-foot" title={t('AboutRoutarr')} onclick={onAbout}>
       <!-- The name goes where the labels go: 68px of rail fits the number and

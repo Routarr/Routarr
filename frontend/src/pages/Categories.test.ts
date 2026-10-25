@@ -64,7 +64,7 @@ describe('Categories', () => {
     );
 
     await screen.findByText('standard');
-    expect(screen.getByText('default')).toBeTruthy();
+    expect(screen.getByText('Default')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Delete – standard' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });
@@ -181,7 +181,9 @@ describe('Categories', () => {
       .mockResolvedValue({ id: 'rf-x', path: '/media/movies/anime', verified: true });
     show([folder()], []);
 
-    await userEvent.type(await screen.findByLabelText('Destination folder'), '/media/movies/anime');
+    const path = await screen.findByLabelText('Destination folder');
+    expect(path).toHaveAccessibleDescription(/checked against that instance/);
+    await userEvent.type(path, '/media/movies/anime');
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i1', '/media/movies/anime'));
@@ -302,6 +304,8 @@ describe('Categories', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New category' }));
     const dialog = await screen.findByRole('dialog');
+    // What the field accepts is said to whoever types in it, not only to an eye on the line below.
+    expect(within(dialog).getByLabelText('Name')).toHaveAccessibleDescription(/Letters, digits/);
     await userEvent.type(within(dialog).getByLabelText('Name'), 'anime');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
 
@@ -318,6 +322,7 @@ describe('Categories', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /Rename category – anime/ }));
     const dialog = await screen.findByRole('dialog');
     const field = within(dialog).getByLabelText('Name') as HTMLInputElement;
+    expect(field).toHaveAccessibleDescription(/all follow the new name/);
     await userEvent.clear(field);
     await userEvent.type(field, 'kids');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
@@ -583,6 +588,37 @@ describe('folder suggestions', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('c-anime'));
   });
 
+  /** One new category for two folders: whichever row is undone first leaves it to the other. */
+  it('keeps a category another mapped folder still uses, and removes it with the last undo', async () => {
+    vi.spyOn(api, 'createCategory')
+      .mockResolvedValueOnce(category({ id: 'c-anime', name: 'anime' }))
+      .mockRejectedValueOnce(new ApiError('Taken.', 409, 'conflict', null, null, [], 'name_taken'));
+    vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
+    const inUse = new ApiError('In use.', 409, 'conflict', null, null, [], 'in_use');
+    const remove = vi
+      .spyOn(api, 'deleteCategory')
+      .mockRejectedValueOnce(inUse)
+      .mockResolvedValue({});
+    const series = suggestion({
+      root_folder_id: 'rf-tv-anime',
+      instance_id: 'i2',
+      instance_name: 'Sonarr',
+      path: '/tv/anime',
+    });
+    show([], [category({ name: 'standard' })], [], undefined, [suggestion(), series]);
+    const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+    await fireEvent.click(within(card).getByRole('button', { name: 'Map all' }));
+    await screen.findByText('Folders mapped: 2.');
+
+    await fireEvent.click(within(card).getByRole('button', { name: 'Undo – /movies/anime' }));
+
+    expect(await screen.findByText('/movies/anime leads to no category again.')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: 'Undo – /movies/anime' })).toBeNull();
+    await fireEvent.click(within(card).getByRole('button', { name: 'Undo – /tv/anime' }));
+    await screen.findByText('/tv/anime leads to no category again.');
+    expect(remove.mock.calls).toEqual([['c-anime'], ['c-anime']]);
+  });
+
   it('maps every row that names one category, and leaves a choice to the person', async () => {
     vi.spyOn(api, 'createCategory').mockResolvedValue(category({ name: 'x' }));
     const map = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
@@ -632,6 +668,80 @@ describe('folder suggestions', () => {
 
     await screen.findByText('Folders mapped: 1. These could not be:');
     expect(screen.getByText('/movies/docs: Taken meanwhile.')).toBeTruthy();
+  });
+
+  /** A pressed button that turns disabled, then goes with its row, leaves the focus on the page. */
+  describe('hands the focus on', () => {
+    const docs = suggestion({
+      root_folder_id: 'rf-docs',
+      path: '/movies/docs',
+      category: 'documentaries',
+      choices: ['documentaries'],
+    });
+
+    async function press(name: string) {
+      const card = await screen.findByRole('region', { name: 'Suggested from folder names' });
+      const button = within(card).getByRole('button', { name });
+      button.focus();
+      await fireEvent.click(button);
+      return card;
+    }
+
+    it.each([
+      ['Map', 'Map – /movies/docs'],
+      ['Dismiss', 'Dismiss – /movies/docs'],
+    ])('to the row in its place once %s took the row away', async (action, next) => {
+      vi.spyOn(api, 'createCategory').mockResolvedValue(category({ name: 'anime' }));
+      vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
+      vi.spyOn(api, 'dismissFolderSuggestion').mockResolvedValue({ dismissed: true });
+      show([], [category({ name: 'standard' })], [], undefined, [suggestion(), docs]);
+      await screen.findByRole('region', { name: 'Suggested from folder names' });
+      // A mapped folder suggests nothing, a dismissed one is listed apart.
+      const after = action === 'Map' ? [docs] : [suggestion({ dismissed: true }), docs];
+      vi.mocked(api.getFolderSuggestions).mockResolvedValue(after);
+
+      await press(`${action} – /movies/anime`);
+
+      await waitFor(() => expect(document.activeElement).toHaveAccessibleName(next));
+    });
+
+    it('to the same row once it is suggested again', async () => {
+      vi.spyOn(api, 'restoreFolderSuggestion').mockResolvedValue({ deleted: true });
+      show([], [category({ name: 'standard' })], [], undefined, [suggestion({ dismissed: true })]);
+      await fireEvent.click(
+        await screen.findByRole('button', { name: 'Show the dismissed suggestions (1)' }),
+      );
+      vi.mocked(api.getFolderSuggestions).mockResolvedValue([suggestion()]);
+
+      await press('Suggest again – /movies/anime');
+
+      await waitFor(() =>
+        expect(document.activeElement).toHaveAccessibleName('Dismiss – /movies/anime'),
+      );
+    });
+
+    it.each(['Map all', 'Undo – /movies/anime'])(
+      'to the card title once %s leaves nothing in its place',
+      async (name) => {
+        vi.spyOn(api, 'createCategory').mockResolvedValue(
+          category({ id: 'c-anime', name: 'anime' }),
+        );
+        vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue({});
+        vi.spyOn(api, 'deleteCategory').mockResolvedValue({});
+        show([], [category({ name: 'standard' })], [], undefined, [suggestion(), docs]);
+        if (name.startsWith('Undo')) await press('Map – /movies/anime');
+        await screen.findByRole('button', { name: /^Map all|^Undo/ });
+        vi.mocked(api.getFolderSuggestions).mockResolvedValue([]);
+
+        await press(name);
+
+        await waitFor(() =>
+          expect(document.activeElement).toBe(
+            screen.getByRole('heading', { name: 'Suggested from folder names' }),
+          ),
+        );
+      },
+    );
   });
 
   it('hides a dismissed suggestion and shows it again on demand', async () => {

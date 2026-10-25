@@ -71,7 +71,7 @@ interface Group {
 }
 
 /** A named type, in the one shape its schema has. */
-export type Type =
+type Type =
   | { name: string; kind: 'fields'; fields: Field[] }
   | { name: string; kind: 'values'; values: string[] }
   | { name: string; kind: 'variants'; by: string; variants: { tag: string; fields: Field[] }[] }

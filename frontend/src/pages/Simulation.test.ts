@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { nthCall } from '../test/spy';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { category, decision, job, paginated, rule } from '../test/fixtures';
@@ -171,6 +171,31 @@ describe('what the screen shows', () => {
 
     await waitFor(() => expect(screen.getByText('Totoro')).toBeTruthy());
     expect(screen.queryByText('Akira')).toBeNull();
+  });
+
+  /** A count is grouped as the language groups digits, as the figures above the table are. */
+  it('groups the count of titles bound for each folder', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue({
+      ...simulation([decision()]),
+      capacity: [
+        {
+          instance_id: 'i1',
+          instance_name: 'Radarr',
+          path: '/anime',
+          incoming_bytes: 0,
+          same_filesystem_bytes: 0,
+          free_bytes: 1_000_000,
+          items: 12345,
+          fits: true,
+        },
+      ],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    const table = await screen.findByRole('table', { name: 'Destination capacity' });
+    expect(within(table).getByText('12,345')).toBeTruthy();
   });
 
   it('tells the shell a simulation ran', async () => {
@@ -529,10 +554,6 @@ describe('what the screen says after applying', () => {
     expect(statusRevision()).toBeGreaterThan(before);
   });
 
-  /**
-   * Part done and part failed is neither a success nor a failure: red over 49 moves made says
-   * nothing was done, green hides the one that was not.
-   */
   it('reports an Apply all stopped after some moves as a partial result', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(

@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/**
- * WCAG 2.1 AA contrast for the two palettes, measured rather than eyeballed.
- *
- * An accent just under 4.5:1 looks perfectly fine in a screenshot, and the
- * light theme is where that margin is thinnest. Colours are chosen by a
- * person, and whether they can be read is arithmetic.
- */
+/** WCAG AA contrast for the two palettes, measured from the stylesheet's own tokens. */
 // Resolved from the project root rather than from `import.meta.url`: the test
 // environment does not serve this file over a `file:` URL.
 const CSS = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8');
@@ -76,13 +70,8 @@ const dark = tokensOf(/^:root\s*\{([\s\S]*?)\n\}/m);
 const light = { ...dark, ...tokensOf(/^:root\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/m) };
 
 /**
- * The same palette a second time, for the setting that stamps no attribute.
- *
- * `auto` is a mode, not an absence: it resolves through
- * `prefers-color-scheme`, so the light values have to be written again under a
- * selector no `[data-theme]` block can share. Nothing but this makes the two
- * agree, and a token declared in one and forgotten in the other renders its
- * dark value on a white ground for every reader who never opened the setting.
+ * The light palette again, for `auto`, which resolves through `prefers-color-scheme` under a
+ * selector no `[data-theme]` block shares.
  */
 const AUTO = /:root:not\(\[data-theme='dark'\]\)\s*\{([\s\S]*?)\n\s{2}\}/m;
 const auto = { ...dark, ...tokensOf(AUTO) };
@@ -102,10 +91,7 @@ const PAIRS: [string, string][] = [
   // the details of the palette's current row on the same ground.
   ['--accent-strong', '--bg-card-hover'],
   ['--text-secondary', '--bg-card-hover'],
-  // A navigation entry at rest, on the sidebar's own surface. Brighter than
-  // `--text-secondary` so the group heading beside it reads as a heading and
-  // not as an entry that lost its icon, a distinction that is only worth
-  // making if both ends of it stay legible.
+  // A navigation entry at rest, on the sidebar's surface, a step above its group heading.
   ['--text-nav', '--bg-surface'],
   ['--text-muted', '--bg-surface'],
   // Success as a line of text: the guide's finish on a card, and a connection
@@ -123,16 +109,19 @@ const PAIRS: [string, string][] = [
 ];
 
 /**
- * The custom property a rule of the stylesheet sets `property` to.
- *
- * Read off the rule rather than written here: a pair named by hand goes on
- * measuring the colours the button used to wear after the rule moves to others.
+ * The custom property a rule of the stylesheet sets `property` to, read off the rule so a pair
+ * follows the rule when it changes tokens.
  */
-function declared(selector: string, property: string): string {
+function declares(selector: string, property: string): string | undefined {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const body = CSS.match(new RegExp(`^${escaped}\\s*\\{([^}]*)\\}`, 'm'))?.[1] ?? '';
-  // Anchored so `color` is not read out of `background-color` or `border-color`.
-  const name = body.match(new RegExp(`(?:^|[\\s;])${property}\\s*:\\s*var\\((--[\\w-]+)\\)`))?.[1];
+  // Anchored so `color` is not read out of `border-color`, and the token may follow a width.
+  return body.match(new RegExp(`(?:^|[\\s;])${property}\\s*:[^;]*?var\\((--[\\w-]+)\\)`))?.[1];
+}
+
+/** As `declares`, for a property the rule must set. */
+function declared(selector: string, property: string): string {
+  const name = declares(selector, property);
   if (name === undefined) throw new Error(`${selector} sets no ${property} from a token`);
   return name;
 }
@@ -148,17 +137,22 @@ const FILLED: [string, string, string][] = [
   ['dialog danger', '.modal-content .btn-danger', '.modal-content .btn-danger'],
 ];
 
+/**
+ * The grounds muted text falls under AA on, each lifting `--text-muted` in the rule that paints
+ * it: `[rule, the ground under its fill]`.
+ */
+const HIGHLIGHTED: [string, string][] = [
+  ['.picker-option:hover', '--bg-card'],
+  [".picker-option[aria-selected='true']", '--bg-card'],
+  ['.row-selected', '--bg-surface'],
+  ['tr:hover td', '--bg-card'],
+  ['tr:hover td', '--bg-surface'],
+];
+
 /** Badge text on its own translucent background, itself over a card. */
 const BADGES = ['success', 'warning', 'danger', 'info'];
 
-/**
- * A token the palette must declare.
- *
- * The lookup can miss (a renamed custom property, a block this file's regex
- * stops matching), and the useful failure names the token. Left to flow through
- * as `undefined`, it would surface as `unsupported colour: undefined` several
- * calls away, which says nothing about which one went missing.
- */
+/** A token the palette must declare, so a renamed one fails under its own name. */
 function token(palette: Record<string, string>, name: string): string {
   const value = palette[name];
   if (value === undefined) throw new Error(`the palette declares no ${name}`);
@@ -176,6 +170,11 @@ it('states the light palette identically for the explicit theme and for auto', (
   // Names and values: a token restated with another value draws `auto` in a
   // colour the explicit theme never shows, and no pair below reads both.
   expect(tokensOf(AUTO)).toEqual(explicit);
+});
+
+/** An opacity fades a dismissed suggestion's muted lines under AA on every palette. */
+it('fades no dismissed folder suggestion', () => {
+  expect(CSS).not.toMatch(/\.is-dismissed[^{}]*\{[^}]*\bopacity\s*:/);
 });
 
 describe.each([
@@ -200,6 +199,16 @@ describe.each([
     expect(ratio, `${name}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each(HIGHLIGHTED)('reads muted text at AA on %s over %s', (rule, under) => {
+    const muted = declares(rule, '--text-muted') ?? '--text-muted';
+    const fill = declared(rule, 'background-color');
+    const ground = over(token(palette, fill), token(palette, under));
+    const ratio = contrast(token(palette, muted), ground);
+    expect(ratio, `${name}: ${muted} on ${rule} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
+      4.5,
+    );
+  });
+
   it.each(BADGES)('reads %s badge text at AA', (status) => {
     const background = over(token(palette, `--status-${status}-bg`), token(palette, '--bg-card'));
     const ratio = contrast(token(palette, `--status-${status}`), background);
@@ -209,17 +218,18 @@ describe.each([
     ).toBeGreaterThanOrEqual(4.5);
   });
 
+  /** WCAG 1.4.11: the tick is what tells a checked box from an empty one. */
+  it("draws the checked box's tick at 3:1 on its fill", () => {
+    const tick = declared("input[type='checkbox']:checked::after", 'border');
+    const fill = declared("input[type='checkbox']:checked", 'background-color');
+    const ratio = contrast(token(palette, tick), token(palette, fill));
+    expect(ratio, `${name}: ${tick} on ${fill} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
+  });
+
   /**
-   * WCAG 1.4.11: the boundary that identifies a control needs 3:1, not 4.5.
-   *
-   * `--border-subtle` falls far short of it against `--bg-input`: a field frame
-   * drawn in it is a suggestion rather than an edge, and a field is then found
-   * only by hovering it. `--border-strong` is what every input and secondary
-   * button wears instead. Passive separations keep the subtle one, since a card
-   * edge identifies nothing.
-   *
-   * Measured against the fill inside the control and every ground it is drawn
-   * on: a field's fill is close to the card's, so the frame alone sets it apart.
+   * WCAG 1.4.11: a control's boundary needs 3:1 against its fill and every ground it is drawn
+   * on. `--border-subtle` falls short of it, so every field and secondary button wears
+   * `--border-strong`, and passive separations keep the subtle one.
    */
   it.each(['--bg-input', '--bg-card', '--bg-base', '--bg-surface'])(
     'draws the boundary of a control at 3:1 on %s',

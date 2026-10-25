@@ -121,6 +121,8 @@
 
   /** Undo every move the filters match, asked by the server, which alone counts them. */
   async function revertAll() {
+    // Read before the button turns disabled, which drops the focus the question would give back.
+    const pressed = document.activeElement as HTMLElement | null;
     revertingAll = true;
     try {
       const report = await answering(
@@ -151,6 +153,7 @@
     } finally {
       revertingAll = false;
       task = null;
+      void handFocus(pressed, 'history-table');
     }
   }
 
@@ -361,12 +364,15 @@
                   <!-- Null on a row stored without one, where a guess would read as a fact. -->
                   {#if decision.actor}
                     <span class="text-xs" title={t('TriggeredBy')}
-                      >{t(triggerKey(decision.actor))}</span
+                      ><span class="visually-hidden">{t('TriggeredBy')}</span>{t(
+                        triggerKey(decision.actor),
+                      )}</span
                     >
                   {/if}
                   <!-- Beside the trigger: "manual" and who answer different questions. -->
                   {#if decision.subject}
                     <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span
                       >{decision.subject}</span
                     >
                   {/if}

@@ -451,8 +451,7 @@ where
 {
     let proxies: Arc<[config::Network]> = proxies.into();
     routes
-        // The span carries the request id, set outermost, so a logged failure matches its click.
-        // No line per 5xx: `AppError` logs each with its cause, at the level the fault deserves.
+        // The span carries the request id. No line per 5xx: `AppError` logs each with its cause.
         .layer(TraceLayer::new_for_http().make_span_with(request_span).on_failure(()))
         // Inside the request-id layers, so a panic's answer still carries its `X-Request-Id`.
         .layer(CatchPanicLayer::custom(panic_response))
@@ -548,9 +547,9 @@ pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Resp
     error::ErrorResponse::new("internal_error", message).answered(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-/// Headers every response carries. `script-src 'self'` keeps injected markup from running.
-/// `style-src` keeps `'unsafe-inline'` for the `style` attributes computed from data, a
-/// weakening a nonce per response would close. Everything else is same-origin.
+/// Headers every response carries. `script-src 'self'` keeps injected markup from running, and
+/// `style-src 'self'` from styling itself: the interface sets its computed styles through the
+/// CSSOM, which the policy does not govern. Everything else is same-origin.
 async fn security_headers(request: axum::extract::Request, next: middleware::Next) -> Response {
     use axum::http::header::{HeaderName, HeaderValue};
 
@@ -560,7 +559,7 @@ async fn security_headers(request: axum::extract::Request, next: middleware::Nex
     for (name, value) in [
         (
             axum::http::header::CONTENT_SECURITY_POLICY,
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+            "default-src 'self'; script-src 'self'; style-src 'self'; \
              img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; \
              base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
         ),

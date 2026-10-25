@@ -10,11 +10,6 @@ import { api, ApiError } from '../api/client';
 import type { LogEntry } from '../api/types';
 import MoveLog from './MoveLog.svelte';
 
-/**
- * Every write Routarr has made to an Arr. The export goes through `fetch` and a blob, since
- * the endpoint wants the API key in a header, which a plain `<a href>` cannot carry.
- */
-
 function entry(over: Partial<LogEntry> = {}): LogEntry {
   return {
     id: 'l1',
@@ -51,7 +46,6 @@ describe('Move log', () => {
     ).toBeTruthy();
   });
 
-  /** "Did the nightly sweep do this, or did somebody", and which somebody. */
   it('names what set each write off, and who asked when a mode said', async () => {
     vi.spyOn(api, 'getMoveLog').mockResolvedValue(
       paginated([
@@ -64,11 +58,13 @@ describe('Move log', () => {
     const manual = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
     expect(within(manual).getByText('Manual')).toBeTruthy();
     expect(within(manual).getByText('alice')).toBeTruthy();
+    expect(within(manual).getAllByRole('cell')[0]).toHaveTextContent(
+      /Triggered by\s*Manual.*Performed by\s*alice/,
+    );
     const scheduled = screen.getByText('Totoro').closest('tr') as HTMLElement;
     expect(within(scheduled).getByText('Schedule')).toBeTruthy();
   });
 
-  /** A bare "failed" badge would record that something went wrong and nothing about what. */
   it('shows the reason a write failed, not only that it failed', async () => {
     vi.spyOn(api, 'getMoveLog').mockResolvedValue(
       paginated([entry({ success: false, error_message: 'Radarr said 409' })]),
@@ -102,10 +98,6 @@ describe('Move log', () => {
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
-  /**
-   * The export is a `fetch` rather than a link so a refusal is said on the screen: as an
-   * `<a href>`, the browser would save the error's body as the file.
-   */
   it('says a refused export rather than saving the refusal as the file', async () => {
     vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
     vi.spyOn(api, 'exportMoveLog').mockRejectedValue(new ApiError('', 403, 'forbidden'));
@@ -120,7 +112,9 @@ describe('Move log', () => {
 
   it('exports what the filters show, under the name of the log', async () => {
     vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
-    const exportMoveLog = vi.spyOn(api, 'exportMoveLog').mockResolvedValue(new Blob(['a,b']));
+    const exportMoveLog = vi
+      .spyOn(api, 'exportMoveLog')
+      .mockResolvedValue({ blob: new Blob(['a,b']), truncated: false });
     const saved = captureDownloads();
     show();
 
@@ -138,6 +132,23 @@ describe('Move log', () => {
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(nthCall(exportMoveLog)[0]).toMatchObject({ search: 'akira', success: true });
     expect(saved[0]?.name).toBe('routarr-logs.csv');
+  });
+
+  /** A file cut at the server's ceiling would otherwise read as the whole log. */
+  it('warns that an export cut short holds the newest entries only', async () => {
+    vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
+    vi.spyOn(api, 'exportMoveLog').mockResolvedValue({ blob: new Blob(['a,b']), truncated: true });
+    const saved = captureDownloads();
+    show();
+
+    await userEvent.click(await screen.findByRole('button', { name: /export csv/i }));
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(
+      await screen.findByText(
+        'The file holds the newest 50,000 entries: narrow the filters to export the rest',
+      ),
+    ).toBeTruthy();
   });
 
   it('counts every entry under the table, and asks the server for the next page', async () => {
@@ -198,7 +209,6 @@ describe('Move log', () => {
     expect(nthCall(getMoveLog, 2)[0]).toMatchObject({ success: undefined });
   });
 
-  /** A failed export is not a load to retry: the list is fine, the file is not. */
   it('reports a failed export without offering to reload the list', async () => {
     vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
     vi.stubGlobal(
@@ -220,7 +230,11 @@ describe('Move log', () => {
       vi
         .fn()
         .mockResolvedValueOnce({ ok: false, status: 503, text: async () => '' })
-        .mockResolvedValueOnce({ ok: true, blob: async () => new Blob(['a,b']) }),
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers(),
+          blob: async () => new Blob(['a,b']),
+        }),
     );
     const saved = captureDownloads();
 

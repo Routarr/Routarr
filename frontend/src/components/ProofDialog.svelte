@@ -66,9 +66,9 @@
     <form novalidate onsubmit={submit}>
       <h2 class="card-title mb-3">{t(words.title)}</h2>
       {#if note}
-        <p class="field-error mb-3" role="alert">{note}</p>
+        <p id="proof-note" class="field-error mb-3" role="alert">{note}</p>
       {:else}
-        <p class="text-muted text-base mb-3">{t(help)}</p>
+        <p id="proof-help" class="text-muted text-base mb-3">{t(help)}</p>
       {/if}
       <div class="form-group">
         <label class="form-label" for="proof-value">{t(words.label)}</label>
@@ -77,6 +77,8 @@
           type="password"
           class="form-input"
           autocomplete={words.autocomplete}
+          aria-invalid={note ? 'true' : undefined}
+          aria-describedby={note ? 'proof-note' : 'proof-help'}
           bind:value={typed}
         />
       </div>

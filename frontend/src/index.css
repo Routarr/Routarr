@@ -421,6 +421,14 @@ a {
   padding: 0 var(--space-6);
 }
 
+/* The page under the top bar, growing as the column `.main-content` holds both. */
+.page-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .page-container {
   padding: var(--space-6);
   flex: 1;
@@ -565,7 +573,7 @@ a {
   /* Stated: a <label class="btn"> inherits a line-height a <button> resets. */
   line-height: 1.2;
   gap: 8px;
-  /* A translated label runs long: it stays on one line and the row wraps around it. */
+  /* A translated label stays on one line, the row wrapping around it, except on a phone. */
   white-space: nowrap;
   flex-shrink: 0;
   padding: 9px 16px;
@@ -636,6 +644,27 @@ a {
   height: 28px;
 }
 
+/* On a phone a label too long for its row takes two lines, its one-line height a minimum.
+   Before the coarse pointer's targets, which must win. */
+@media (max-width: 560px) {
+  .btn {
+    height: auto;
+    min-height: 36px;
+    max-width: 100%;
+    padding-block: 8px;
+    white-space: normal;
+    flex-shrink: 1;
+  }
+  .btn-sm {
+    min-height: 28px;
+    padding-block: 5px;
+  }
+  /* A table scrolls sideways, so a button in it widens the table instead. */
+  td .btn {
+    white-space: nowrap;
+  }
+}
+
 /* A fingertip is not a pointer: compact row controls grow to a target a thumb can hit. */
 @media (pointer: coarse) {
   /* 16px is under the 24px WCAG 2.2 asks of a target. The tick grows with the box. */
@@ -703,8 +732,6 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  /* Same reasoning as `.mode-dot`, applied to the glyph: a triangle carries
-     its mass low, so centred on its own box it sits high against a digit. */
   line-height: 1;
   height: 28px;
   padding: 0 9px;
@@ -719,8 +746,7 @@ a {
   padding-block: 1px 0;
 }
 
-/* A triangle hangs lower than a digit, so the glyph is lifted onto the digit and the pair
-   pushed back to the box's middle. Both offsets come from a magnified capture. */
+/* A triangle hangs lower than a digit, so the glyph is lifted onto the digit's line. */
 .attention > svg {
   transform: translateY(-0.3px);
 }
@@ -1423,7 +1449,7 @@ a {
   margin-inline-start: 0;
 }
 
-/* Focusable, so a keyboard can scroll a table wider than its window. */
+/* A table wider than its window scrolls here, in the box `TableRegion` makes focusable. */
 .table-container {
   overflow-x: auto;
   /* Positioned, or an absolute descendant escapes the scroll and widens a phone's page. */
@@ -1473,8 +1499,10 @@ tr:last-child td {
   border-bottom: none;
 }
 
+/* Muted text falls under AA on a highlighted ground, so each one lifts it to the secondary. */
 tr:hover td {
   background-color: var(--row-hover);
+  --text-muted: var(--text-secondary);
 }
 
 .form-group {
@@ -1611,7 +1639,7 @@ input[type='checkbox']:checked::after {
   content: '';
   width: 9px;
   height: 5px;
-  border: 2px solid var(--bg-base);
+  border: 2px solid var(--text-on-accent);
   border-top: 0;
   border-right: 0;
   transform: translateY(-1px) rotate(-45deg);
@@ -1808,6 +1836,17 @@ td * {
   padding: 0;
   margin: 0;
 }
+/* A summary item leading to its field, a button: a `#fragment` link reloads under `<base>`. */
+.issue-link {
+  all: unset;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.issue-link:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
 
 /* A stripe and an icon, not a wash: a stack of tinted blocks reads as a wall. */
 .banner {
@@ -1934,7 +1973,7 @@ td * {
   background-color: var(--status-danger);
 }
 
-/* The guide's bar again: one colour for every value claims no good or bad. */
+/* The guide's bar, reused: one colour for every value claims no good or bad. */
 .confidence-track {
   flex: 1;
   min-width: 28px;
@@ -2516,7 +2555,7 @@ td * {
   outline: none;
 }
 
-/* Named here so no screen writes them as an inline `style`, which the CSP keeps for data. */
+/* Named here so no screen writes them as an inline `style`. */
 .text-xs {
   font-size: 11px;
 }
@@ -2645,6 +2684,7 @@ td * {
 /* The row a click picked, in a list of candidates. */
 .row-selected {
   background-color: var(--bg-card-hover);
+  --text-muted: var(--text-secondary);
 }
 /* The whole cell picks the row, a button so a keyboard and a screen reader reach it. */
 .row-pick {
@@ -2830,7 +2870,7 @@ td * {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-/* The one thing a dashboard is for. What sits under it reads as one line of facts. */
+/* The dashboard's headline, with one line of facts under it. */
 .headline {
   display: flex;
   align-items: center;
@@ -3095,10 +3135,6 @@ select.form-select {
 
 .suggestion-row.is-mapped {
   background-color: var(--bg-surface);
-}
-
-.suggestion-row.is-dismissed .suggestion-what {
-  opacity: 0.7;
 }
 
 .suggestion-what {
@@ -3410,12 +3446,14 @@ select.form-select {
 
 .picker-option:hover {
   background-color: var(--bg-card-hover);
+  --text-muted: var(--text-secondary);
 }
 
 /* What Enter adds, marked as in the palette, since the focus stays in the field. */
 .picker-option[aria-selected='true'] {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
+  --text-muted: var(--text-secondary);
 }
 
 /* Reference data, so it recedes behind the value it describes. */
@@ -3473,7 +3511,7 @@ select.form-select {
   min-width: 5.5em;
   justify-content: center;
 }
-/* The longest path of the contract is 27 characters, so 28 hold every one. */
+/* One width for every path, so the columns after it line up. A longer path wraps. */
 .api-path {
   grid-area: path;
   width: 28ch;

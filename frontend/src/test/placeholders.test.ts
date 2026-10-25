@@ -147,12 +147,9 @@ const BUILT_AT_RUN_TIME: Record<string, string> = {
 };
 
 /**
- * A placeholder a call leaves out reaches the reader as `{name}`, and a name
- * the English does not have is a value nobody sees, most often a placeholder
- * renamed on one side only. A call with no second argument passes no name, so
- * a key whose English has a placeholder needs one. A ternary between two keys
- * hands both the same object: each needs all of its own placeholders, and the
- * object names nothing neither of them has.
+ * A placeholder a call leaves out reaches the reader as `{name}`, and a name the English lacks
+ * is a value nobody sees. A ternary between two keys hands both one object, so each needs all
+ * of its own placeholders.
  */
 describe('every call to t() passes the placeholders its English names', () => {
   const found = calls();

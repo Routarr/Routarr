@@ -132,7 +132,7 @@ fn header_token(headers: &HeaderMap) -> Option<String> {
 
 /// Record that `instance` heard from its Arr, at most once a minute: a season sends one delivery
 /// per episode. The stamp leaves `updated_at` alone, which the probe reuse reads.
-async fn stamp_delivery(state: &AppState, instance: &str, event: &str) {
+async fn stamp_delivery(state: &AppState, instance: &str, event: Option<&str>) {
     let stamped = sqlx::query(
         "UPDATE instances SET last_webhook_at = datetime('now'), last_webhook_event = ?
           WHERE id = ?
@@ -178,15 +178,14 @@ async fn delivered(
     payload: ArrWebhook,
 ) -> AppResult<Response> {
     // Cut once, before the log, the stamp, the answer and the set of ignored types read it.
-    let event: String = payload
+    let carried: Option<String> = payload
         .event_type
         .as_deref()
-        .unwrap_or("Unknown")
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(EVENT_LENGTH)
-        .collect();
-    stamp_delivery(&state, &instance.id, &event).await;
+        .map(|event| event.chars().filter(|c| !c.is_control()).take(EVENT_LENGTH).collect())
+        .filter(|event: &String| !event.is_empty());
+    stamp_delivery(&state, &instance.id, carried.as_deref()).await;
+    // English in the log and the answer only, never in the stamp the interface reads.
+    let event = carried.unwrap_or_else(|| "Unknown".to_string());
 
     // No back door into an instance switched off. Acknowledged, not refused: the Arr is
     // configured correctly, and a refusal would only fill its log.

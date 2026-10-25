@@ -403,6 +403,7 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
 }
 
 /// The interface shows the question as it comes, so a clause missing here is missing on screen.
+/// It opens with the words Apply selected asks with.
 #[tokio::test]
 async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let arr = FakeArr::start().await;
@@ -410,6 +411,10 @@ async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let simulation = app.simulate().await;
     let localizer = app.state.localizer().await;
     let ask = |key: &str| localizer.translate(key, &[("count", "3")]);
+    let selected = ask("ConfirmApplyItems");
+    let act = selected.split(':').next().unwrap();
+    assert!(ask("ConfirmApplyAllItems").starts_with(act), "{act}");
+    assert!(ask("ConfirmApplyAllItemsWithFiles").starts_with(act), "{act}");
 
     for (move_files, expected) in
         [(false, ask("ConfirmApplyAllItems")), (true, ask("ConfirmApplyAllItemsWithFiles"))]

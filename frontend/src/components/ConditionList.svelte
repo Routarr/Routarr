@@ -1,11 +1,18 @@
 <script lang="ts">
   import { Plus, Trash2 } from '../lib/icons';
-  import type { Condition, ConditionSpec, LibraryFacets, ScoreScale } from '../api/types';
+  import type {
+    Condition,
+    ConditionSpec,
+    LibraryFacets,
+    ScoreScale,
+    ValidationIssue,
+  } from '../api/types';
   import { i18n, t } from '../lib/i18n.svelte';
   import { facetOf, localFacets } from '../api/conditions';
   import { phraseKey } from '../api/format';
   import { handFocus } from '../lib/focus';
   import ConditionValue from './ConditionValue.svelte';
+  import FieldIssues from './FieldIssues.svelte';
 
   let {
     title,
@@ -18,6 +25,7 @@
     facetsLoading = false,
     facetsError = null,
     scales = [],
+    errorsOf = () => [],
     onAdd,
     onRetype,
     onUpdate,
@@ -41,6 +49,8 @@
     facetsError?: string | null;
     /** The scales a score range names. */
     scales?: ScoreScale[];
+    /** The server's errors about the control an id names: a row, `rules-{list}-{index}`. */
+    errorsOf?: (field: string) => ValidationIssue[];
     onAdd: (type: string) => void;
     /** Swap a condition for its counterpart with the other quantifier, keeping its values. */
     onRetype: (index: number, type: string) => void;
@@ -50,6 +60,8 @@
   } = $props();
 
   const named = $derived(facets ? localFacets(facets, i18n.language) : null);
+  // A list with no condition is refused at its add picker.
+  const adding = $derived(errorsOf(`rules-${list}-add`));
 
   // A quantified pair is captioned by its `any` half, since the selector already says "all of".
   function caption(spec?: ConditionSpec): string | undefined {
@@ -115,7 +127,9 @@
   <div class="flex flex-col gap-2 mt-2">
     {#each conditions as condition, index (keys[index] ?? index)}
       {@const spec = specs.find((candidate) => candidate.type === condition.type)}
-      <div class="condition-row {list === 'exclusions' ? 'excluded' : ''}">
+      {@const field = `rules-${list}-${index}`}
+      {@const refused = errorsOf(field)}
+      <div id={field} class="condition-row {list === 'exclusions' ? 'excluded' : ''}">
         {#if spec?.counterpart}
           {@const any = spec.quantifier === 'all' ? spec.counterpart : spec.type}
           {@const all = spec.quantifier === 'all' ? spec.type : spec.counterpart}
@@ -141,9 +155,13 @@
         <div class="condition-value flex-1">
           <ConditionValue
             {spec}
-            describedBy={!spec?.counterpart && listed(spec)
-              ? `rules-${list}-${index}-sentence`
-              : undefined}
+            describedBy={[
+              !spec?.counterpart && listed(spec) ? `${field}-sentence` : '',
+              refused.length > 0 ? `${field}-issue` : '',
+            ]
+              .filter(Boolean)
+              .join(' ') || undefined}
+            invalid={refused.length > 0}
             value={condition.value}
             suggestions={facetOf(named, spec?.suggestions)}
             suggestionsLoading={facetsLoading}
@@ -151,6 +169,7 @@
             {scales}
             onChange={(value, unreadable) => onUpdate(index, value, unreadable)}
           />
+          <FieldIssues {field} issues={refused} />
         </div>
         <button
           id="rules-{list}-{index}-delete"
@@ -171,6 +190,8 @@
       id="rules-{list}-add"
       class="form-select"
       aria-label={title}
+      aria-invalid={adding.length > 0 ? 'true' : undefined}
+      aria-describedby={adding.length > 0 ? `rules-${list}-add-issue` : undefined}
       value={chosen}
       onchange={(event) => (chosen = event.currentTarget.value)}
     >
@@ -180,7 +201,9 @@
           {#each family.specs as spec (spec.type)}
             <!-- Flagged only when no enabled source, the Arr included, can answer it. -->
             <option value={spec.type}>
-              {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
+              {spec.available
+                ? spec.label
+                : t('SideBySide', { first: spec.label, second: t('NeedsMetadataSuffix') })}
             </option>
           {/each}
         </optgroup>
@@ -197,4 +220,5 @@
       {t('Add')}
     </button>
   </div>
+  <FieldIssues field="rules-{list}-add" issues={adding} />
 </div>

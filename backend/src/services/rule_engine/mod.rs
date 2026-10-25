@@ -1447,7 +1447,7 @@ mod tests {
         assert!(outcome.observed.is_empty(), "the engine reports the raw value, not prose");
         // The blank is turned into a word at render time, in the right language.
         let english = crate::localization::Localizer::new("en").describe(&outcome);
-        assert!(english.contains("unknown"), "{english}");
+        assert!(english.contains("Unknown"), "{english}");
         let french = crate::localization::Localizer::new("fr").describe(&outcome);
         assert!(french.contains("inconnu"), "{french}");
     }

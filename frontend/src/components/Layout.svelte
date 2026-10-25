@@ -12,7 +12,7 @@
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
   import { invalidateStatus, statusRevision, warningsRevision } from '../lib/status.svelte';
-  import { proofRequest } from '../lib/proof.svelte';
+  import { proofRequest, settleProof } from '../lib/proof.svelte';
   import { access, publishAccess } from '../lib/access.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
@@ -26,17 +26,12 @@
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   /**
-   * The top bar reflects the two things that change what a click will do: whether
-   * global dry-run is on, and whether anything is running in the background.
-   *
-   * It reads `/status`, not `/health`: the latter probes every Arr instance, which
-   * would block the whole app shell behind an unreachable server.
+   * The shell. Its bar reads `/status`, never `/health`, which probes every Arr and would hold
+   * the shell behind an unreachable one.
    */
   let { children }: { children: Snippet } = $props();
 
-  // Re-read when a screen says it changed something the warnings count, so
-  // the bar and the navigation correct themselves at once rather than at the
-  // next idle poll a minute later.
+  // Read again when a screen changed something the warnings count, not at the next idle poll.
   const status = createAsync(
     (signal) => api.getStatus(signal),
     () => [statusRevision(), warningsRevision()],
@@ -52,10 +47,8 @@
     if (me.data) publishAccess(me.data.read_only);
   });
 
-  // Read again on every navigation and after every write the warnings follow:
-  // a step is done by the screen the reader just left, and the pill, the
-  // dashboard list and the step banners all read this one answer. A reader is
-  // refused it, so it waits until the shell knows who reads.
+  // Read again on every navigation and after each write the warnings follow: the screen just
+  // left may have done a step. A reader is refused it, so it waits until the shell knows who reads.
   const guide = createAsync(
     (signal) =>
       access.known && !access.readOnly ? api.getOnboarding(signal) : Promise.resolve(null),
@@ -79,12 +72,8 @@
   // in order to learn that it needs one.
   const auth = createAsync((signal) => api.authMode(signal));
 
-  // Keep the chrome honest. Polling only while a job runs would leave the
-  // dry-run badge, the one thing this bar exists to answer, stale indefinitely
-  // when the setting changes anywhere else: another tab, a script, a restore.
-  // Idle refreshes are a minute apart, which costs one cheap query, removes the
-  // possibility of the bar saying "dry run" while the next click writes, and
-  // costs nothing at all while the tab is in the background.
+  // Polled while idle too, a minute apart, so the dry-run badge follows a change made in another
+  // tab, a script or a restore. `poll` stops in a hidden tab.
   const busy = $derived((status.data?.running_jobs ?? 0) > 0);
   poll(
     () => void status.reload(),
@@ -142,11 +131,8 @@
   }
 
   /**
-   * The shortcut, and the label that teaches it.
-   *
-   * `preventDefault` matters on the combination rather than only for tidiness:
-   * Firefox binds Ctrl+K to its own search bar, and without it the browser
-   * takes the keystroke and the palette never opens.
+   * The shortcut, and the label that teaches it. Firefox binds Ctrl+K to its search bar, so the
+   * combination is `preventDefault`ed.
    */
   const mac =
     typeof navigator !== 'undefined' &&
@@ -154,10 +140,8 @@
   const shortcut = $derived(mac ? '⌘K' : 'Ctrl K');
 
   function onShortcut(event: KeyboardEvent) {
-    // Guarded on the shell, not only on the combination: the palette is
-    // rendered in the authenticated branch, so on the sign-in and key screens
-    // this would swallow the keystroke (Firefox's own search bar included) and
-    // open nothing at all.
+    // The palette lives in the authenticated branch: on the sign-in and key screens this would
+    // swallow the keystroke and open nothing.
     if (unauthorized) return;
     // A drawer that covers the page is left the way a dialog is, the focus
     // going back to the button that opened it. An open dialog answers Escape
@@ -197,12 +181,8 @@
   }
 
   /**
-   * The one thing in the bar that is worth interrupting for, or nothing.
-   *
-   * A failed move and a diagnostic warning are the two counts an operator has
-   * to act on. A running task and a pending decision are work in progress and
-   * belong on the entry that shows them. The figure is the total and the
-   * accessible name enumerates, so the colour is never the only carrier.
+   * The failed moves and diagnostic warnings, the counts an operator acts on: running tasks and
+   * pending decisions sit on their own entries. The figure is the total, the name enumerates.
    */
   const attention = $derived.by(() => {
     const data = status.data;
@@ -215,12 +195,8 @@
     return {
       total: failed + warned,
       critical: failed > 0,
-      // Named for what it is, not only for what it counts: the navigation
-      // carries the same figures on their own entries, and two controls
-      // answering to one accessible name is a control nobody can address.
-      // The separator is a dictionary entry because Arabic writes `،` and
-      // Japanese `、`. `Intl.ListFormat` is the wrong tool here: its narrow
-      // unit form joins two clauses with nothing at all in both.
+      // Named for what it is, since the navigation carries the same figures. Joined with
+      // `ListSeparator`, which `Intl.ListFormat`'s narrow unit form leaves out in two languages.
       label: t('AttentionRequired', { detail: parts.join(t('ListSeparator')) }),
     };
   });
@@ -228,11 +204,8 @@
   const unauthorized = $derived(
     status.failure instanceof ApiError && status.failure.status === 401,
   );
-  // A refusal any screen meets is a session that ended or a key refused, so
-  // the status is read again now and the gate replaces the shell at once.
-  // Nothing to read again once the shell knows, nor while its own read is out:
-  // that read's refusal is its answer, and a read started for it would replace
-  // it before it lands, one after the other for good.
+  // A refusal any screen meets reads the status again, so the gate replaces the shell at once.
+  // Not once the shell knows, nor while its own read is out, whose refusal is the answer.
   $effect(() =>
     onRefused(() => {
       if (!unauthorized && !status.loading) invalidateStatus();
@@ -260,17 +233,32 @@
     if (!first) return focusHeadingOf(pageContainer);
   });
 
-  let signOutError = $state<string | null>(null);
+  /** What the shell says went wrong, and whether a reload is what mends it. */
+  let shellError = $state<{ message: string; reload: boolean } | null>(null);
+
+  /**
+   * A dialog's code, fetched when it first opens. A tab left open across an update asks for a
+   * chunk the server no longer holds: the dialog closes and the shell offers the reload.
+   */
+  async function loaded<T>(module: Promise<T>, close: () => void): Promise<T> {
+    try {
+      return await module;
+    } catch {
+      close();
+      shellError = { message: t('DialogLoadFailed'), reload: true };
+      // Closed, the block awaiting it is gone, and nothing is left to settle.
+      return new Promise<never>(() => {});
+    }
+  }
 
   async function signOut() {
     try {
       await api.logout();
     } catch (err) {
-      // A session the server no longer knows is signed out already. Anything
-      // else has to be said, or the button reads as dead and the session is
-      // still open on a shared machine.
+      // A session the server does not know is signed out already. Anything else has to be said,
+      // or the button reads as dead and the session stays open on a shared machine.
       if (!(err instanceof ApiError && err.status === 401)) {
-        signOutError = describeError(err);
+        shellError = { message: describeError(err), reload: false };
         return;
       }
     }
@@ -278,16 +266,12 @@
   }
 </script>
 
-<!-- On the window rather than on an element: the shortcut has to work wherever
-     the focus happens to be, and a meta tag cannot sit inside a block. -->
+<!-- On the window, so the shortcut works wherever the focus is. -->
 <svelte:window onkeydown={onShortcut} />
 
 {#if unauthorized && sessionMode}
   <LoginGate mode={sessionMode} />
 {:else if unauthorized}
-  <!-- The server wants a key this browser has not got. Since one is generated at
-       first start, that is the ordinary first visit, so ask for it rather than
-       render every page failing its own way. -->
   <ApiKeyGate />
 {:else}
   <!-- First in the tab order, so a keyboard user is not walked through every
@@ -327,8 +311,10 @@
       <div class="sidebar-scrim" onclick={() => (drawer = false)} aria-hidden="true"></div>
     {/if}
 
-    <main class="main-content" id="main" tabindex="-1" inert={narrow && drawer}>
-      <header class="topbar">
+    <!-- The bar beside the page rather than in it: a `header` inside `main` is no banner, and
+         the skip link would land before the bar's tools. -->
+    <div class="main-content">
+      <header class="topbar" inert={narrow && drawer}>
         <div class="flex items-center gap-2">
           <button
             bind:this={drawerToggle}
@@ -342,26 +328,17 @@
           </button>
 
           {#if status.error}
-            <!-- Whether writing is possible is the one thing this bar must
-                 always answer. Rendering nothing reads as "no warning", which
-                 is the opposite of what an unreachable backend means, and a
-                 mode read before the backend stopped answering is no longer
-                 known. -->
+            <!-- An unreachable backend says so: nothing would read as no warning, and the last
+                 mode read may be stale. -->
             <span class="badge badge-danger" role="status" title={status.error}
               >{t('StatusUnavailable')}</span
             >
           {:else if status.data}
             {@const held = status.data.dry_run}
-            <!-- A mode, not an alert. `LiveModeActive` is the state this
-                 application is meant to run in, and the danger colour on it
-                 would spend the palette's most urgent signal on "nothing is
-                 wrong". The dot carries the state, the short word names it,
-                 and the full sentence is the accessible name, so the chrome
-                 keeps its width in every language. -->
-            <!-- `role="status"`, as the unreachable-backend badge beside it
-                 already carries: a `<span>` with no role maps to `generic`,
-                 for which ARIA prohibits `aria-label` and where the whole
-                 sentence would reach nobody. -->
+            <!-- A mode, not an alert: live is the state Routarr is meant to run in, so it takes
+                 no danger colour. The dot and the short word show it, and the full sentence is
+                 the accessible name, on a `role="status"` since ARIA refuses `aria-label` on a
+                 bare `<span>`. -->
             <span
               class="mode-chip"
               role="status"
@@ -389,17 +366,14 @@
           <!-- What the state calls for beside the state itself: these come and
                go, and on this side they never move the tools on the other. -->
           {#if attention}
-            <!-- Failures first: they are what `is-critical` is painted for,
-                 and they are listed on the log screen, not on diagnostics.
-                 Sending an operator to a page that says nothing about the
-                 thing that just broke is worse than saying nothing. -->
+            <!-- Failures first, which the move log lists and Diagnostics does not. -->
             <a
               href={href(attention.critical ? '/move-log' : '/diagnostics')}
               class="attention {attention.critical ? 'is-critical' : ''}"
               title={attention.label}
             >
               <AlertTriangle size={14} aria-hidden="true" />
-              {attention.total}
+              {formatCount(attention.total, i18n.language)}
               <span class="visually-hidden">{attention.label}</span>
             </a>
           {/if}
@@ -426,13 +400,12 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <!-- A field for the question this product exists to answer,
-               reachable from every screen. -->
           <button
             type="button"
             class="palette-trigger"
             onclick={() => (palette = true)}
             aria-label={t('CommandPalette')}
+            aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
           >
             <Search size={14} aria-hidden="true" />
             <span class="palette-trigger-label">{t('CommandPalette')}</span>
@@ -451,9 +424,8 @@
             <span class="topbar-label">{t('Help')}</span>
           </button>
 
-          <!-- Only where a browser holds a session, the key's included: a
-               proxy or an open instance has none to end, and a button that
-               does nothing is worse than none. -->
+          <!-- Only where a browser holds a session, the key's included: a proxy or an open
+               instance has none to end. -->
           {#if sessionMode || auth.data?.mode === 'apikey'}
             <button
               type="button"
@@ -469,35 +441,42 @@
         </div>
       </header>
 
-      <ErrorBanner message={signOutError} onDismiss={() => (signOutError = null)} />
+      <main class="page-main" id="main" tabindex="-1" inert={narrow && drawer}>
+        <!-- The badge's reason, which a title would show to a mouse alone. -->
+        <ErrorBanner message={status.error} />
+        <ErrorBanner
+          message={shellError?.message ?? null}
+          onReload={shellError?.reload ? () => location.reload() : undefined}
+          onDismiss={() => (shellError = null)}
+        />
 
-      <!-- Around the routed page only: a crash in a page must not take the
+        <!-- Around the routed page only: a crash in a page must not take the
            sidebar and the status bar with it, since those are what the user
            needs to get somewhere that still works. Keyed on the path, so
            leaving a broken page is enough to clear it. -->
-      <div class="page-container" bind:this={pageContainer}>
-        {#key router.path}
-          <svelte:boundary>
-            {@render children()}
+        <div class="page-container" bind:this={pageContainer}>
+          {#key router.path}
+            <svelte:boundary>
+              {@render children()}
 
-            <!-- `unknown`, not inferred: a boundary catches whatever was
+              <!-- `unknown`, not inferred: a boundary catches whatever was
                  thrown, and a `throw 'oops'` is as valid as an `Error`. -->
-            {#snippet failed(error: unknown)}
-              <PageFailure {error} />
-            {/snippet}
-          </svelte:boundary>
-        {/key}
-      </div>
-    </main>
+              {#snippet failed(error: unknown)}
+                <PageFailure {error} />
+              {/snippet}
+            </svelte:boundary>
+          {/key}
+        </div>
+      </main>
+    </div>
   </div>
 
-  <!-- Outside the routed page and outside the boundary, so a question survives
-       the navigation it may itself have triggered, and so a page that throws
-       does not take the dialog asking about it down with it. -->
-  <!-- Fetched when it is opened: it carries the explanation panel, which a
-       first visit has no use for. -->
+  <!-- The dialogs sit outside the routed page and its boundary, so a page that navigates or
+       throws does not take them down. -->
+  <!-- The palette, the help, the proof and About are fetched when they open: the shell is what
+       every visit downloads. -->
   {#if palette}
-    {#await import('./CommandPalette.svelte') then { default: CommandPalette }}
+    {#await loaded(import('./CommandPalette.svelte'), () => (palette = false)) then { default: CommandPalette }}
       <CommandPalette
         onClose={() => (palette = false)}
         onHelp={(screen) => {
@@ -508,24 +487,21 @@
     {/await}
   {/if}
 
-  <!-- Fetched when it is opened, for the reason the palette is. -->
   {#if help}
-    {#await import('./HelpPanel.svelte') then { default: HelpPanel }}
+    {#await loaded(import('./HelpPanel.svelte'), () => (help = null)) then { default: HelpPanel }}
       <HelpPanel path={router.path} screen={help.screen} onClose={() => (help = null)} />
     {/await}
   {/if}
 
   <ConfirmDialog />
-  <!-- Fetched the first time a screen asks for a proof: only two screens do,
-       and the shell is what every visit downloads. -->
+  <!-- A proof that cannot be asked for is declined, so every caller unwinds. -->
   {#if proofRequest.request}
-    {#await import('./ProofDialog.svelte') then { default: ProofDialog }}
+    {#await loaded( import('./ProofDialog.svelte'), () => settleProof(null) ) then { default: ProofDialog }}
       <ProofDialog />
     {/await}
   {/if}
-  <!-- Fetched when it is opened, for the reason the proof dialog is. -->
   {#if about && status.data}
-    {#await import('./AboutDialog.svelte') then { default: AboutDialog }}
+    {#await loaded(import('./AboutDialog.svelte'), () => (about = false)) then { default: AboutDialog }}
       <AboutDialog version={status.data.version} onClose={() => (about = false)} />
     {/await}
   {/if}

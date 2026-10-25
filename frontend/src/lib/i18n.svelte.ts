@@ -6,62 +6,60 @@ type Dictionary = Record<string, string>;
 type Params = Record<string, string | number>;
 
 /**
- * The dictionary comes from the backend, already merged over English, so the
- * frontend ships no strings of its own and an untranslated key still renders
- * readable text. This mirrors how the other Servarr applications work.
- *
- * A module-level rune rather than a context: there is exactly one dictionary in
- * the application, it is fetched once, and every component wants the same one.
- * Threading a provider through the tree would model a choice nobody has.
+ * The dictionary comes from the backend, already merged over English, so an untranslated key
+ * still reads. A module-level rune, as there is one dictionary for the whole interface.
  */
 const state = $state({
   strings: {} as Dictionary,
   language: 'en',
   direction: 'ltr' as 'ltr' | 'rtl',
   /**
-   * The placeholders that hold a count, grouped the way the language groups
-   * digits, `12 345` beside a size written `6,3 GB`. Only these: a year in
-   * `{min}` or an id in `{value}` grouped would read `2,026`. The server's
-   * list (`COUNTS` in `backend/src/localization.rs`), which groups the same
-   * placeholders in the sentences it writes.
+   * The placeholders that hold a count, grouped as the language groups digits (`12 345`). Only
+   * these: a year in `{min}` grouped would read `2,026`. The server's list is `COUNTS` in
+   * `backend/src/localization.rs`.
    */
   counts: [] as readonly string[],
-  /**
-   * The placeholders that hold a path, an address or a variable's name, set
-   * in an isolate in a right-to-left sentence so they keep their own
-   * direction. The server's list (`ISOLATED`), which it applies to the
-   * sentences it writes.
-   */
-  isolated: [] as readonly string[],
 });
 
-function shown(name: string, value: Params[string] | undefined): string {
-  const text =
-    typeof value === 'number' && state.counts.includes(name)
-      ? formatCount(value, state.language)
-      : String(value);
-  return state.direction === 'rtl' && state.isolated.includes(name) ? isolated(text) : text;
+function shown(name: string, value: Params[string] | undefined, isolating: boolean): string {
+  const count = typeof value === 'number' && state.counts.includes(name);
+  const text = count ? formatCount(value, state.language) : String(value);
+  return isolating && !count ? isolated(text) : text;
 }
 
 // One pass over the template: a value is never read again, so a `{name}`
 // inside it stays as written.
-function substitute(template: string, params?: Params): string {
+function substitute(template: string, params: Params | undefined, isolating: boolean): string {
   if (!params || !template.includes('{')) return template;
   return template.replace(/\{(\w+)\}/g, (whole, name: string) =>
-    Object.hasOwn(params, name) ? shown(name, params[name]) : whole,
+    Object.hasOwn(params, name) ? shown(name, params[name], isolating) : whole,
   );
 }
 
 /**
- * Look a key up. Falls back to the key itself, which is the production
- * behaviour too: a dictionary that failed to load leaves an interface that is
- * ugly but navigable, rather than blank.
- *
- * It substitutes `{placeholder}` from `params` and knows no plural, so a count
- * is written `Label: {count}`, never `{count} item(s)`.
+ * Look a key up, falling back to the key, so a dictionary that failed to load leaves a
+ * navigable interface. It substitutes `{placeholder}` from `params` and knows no plural.
  */
 export function t(key: string, params?: Params): string {
-  return substitute(state.strings[key] ?? key, params);
+  // Right to left, every value but a count is isolated, as the server does, or a path reorders.
+  return substitute(state.strings[key] ?? key, params, state.direction === 'rtl');
+}
+
+/**
+ * A text the server keeps, as a pinned test's name: substituted as `t()` does, with no isolate,
+ * since an invisible mark would make two names of one.
+ */
+export function stored(key: string, params?: Params): string {
+  return substitute(state.strings[key] ?? key, params, false);
+}
+
+/**
+ * The sentence `key` cut where each placeholder of `gaps` goes, so a value can be drawn there in
+ * markup of its own. The pieces follow the order the translation writes the gaps in.
+ */
+export function cut(key: string, gaps: readonly string[], params: Params = {}): string[] {
+  const holes = Object.fromEntries(gaps.map((gap) => [gap, '\u0000']));
+  return t(key, { ...params, ...holes }).split('\u0000');
 }
 
 /** The current language, for `Intl` formatting. Reactive. */
@@ -78,7 +76,6 @@ function use(dictionary: Localization): void {
   state.strings = dictionary.strings;
   state.language = dictionary.language;
   state.counts = dictionary.counts;
-  state.isolated = dictionary.isolated;
   document.documentElement.lang = bcp47(dictionary.language);
   // The backend owns the script list, so adding an RTL language there turns
   // the interface around with nothing to change here.
@@ -107,8 +104,7 @@ export async function loadDictionary(): Promise<void> {
   try {
     use(await api.getLocalization());
   } catch {
-    // An unreachable backend must not blank the interface: keys render as
-    // themselves, which is ugly but navigable.
+    // Unreachable, the keys render as themselves.
   }
 }
 
@@ -123,16 +119,11 @@ export function seedDictionary(
   state.language = language;
   state.counts = counts;
   state.direction = direction;
-  state.isolated = [];
 }
 
 /**
- * Put the chosen theme on the root element.
- *
- * `auto` sets no attribute at all, which is what lets the
- * `prefers-color-scheme` block in the stylesheet apply. An explicit choice
- * stamps the attribute and outranks it, the same three-state arrangement the
- * showcase site uses.
+ * Put the chosen theme on the root element. `auto` sets no attribute, which lets the
+ * stylesheet's `prefers-color-scheme` block apply.
  */
 export function applyTheme(theme: string | undefined): void {
   if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;

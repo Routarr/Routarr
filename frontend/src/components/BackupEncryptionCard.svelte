@@ -6,6 +6,7 @@
   import type { Outcome } from '../lib/outcome.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { withProof } from '../lib/proof.svelte';
+  import { handFocus } from '../lib/focus';
 
   /**
    * The passphrase every archive is sealed with. Typed twice, since a typo
@@ -14,7 +15,7 @@
    */
   let { outcome, configured }: { outcome: Outcome; configured: boolean } = $props();
 
-  /** The server's minimum, which `PUT /backups/passphrase` refuses below. */
+  /** The server's minimum, `MIN_LENGTH` in `backend/src/services/backup/sealed.rs`. */
   const SHORTEST = 12;
 
   /** What this card changed since the settings were read. */
@@ -41,29 +42,42 @@
     }
   }
 
+  /**
+   * Both buttons turn disabled before the proof is asked for, a saved passphrase leaves the
+   * fields empty and a stopped encryption takes its button away: the focus goes back to the
+   * pressed button, else to the first field.
+   */
+  const settleFocus = (pressed: Element | null) =>
+    void handFocus(pressed as HTMLElement | null, 'backup-passphrase-new');
+
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!ready || !(await send(next))) return;
-    next = '';
-    repeated = '';
-    changedTo = true;
-    outcome.succeed(t('PassphraseSaved'));
+    if (!ready) return;
+    const pressed = document.activeElement;
+    if (await send(next)) {
+      next = '';
+      repeated = '';
+      changedTo = true;
+      outcome.succeed(t('PassphraseSaved'));
+    }
+    settleFocus(pressed);
   }
 
   async function stop() {
+    const pressed = document.activeElement;
     if (!(await askConfirmation(t('ConfirmStopEncrypting'), 'StopEncrypting'))) return;
-    if (!(await send(''))) return;
-    changedTo = false;
-    outcome.succeed(t('EncryptionStopped'));
+    if (await send('')) {
+      changedTo = false;
+      outcome.succeed(t('EncryptionStopped'));
+    }
+    settleFocus(pressed);
   }
 </script>
 
 <div class="card">
   <div class="card-header">
     <div>
-      <!-- The state beside the name it qualifies: an archive left clear
-           carries the master key, which is what the note warns of. Below
-           it where both do not fit, rather than the name broken in two. -->
+      <!-- The state sits beside the name it qualifies, and below it where both do not fit. -->
       <div class="flex flex-wrap items-center gap-2">
         <CardTitle card="BackupEncryption" class="flex items-center gap-2">
           <Lock size={18} aria-hidden="true" />
@@ -90,8 +104,10 @@
         bind:value={next}
       />
       <p id="backup-passphrase-new-help" class="form-hint">
-        {t('PasswordMinimum', { min: SHORTEST })}
-        {t('BackupPassphraseKeep')}
+        {t('SideBySide', {
+          first: t('PasswordMinimum', { min: SHORTEST }),
+          second: t('BackupPassphraseKeep'),
+        })}
       </p>
     </div>
     <div class="form-group">

@@ -2,12 +2,6 @@ import { describe, it, expect } from 'vitest';
 
 import { access, publishAccess } from './access.svelte';
 
-/**
- * What the shell learnt of the person signed in. Until it has asked, nobody is taken for a
- * reader: a screen rendered before the answer shows what the owner sees, and the server refuses
- * a reader whatever the screen offered.
- */
-
 describe('access', () => {
   it('is unknown, and no reader, until the shell has asked', () => {
     expect(access.known).toBe(false);

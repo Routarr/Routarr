@@ -4,11 +4,6 @@ import { fireEvent, screen } from '@testing-library/svelte';
 import { renderWithI18n } from '../test/render';
 import ActionMenu from './ActionMenu.svelte';
 
-/**
- * The overflow menu exists because a row with every action as a button runs
- * past the screen, and the ones past the edge go off it with nothing saying so.
- */
-
 const show = (actions: unknown[]) => renderWithI18n(ActionMenu, { props: { actions } });
 
 describe('ActionMenu', () => {
@@ -44,11 +39,7 @@ describe('ActionMenu', () => {
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
-  /**
-   * A dialog the action opens records the focused element as the one to hand
-   * the focus back to. The item is about to disappear, so the trigger has the
-   * focus before the action runs.
-   */
+  /** A dialog the action opens hands the focus back to whatever held it when it opened. */
   it('hands the focus to its trigger before the action runs', async () => {
     let focusedWhenRun: Element | null = null;
     show([{ label: 'Sync now', onSelect: () => (focusedWhenRun = document.activeElement) }]);
@@ -71,11 +62,7 @@ describe('ActionMenu', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  /**
-   * `role="menu"` announces a menu, and a screen reader user then reaches for
-   * the arrows: a menu that only answers clicks is announced as something it
-   * is not.
-   */
+  /** `role="menu"` tells a screen reader user to reach for the arrows. */
   it('moves the focus in on opening and walks the items with the arrows', async () => {
     show([
       { label: 'Sync now', onSelect: vi.fn() },
@@ -112,10 +99,7 @@ describe('ActionMenu', () => {
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
-  /**
-   * A trigger that opens onto nothing is worse than no trigger: it reads as a
-   * broken control rather than an absent one.
-   */
+  /** A trigger that opens onto nothing reads as a broken control. */
   it('renders nothing at all when every action is disabled', () => {
     const { container } = show([
       { label: 'Sync now', disabled: true, onSelect: vi.fn() },

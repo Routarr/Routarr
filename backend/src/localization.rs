@@ -149,12 +149,6 @@ pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
 /// in the interface: `512B` in Korean.
 const UNIT_AGAINST_ITS_NUMBER: &[&str] = &["ko"];
 
-/// The placeholders holding an address, a path or a name that keeps its own direction. In a
-/// right-to-left language each is set in a first strong isolate, or a path's leading slash
-/// moves to its end. The interface reads this list from `/localization`.
-pub const ISOLATED: &[&str] =
-    &["address", "date", "file", "folder", "host", "path", "paths", "url", "variable"];
-
 /// The placeholders holding a count, its digits grouped as the language groups them
 /// (`12 345` in French), which a year would not survive. `scripts/check-locales.py` refuses a
 /// placeholder in neither this list nor its own. The interface reads it from `/localization`.
@@ -421,6 +415,17 @@ impl Localizer {
     /// Look up `key`, substituting `{name}` placeholders from `params`. An unknown key
     /// returns itself, visibly wrong, so a missing translation gets reported.
     pub fn translate(&self, key: &str, params: &[(&str, &str)]) -> String {
+        // Right to left, each value but a count is set in a first strong isolate, or it reorders.
+        self.substituted(key, params, direction(&self.language) == "rtl")
+    }
+
+    /// A text a row keeps, as a rule's name or a category's description: substituted as
+    /// `translate` does, with no isolate, since an invisible mark would make two names of one.
+    pub fn stored(&self, key: &str, params: &[(&str, &str)]) -> String {
+        self.substituted(key, params, false)
+    }
+
+    fn substituted(&self, key: &str, params: &[(&str, &str)], isolating: bool) -> String {
         let template = lookup(
             dictionaries().get(self.language.as_str()),
             dictionaries().get(DEFAULT_LANGUAGE),
@@ -432,16 +437,14 @@ impl Localizer {
             return key.to_string();
         };
 
-        let right_to_left = direction(&self.language) == "rtl";
         let grouped: Vec<(&str, String)> = params
             .iter()
             .map(|(name, value)| {
                 let count = COUNTS.contains(name).then(|| group_digits(&self.language, value));
-                let shown = count.flatten().unwrap_or_else(|| value.to_string());
-                if right_to_left && ISOLATED.contains(name) {
-                    (*name, format!("\u{2068}{shown}\u{2069}"))
-                } else {
-                    (*name, shown)
+                match count.flatten() {
+                    Some(grouped) => (*name, grouped),
+                    None if isolating => (*name, format!("\u{2068}{value}\u{2069}")),
+                    None => (*name, value.to_string()),
                 }
             })
             .collect();
@@ -683,6 +686,28 @@ mod tests {
 
         let english = Localizer::new("en").translate("DestinationDeclared", &params);
         assert!(!english.contains('\u{2068}'), "{english}");
+    }
+
+    /// A text a row keeps is compared and shown in either direction later: no mark goes in it.
+    #[test]
+    fn a_text_to_store_is_substituted_without_an_isolate() {
+        let arabic = Localizer::new("ar");
+        let params = [("name", "Anime")];
+
+        assert_eq!(arabic.stored("RuleCopyName", &params), "Anime (نسخة)");
+        assert!(arabic.translate("RuleCopyName", &params).contains("\u{2068}Anime\u{2069}"));
+    }
+
+    /// Left bare in Arabic, a name that ends in punctuation shows it at its start.
+    #[test]
+    fn every_value_but_a_count_keeps_its_own_direction_in_a_right_to_left_sentence() {
+        let arabic = Localizer::new("ar");
+        let name = arabic.translate("CategoryCreated", &[("name", "Who Framed Roger Rabbit?")]);
+        assert!(name.contains("\u{2068}Who Framed Roger Rabbit?\u{2069}"), "{name}");
+
+        let counted =
+            arabic.translate("PurgeResult", &[("decisions", "3"), ("logs", "2"), ("jobs", "1")]);
+        assert!(!counted.contains('\u{2068}'), "{counted}");
     }
 
     /// The interface groups a count through `Intl.NumberFormat`, the server

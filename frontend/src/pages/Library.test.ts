@@ -31,9 +31,25 @@ describe('Library', () => {
 
     expect(
       await screen.findByText(
-        'No media matches. Sync an instance from the Instances page to populate this list.',
+        'No media matches. Sync an instance from the Instances screen to populate this list.',
       ),
     ).toBeTruthy();
+  });
+
+  it('says a search or a filter found nothing, without sending the reader to sync', async () => {
+    const getLibrary = show([]);
+    await screen.findByText(
+      'No media matches. Sync an instance from the Instances screen to populate this list.',
+    );
+
+    await userEvent.type(
+      screen.getByRole('searchbox', { name: 'Search the library by title' }),
+      'zzz',
+    );
+    await waitFor(() => expect(getLibrary).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText('No title matches this search or these filters.')).toBeTruthy();
+    expect(screen.queryByText(/Sync an instance/)).toBeNull();
   });
 
   /**
@@ -49,6 +65,10 @@ describe('Library', () => {
     await screen.findByText('Akira');
     const forced = screen.getByTitle('Manual exception');
     expect(forced.textContent).toContain('kids');
+    // The title reaches a mouse alone: a screen reader and a touch reader read the word.
+    expect(
+      within(screen.getByRole('row', { name: /Akira/ })).getByText('Manual exception'),
+    ).toHaveClass('visually-hidden');
     expect(screen.getByText('standard').getAttribute('title')).toBeNull();
   });
 
@@ -59,14 +79,13 @@ describe('Library', () => {
   it('says an item has not been evaluated rather than leaving the cell blank', async () => {
     show([media({ computed_category: null, override_category: null })]);
 
-    expect(await screen.findByText('not evaluated')).toBeTruthy();
+    expect(await screen.findByText('Not evaluated')).toBeTruthy();
   });
 
-  /** Missing metadata stops genre and keyword rules from matching, so it reads as a warning. */
   it('warns about missing metadata', async () => {
     show([media({ has_metadata: false })]);
 
-    const warning = await screen.findByText('missing');
+    const warning = await screen.findByText('Missing');
     expect(warning.className).toContain('badge-warning');
   });
 
@@ -78,7 +97,6 @@ describe('Library', () => {
     expect(badge.className).toContain('muted');
   });
 
-  /** The icon is for the eye: a screen reader is told the type in a word. */
   it('says whether a title is a film or a series in words', async () => {
     show([
       media({ id: 'm1', title: 'Akira', media_type: 'movie' }),
@@ -89,10 +107,6 @@ describe('Library', () => {
     expect(screen.getByRole('row', { name: /Monster/ })).toHaveTextContent('Series');
   });
 
-  /**
-   * The one place a user asks why an item lands where it does, so every row has a named button
-   * that opens the explanation.
-   */
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi
       .spyOn(api, 'explainTitle')
@@ -106,7 +120,6 @@ describe('Library', () => {
     await waitFor(() => expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal)));
   });
 
-  /** A question that runs for seconds says it is being answered. */
   it('marks the row being explained as busy until its answer arrives', async () => {
     let answer = () => {};
     vi.spyOn(api, 'explainTitle').mockReturnValue(
@@ -198,7 +211,6 @@ describe('Library', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 
-  /** Two quick clicks: the explanation shown is the one asked for last. */
   it('shows the explanation of the title asked about last', async () => {
     show([media({ id: 'm7', title: 'Akira' }), media({ id: 'm8', title: 'Perfect Blue' })]);
     let first: (value: Explanation) => void = () => {};

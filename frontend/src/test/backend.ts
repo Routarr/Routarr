@@ -26,3 +26,12 @@ export function readBackend(file: string): string {
   }
   return readFileSync(join(ROOT, file), 'utf8');
 }
+
+/** A whole-number constant a backend file declares, as `const NAME: i64 = 24 * 60;` writes it. */
+export function backendConstant(file: string, name: string): number {
+  const written = new RegExp(`const ${name}: \\w+ = ([\\d_ *]+);`).exec(readBackend(file))?.[1];
+  if (written === undefined) throw new Error(`${file} declares no ${name}`);
+  return written
+    .split('*')
+    .reduce((product, factor) => product * Number(factor.replaceAll('_', '').trim()), 1);
+}

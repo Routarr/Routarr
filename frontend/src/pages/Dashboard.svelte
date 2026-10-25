@@ -24,14 +24,9 @@
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
-   * Two requests, on purpose.
-   *
-   * The first answers from the database and lands in milliseconds. The second
-   * probes every Arr over the network, which waits out a connect timeout when
-   * one is down, and an Arr being down is exactly why somebody opens this page.
-   * So the page renders on the first and upgrades to the second when it arrives:
-   * the instance table shows what is known immediately and fills its status
-   * column in behind.
+   * Two requests: the first answers from the database at once, the second probes every Arr and
+   * waits out a connect timeout on one that is down, the reason this page is opened. The page
+   * draws on the first and fills the status column from the second.
    */
   const quick = createAsync((signal) => api.getHealth({ probe: false }, signal));
   const probed = createAsync((signal) => api.getHealth(undefined, signal));
@@ -93,10 +88,7 @@
       <GettingStarted status={onboarding.current} {outcome} />
     {/if}
 
-    <!-- One block, not one banner per warning: stacked bars would say the same
-         thing once per warning, each with its own copy of the same button. The
-         count leads, so the warnings past the three listed are still counted,
-         and the one action sits once. -->
+    <!-- The count leads, so the warnings past the three listed are still counted. -->
     <BannerList
       tone="warning"
       title={t('DiagnosticWarnings', { count: warnings.length })}
@@ -108,10 +100,6 @@
     </BannerList>
 
     {#if stats && health}
-      <!-- A dashboard answers one question first. Cards of equal weight, some
-           with a coloured icon tile and some colouring their *number* by
-           sentiment, would be two encoding systems on one row with nothing
-           saying where to look. -->
       <div class="headline">
         <div>
           <div class="headline-value">{formatCount(stats.pending_decisions, i18n.language)}</div>
@@ -140,9 +128,6 @@
         <Stat label={t('FailedMovesLabel')} value={stats.failed_decisions} tone="danger" />
       </div>
 
-      <!-- A sentence does not need a card and a heading: that spends a card's
-           height on one line, between two blocks that carry actual
-           structure. -->
       <p class="page-note">
         {t('MetadataEnrichedCount', { count: health.metadata.cached_items })}
         {#if health.metadata.media_missing_metadata > 0}

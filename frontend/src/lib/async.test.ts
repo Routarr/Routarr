@@ -5,6 +5,7 @@ import { ApiError } from '../api/client';
 import { seedDictionary } from './i18n.svelte';
 import { ENGLISH } from '../test/render';
 import { describeError } from './async.svelte';
+import { access, publishAccess } from './access.svelte';
 import AsyncHarness from '../test/AsyncHarness.svelte';
 
 seedDictionary({ ...ENGLISH });
@@ -186,6 +187,19 @@ describe('createAsync', () => {
       expect(screen.getByTestId('error')).toHaveTextContent('The request was stopped'),
     );
     expect(screen.getByTestId('loading')).toHaveTextContent('idle');
+  });
+
+  /** A load restarted then would cancel every request of the one in flight. */
+  it('reloads on its inputs alone, not on what the loader reads before it awaits', async () => {
+    publishAccess(null);
+    const loader = vi.fn(() => Promise.resolve(access.readOnly ? 'reader' : 'owner'));
+    render(AsyncHarness, { loader, filter: 'a' });
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
+
+    publishAccess(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loader).toHaveBeenCalledTimes(1);
   });
 
   it('loads nothing once the component has gone away', async () => {

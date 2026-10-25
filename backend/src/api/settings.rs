@@ -135,9 +135,8 @@ async fn refuse_a_source_without_its_key(
 }
 
 /// The sources `list` adds that need a key and have none. A source already
-/// listed stays: the Settings screen sends the whole list on every save, and
-/// refusing the list as it stands would refuse every setting until the source
-/// is removed.
+/// listed stays: the list is sent whole, and refusing it as it stands would
+/// refuse every change to it until that source is removed.
 pub(crate) async fn sources_without_their_key(
     state: &AppState,
     list: &str,

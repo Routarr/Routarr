@@ -21,6 +21,7 @@
     suggestionsLoading = false,
     suggestionsError = null,
     describedBy,
+    invalid = false,
     scales = [],
     onChange,
   }: {
@@ -35,8 +36,10 @@
     suggestions?: Facet[];
     suggestionsLoading?: boolean;
     suggestionsError?: string | null;
-    /** The element that qualifies a list, as the fixed "any of" beside it. */
+    /** What describes every control: the fixed "any of" beside a list, the refusal under it. */
     describedBy?: string;
+    /** Whether the server refused the condition, which marks every control. */
+    invalid?: boolean;
     /**
      * `unreadable` when the field holds text `value` could not take in, an id or a number that is
      * not one: the editor holds Save while any field says so.
@@ -74,7 +77,11 @@
   function chooseScale(id: string) {
     const scale = scales.find((each) => each.id === id);
     // A vote count means nothing on a scale that counts none, and the server refuses it.
-    onChange({ ...range, scale: id, min_votes: scale?.votes ? range.min_votes : null }, false);
+    if (!scale?.votes) scoreUnreadable.votes = false;
+    onChange(
+      { ...range, scale: id, min_votes: scale?.votes ? range.min_votes : null },
+      Object.values(scoreUnreadable).some(Boolean),
+    );
   }
   const list = $derived(Array.isArray(value) ? (value as string[]) : []);
 
@@ -94,6 +101,10 @@
 
   // Named under the field, or `603, 6O4` would save one id and never route the second title.
   const errorId = $props.id();
+  /** A control's descriptions: the condition's, then its own unreadable text when said. */
+  const described = (own?: string | false) =>
+    [describedBy, own].filter(Boolean).join(' ') || undefined;
+  const flagged = (unreadable = false) => (unreadable || invalid ? 'true' : undefined);
   const rejected = $derived(
     spec?.value_type === 'number_list' && typed !== null ? rejectedNumbers(typed) : [],
   );
@@ -137,6 +148,8 @@
   {#if spec.value_type === 'boolean'}
     <select
       aria-label={spec.label}
+      aria-describedby={described()}
+      aria-invalid={flagged()}
       class="form-select"
       value={String(value ?? true)}
       onchange={(event) => onChange(event.currentTarget.value === 'true', false)}
@@ -147,8 +160,8 @@
   {:else if spec.value_type === 'number'}
     <input
       aria-label={spec.label}
-      aria-describedby={numberUnreadable ? errorId : undefined}
-      aria-invalid={numberUnreadable ? 'true' : undefined}
+      aria-describedby={described(numberUnreadable && errorId)}
+      aria-invalid={flagged(numberUnreadable)}
       type="number"
       class="form-input"
       value={Number(value ?? 0)}
@@ -160,10 +173,8 @@
   {:else if spec.value_type === 'number_list'}
     <input
       aria-label={spec.label}
-      aria-describedby={[describedBy, rejected.length > 0 ? errorId : undefined]
-        .filter(Boolean)
-        .join(' ') || undefined}
-      aria-invalid={rejected.length > 0 ? 'true' : undefined}
+      aria-describedby={described(rejected.length > 0 && errorId)}
+      aria-invalid={flagged(rejected.length > 0)}
       class="form-input"
       placeholder={t('PlaceholderNumberList')}
       value={listText}
@@ -177,8 +188,8 @@
   {:else if spec.value_type === 'year_range' || spec.value_type === 'number_range'}
     <div class="flex gap-2">
       <input
-        aria-describedby={boundsUnreadable.min ? errorId : undefined}
-        aria-invalid={boundsUnreadable.min ? 'true' : undefined}
+        aria-describedby={described(boundsUnreadable.min && errorId)}
+        aria-invalid={flagged(boundsUnreadable.min)}
         // Two controls for one condition: the bound is what tells their names apart.
         aria-label="{spec.label} – {t('PlaceholderYearFrom')}"
         type="number"
@@ -191,8 +202,8 @@
         oninput={(event) => typeBound('min', event.currentTarget)}
       />
       <input
-        aria-describedby={boundsUnreadable.max ? errorId : undefined}
-        aria-invalid={boundsUnreadable.max ? 'true' : undefined}
+        aria-describedby={described(boundsUnreadable.max && errorId)}
+        aria-invalid={flagged(boundsUnreadable.max)}
         aria-label="{spec.label} – {t('PlaceholderYearTo')}"
         type="number"
         class="form-input"
@@ -211,6 +222,8 @@
     <div class="flex flex-col gap-2">
       <select
         aria-label="{spec.label} – {t('ScoreScale')}"
+        aria-describedby={described()}
+        aria-invalid={flagged()}
         class="form-select"
         value={chosenScale?.id ?? ''}
         onchange={(event) => chooseScale(event.currentTarget.value)}
@@ -221,8 +234,8 @@
       </select>
       <div class="flex gap-2">
         <input
-          aria-describedby={scoreUnreadable.min ? errorId : undefined}
-          aria-invalid={scoreUnreadable.min ? 'true' : undefined}
+          aria-describedby={described(scoreUnreadable.min && errorId)}
+          aria-invalid={flagged(scoreUnreadable.min)}
           aria-label="{spec.label} – {t('PlaceholderYearFrom')}"
           type="number"
           class="form-input"
@@ -234,8 +247,8 @@
           oninput={(event) => typeScore('min', event.currentTarget)}
         />
         <input
-          aria-describedby={scoreUnreadable.max ? errorId : undefined}
-          aria-invalid={scoreUnreadable.max ? 'true' : undefined}
+          aria-describedby={described(scoreUnreadable.max && errorId)}
+          aria-invalid={flagged(scoreUnreadable.max)}
           aria-label="{spec.label} – {t('PlaceholderYearTo')}"
           type="number"
           class="form-input"
@@ -251,15 +264,17 @@
         <p id={errorId} class="field-error">{t('EnterNumber')}</p>
       {/if}
       {#if chosenScale?.votes}
-        <!-- Labelled in sight: a filled count no longer shows the placeholder that named it. -->
+        <!-- Labelled in sight: a filled count hides the placeholder that would name it. -->
         <div class="flex flex-col gap-1">
           <label class="text-muted text-sm" for="{errorId}-votes-field"
             >{t('ScoreMinimumVotes')}</label
           >
           <input
             id="{errorId}-votes-field"
-            aria-describedby="{errorId}-votes{scoreUnreadable.votes ? ` ${errorId}-whole` : ''}"
-            aria-invalid={scoreUnreadable.votes ? 'true' : undefined}
+            aria-describedby={described(
+              `${errorId}-votes${scoreUnreadable.votes ? ` ${errorId}-whole` : ''}`,
+            )}
+            aria-invalid={flagged(scoreUnreadable.votes)}
             aria-label="{spec.label} – {t('ScoreMinimumVotes')}"
             type="number"
             class="form-input"
@@ -278,6 +293,8 @@
   {:else if spec.value_type === 'string'}
     <input
       aria-label={spec.label}
+      aria-describedby={described()}
+      aria-invalid={flagged()}
       class="form-input mono"
       placeholder={t('PlaceholderPath')}
       value={String(value ?? '')}
@@ -291,6 +308,7 @@
       loading={suggestionsLoading}
       error={suggestionsError}
       {describedBy}
+      {invalid}
       keyOf={keyOfKind(spec.type)}
       onChange={(values) => onChange(values, false)}
     />
@@ -298,6 +316,7 @@
     <input
       aria-label={spec.label}
       aria-describedby={describedBy}
+      aria-invalid={flagged()}
       class="form-input"
       placeholder={t('PlaceholderStringList')}
       value={listText}

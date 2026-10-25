@@ -4,7 +4,6 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import ModalHarness from '../test/ModalHarness.svelte';
 
 describe('Modal', () => {
-  /** Beside a form, a stray click would throw away what was typed. */
   it('closes on a click beside its content only when the caller allows it', async () => {
     const guarded = vi.fn();
     const { unmount } = render(ModalHarness, { label: 'Rename category', onClose: guarded });
@@ -22,10 +21,6 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * A click lands on the common ancestor of press and release, so selecting the query by
-   * dragging past the field's edge clicks the dialog itself.
-   */
   it('stays open when a press inside the content is released beside it', async () => {
     const onClose = vi.fn();
     render(ModalHarness, { label: 'Quick search', onClose, closeOnBackdrop: true });
@@ -42,7 +37,6 @@ describe('Modal', () => {
     expect(screen.getByRole('dialog', { name: 'Rename category' })).toBeTruthy();
   });
 
-  /** Only `showModal` puts the dialog in the top layer and makes the page behind it inert. */
   it('opens it as a modal, not merely as a visible element', () => {
     // jsdom has no `showModal` to spy on. Removed pass or fail: every other test here needs
     // the fallback.
@@ -61,7 +55,6 @@ describe('Modal', () => {
     expect(showModal).toHaveBeenCalledTimes(1);
   });
 
-  /** Left to the browser, Escape closes the element while the caller still thinks it open. */
   it('turns Escape into a close the caller controls', async () => {
     const onClose = vi.fn();
     render(ModalHarness, { label: 'Rename category', onClose });
@@ -94,10 +87,6 @@ describe('Modal', () => {
     expect(screen.getByRole('dialog').hasAttribute('open')).toBe(true);
   });
 
-  /**
-   * Svelte removes the DOM before the teardown runs, so `close()` acts on a detached element
-   * and the browser never restores the focus itself.
-   */
   it('gives the focus back to the control that opened it', () => {
     const opener = document.createElement('button');
     opener.textContent = 'New rule';
@@ -115,10 +104,6 @@ describe('Modal', () => {
     opener.remove();
   });
 
-  /**
-   * The browser focuses the first focusable element, a form's close button, where a reflex
-   * Enter throws the form away.
-   */
   it('opens on the element it is told to', () => {
     render(ModalHarness, {
       label: 'Add instance',
@@ -129,7 +114,6 @@ describe('Modal', () => {
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'field' }));
   });
 
-  /** A dialog a screen opens on arrival has no opener to hand the focus back to. */
   it('gives the focus to its fallback when the page itself opened it', () => {
     const fallback = document.createElement('button');
     fallback.id = 'add-instance';

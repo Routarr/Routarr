@@ -8,13 +8,9 @@
   import SearchField from './SearchField.svelte';
 
   /**
-   * The help, beside the screen it explains: what the screen is for, its
-   * terms, the problems met there with the screen that fixes each, and what
-   * each of its cards shows. A search runs through the help of every screen,
-   * and the glossary lists every term with the screens that use it.
-   *
-   * A dialog rather than a panel left open beside the page: it is read, then
-   * closed, and a modal one keeps the focus in it and gives it back.
+   * The help of a screen: what it is for, its terms, its problems with the screen that fixes
+   * each, and its cards, with a search through every screen's help and a glossary. A modal
+   * dialog, which keeps the focus and gives it back.
    */
   let {
     path,

@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
-use crate::api::move_log::csv_field;
+use crate::api::move_log::{EXPORTED_AT_MOST, TRUNCATED, csv_field};
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
 use crate::services::audit::{Kind, Outcome};
@@ -107,12 +107,16 @@ pub async fn export(
     let (filters, binds) = build_filters(&query);
     let sql = format!(
         "SELECT {COLUMNS} FROM security_events WHERE 1=1{filters}
-         ORDER BY at DESC, id DESC LIMIT 50000"
+         ORDER BY at DESC, id DESC LIMIT {EXPORTED_AT_MOST}"
     );
+    let count_sql = format!("SELECT COUNT(*) FROM security_events WHERE 1=1{filters}");
     let mut list_query = sqlx::query_as::<_, Row>(AssertSqlSafe(sql.as_str()));
+    let mut count_query = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql.as_str()));
     for bind in &binds {
         list_query = list_query.bind(bind);
+        count_query = count_query.bind(bind);
     }
+    let truncated = count_query.fetch_one(&state.pool).await? > EXPORTED_AT_MOST;
     let rows = list_query.fetch_all(&state.pool).await?;
     let localizer = state.localizer().await;
 
@@ -147,6 +151,9 @@ pub async fn export(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_static("attachment; filename=\"routarr-security-log.csv\""),
     );
+    if truncated {
+        headers.insert(TRUNCATED, HeaderValue::from_static("true"));
+    }
     Ok((headers, csv))
 }
 

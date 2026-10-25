@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Download, RefreshCw } from '../lib/icons';
-  import { ApiError, api } from '../api/client';
+  import { ApiError, EXPORTED_AT_MOST, api } from '../api/client';
   import { LOG_ACTION_KEY, formatTimestamp, triggerKey } from '../api/format';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -38,8 +38,10 @@
 
   async function download() {
     try {
-      downloadBlob(await api.exportMoveLog(filters), 'routarr-logs.csv');
-      exported.clear();
+      const file = await api.exportMoveLog(filters);
+      downloadBlob(file.blob, 'routarr-logs.csv');
+      if (file.truncated) exported.warn(t('ExportTruncated', { count: EXPORTED_AT_MOST }));
+      else exported.clear();
     } catch (err) {
       // Said as the export's failure, with its status, rather than as whatever
       // the server's body holds: the list itself is fine.
@@ -136,11 +138,15 @@
                        which only a mode that vouches for a name can say. -->
                   {#if entry.actor}
                     <span class="text-xs" title={t('TriggeredBy')}
-                      >{t(triggerKey(entry.actor))}</span
+                      ><span class="visually-hidden">{t('TriggeredBy')}</span>{t(
+                        triggerKey(entry.actor),
+                      )}</span
                     >
                   {/if}
                   {#if entry.subject}
-                    <span class="text-xs text-muted" title={t('PerformedBy')}>{entry.subject}</span>
+                    <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span>{entry.subject}</span
+                    >
                   {/if}
                 </td>
                 <td

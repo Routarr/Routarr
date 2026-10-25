@@ -5,7 +5,7 @@
   import type { Explanation, MediaListItem } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
-  import { t } from '../lib/i18n.svelte';
+  import { cut, t } from '../lib/i18n.svelte';
   import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -19,6 +19,7 @@
   let search = $state('');
   let mediaType = $state('');
   let unmatched = $state(false);
+  const filtered = $derived(Boolean(search || mediaType || unmatched));
   let page = $state(1);
   let explaining = $state<Explanation | null>(null);
 
@@ -61,6 +62,9 @@
       if (!mine.signal.aborted) asked = null;
     }
   }
+
+  /** The year after the title as the language sets a note, its brackets muted with it. */
+  const yearNote = $derived(cut('WithNote', ['text', 'note']));
 </script>
 
 <div>
@@ -111,7 +115,7 @@
       {t('UnclassifiedOnly')}
     </label>
     <!-- Offered only while a filter is active: a button that does nothing is noise. -->
-    {#if search || mediaType || unmatched}
+    {#if filtered}
       <button
         type="button"
         class="btn btn-ghost"
@@ -143,7 +147,11 @@
           {#if library.loading && items.length === 0}
             <TableSkeleton columns={6} />
           {:else if items.length === 0 && !library.error}
-            <tr><td colspan="6"><EmptyState>{t('NoMediaMatches')}</EmptyState></td></tr>
+            <tr>
+              <td colspan="6">
+                <EmptyState>{t(filtered ? 'NoMediaMatchesFilters' : 'NoMediaMatches')}</EmptyState>
+              </td>
+            </tr>
           {:else}
             {#each items as media (media.id)}
               <tr>
@@ -159,8 +167,14 @@
                     <!-- One block, so the year follows the title's last word
                          rather than the edge of the room a title keeps. -->
                     <span class="cell-title">
-                      <strong>{media.title}</strong>
-                      {#if media.year}<span class="text-muted">({media.year})</span>{/if}
+                      {#if media.year}
+                        {@const [before, between, after] = yearNote}
+                        {before}<strong>{media.title}</strong><span class="text-muted"
+                          >{between}{media.year}{after}</span
+                        >
+                      {:else}
+                        <strong>{media.title}</strong>
+                      {/if}
                     </span>
                   </div>
                 </td>
@@ -179,6 +193,7 @@
                     <span class="badge badge-value" title={t('ManualOverride')}>
                       <Lock size={11} aria-hidden="true" />
                       {media.override_category}
+                      <span class="visually-hidden">{t('ManualOverride')}</span>
                     </span>
                   {:else if media.computed_category}
                     <span class="badge badge-value">{media.computed_category}</span>

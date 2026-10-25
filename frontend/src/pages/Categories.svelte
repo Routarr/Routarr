@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
   import CardTitle from '../components/CardTitle.svelte';
   import FolderSuggestions from '../components/FolderSuggestions.svelte';
   import { Pencil, Plus, Trash2 } from '../lib/icons';
@@ -31,9 +30,8 @@
       api.getCategories(signal),
       api.getMappingConflicts(signal),
       api.getInstances(signal),
-      // The owner's to accept: a reader is refused the route. Untracked, since the shell
-      // publishes the access once it knows, and a tracked read would restart this load then.
-      untrack(() => access.readOnly) ? [] : api.getFolderSuggestions(signal),
+      // The owner's to accept: a reader is refused the route.
+      access.readOnly ? [] : api.getFolderSuggestions(signal),
     ]);
     return { folders, categories, conflicts, instances, suggestions };
   });
@@ -405,6 +403,7 @@
           <input
             id="declare-path"
             class="form-input mono"
+            aria-describedby="declare-path-help"
             bind:value={targetPath}
             placeholder={t('DeclareDestinationPlaceholder')}
           />
@@ -417,7 +416,7 @@
           {declaring ? t('Saving') : t('AddDestination')}
         </button>
       </form>
-      <p class="text-muted text-sm mt-1">{t('DeclareDestinationHelp')}</p>
+      <p id="declare-path-help" class="text-muted text-sm mt-1">{t('DeclareDestinationHelp')}</p>
     {/if}
   </div>
 
@@ -542,10 +541,11 @@
             id="rootfolders-rename"
             class="form-input"
             placeholder={t('CategoryNamePlaceholder')}
+            aria-describedby="rootfolders-rename-hint"
             bind:value={newName}
             required
           />
-          <p class="text-muted text-sm mt-1">
+          <p id="rootfolders-rename-hint" class="text-muted text-sm mt-1">
             {t('RenameCategoryHint')}
           </p>
         </div>
@@ -586,14 +586,15 @@
             id="rootfolders-name"
             class="form-input"
             placeholder={t('CategoryNamePlaceholder')}
+            aria-describedby="rootfolders-name-hint"
             bind:value={name}
             required
           />
-          <p class="text-muted text-sm mt-1">{t('CategoryNameHint')}</p>
+          <p id="rootfolders-name-hint" class="text-muted text-sm mt-1">{t('CategoryNameHint')}</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="rootfolders-description">
-            {t('Description')} ({t('Optional')})
+            {t('WithNote', { text: t('Description'), note: t('Optional') })}
           </label>
           <input id="rootfolders-description" class="form-input" bind:value={description} />
         </div>

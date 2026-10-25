@@ -17,6 +17,7 @@
   } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import { href } from '../lib/router.svelte';
   import { formatCount } from '../api/format';
   import { Info } from '../lib/icons';
@@ -106,7 +107,7 @@
 
   const preview = createAsync(
     async (signal) => {
-      const wanted = untrack(() => (ready ? request : null));
+      const wanted = ready ? request : null;
       if (!wanted) return null;
       await settled(signal);
       return api.previewTemplate(template.id, wanted, signal);
@@ -162,6 +163,8 @@
       onAdded(await api.importTemplate(template.id, request));
     } catch (err) {
       failure = describeError(err);
+      // Add turned disabled while it asked, and is the way to try again.
+      void handFocus('template-add', firstField);
     } finally {
       adding = false;
     }
@@ -404,7 +407,7 @@
     <div class="dialog-actions">
       <button type="button" class="btn btn-secondary" onclick={onClose}>{t('Cancel')}</button>
       {#if !access.readOnly}
-        <button type="submit" class="btn btn-primary" disabled={!ready || adding}>
+        <button id="template-add" type="submit" class="btn btn-primary" disabled={!ready || adding}>
           {t(action)}
         </button>
       {/if}

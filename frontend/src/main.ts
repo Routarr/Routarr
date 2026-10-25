@@ -4,11 +4,8 @@ import { startDictionary } from './lib/i18n.svelte';
 import './index.css';
 
 /**
- * The dictionary is in place before the first render rather than alongside it.
- *
- * Every screen reads it synchronously through `t()`, so mounting first would
- * paint one frame of raw keys, `CategoriesAndFolders` where a heading belongs,
- * before the strings arrived.
+ * Before the first render: every screen reads the dictionary through `t()`, and mounting first
+ * paints one frame of raw keys.
  */
 await startDictionary();
 

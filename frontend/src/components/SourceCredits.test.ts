@@ -35,11 +35,6 @@ const CATALOGUE = {
 
 afterEach(() => vi.restoreAllMocks());
 
-/**
- * What each source's terms ask of whoever shows its data: TMDB its notice and
- * logo, TheTVDB a sentence and a link, OMDb its licence. A credit missing is
- * a source used outside its terms.
- */
 describe('SourceCredits', () => {
   it('credits every source as its terms ask, enabled or not, and links to it', async () => {
     vi.spyOn(api, 'getSources').mockResolvedValue(CATALOGUE);

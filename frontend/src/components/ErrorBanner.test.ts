@@ -5,11 +5,6 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import ErrorBanner from './ErrorBanner.svelte';
 
-/**
- * The one component every failure passes through. It has to reach a screen
- * reader without being focused, and offer the way out when there is one.
- */
-
 function render(props: Record<string, unknown>) {
   renderWithI18n(ErrorBanner, { props });
 }
@@ -35,10 +30,6 @@ describe('ErrorBanner', () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  /**
-   * A write that failed must not grow a button that does it again. Retry is
-   * the caller's to offer, never the banner's to assume.
-   */
   it('shows no retry when none was offered', () => {
     render({ message: 'Rule rejected', onDismiss: () => {} });
 

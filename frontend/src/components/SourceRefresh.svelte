@@ -8,16 +8,14 @@
   import { RefreshCw } from '../lib/icons';
   import { createOutcome } from '../lib/outcome.svelte';
   import { access } from '../lib/access.svelte';
+  import { handFocus } from '../lib/focus';
   import { invalidateStatus, statusRevision } from '../lib/status.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
 
   /**
-   * One button per source a pass asks, to have every answer it gave read again
-   * now, after the source corrected its data, rather than once the cache
-   * lifetime has passed. The saved order, not the form's draft, says which
-   * sources a pass asks: the list follows each save through the status
-   * revision the save bumps.
+   * One button per source a pass asks, to read its answers again now. The saved order, not the
+   * form's draft, says which: the list follows each save through the status revision.
    */
   const catalogue = createAsync((signal) => api.getSources(signal), statusRevision);
   const asked = $derived(
@@ -32,10 +30,15 @@
   const outcome = createOutcome();
   let running = $state<string | null>(null);
 
+  /** Stops following, not the pass, which runs on whatever the card does. */
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
   async function refresh(provider: MetadataProvider) {
+    const pressed = document.activeElement as HTMLElement | null;
     running = provider.id;
     try {
-      const report = await api.refreshSource(provider.id);
+      const report = await api.refreshSource(provider.id, { signal: leaving.signal });
       invalidateStatus();
       const message = t('SourceRefreshed', {
         source: provider.display_name,
@@ -45,9 +48,10 @@
       if (report.failed > 0) outcome.warn(message);
       else outcome.succeed(message);
     } catch (err) {
-      outcome.fail(err);
+      if (!leaving.signal.aborted) outcome.fail(err);
     } finally {
       running = null;
+      void handFocus(pressed);
     }
   }
 </script>

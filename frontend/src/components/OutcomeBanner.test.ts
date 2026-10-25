@@ -6,11 +6,6 @@ import { renderWithI18n } from '../test/render';
 import { createOutcome } from '../lib/outcome.svelte';
 import OutcomeBanner from './OutcomeBanner.svelte';
 
-/**
- * A live region added at the same time as its text announces nothing: a screen
- * reader hears every refusal, which is an alert, and no success. The region a
- * success or a partial result is said in has to be there before either.
- */
 describe('OutcomeBanner', () => {
   it('holds its polite region before any outcome, and says each one in it', () => {
     const outcome = createOutcome();
@@ -29,10 +24,6 @@ describe('OutcomeBanner', () => {
     expect(region).not.toHaveTextContent('Settings saved');
   });
 
-  /**
-   * Forty failed moves are one failure with forty lines, not forty alerts a
-   * screen reader reads one after the other.
-   */
   it('lists the failed items in one banner, under the one alert', () => {
     const outcome = createOutcome();
     renderWithI18n(OutcomeBanner, { props: { outcome } });

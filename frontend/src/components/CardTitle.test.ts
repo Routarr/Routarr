@@ -6,10 +6,8 @@ import { CARD_HELP } from '../lib/help';
 import CardTitleHarness from '../test/CardTitleHarness.svelte';
 
 /**
- * A card's title carries a "?" named after the card, which opens a few
- * sentences on what the card shows. The browser opens and places the popover,
- * which jsdom does not lay out: what is held here is the name, the link from
- * the button to its bubble, and the text written in once it opens.
+ * jsdom lays out no popover: held here are the "?"'s name, its link to the bubble and the text
+ * the bubble opens on.
  */
 
 const card = Object.keys(CARD_HELP)[0]!;

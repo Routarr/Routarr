@@ -5,14 +5,6 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import ValuePicker from './ValuePicker.svelte';
 
-/**
- * Choosing a condition's values from what the library holds.
- *
- * The values are the strings the engine compares, so the control exists to stop
- * a rule depending on the user knowing an exact spelling. What it must never do
- * is store a value twice under two spellings, or lose one already saved.
- */
-
 const OPTIONS = [
   { value: 'Animation', count: 27 },
   { value: 'Science Fiction', count: 12 },
@@ -93,10 +85,6 @@ describe('ValuePicker', () => {
     expect(onChange).toHaveBeenCalledWith(['Comédie']);
   });
 
-  /**
-   * The filter matches on the same canonical form the engine compares with, so
-   * a search that ignores case, accents and separators finds the value anyway.
-   */
   it('finds a value however it is spelled', async () => {
     const { field } = open();
     await userEvent.type(field, 'science-fiction');
@@ -113,11 +101,6 @@ describe('ValuePicker', () => {
     expect(onChange).toHaveBeenCalledWith(['Comédie']);
   });
 
-  /**
-   * A value already chosen is not offered again, and cannot be added a second
-   * time under another spelling: two chips the engine treats as one would make
-   * the rule read as narrower than it is.
-   */
   it('never offers or stores a value twice', async () => {
     const { field } = open(['Animation']);
     await userEvent.click(field);
@@ -143,10 +126,20 @@ describe('ValuePicker', () => {
     expect(onChange).toHaveBeenCalledWith(['Animation']);
   });
 
-  /**
-   * Inside the rule editor's dialog, an Escape nobody claims closes the dialog
-   * and throws the draft away. Folding the list is all it may do here.
-   */
+  /** The Enter that ends an input method's composition converts the text, it chooses nothing. */
+  it.each([
+    ['during a composition', { isComposing: true }],
+    ['as Safari sends it once the composition ended', { keyCode: 229 }],
+  ])('adds nothing on an Enter %s', async (_, init) => {
+    const { onChange, field } = open();
+    await userEvent.type(field, 'ja');
+
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, ...init }));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(field).toHaveValue('ja');
+  });
+
   it('folds the list on Escape and claims the key, then lets the next Escape through', async () => {
     const { field } = open();
     await userEvent.click(field);
@@ -156,7 +149,6 @@ describe('ValuePicker', () => {
     expect(await fireEvent.keyDown(field, { key: 'Escape' })).toBe(true);
   });
 
-  /** Nothing typed and nothing chosen: Enter is the form's, which saves. */
   it('adds nothing on Enter in an empty picker, and lets the form have it', async () => {
     const { onChange, field } = open();
     await userEvent.click(field);
@@ -165,7 +157,6 @@ describe('ValuePicker', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  /** The focus stays in the field and the arrows move through the list. */
   it('adds the suggestion the arrows reach, and keeps the focus in the field', async () => {
     const { onChange, field } = open();
     await userEvent.click(field);
@@ -202,11 +193,21 @@ describe('ValuePicker', () => {
   });
 
   /** Typed again, a value already chosen offers nothing to add either. */
+  /**
+   * A note is heard where the focus stays, in the field, and a listbox holding no option is one
+   * a screen reader is told of and finds empty.
+   */
+  function noted(note: string) {
+    expect(screen.getByRole('status')).toHaveTextContent(note);
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false');
+  }
+
   it('says so when the filter matches nothing it could still add', async () => {
     const { field } = open(['zzz']);
     await userEvent.type(field, 'zzz');
 
-    expect(screen.getByText('No value matches')).toBeInTheDocument();
+    noted('No value matches');
     expect(screen.queryByRole('option', { name: /zzz/ })).toBeNull();
   });
 
@@ -214,14 +215,14 @@ describe('ValuePicker', () => {
     const { field } = open([], { options: [] });
     await userEvent.click(field);
 
-    expect(screen.getByText('The library carries no value for this yet')).toBeInTheDocument();
+    noted('The library carries no value for this yet');
   });
 
   it('says it is still loading rather than claiming the library is empty', async () => {
     const { field } = open([], { loading: true });
     await userEvent.click(field);
 
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    noted('Loading…');
     expect(screen.queryByText('The library carries no value for this yet')).not.toBeInTheDocument();
   });
 
@@ -229,28 +230,21 @@ describe('ValuePicker', () => {
     const { field } = open([], { error: 'Library unreachable' });
     await userEvent.click(field);
 
-    expect(screen.getByText('Library unreachable')).toBeInTheDocument();
+    noted('Library unreachable');
   });
 
-  /** A combobox announces itself, its state and the list it drives. */
   it('is announced as a combobox tied to its own list', async () => {
     const { field } = open();
 
     expect(field).toHaveAttribute('role', 'combobox');
     expect(field).toHaveAttribute('aria-expanded', 'false');
 
-    // The id is this instance's own, so two pickers on one form do not share it.
     await userEvent.click(field);
     const list = screen.getByRole('listbox');
     expect(list.id).toBeTruthy();
     expect(field).toHaveAttribute('aria-controls', list.id);
   });
 
-  /**
-   * A language is stored as `ja` and read as "Japanese". Searching by the name,
-   * storing the code, and showing the name back is the whole point: neither
-   * half is guessable from the other.
-   */
   it('searches a coded value by its name and stores the code', async () => {
     const { onChange, field } = open([], { options: CODES });
     await userEvent.type(field, 'korean');
@@ -266,11 +260,6 @@ describe('ValuePicker', () => {
     expect(screen.getByLabelText('Remove – Japanese (ja)')).toBeInTheDocument();
   });
 
-  /**
-   * A vocabulary entry the library does not carry is offered all the same
-   * (that is what lets a rule be written before the first Korean film arrives),
-   * and it carries no figure, which would otherwise read as "absent".
-   */
   it('offers a value the library has never seen, without a count', async () => {
     const { field } = open([], { options: CODES });
     await userEvent.click(field);
@@ -282,12 +271,6 @@ describe('ValuePicker', () => {
   });
 });
 
-/**
- * A chip's button goes with its chip, and the focus with it, inside the rule
- * editor's dialog. It moves to the chip that takes its place,
- * else to the one before, else to the field, so removing several values is
- * one key pressed several times.
- */
 describe('removing a chosen value', () => {
   function openLive(values: string[]) {
     const view = renderWithI18n(ValuePicker, {

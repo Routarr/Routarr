@@ -12,14 +12,7 @@ import { onboardingStatus, warning } from '../test/fixtures';
 import { onboarding, publishOnboarding, publishOnboardingFailure } from '../lib/onboarding.svelte';
 import { navigate } from '../lib/router.svelte';
 import { access, publishAccess } from '../lib/access.svelte';
-
-/**
- * The chrome. It answers one question above all others (will the next click
- * write to Radarr?) and it must answer it even when the backend does not.
- *
- * It reads `/status`, never `/health`: the latter probes every Arr over the
- * network, which would hold the whole shell behind an unreachable server.
- */
+import { withProof } from '../lib/proof.svelte';
 
 function status(over: Partial<Status> = {}): Status {
   return {
@@ -68,12 +61,6 @@ describe('Layout', () => {
     expect(chip.querySelector('.mode-dot')?.className).toContain('is-held');
   });
 
-  /**
-   * A mode is not an alert. `LiveModeActive` is the state this application is
-   * meant to run in, and `badge-danger` on it would spend the most urgent
-   * colour in the palette on "nothing is wrong", which is how a red badge stops
-   * meaning anything at all.
-   */
   it('states the writing mode without spending the danger colour on the normal one', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status({ dry_run: false }));
     show();
@@ -84,19 +71,15 @@ describe('Layout', () => {
     expect(chip.querySelector('.mode-dot')?.className).toContain('is-live');
   });
 
-  /**
-   * An unreachable backend must not render as an absent warning. Whether
-   * writing is possible is the one thing this bar exists to answer, and silence
-   * reads as "nothing to worry about", the opposite of what is true.
-   */
-  it('says the state is unknown rather than showing nothing at all', async () => {
+  /** The reason goes in a banner: a tooltip reaches a mouse alone. */
+  it('says the state is unknown rather than showing nothing at all, and why', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new Error('connection refused'));
     show();
 
     expect(await screen.findByText('Status unavailable')).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('connection refused');
   });
 
-  /** A mode read before the server stopped answering is no longer known. */
   it('says the state is unknown once a later read fails', async () => {
     vi.spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ dry_run: false }))
@@ -110,11 +93,6 @@ describe('Layout', () => {
     expect(screen.queryByLabelText('Live mode: writes enabled')).toBeNull();
   });
 
-  /**
-   * A key is generated at first start, so a browser without one is the ordinary
-   * first visit. Mounting the pages behind the gate instead costs a failed
-   * request each and reads as a broken install.
-   */
   it('replaces the whole shell when the server asks for a key', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
     show();
@@ -148,10 +126,6 @@ describe('Layout', () => {
     expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('half-typed');
   });
 
-  /**
-   * A session that ended is found by whichever screen asks next, and the
-   * sign-in screen follows at once rather than at the next poll, a minute on.
-   */
   it('shows the sign-in screen as soon as any request is refused', async () => {
     vi.spyOn(api, 'authMode').mockResolvedValue({
       mode: 'forms',
@@ -178,10 +152,6 @@ describe('Layout', () => {
     vi.unstubAllGlobals();
   });
 
-  /**
-   * The shell's own refused read is no news to it: re-read for it, each read
-   * would supersede the last before it could say it was refused, for good.
-   */
   it('reads its status once when the browser has no session, not in a loop', async () => {
     const asked: string[] = [];
     vi.stubGlobal(
@@ -212,12 +182,6 @@ describe('Layout', () => {
     expect(screen.getByText('the page')).toBeTruthy();
   });
 
-  /**
-   * Each count sits on the destination that answers it, where it can be acted
-   * on, and the bar keeps one control for what actually wants a person. A
-   * sentence per count would outgrow the bar in a long language and widen the
-   * document on a phone.
-   */
   it('turns each status figure into a count on the navigation', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(
       status({
@@ -251,10 +215,6 @@ describe('Layout', () => {
     expect(attention.getAttribute('href')).toBe('/routarr/move-log');
   });
 
-  /**
-   * A sign-out that fails unsaid is an unhandled rejection: the button looks
-   * dead, and the session stays open on a shared machine.
-   */
   it('says when signing out failed instead of pretending it worked', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     vi.spyOn(api, 'authMode').mockResolvedValue({
@@ -270,10 +230,6 @@ describe('Layout', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('later');
   });
 
-  /**
-   * The key is exchanged for a session, so a browser in `apikey` mode holds one
-   * like any other, and leaves it the same way.
-   */
   it('signs a browser out of the session its API key opened', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     vi.spyOn(api, 'authMode').mockResolvedValue({
@@ -325,10 +281,17 @@ describe('Layout', () => {
       name: /Needs attention: Failed moves: 2, Warnings: 2$/,
     });
     expect(attention).toHaveTextContent('4');
-    // A failed move is what the danger colour is for, and failures are listed
-    // on the log screen. Landing on Diagnostics, which says nothing about
-    // them, is worse than landing nowhere.
     expect(attention.getAttribute('href')).toBe('/move-log');
+  });
+
+  /** Grouped as the language groups digits, as every other count of the interface. */
+  it('groups the figure of what needs attention', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status({ failed_decisions: 1234 }));
+    show();
+
+    const attention = await screen.findByRole('link', { name: /Needs attention/ });
+    const figure = [...attention.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE);
+    expect(figure.map((node) => node.textContent?.trim()).join('')).toBe('1,234');
   });
 
   it('sends a warning-only alert to the screen that lists warnings', async () => {
@@ -362,13 +325,10 @@ describe('Layout', () => {
     await fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
-    // Below the drawer breakpoint the navigation covers the page, so clicking
-    // beside it has to dismiss it.
     await fireEvent.click(container.querySelector('.sidebar-scrim') as HTMLElement);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
-  /** A drawer that covers the page is left the way a dialog is. */
   it('closes the drawer on Escape and hands the focus back to its button', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     show();
@@ -381,10 +341,6 @@ describe('Layout', () => {
     expect(document.activeElement).toBe(toggle);
   });
 
-  /**
-   * Below the breakpoint a closed drawer is out of sight, and its links must
-   * leave the tab order with it. Above it the rail is the navigation.
-   */
   it('takes a closed drawer out of reach below the breakpoint, and only there', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     const narrow = (matches: boolean) =>
@@ -409,7 +365,6 @@ describe('Layout', () => {
     expect((wide.container.querySelector('#sidebar') as HTMLElement).inert).toBe(false);
   });
 
-  /** Below the breakpoint an open drawer covers the page, and is used as a dialog is. */
   it('takes the focus into an open drawer and the page out of reach under it', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     vi.stubGlobal('matchMedia', () => ({
@@ -423,9 +378,27 @@ describe('Layout', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
 
     await waitFor(() => expect(document.activeElement).toBe(container.querySelector('#sidebar a')));
+    const bar = container.querySelector('header') as HTMLElement;
     expect(main.inert).toBe(true);
+    expect(bar.inert).toBe(true);
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(main.inert).toBe(false);
+    expect(bar.inert).toBe(false);
+  });
+
+  /**
+   * Inside `main`, a `header` is no banner, and the skip link to `main` lands before the bar's
+   * tools on every screen.
+   */
+  it('sets the top bar beside the page as its banner, not inside it', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+
+    const banner = await screen.findByRole('banner');
+    const main = screen.getByRole('main');
+    expect(main.contains(banner)).toBe(false);
+    expect(main).toHaveAttribute('id', 'main');
+    expect(within(banner).getByRole('button', { name: 'Quick search' })).toBeInTheDocument();
   });
 
   it('leaves the page reachable beside the rail above the breakpoint', async () => {
@@ -437,14 +410,7 @@ describe('Layout', () => {
     expect((container.querySelector('main') as HTMLElement).inert).toBe(false);
   });
 
-  /**
-   * The scenario the counters exist for: a screen fixes a warning, and the two
-   * places that count them have to agree with it at once.
-   *
-   * They share one request, so they never disagree with each other, only with
-   * the page, for as long as a minute, unless the screen tells the shell that a
-   * mapping was made or a key saved.
-   */
+  /** The bar and the navigation share one request, which a screen's write runs again at once. */
   it('corrects the bar and the navigation the moment a screen says so', async () => {
     const getStatus = vi
       .spyOn(api, 'getStatus')
@@ -470,7 +436,6 @@ describe('Layout', () => {
     expect(getStatus).toHaveBeenCalledTimes(2);
   });
 
-  /** A warning that is gone leaves nothing behind, in either place. */
   it('removes both counters when the last warning is fixed', async () => {
     vi.spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ warnings: [warning('unmapped')] }))
@@ -596,6 +561,11 @@ describe('Layout', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Help' }));
     await waitFor(() => expect(help()).toBeTruthy());
     expect(screen.getByRole('button', { name: 'Help' })).toHaveAttribute('aria-keyshortcuts', '?');
+    // The shortcut the quick search shows beside its name, said to a screen reader too.
+    expect(screen.getByRole('button', { name: 'Quick search' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Control+K',
+    );
     await close();
 
     const field = document.createElement('input');
@@ -615,10 +585,6 @@ describe('Layout', () => {
     }
   });
 
-  /**
-   * A step is done on the screen the reader just left: the pill, the
-   * dashboard list and the step banners follow from this one read.
-   */
   it('reads the guide again after a write and on every navigation', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     vi.spyOn(api, 'getOnboarding')
@@ -639,12 +605,6 @@ describe('Layout', () => {
     expect(await pill(3)).toBeTruthy();
   });
 
-  /**
-   * A screen changes without a page load, so nothing tells a screen reader
-   * that it did: the tab and the focus say so, as a load would. The first
-   * screen is the page load itself and leaves the focus where the browser put
-   * it.
-   */
   it('names the screen in the tab, and moves the focus to its heading on a navigation', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     show();
@@ -733,7 +693,7 @@ describe('Layout', () => {
     expect(api.getOnboarding).toHaveBeenCalledTimes(1);
   });
 
-  /** The guide is refused to a reader, and asked before the answer it would be refused too. */
+  /** A reader is refused the guide, so it waits until the shell knows who reads. */
   it('reads the guide once the owner is known, and never for a reader', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
     const guide = vi.spyOn(api, 'getOnboarding').mockResolvedValue(onboardingStatus());
@@ -796,5 +756,53 @@ describe('Layout', () => {
     invalidateStatus();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(me).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * A tab left open across an update asks for chunks the server no longer holds. A dialog whose
+ * code never arrives says so and offers the reload that fetches the current code.
+ */
+describe('a dialog whose code never arrives', () => {
+  afterEach(() => {
+    vi.doUnmock('./HelpPanel.svelte');
+    vi.doUnmock('./ProofDialog.svelte');
+  });
+
+  it('closes, and the shell offers to reload the page', async () => {
+    vi.doMock('./HelpPanel.svelte', () => Promise.reject(new Error('Failed to fetch module')));
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    show();
+    await screen.findByLabelText('Dry-run: writes blocked');
+
+    await fireEvent.keyDown(window, { key: '?', shiftKey: true });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Part of the interface could not be loaded, often after an update. Reload the page to fetch it.',
+    );
+    await fireEvent.click(within(alert).getByRole('button', { name: 'Reload the page' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  /** Unanswered, the question would hold every caller's busy state until a reload. */
+  it('answers a proof it cannot ask for as declined', async () => {
+    vi.doMock('./ProofDialog.svelte', () => Promise.reject(new Error('Failed to fetch module')));
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode: 'forms',
+      api_key_configured: false,
+      api_key_pinned: false,
+    });
+    const send = vi.fn();
+    show();
+    await screen.findByLabelText('Dry-run: writes blocked');
+
+    expect(await withProof(send)).toBeNull();
+    expect(send).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Reload the page' })).toBeInTheDocument();
   });
 });

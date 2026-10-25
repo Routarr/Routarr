@@ -7,6 +7,7 @@ import { renderWithI18n } from '../test/render';
 import { decision, instance, job, paginated, rule } from '../test/fixtures';
 import { api, ApiError } from '../api/client';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 import History from './History.svelte';
 import { publishAccess } from '../lib/access.svelte';
 
@@ -325,6 +326,10 @@ describe('History', () => {
     const row = await screen.findByRole('row', { name: /Akira/ });
     expect(within(row).getByTitle('Triggered by')).toHaveTextContent('Manual');
     expect(within(row).getByTitle('Performed by')).toHaveTextContent('alice');
+    // Said in words too, since a title reaches a mouse alone.
+    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent(
+      /Triggered by\s*Manual.*Performed by\s*alice/,
+    );
 
     const swept = screen.getByRole('row', { name: /Totoro/ });
     expect(within(swept).getByTitle('Triggered by')).toHaveTextContent('Schedule');
@@ -512,6 +517,26 @@ describe('narrowing and reverting many', () => {
     expect(await screen.findByText('Moves reverted: 3 of 3. Batches: 1.')).toBeTruthy();
     expect(nthCall(revertAll)[0]).toEqual({ filter: { rule_id: 'r1' } });
     expect(nthCall(revertAll, 1)[2]).toEqual(['batch']);
+  });
+
+  /** The button turns disabled before the server's question opens, which then has no opener. */
+  it('hands the focus back to Revert all once the revert of many ends', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
+    vi.spyOn(api, 'revertAllDecisions')
+      .mockRejectedValueOnce(
+        new ApiError('Moves to revert: 3.', 409, 'confirmation_required', null, 'batch'),
+      )
+      .mockResolvedValue(report);
+    show();
+    const pressed = await screen.findByRole('button', { name: 'Revert all (3)' });
+
+    await userEvent.click(pressed);
+    dropFocus();
+    await answerConfirmation();
+
+    expect(await screen.findByText('Moves reverted: 3 of 3. Batches: 1.')).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(pressed));
   });
 
   it('says a revert of many stopped by a refused slice left the rest applied', async () => {

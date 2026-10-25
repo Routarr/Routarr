@@ -157,33 +157,38 @@ test.describe('table cells stay on one line', () => {
  * inside its own region.
  */
 test.describe('on a phone', () => {
-  for (const path of ROUTES) {
-    test(`${path} fits a 375px screen and its tables scroll inside their region`, async ({
-      page,
-    }) => {
-      // A row in every table, once loaded, since a heading over an empty table fits any screen.
-      await seedRows();
-      await page.setViewportSize({ width: 375, height: 812 });
-      await openScreen(page, path);
-      await page.waitForLoadState('networkidle');
-      await unfold(page);
+  // 320 is the width WCAG 1.4.10 reflows to, a 1280px window zoomed to 400%.
+  for (const width of [375, 320]) {
+    for (const path of ROUTES) {
+      test(`${path} fits a ${width}px screen and its tables scroll inside their region`, async ({
+        page,
+      }) => {
+        // A row in every table, once loaded, since a heading over an empty table fits any screen.
+        await seedRows();
+        await page.setViewportSize({ width, height: 812 });
+        await openScreen(page, path);
+        await page.waitForLoadState('networkidle');
+        await unfold(page);
 
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow, `${path} scrolls the page sideways by ${overflow}px`).toBeLessThanOrEqual(1);
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+        expect(overflow, `${path} scrolls the page sideways by ${overflow}px`).toBeLessThanOrEqual(
+          1,
+        );
 
-      // A table may be wider than the screen, so the region that scrolls it must be reachable.
-      const regions = await page.evaluate(() =>
-        [...document.querySelectorAll('.table-container')].map((el) => ({
-          scrolls: el.scrollWidth > el.clientWidth,
-          focusable: el.getAttribute('tabindex') === '0',
-        })),
-      );
-      for (const region of regions.filter((r) => r.scrolls)) {
-        expect(region.focusable).toBe(true);
-      }
-    });
+        // A table may be wider than the screen, so the region that scrolls it must be reachable.
+        const regions = await page.evaluate(() =>
+          [...document.querySelectorAll('.table-container')].map((el) => ({
+            scrolls: el.scrollWidth > el.clientWidth,
+            focusable: el.getAttribute('tabindex') === '0',
+          })),
+        );
+        for (const region of regions.filter((r) => r.scrolls)) {
+          expect(region.focusable).toBe(true);
+        }
+      });
+    }
   }
 
   /**

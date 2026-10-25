@@ -360,10 +360,8 @@ pub async fn import(
     crate::race::checked("templates::import", template.id).await;
 
     let marker = template.marker();
-    let category_note = localizer.translate(
-        "TemplateCategoryCreated",
-        &[("template", &localizer.translate(template.name, &[]))],
-    );
+    let category_note = localizer
+        .stored("TemplateCategoryCreated", &[("template", &localizer.stored(template.name, &[]))]);
     let rendered: Vec<CreateRuleRequest> =
         planned.rules.into_iter().map(|planned| planned.rule).collect();
     let mut tx = crate::db::write_transaction(&state.pool).await?;
@@ -609,8 +607,8 @@ fn as_rule(template: &Template, index: usize, rule: &CreateRuleRequest) -> Rule 
 /// in English when the library already has that one, as `kids` for a French
 /// reader whose children already go there.
 fn suggested_category(template: &Template, localizer: &Localizer, known: &[String]) -> String {
-    let own = localizer.translate(template.category, &[]);
-    let english = Localizer::new("en").translate(template.category, &[]);
+    let own = localizer.stored(template.category, &[]);
+    let english = Localizer::new("en").stored(template.category, &[]);
     if known.contains(&english) && !known.contains(&own) { english } else { own }
 }
 

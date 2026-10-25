@@ -82,7 +82,9 @@ describe('Security log', () => {
   /** The file holds what the screen shows: every filter goes with it. */
   it('narrows to an event, an outcome and an address, and exports what it shows', async () => {
     const list = vi.spyOn(api, 'getSecurityLog').mockResolvedValue(paginated([event()]));
-    const exportLog = vi.spyOn(api, 'exportSecurityLog').mockResolvedValue(new Blob(['a,b']));
+    const exportLog = vi
+      .spyOn(api, 'exportSecurityLog')
+      .mockResolvedValue({ blob: new Blob(['a,b']), truncated: false });
     const saved = captureDownloads();
     show();
 
@@ -98,5 +100,25 @@ describe('Security log', () => {
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(nthCall(exportLog)[0]).toMatchObject(narrowed);
     expect(saved[0]?.name).toBe('routarr-security-log.csv');
+  });
+
+  /** A file cut at the server's ceiling would otherwise read as the whole log. */
+  it('warns that an export cut short holds the newest events only', async () => {
+    vi.spyOn(api, 'getSecurityLog').mockResolvedValue(paginated([event()]));
+    vi.spyOn(api, 'exportSecurityLog').mockResolvedValue({
+      blob: new Blob(['a,b']),
+      truncated: true,
+    });
+    const saved = captureDownloads();
+    show();
+
+    await userEvent.click(await screen.findByRole('button', { name: /export csv/i }));
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(
+      await screen.findByText(
+        'The file holds the newest 50,000 entries: narrow the filters to export the rest',
+      ),
+    ).toBeTruthy();
   });
 });

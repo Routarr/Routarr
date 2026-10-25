@@ -1,15 +1,8 @@
 /**
- * Where the shell can go, without the icons.
- *
- * The icons are Svelte components, and a module that imports them cannot be
- * read by anything without a Svelte runtime, such as the e2e sweeps. This file
- * is plain data: `navigation.ts` dresses it in icons for the sidebar and the
- * palette, and `e2e/screens.ts` reads it as it is, so no sweep keeps a list of
- * screens by hand.
- *
- * A new screen also needs its lazy import in `ROUTES` (`App.svelte`) and its
- * icon in `ICONS` (`lib/navigation.ts`), which `test/layout.test.ts` and
- * `lib/routes.test.ts` hold together.
+ * Where the shell can go, as plain data: the icons are Svelte components, which the e2e sweeps
+ * cannot import, so `navigation.ts` adds them. A new screen also needs its lazy import in
+ * `ROUTES` (`App.svelte`) and its icon in `ICONS` (`lib/navigation.ts`), which
+ * `test/layout.test.ts` and `lib/routes.test.ts` hold together.
  */
 
 /**
@@ -36,19 +29,9 @@ export interface Route {
 }
 
 /**
- * The destinations, grouped by what someone came to do.
- *
- * The order says what the application is for: what decides where a title goes
- * follows the dashboard, the screens configured once at install come after,
- * and what serves other applications comes last. A group of two to four is read
- * at a glance where a flat list is scanned every time.
- *
- * An exception sits with the rules because it outranks every one of them, and
- * the count of proposals waiting sits on the simulation, the one screen that
- * applies them.
- *
- * The group heading is a label, never a heading level: the accessibility sweep
- * checks that no screen skips one, and a navigation is not an outline.
+ * The destinations, grouped by what someone came to do: what decides where a title goes after
+ * the dashboard, then what is configured once, then what serves other applications. An
+ * exception sits with the rules it outranks. A group heading is a label, never a heading level.
  */
 export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
   {

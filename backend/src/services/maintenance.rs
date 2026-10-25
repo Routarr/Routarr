@@ -43,10 +43,9 @@ pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
     Ok(listed)
 }
 
-/// Bring stored `Bounded` settings inside this build's ranges: the Settings screen sends every
-/// field, so one value outside its range fails every save. A retention count is raised to its
-/// floor and never lowered, which would delete what lies beyond it (`settings::bounds` answers
-/// no ceiling for one). At startup, so the ranges stay stated once, beside their settings.
+/// Bring stored `Bounded` settings inside this build's ranges at startup: a caller sending back
+/// every value it read fails its whole save on one outside. A retention count is only raised to
+/// its floor, since lowering it deletes what lies beyond (`settings::bounds` answers no ceiling).
 pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT key, value FROM settings").fetch_all(&state.pool).await?;

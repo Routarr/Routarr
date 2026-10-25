@@ -5,12 +5,6 @@ import { renderWithI18n } from '../test/render';
 import { decision } from '../test/fixtures';
 import DecisionRowHarness from '../test/DecisionRowHarness.svelte';
 
-/**
- * One row of a simulation. It is the smallest place where the explainability
- * contract is visible: the reasons the engine gave, the alternatives it
- * discarded, and whether this one is actionable at all.
- */
-
 const show = (props: Record<string, unknown>) => renderWithI18n(DecisionRowHarness, { props });
 
 afterEach(() => vi.restoreAllMocks());
@@ -45,11 +39,7 @@ describe('DecisionRow', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
   });
 
-  /**
-   * A category with no root folder behind it is the single most common reason
-   * nothing moves, and the row is where it has to be said, not only in a
-   * warning above a table the user scrolled past.
-   */
+  /** A category with no folder is said on its row, not only in a warning above the table. */
   it('says which category has no folder rather than leaving the cell empty', () => {
     show({
       decision: decision({ target_root_folder: null, target_category: 'anime' }),
@@ -76,10 +66,6 @@ describe('DecisionRow', () => {
     expect(screen.getByText('Manual exception')).toBeTruthy();
   });
 
-  /**
-   * The rules that lost are part of the explanation. Showing only the winner
-   * makes a surprising outcome impossible to argue with.
-   */
   /** A title in no root folder yet: a dash on screen, a word to a screen reader. */
   it('says an empty folder cell in a word', () => {
     show({
@@ -113,12 +99,7 @@ describe('DecisionRow', () => {
     expect(screen.getByText(/Concerts excluded \(certification G\)/)).toBeTruthy();
   });
 
-  /**
-   * A justification is clamped to two lines, and a title shows the rest to a
-   * mouse alone. A clamped one is offered in full behind a button, which a
-   * keyboard and a finger reach too, named after its row since every clamped
-   * row has one.
-   */
+  /** Clamped to two lines, a justification is offered in full behind a button of its row. */
   describe('a justification longer than two lines', () => {
     const reason = '✓ Original language in [ja] – found [ja]';
 
@@ -203,7 +184,6 @@ it('marks the lines the title meets, by what the server says of each', () => {
   expect(screen.getByText('A sentence a row stored').className).toContain('text-muted');
 });
 
-/** Told apart by shape and colour on screen, and by a word to a screen reader. */
 describe('the action cell', () => {
   it('says the action in words beside its icon', () => {
     for (const [action, word] of [

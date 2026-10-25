@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use serde_json::json;
 
-use super::{AN_INSTANCE, TestApp};
+use super::{AN_INSTANCE, TestApp, isolated};
 
 /// A title as TMDB describes it, with the Arr's tags. No language is a title
 /// no source has described.
@@ -657,6 +657,39 @@ async fn a_requester_tagged_in_several_forms_is_one_person_routed_by_each() {
     assert_eq!(decided["asked"], "alice");
     assert_eq!(decided["amelie"], "alice");
     assert_eq!(decided["paddington"], "alice", "renamed since");
+}
+
+/// What a template writes is kept, compared and exported in every direction: in Arabic the names
+/// and descriptions it stores carry no isolate mark, where a sentence it says still does.
+#[tokio::test]
+async fn what_a_template_stores_in_arabic_carries_no_isolate_mark() {
+    let app = library("ar").await;
+    let alice = json!({ "requesters": [{ "tag": "3-alice", "category": "alice" }] });
+
+    add(&app, "requesters", alice.clone()).await;
+
+    let rules: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT name, description FROM rules")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(!rules.is_empty());
+    for (name, description) in &rules {
+        assert!(!isolated(name), "{name:?}");
+        assert!(name.contains("alice"), "{name:?}");
+        assert!(!isolated(description.as_deref().unwrap_or_default()), "{description:?}");
+    }
+    let note: String =
+        sqlx::query_scalar("SELECT description FROM categories WHERE name = 'alice'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(!isolated(&note), "{note:?}");
+
+    let again = app.post("/api/v1/rules/templates/requesters/import", alice).await;
+    let refusal =
+        again.assert_status(StatusCode::CONFLICT)["message"].as_str().unwrap().to_string();
+    assert!(isolated(&refusal), "a sentence shown is still isolated: {refusal:?}");
 }
 
 /// An export restored, a template's rules still come from it: otherwise the

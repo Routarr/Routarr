@@ -8,16 +8,9 @@
   import ErrorBanner from './ErrorBanner.svelte';
 
   /**
-   * Shown instead of the application when the server runs in `forms` or `oidc`
-   * mode and this browser has no live session.
-   *
-   * The sibling of `ApiKeyGate`, and for the same reason: mounting the pages
-   * behind a refusal produces a failed request each and reads as a broken
-   * install. Which of the two appears is the server's answer to `/auth/mode`,
-   * not a guess.
-   *
-   * It says where the generated password is, because "sign in" is useless to
-   * someone who has never been given a credential.
+   * Shown in place of the application in `forms` or `oidc` mode when this browser has no
+   * session, as `ApiKeyGate` is for a key, the server's `/auth/mode` deciding which. It says
+   * where the generated password is.
    */
   let { mode }: { mode: 'forms' | 'oidc' } = $props();
 
@@ -30,11 +23,12 @@
   let username = $state('admin');
   let password = $state('');
   let error = $state<string | null>(null);
+  /** The password was refused, which the field says as well as the banner. */
+  let wrong = $state(false);
   let busy = $state(false);
 
-  // The theme is a server setting behind the gate, so this one screen follows
-  // the operating system. `ApiKeyGate` makes the same choice for the same
-  // reason: guessing dark would look wrong on a light desktop.
+  // The theme is a server setting behind the gate, so this screen follows the system's, as
+  // `ApiKeyGate` does.
   $effect(() => {
     delete document.documentElement.dataset.theme;
   });
@@ -45,6 +39,7 @@
     const pressed = document.activeElement as HTMLElement | null;
     busy = true;
     error = null;
+    wrong = false;
     try {
       await api.login(username, password);
       // A reload rather than a state update: every page in the tree fetched and
@@ -53,10 +48,8 @@
     } catch (cause) {
       // Its own 401 is the password. Every other 401 is worded as an API key
       // to set, which this screen offers no way to do.
-      error =
-        cause instanceof ApiError && cause.status === 401
-          ? t('SignInWrongCredentials')
-          : describeError(cause);
+      wrong = cause instanceof ApiError && cause.status === 401;
+      error = wrong ? t('SignInWrongCredentials') : describeError(cause);
     } finally {
       busy = false;
       void handFocus(pressed);
@@ -75,7 +68,11 @@
       </h1>
     </div>
 
-    <ErrorBanner message={error} onDismiss={() => (error = null)} />
+    <ErrorBanner
+      id="gate-refusal"
+      message={error}
+      onDismiss={() => ((error = null), (wrong = false))}
+    />
     {#if refused}
       <ErrorBanner message={t('SignInRefused')} />
     {/if}
@@ -106,6 +103,8 @@
           type="password"
           class="form-input"
           autocomplete="current-password"
+          aria-invalid={wrong ? 'true' : undefined}
+          aria-describedby={wrong ? 'gate-refusal' : undefined}
           bind:value={password}
           autofocus
         />

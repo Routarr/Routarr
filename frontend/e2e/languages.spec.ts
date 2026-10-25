@@ -5,7 +5,8 @@ import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /**
  * Every language holds on one line what English does, and no button spills out
- * of its card, banner or dialog. A button never wraps, it widens.
+ * of its card, banner or dialog. A button widens, and below 560px its label may
+ * take two lines rather than spill.
  */
 
 /** Every screen and settings section, and the two dialogs a first run opens. */
@@ -150,7 +151,7 @@ async function speak(code: string): Promise<void> {
 }
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
-  // About four minutes in Chromium, twice that in WebKit on CI.
+  // Every language on every path at each width, in WebKit too.
   test.setTimeout(600_000);
   // Reduced motion keeps each transition within a frame.
   await page.emulateMedia({ reducedMotion: 'reduce' });

@@ -5,6 +5,7 @@
   import { t } from '../lib/i18n.svelte';
   import type { Outcome } from '../lib/outcome.svelte';
   import WarningBanner from './WarningBanner.svelte';
+  import { handFocus } from '../lib/focus';
 
   /**
    * The `forms` account's password, changed against the current one, and every
@@ -12,7 +13,7 @@
    */
   let { outcome }: { outcome: Outcome } = $props();
 
-  /** The server's minimum, which `PUT /auth/password` refuses below. */
+  /** The server's minimum, `MIN_PASSWORD_LENGTH` in `backend/src/api/auth.rs`. */
   const SHORTEST = 12;
 
   let current = $state('');
@@ -30,6 +31,7 @@
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!ready) return;
+    const pressed = document.activeElement as HTMLElement | null;
     saving = true;
     try {
       const changed = await api.changePassword(current, next, revokeKeys);
@@ -43,6 +45,8 @@
       outcome.fail(cause);
     } finally {
       saving = false;
+      // A changed password leaves the fields empty and the button disabled.
+      void handFocus(pressed, 'account-current');
     }
   }
 </script>

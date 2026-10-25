@@ -96,12 +96,20 @@ describe('ProofDialog', () => {
     expect(
       screen.getByText('This archive is encrypted. Type the passphrase it was taken with.'),
     ).toBeVisible();
+    expect(screen.getByLabelText('Passphrase')).toHaveAccessibleDescription(
+      'This archive is encrypted. Type the passphrase it was taken with.',
+    );
+    expect(screen.getByLabelText('Passphrase')).not.toHaveAttribute('aria-invalid');
     await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'wrong' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await first).toBe('wrong');
 
     const again = askPassphrase('That passphrase does not open this archive.');
     expect(await screen.findByRole('alert')).toHaveTextContent('does not open this archive');
+    // The field that keeps the focus is marked refused and carries why.
+    const field = screen.getByLabelText('Passphrase');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('That passphrase does not open this archive.');
     expect(
       screen.queryByText('This archive is encrypted. Type the passphrase it was taken with.'),
     ).toBeNull();

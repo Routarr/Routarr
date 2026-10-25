@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check that the frontend's view of a response matches the backend's: each `PAIRS` struct and
 its interface in `frontend/src/api/types.ts` carry the same field names. Types are not compared,
-and a payload built with `serde_json::json!` escapes the check."""
+and a payload built with `serde_json::json!` escapes the check, so `client.ts` types an answer
+inline, or exports an interface, only where `INLINE` or `CLIENT_EXPORTS` says why."""
 
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RUST = ROOT / "backend" / "src"
 TYPES = ROOT / "frontend" / "src" / "api" / "types.ts"
+CLIENT = ROOT / "frontend" / "src" / "api" / "client.ts"
 
 # Rust struct -> TypeScript interface. A new response type needs its line here.
 PAIRS: dict[str, str] = {
@@ -96,6 +98,13 @@ PAIRS: dict[str, str] = {
     "TitleRefresh": "TitleRefresh",
     "ValidationIssue": "ValidationIssue",
     "Vocabularies": "Vocabularies",
+    "Declared": "DeclaredRootFolder",
+    "Deleted": "Deleted",
+    "RuleVerdict": "RuleVerdict",
+    "RuleImportReport": "RuleImportReport",
+    "RuleBundle": "RuleBundle",
+    "BundledRule": "BundledRule",
+    "SigningSecret": "SigningSecret",
 }
 
 
@@ -111,6 +120,23 @@ UNPAIRED: dict[str, str] = {
     "RuleDraft": "a request body",
     "AuthMode": "built with json! in api::auth::mode",
     "Condition": "a tagged enum on the Rust side, which this check does not read",
+}
+
+# Answers `client.ts` types inline, by the path asked, each `${...}` written `{}`, and why no
+# struct mirrors them.
+INLINE: dict[str, str] = {
+    "path": "the first answer of a followed write: a task id, or the report itself",
+    "/localization/languages": "built with json! in api::localization::languages",
+    "/auth/login": "built with json! in api::auth::login",
+    "/auth/logout": "built with json! in api::auth::logout",
+    "/auth/key-session": "built with json! in api::auth::key_session",
+    "/auth/api-key": "built with json! in api::account::rotate_api_key",
+    "/auth/sessions": "built with json! in api::account::end_sessions",
+}
+
+# Interfaces `client.ts` exports, and why they are not payloads.
+CLIENT_EXPORTS: dict[str, str] = {
+    "Following": "how a caller follows a job, an option of the client",
 }
 
 
@@ -258,6 +284,17 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
     return found
 
 
+def client_payloads(path: Path) -> tuple[list[str], list[str]]:
+    """The paths whose answer `client.ts` types inline, and the interfaces it exports."""
+    source = strip_comments(path.read_text())
+    inline = []
+    for match in re.finditer(r"\b(?:request|followed)<\{.*?\}>\(\s*([^,)]+)", source, re.DOTALL):
+        asked = match.group(1).strip().strip("'\"`")
+        inline.append(re.sub(r"\$\{[^}]*\}", "{}", asked).split("?")[0])
+    exported = re.findall(r"export interface (\w+)", source)
+    return inline, exported
+
+
 def main() -> int:
     if not TYPES.exists():
         print(f"check-api-types: {TYPES} not found", file=sys.stderr)
@@ -316,6 +353,19 @@ def main() -> int:
         )
     for name in sorted(set(UNPAIRED) - (set(ts) - paired)):
         failures.append(f"{name}: listed in UNPAIRED, but paired or no longer in types.ts")
+
+    inline, exported = client_payloads(CLIENT)
+    for asked in sorted(set(inline) - set(INLINE)):
+        failures.append(
+            f"client.ts types the answer of {asked} inline: a struct's goes in types.ts and "
+            "PAIRS, a json! one in INLINE"
+        )
+    for asked in sorted(set(INLINE) - set(inline)):
+        failures.append(f"{asked}: listed in INLINE, but client.ts types no answer of it inline")
+    for name in sorted(set(exported) - set(CLIENT_EXPORTS)):
+        failures.append(f"{name}: exported by client.ts, where payloads belong in types.ts")
+    for name in sorted(set(CLIENT_EXPORTS) - set(exported)):
+        failures.append(f"{name}: listed in CLIENT_EXPORTS, but client.ts no longer exports it")
 
     # Reported rather than enforced, since most structs never reach the wire.
     unpaired = sorted(

@@ -27,6 +27,8 @@ import type {
   MappingConflict,
   FolderSuggestion,
   Dismissal,
+  DeclaredRootFolder,
+  Deleted,
   AnimeIdsState,
   AnimeIdsLoaded,
   BackupFile,
@@ -44,9 +46,13 @@ import type {
   PasswordChanged,
   Proof,
   Rule,
+  RuleBundle,
   RuleDraft,
+  RuleImportReport,
+  RuleVerdict,
   SecurityEvent,
   Session,
+  SigningSecret,
   RestoreResult,
   TemplateAdded,
   TemplatePreview,
@@ -61,7 +67,6 @@ import type {
   SyncReport,
   TestConnectionResponse,
   TitleRefresh,
-  ValidationIssue,
   LibraryFacets,
   RuleHealthReport,
   RuleTest,
@@ -163,6 +168,9 @@ function storedKeyExchange(): Promise<void> | null {
 /** Short enough to be a signal. Work that may run longer is `followed` and never meets it. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/** A file sent as the body shows no progress to restart the bound on, so it has a slow uplink's. */
+const UPLOAD_TIMEOUT_MS = 600_000;
+
 /** Told of every 401 from any screen, so the shell shows its gate at once. */
 let refused: (() => void) | null = null;
 
@@ -174,14 +182,58 @@ export function onRefused(listener: () => void): () => void {
   };
 }
 
+/** Reads a body, calling `heard` as each part of it arrives. */
+type Reader<T> = (response: Response, heard: () => void) => Promise<T>;
+
 const readJson = (response: Response) => response.json() as Promise<never>;
-/** A file the API serves, whatever its type: the one read held to no JSON. */
-const readBlob = (response: Response) => response.blob() as Promise<never>;
+
+/** The rows a log export holds at most, `EXPORTED_AT_MOST` in `backend/src/api/move_log.rs`. */
+export const EXPORTED_AT_MOST = 50_000;
+
+/** A file the API serves, and whether the server cut it short of what the filters hold. */
+interface ServedFile {
+  blob: Blob;
+  truncated: boolean;
+}
+
+/**
+ * A file, whatever its type: the one read held to no JSON. Each chunk restarts the bound, so a
+ * large file keeps arriving for as long as it takes, and one that stalls is still given up.
+ */
+async function readFile(response: Response, heard: () => void): Promise<ServedFile> {
+  const truncated = response.headers.get('x-routarr-truncated') === 'true';
+  const reader = response.body?.getReader();
+  if (!reader) return { blob: await response.blob(), truncated };
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  for (let part = await reader.read(); !part.done; part = await reader.read()) {
+    heard();
+    chunks.push(part.value);
+  }
+  return {
+    blob: new Blob(chunks, { type: response.headers.get('content-type') ?? '' }),
+    truncated,
+  };
+}
+
+/** Aborts once `ms` pass with nothing heard. `heard` starts the wait again. */
+function bound(ms: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const heard = () => {
+    clearTimeout(timer);
+    timer = setTimeout(
+      () => controller.abort(new DOMException('The request timed out.', 'TimeoutError')),
+      ms,
+    );
+  };
+  heard();
+  return { signal: controller.signal, heard, stop: () => clearTimeout(timer) };
+}
 
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  read: (response: Response) => Promise<T> = readJson,
+  read: Reader<T> = readJson,
 ): Promise<T> {
   const pending = storedKeyExchange();
   if (pending) await pending;
@@ -193,12 +245,12 @@ async function request<T>(
   };
 
   // Composed with the caller's signal, so a cancellable request keeps its bound.
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeout = bound(options.body instanceof Blob ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
   // The sweep in `client.test.ts` passes a string here, which `AbortSignal.any` throws on.
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
-  const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
+  const signal = caller ? AbortSignal.any([caller, timeout.signal]) : timeout.signal;
   try {
-    return await exchange<T>(path, { ...options, headers, signal }, read);
+    return await exchange<T>(path, { ...options, headers, signal }, read, timeout.heard);
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
@@ -206,6 +258,8 @@ async function request<T>(
     // A failed connection: its message is in the browser's language, not the interface's.
     if (cause instanceof TypeError) throw new ApiError('', 0, 'unreachable');
     throw cause;
+  } finally {
+    timeout.stop();
   }
 }
 
@@ -216,7 +270,8 @@ async function request<T>(
 async function exchange<T>(
   path: string,
   init: RequestInit,
-  read: (response: Response) => Promise<T>,
+  read: Reader<T>,
+  heard: () => void = () => {},
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   const requestId = res.headers?.get?.('x-request-id') ?? null;
@@ -244,16 +299,17 @@ async function exchange<T>(
   }
 
   // A proxy whose session ran out answers its sign-in page, redirected or as a 200.
-  const page = read !== readBlob && (res.headers?.get?.('content-type') ?? '').includes('html');
+  const page = read !== readFile && (res.headers?.get?.('content-type') ?? '').includes('html');
   if (res.redirected || page) throw new ApiError('', res.status, 'unexpected_answer', requestId);
 
   // A 202 that only starts work, as taking the backup copy folder does, carries no body.
   if (res.status === 204 || res.headers?.get?.('content-length') === '0') return undefined as T;
-  return read(res);
+  return read(res, heard);
 }
 
 /** Fetched rather than linked, so a refusal reaches the screen instead of saving as the file. */
-const download = (path: string) => request<Blob>(path, {}, readBlob);
+const download = (path: string, init: RequestInit = {}) =>
+  request<ServedFile>(path, init, readFile);
 
 /** Between two looks at a job: soon at first, as most finish at once, then once a second. */
 const FOLLOW_FIRST_MS = 200;
@@ -296,19 +352,19 @@ export interface Following {
   signal?: AbortSignal;
 }
 
-/** `ms` of quiet, cut short by `signal`. */
+/** `ms` of quiet, cut short by `signal`, whose listener goes with the wait. */
 function pause(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason as Error);
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason as Error);
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason as Error);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -396,7 +452,8 @@ export const api = {
     ),
   getTasks: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Job>>(`/tasks${query(params)}`, { signal }),
-  purge: () => followed<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
+  purge: (following?: Following) =>
+    followed<MaintenanceReport>('/maintenance/purge', { method: 'POST' }, following),
 
   getInstances: (signal?: AbortSignal) => request<Instance[]>('/instances', { signal }),
   createInstance: (data: unknown) =>
@@ -424,7 +481,7 @@ export const api = {
   getRootFolders: (signal?: AbortSignal) => request<RootFolder[]>('/root-folders', { signal }),
   /** Declare a destination the instance does not report as a root folder. */
   declareRootFolder: (instance_id: string, path: string) =>
-    request<{ id: string; path: string; verified: boolean }>('/root-folders', {
+    request<DeclaredRootFolder>('/root-folders', {
       method: 'POST',
       body: body({ instance_id, path }),
     }),
@@ -433,20 +490,20 @@ export const api = {
   getMappingConflicts: (signal?: AbortSignal) =>
     request<MappingConflict[]>('/root-folders/conflicts', { signal }),
   getAnimeIds: (signal?: AbortSignal) => request<AnimeIdsState>('/sources/anime-ids', { signal }),
-  downloadAnimeIds: () =>
-    followed<AnimeIdsLoaded>('/sources/anime-ids/download', { method: 'POST' }),
-  importAnimeIds: (file: File) =>
-    followed<AnimeIdsLoaded>('/sources/anime-ids/import', {
-      method: 'POST',
-      body: file,
-      headers: { 'Content-Type': 'application/json' },
-    }),
+  downloadAnimeIds: (following?: Following) =>
+    followed<AnimeIdsLoaded>('/sources/anime-ids/download', { method: 'POST' }, following),
+  importAnimeIds: (file: File, following?: Following) =>
+    followed<AnimeIdsLoaded>(
+      '/sources/anime-ids/import',
+      { method: 'POST', body: file, headers: { 'Content-Type': 'application/json' } },
+      following,
+    ),
   getFolderSuggestions: (signal?: AbortSignal) =>
     request<FolderSuggestion[]>('/root-folders/suggestions', { signal }),
   dismissFolderSuggestion: (id: string) =>
     request<Dismissal>(`/root-folders/${encodeURIComponent(id)}/dismissal`, { method: 'PUT' }),
   restoreFolderSuggestion: (id: string) =>
-    request<{ deleted: boolean }>(`/root-folders/${encodeURIComponent(id)}/dismissal`, {
+    request<Deleted>(`/root-folders/${encodeURIComponent(id)}/dismissal`, {
       method: 'DELETE',
     }),
   updateRootFolderCategory: (id: string, category: string | null, addToSet = false) =>
@@ -479,8 +536,7 @@ export const api = {
         expected_category: expectedCategory,
       }),
     }),
-  deleteRuleTest: (id: string) =>
-    request<{ deleted: boolean }>(`/rule-tests/${id}`, { method: 'DELETE' }),
+  deleteRuleTest: (id: string) => request<Deleted>(`/rule-tests/${id}`, { method: 'DELETE' }),
   getConditionCatalog: (signal?: AbortSignal) =>
     request<ConditionCatalog>('/rules/conditions', { signal }),
   createRule: (data: RuleDraft) => request<Rule>('/rules', { method: 'POST', body: body(data) }),
@@ -517,7 +573,7 @@ export const api = {
   endEverySession: () => request<{ ended: number }>('/auth/sessions', { method: 'DELETE' }),
 
   validateRule: (data: RuleDraft, signal?: AbortSignal) =>
-    request<{ valid: boolean; issues: ValidationIssue[] }>('/rules/validate', {
+    request<RuleVerdict>('/rules/validate', {
       method: 'POST',
       body: body(data),
       signal,
@@ -552,7 +608,7 @@ export const api = {
     }),
 
   importRules: (bundle: RuleBundle, replace: boolean) =>
-    request<{ imported: number; skipped: string[]; adjusted: string[] }>('/rules/import', {
+    request<RuleImportReport>('/rules/import', {
       method: 'POST',
       body: body({ bundle, replace }),
     }),
@@ -646,7 +702,7 @@ export const api = {
   webhookSigning: (signal?: AbortSignal) =>
     request<WebhookSigningStatus>('/notifications/webhook-secret', { signal }),
   rotateWebhookSigning: () =>
-    request<{ secret: string }>('/notifications/webhook-secret', { method: 'POST' }),
+    request<SigningSecret>('/notifications/webhook-secret', { method: 'POST' }),
   removeWebhookSigning: () =>
     request<unknown>('/notifications/webhook-secret', { method: 'DELETE' }),
   sendTestNotification: () => request<unknown>('/notifications/test', { method: 'POST' }),
@@ -677,16 +733,22 @@ export const api = {
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
   getSources: (signal?: AbortSignal) => request<MetadataProviders>('/sources', { signal }),
   /** Ask every source again about one title at once, its search matches forgotten. */
-  refreshTitleMetadata: (mediaId: string) =>
-    followed<TitleRefresh>('/sources/refresh', {
-      method: 'POST',
-      body: body({ media_id: mediaId }),
-    }),
+  refreshTitleMetadata: (mediaId: string, following?: Following) =>
+    followed<TitleRefresh>(
+      '/sources/refresh',
+      { method: 'POST', body: body({ media_id: mediaId }) },
+      following,
+    ),
   /** Have a pass read every answer `source` gave again. */
-  refreshSource: (source: string) =>
-    followed<EnrichmentReport>('/sources/refresh', { method: 'POST', body: body({ source }) }),
+  refreshSource: (source: string, following?: Following) =>
+    followed<EnrichmentReport>(
+      '/sources/refresh',
+      { method: 'POST', body: body({ source }) },
+      following,
+    ),
   listBackups: (signal?: AbortSignal) => request<BackupList>('/backups', { signal }),
-  createBackup: () => followed<BackupFile>('/backups', { method: 'POST', body: body({}) }),
+  createBackup: (following?: Following) =>
+    followed<BackupFile>('/backups', { method: 'POST', body: body({}) }, following),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   /** Take the copy folder as it is now, without the marker of its first copy, and copy. */
@@ -706,11 +768,10 @@ export const api = {
     }),
   /** The archive carries the master key and the API key, so a session sends its proof. */
   downloadBackup: (name: string, proof: Proof) =>
-    request<Blob>(
-      `/backups/${encodeURIComponent(name)}/download`,
-      { method: 'POST', body: body(proof) },
-      readBlob,
-    ),
+    download(`/backups/${encodeURIComponent(name)}/download`, {
+      method: 'POST',
+      body: body(proof),
+    }).then((file) => file.blob),
   /** Withdraw the restore staged for the next start. */
   withdrawRestore: () => request<unknown>('/backups/restore', { method: 'DELETE' }),
   deleteReplacedDatabase: () =>
@@ -721,11 +782,3 @@ export const api = {
   setOnboarding: (state: OnboardingState) =>
     request<OnboardingStatus>('/onboarding', { method: 'PUT', body: body({ state }) }),
 };
-
-export interface RuleBundle {
-  version: number;
-  exported_at?: string | null;
-  /** Each rule with the instances it is limited to, by name. */
-  rules: (RuleDraft & { instance_names?: string[] | null })[];
-  categories: string[];
-}

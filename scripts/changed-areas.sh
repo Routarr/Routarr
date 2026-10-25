@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
-# Which deliverables changed between two commits: the `backend`, `frontend` and
-# `site` lines the `changes` job of ci.yml hands its jobs, and the `image` and
-# `devcontainer` lines docker.yml reads.
+# Which deliverables changed between two commits: the `backend`, `frontend` and `site` lines
+# ci.yml's `changes` job hands its jobs, and the `image` and `devcontainer` lines of docker.yml.
 #
 #   scripts/changed-areas.sh BASE [HEAD]
 #
-# HEAD `WORKTREE` compares BASE with the working tree, untracked files included, as
-# scripts/check.sh asks for a branch with work not yet committed.
-#
-# The three directories are disjoint, so a site-only commit costs neither the
-# Rust jobs nor the end-to-end suite.
-#
-# It fails open. A base that cannot be resolved or compared (a force push, the
-# first push to a branch, a shallow fetch, no successful run on main yet)
-# selects everything: skipping too much lets a broken commit through, running
-# too much costs minutes.
+# HEAD `WORKTREE` compares BASE with the working tree, untracked files included
+# (scripts/check.sh). A base that cannot be resolved or compared (a force push, a first push, a
+# shallow fetch, no green run on main yet) selects everything.
 set -u
 
 BASE="${1:-}"
@@ -62,18 +54,12 @@ CONTROL='\.github/workflows/ci\.yml|scripts/changed-areas\.sh'
 echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|contrib/monitoring/|$CONTROL)")"
 # The frontend job alone runs the bundle size check, and its tests read these
 # backend files: the routes the client calls, the settings' defaults, the
-# count placeholders, the dictionary its components render, and the tables of
-# cases both sides are held to.
-FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod|api/deprecated)\.rs|backend/src/services/(metadata|settings)\.rs|backend/src/.*\.json'
+# bounds its fields and exports repeat, the count placeholders, the dictionary
+# its components render, and the tables of cases both sides are held to.
+FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod|api/(deprecated|auth|move_log))\.rs|backend/src/services/(metadata|settings|rule_engine/validation|backup/sealed)\.rs|backend/src/.*\.json'
 echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$FRONTEND_READS|$CONTROL)")"
-# `site/check.mjs` reads the version out of the crate's manifest, holds the
-# README and the first-run screen to one command, the site's words to the
-# application's dictionaries and the API reference's sentences to the
-# contract, and `site/verify.mjs` loads Playwright out of the frontend's
-# `node_modules`.
-# Each is a real dependency on another deliverable: a Dependabot bump of
-# `@playwright/test` matches nothing else the site job watches, and would land
-# green while breaking it.
+# What the site's checks read from other deliverables: the crate's version, the dictionaries,
+# the contract, the README, the first-run screen, and the frontend's Playwright (`verify.mjs`).
 echo "site=$(decide "^(site/|backend/(Cargo\.toml|locales/|openapi/v1\.json)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
 # What the root Dockerfile builds or copies, what starts the image, and the
 # compose file whose container name and data path the first-run command names.

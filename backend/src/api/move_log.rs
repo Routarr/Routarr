@@ -141,10 +141,11 @@ pub async fn list(
 }
 
 /// The rows an export holds at most, the newest.
-const EXPORTED_AT_MOST: i64 = 50_000;
+pub(crate) const EXPORTED_AT_MOST: i64 = 50_000;
 
 /// Set on an export that holds [`EXPORTED_AT_MOST`] rows of a longer log.
-const TRUNCATED: header::HeaderName = header::HeaderName::from_static("x-routarr-truncated");
+pub(crate) const TRUNCATED: header::HeaderName =
+    header::HeaderName::from_static("x-routarr-truncated");
 
 /// Download the filtered log as CSV, written as it is read: a whole log held
 /// in memory before the first byte leaves would cost its size on every call.

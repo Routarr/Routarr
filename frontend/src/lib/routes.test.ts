@@ -4,12 +4,7 @@ import path from 'node:path';
 import { SCREENS, screenKey } from './routes';
 import { destinationsFor, groupsFor, iconFor } from './navigation';
 
-/**
- * The route table is data so the e2e sweeps can read it, and the icons are
- * looked up beside it. The two have to agree, or a destination renders without
- * a glyph. `navigation.ts` dresses the table as it loads, so a route with no
- * icon fails the import of this file before any test runs.
- */
+/** `navigation.ts` dresses the table as it loads, so a route with no icon fails this import. */
 describe('the route table', () => {
   it('names distinct screens, the dashboard first', () => {
     expect(SCREENS.length).toBeGreaterThan(5);

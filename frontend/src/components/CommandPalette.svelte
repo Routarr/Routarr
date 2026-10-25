@@ -4,7 +4,8 @@
   import { RefreshCw, Search } from '../lib/icons';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
-  import { searchHelp } from '../lib/help';
+  import { folded, searchHelp } from '../lib/help';
+  import { composing } from '../lib/keys';
   import { access } from '../lib/access.svelte';
   import { destinationsFor } from '../lib/navigation';
   import { screenKey } from '../lib/routes';
@@ -14,24 +15,9 @@
   import Modal from './Modal.svelte';
 
   /**
-   * One field, from anywhere, for the question this product exists to answer.
-   *
-   * "Why did Routarr put this film there?" otherwise takes four steps from any
-   * screen: open the library, type, search, then find the row and press its
-   * button. The answer arrives here without leaving the page. The palette
-   * fetches the explanation itself rather than navigating to a screen that would
-   * show it, because neither the explanation nor the rule editor is addressable
-   * by URL, and sending someone to `/library` would only be step one of the four
-   * again.
-   *
-   * Deliberately narrow. It carries no action that writes to a library:
-   * applying a move, reverting one and deleting a rule all have guardrails that
-   * live on the screen owning them (a confirmation threshold, a batch ceiling, a
-   * capacity check), and a palette exists to be fast, which is the opposite of
-   * what a write to somebody's library wants. The explanation it opens is the
-   * library screen's own panel, whose one write, pinning a rule test, stays
-   * inside Routarr. The help answers here too, and opens on the screen it
-   * found.
+   * One field, from anywhere, that opens a title's explanation in place, since neither it nor
+   * the rule editor has an address. It holds no write to a library: those keep their
+   * guardrails on the screens that own them. The help answers here too.
    */
   let { onClose, onHelp }: { onClose: () => void; onHelp: (screen: string) => void } = $props();
 
@@ -57,9 +43,7 @@
   const destinations = $derived(
     destinationsFor(access.readOnly)
       .map((item) => ({ item, label: t(item.key) }))
-      .filter(
-        ({ label }) => !query.trim() || label.toLowerCase().includes(query.trim().toLowerCase()),
-      ),
+      .filter(({ label }) => !query.trim() || folded(label).includes(folded(query.trim()))),
   );
 
   const rows = $derived<Row[]>([
@@ -162,15 +146,13 @@
   }
 
   function onKey(event: KeyboardEvent) {
+    if (composing(event)) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (rows.length === 0) return;
       const step = event.key === 'ArrowDown' ? 1 : -1;
       cursor = (cursor + step + rows.length) % rows.length;
-      // Called optionally for the same reason `Modal` guards `showModal`:
-      // jsdom ships the element and not the method, so a bare call throws
-      // out of the handler and every unit test walking the list reports an
-      // unhandled error beside its passing assertions.
+      // jsdom has no `scrollIntoView`, so the call is optional, as `Modal`'s `showModal` is.
       document.getElementById(rows[cursor]!.id)?.scrollIntoView?.({ block: 'nearest' });
     } else if (event.key === 'Enter') {
       event.preventDefault();
@@ -227,10 +209,8 @@
         {t('CommandPaletteResults', { count: rows.length })}
       </p>
 
-      <!-- Beside the results, never instead of them. Only the library needs
-           the network. The destinations are in memory, and replacing them
-           with the failure would leave the field able to do nothing at all
-           until it is closed and opened again. -->
+      <!-- Beside the results: the destinations need no network, and stay usable through the
+           library's failure. -->
       {#if error}
         <p class="palette-error" role="alert">{error}</p>
       {/if}
@@ -265,16 +245,9 @@
                 )}
               </div>
               {#each run.entries as { item: row, index } (row.id)}
-                <!-- The option carries the click itself rather than wrapping a
-                     button: an `option` must not contain interactive content, and
-                     a nested button would also be a tab stop, which the combobox
-                     pattern cannot have: the focus stays in the field and
-                     `aria-activedescendant` is what says where the arrows are. -->
-                <!-- The keyboard path is the field's own: arrows move the cursor
-                     and Enter opens what it points at, which is the combobox
-                     pattern. Svelte's rule looks for a handler on this element and
-                     cannot see the field's, so a handler added here to satisfy
-                     it would be a second, unreachable path. -->
+                <!-- The option takes the click itself, since an `option` holds no interactive
+                     content. The keyboard path is the field's (arrows and Enter, the combobox
+                     pattern), which Svelte's rule cannot see. -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                   id={row.id}

@@ -3,6 +3,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
+import { nthCall } from '../test/spy';
 import { category, explainedMedia, explanation } from '../test/fixtures';
 import type { Explanation, MetadataProvider } from '../api/types';
 import { ApiError, api } from '../api/client';
@@ -13,7 +15,12 @@ import { publishAccess } from '../lib/access.svelte';
  * The panel, the source catalogue left unanswered unless a test answers it:
  * until it does, each source is named by its id.
  */
-function show(data: Explanation, strings?: Record<string, string>, onChanged = vi.fn()) {
+function show(
+  data: Explanation,
+  strings?: Record<string, string>,
+  onChanged = vi.fn(),
+  direction: 'ltr' | 'rtl' = 'ltr',
+) {
   if (!vi.isMockFunction(api.getSources)) {
     vi.spyOn(api, 'getSources').mockReturnValue(new Promise(() => {}));
   }
@@ -31,6 +38,8 @@ function show(data: Explanation, strings?: Record<string, string>, onChanged = v
   return renderWithI18n(ExplanationModal, {
     props: { data, onClose: vi.fn(), onChanged },
     strings,
+    language: direction === 'rtl' ? 'ar' : 'en',
+    direction,
   });
 }
 
@@ -51,10 +60,6 @@ function source(id: string, display_name: string, website: string | null): Metad
 afterEach(() => vi.restoreAllMocks());
 
 describe('ExplanationModal', () => {
-  /**
-   * Opened from the quick search by Enter, a panel that focused its first
-   * button would take a second Enter as a pin nobody asked for.
-   */
   it('opens on its heading, not on a button that writes', async () => {
     show(explanation());
 
@@ -72,7 +77,6 @@ describe('ExplanationModal', () => {
     expect(text('definition')).toEqual(['Ultra-HD', '86 min', 'Ghibli']);
   });
 
-  /** What each action does is said beside it, not in a title only a mouse shows. */
   it('says beside each action what it does', () => {
     show(explanation());
 
@@ -108,7 +112,7 @@ describe('ExplanationModal', () => {
       await screen.findByText('Kept in "standard": an exception holds the title there.'),
     ).toBeInTheDocument();
     expect(kept).toHaveBeenCalledWith('m1');
-    expect(read).toHaveBeenCalledWith('m1');
+    expect(read).toHaveBeenCalledWith('m1', expect.anything());
     expect(onChanged).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Keep here' })).toBeDisabled();
     expect(screen.getByText('Kept in "standard" by an exception.')).toBeInTheDocument();
@@ -180,6 +184,23 @@ describe('ExplanationModal', () => {
     expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
   });
 
+  /**
+   * The name a pinned test is kept under is compared and shown in either direction later, so it
+   * carries none of the isolate marks a right-to-left sentence sets around its values.
+   */
+  it('pins a test under a name with no isolate mark in Arabic, its hint still isolated', async () => {
+    const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
+    const marks = /[\u2066-\u2069]/;
+    const strings = { PinnedCaseName: '{title} في {category}', KeepHereHint: 'يبقى في {category}' };
+    show(explanation(), strings, vi.fn(), 'rtl');
+
+    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
+
+    expect(nthCall(pin)[0]).toBe('Akira في anime');
+    expect(nthCall(pin)[0]).not.toMatch(marks);
+    expect(screen.getByText(/^يبقى في/).textContent).toMatch(marks);
+  });
+
   /** A refusal drawn as a red box with no role would reach no screen reader. */
   it('announces a pin that was refused', async () => {
     vi.spyOn(api, 'pinRuleTest').mockRejectedValue(new ApiError('already a case', 409, 'conflict'));
@@ -190,7 +211,6 @@ describe('ExplanationModal', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('already a case');
   });
 
-  /** A refresh reads the explanation again once the sources answered, and says how many did. */
   it('reads the explanation again once the sources were asked again', async () => {
     const asked = vi.spyOn(api, 'refreshTitleMetadata').mockResolvedValue({ answered: 2 });
     vi.spyOn(api, 'explainTitle').mockResolvedValue(explanation({ target_category: 'kids' }));
@@ -200,7 +220,47 @@ describe('ExplanationModal', () => {
 
     expect(await screen.findByText('Sources that answered: 2')).toBeTruthy();
     expect(screen.getByText('kids', { selector: '.badge' })).toBeTruthy();
-    expect(asked).toHaveBeenCalledWith(explanation().media.id);
+    expect(asked).toHaveBeenCalledWith(explanation().media.id, expect.anything());
+  });
+
+  /** The sources may take a while, and the panel closed has nobody to tell. */
+  it('stops following the refresh once the panel is closed', async () => {
+    const asked = vi.spyOn(api, 'refreshTitleMetadata').mockReturnValue(new Promise(() => {}));
+    const { unmount } = show(explanation());
+    await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
+
+    unmount();
+
+    expect(nthCall(asked)[1]?.signal?.aborted).toBe(true);
+  });
+
+  /**
+   * Each action turns disabled while it runs, Keep here and Pin as test for good once done: the
+   * focus goes back to the button, else to the panel's heading, never to the page.
+   */
+  it.each([
+    ['Ask the sources again', 'Ask the sources again'],
+    ['Keep here', 'Akira'],
+    ['Pin as test', 'Akira'],
+  ])('hands the focus on once %s is done', async (action, next) => {
+    let release: () => void = () => {};
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    const later = <T>(value: T) => answered.then(() => value);
+    vi.spyOn(api, 'refreshTitleMetadata').mockReturnValue(later({ answered: 1 }));
+    vi.spyOn(api, 'keepTitle').mockReturnValue(later({} as never));
+    vi.spyOn(api, 'pinRuleTest').mockReturnValue(later({} as never));
+    vi.spyOn(api, 'explainTitle').mockResolvedValue(
+      explanation({ override_category: 'standard', current_category: 'standard' }),
+    );
+    show(explanation());
+    const pressed = screen.getByRole('button', { name: action });
+    pressed.focus();
+
+    await fireEvent.click(pressed);
+    dropFocus();
+    release();
+
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName(next));
   });
 
   it('says so when no source answered a refresh', async () => {
@@ -259,10 +319,7 @@ describe('ExplanationModal', () => {
     expect(screen.getByText('Manual exception')).toBeTruthy();
   });
 
-  /**
-   * Nothing cached is not the same as nothing to say: genre and keyword rules
-   * cannot match at all without metadata, and the user has to be told why.
-   */
+  /** Without metadata, genre and keyword rules cannot match, which the panel has to say. */
   it('says no metadata is cached rather than showing an empty panel', () => {
     show(explanation({ metadata: null }));
 
@@ -274,10 +331,6 @@ describe('ExplanationModal', () => {
     expect(screen.queryByText('Metadata')).toBeNull();
   });
 
-  /**
-   * With several sources, only this line tells whether a genre came from the library or from
-   * TMDB, so it names them in priority order.
-   */
   it('names the sources that contributed, in order', () => {
     show(
       explanation({
@@ -299,7 +352,6 @@ describe('ExplanationModal', () => {
     expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
   });
 
-  /** A search can name another work of the same title, so the way each id was found is said. */
   it('says how each anime source found the title', () => {
     show(
       explanation({
@@ -369,10 +421,6 @@ describe('ExplanationModal', () => {
     );
   });
 
-  /**
-   * The status reads in the Arrs' words and the synopsis as written, each
-   * with the source that gave it, named and linked as its terms ask.
-   */
   it('shows the status and the synopsis, each linked to its source', async () => {
     vi.spyOn(api, 'getSources').mockResolvedValue({
       providers: [
@@ -422,11 +470,11 @@ describe('ExplanationModal', () => {
     expect(screen.getByText('No rule applies to this media type and instance.')).toBeTruthy();
   });
 
-  /**
-   * A failed condition reports what it expected and what it observed: matches alone leave a
-   * surprising outcome impossible to argue with.
-   */
-  it('shows a failed condition with what was observed, not only that it failed', () => {
+  it('shows a failed condition with what was observed, not only that it failed', async () => {
+    vi.spyOn(api, 'getSources').mockResolvedValue({
+      providers: [source('tmdb', 'TMDB', 'https://www.themoviedb.org')],
+      order: ['tmdb'],
+    });
     show(
       explanation({
         rule_traces: [
@@ -459,7 +507,11 @@ describe('ExplanationModal', () => {
       .getByText('Original language in [ja]')
       .closest('.explain-row') as HTMLElement;
     expect(within(row).getByText(/en/)).toBeTruthy();
-    expect(within(row).getByText(/from tmdb/)).toBeTruthy();
+    // Named as the panel names a source everywhere else, never by the engine's id.
+    expect(await within(row).findByText('from TMDB')).toBeTruthy();
+    // Said in a word, as the glyph and its colour reach no screen reader.
+    expect(within(row).getByText('did not hold')).toHaveClass('visually-hidden');
+    expect(within(row).getByText('✗')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByText('did not match')).toBeTruthy();
   });
 
@@ -516,7 +568,7 @@ describe('ExplanationModal', () => {
     const row = screen
       .getByText('Genre contains [Animation]')
       .closest('.explain-row') as HTMLElement;
-    expect(within(row).getByText('unknown')).toBeTruthy();
+    expect(within(row).getByText('Unknown')).toBeTruthy();
   });
 });
 

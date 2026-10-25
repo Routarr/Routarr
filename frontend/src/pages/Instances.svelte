@@ -21,7 +21,7 @@
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { takeQueryFlag } from '../api/onboarding';
-  import { i18n, t } from '../lib/i18n.svelte';
+  import { cut, i18n, t } from '../lib/i18n.svelte';
   import { handFocus, type FocusTarget } from '../lib/focus';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -96,17 +96,19 @@
   const menuId = (index: number) => `instances-menu-${index}`;
 
   // Generic so `describe` reads the payload the client types: a cast hides a field rename.
+  /** `describe` says how the action went, a caveat as a warning. */
   async function act<T>(
     id: string,
     fn: () => Promise<T>,
-    describe: (result: T) => string,
+    describe: (result: T) => string | { warning: string },
     focus: FocusTarget[] = [],
   ) {
     const pressed = document.activeElement as HTMLElement | null;
     busyId = id;
     try {
-      const result = await fn();
-      outcome.succeed(describe(result));
+      const said = describe(await fn());
+      if (typeof said === 'string') outcome.succeed(said);
+      else outcome.warn(said.warning);
       // The shell counts the instances and hears of a change no other way.
       invalidateStatus();
       await list.reload();
@@ -128,6 +130,8 @@
     tried: string;
     ok: boolean;
     text: string;
+    /** The root folders the Arr cannot reach now, as a sleeping share, in words. */
+    inaccessible?: string | null;
     warning?: string | null;
     webhook?: WebhookCheck | null;
   } | null>(null);
@@ -166,14 +170,18 @@
         attempt.signal,
       );
       if (attempt.signal.aborted) return;
+      const name = answer.app_name ?? SERVICE[form.instance_type];
       probe = {
         tried,
         ok: true,
-        text: t('ConnectionOk', {
-          name: answer.app_name ?? SERVICE[form.instance_type],
-          version: answer.version,
-          folders: answer.root_folders,
-        }),
+        text: t('ConnectionOk', { name, version: answer.version, folders: answer.root_folders }),
+        inaccessible:
+          answer.inaccessible_root_folders > 0
+            ? t('ConnectionSomeInaccessible', {
+                name,
+                count: formatCount(answer.inaccessible_root_folders, i18n.language),
+              })
+            : null,
         warning: answer.warning,
         webhook: answer.webhook,
       };
@@ -324,11 +332,17 @@
       instance.id,
       () => api.testInstance(instance.id),
       (r) => {
-        return t('ConnectionOk', {
+        const connected = t('ConnectionOk', {
           name: instance.name,
           version: r.version,
           folders: r.root_folders,
         });
+        if (r.inaccessible_root_folders === 0) return connected;
+        const inaccessible = t('ConnectionSomeInaccessible', {
+          name: instance.name,
+          count: formatCount(r.inaccessible_root_folders, i18n.language),
+        });
+        return { warning: t('SideBySide', { first: connected, second: inaccessible }) };
       },
     );
 
@@ -338,7 +352,9 @@
     try {
       const all = await api.syncAll({ signal: leaving.signal });
       // One line per failure: an error is free text, commas included.
-      const failed = all.filter((r) => r.error).map((r) => `${r.instance_name}: ${r.error}`);
+      const failed = all
+        .filter((r) => r.error)
+        .map((r) => t('FilterTerm', { label: r.instance_name, value: r.error ?? '' }));
       const message = t('SyncAllResult', { count: all.length - failed.length });
       if (failed.length === 0) outcome.succeed(message);
       else if (failed.length === all.length) outcome.fail(message, failed);
@@ -503,7 +519,8 @@
                     <!-- Not green: encrypted is a property of the stored value, and green
                          means an outcome that went well. -->
                     <span class="badge badge-value muted" title={t('ApiKeyEncryptedHint')}>
-                      {t('ApiKeyEncrypted')}
+                      <span aria-hidden="true">{t('ApiKeyEncrypted')}</span>
+                      <span class="visually-hidden">{t('ApiKeyEncryptedHint')}</span>
                     </span>
                   {:else}
                     <span class="badge badge-warning">{t('ApiKeyMissing')}</span>
@@ -559,7 +576,11 @@
                     {formatRelative(instance.last_webhook_at, i18n.language, t('Never'))}
                   </span>
                   {#if instance.last_webhook_event}
-                    <span class="text-muted text-xs">{instance.last_webhook_event}</span>
+                    <span class="mono text-xs text-muted"
+                      >{instance.last_webhook_event_label ?? instance.last_webhook_event}</span
+                    >
+                  {:else if instance.last_webhook_at}
+                    <span class="text-muted text-xs">{t('Unknown')}</span>
                   {/if}
                   <!-- The badge alone: what to change takes sentences, which the form holds. -->
                   {#if instance.webhook_check?.state === 'misconfigured'}
@@ -719,8 +740,8 @@
                 form.instance_type = event.currentTarget.value as 'radarr' | 'sonarr';
               }}
             >
-              <option value="radarr">Radarr ({t('Movies')})</option>
-              <option value="sonarr">Sonarr ({t('Series')})</option>
+              <option value="radarr">{t('WithNote', { text: 'Radarr', note: t('Movies') })}</option>
+              <option value="sonarr">{t('WithNote', { text: 'Sonarr', note: t('Series') })}</option>
             </select>
           </div>
           <div class="form-group flex-fit">
@@ -791,10 +812,13 @@
           <div class="webhook-status">
             <p>
               {#if editing.webhook.last_webhook_at}
-                {t('WebhookLastDelivery', {
-                  event: editing.webhook.last_webhook_event ?? '',
-                  when: formatRelative(editing.webhook.last_webhook_at, i18n.language, ''),
+                {@const heard = editing.webhook}
+                {@const [before, after] = cut('WebhookLastDelivery', ['event'], {
+                  when: formatRelative(heard.last_webhook_at, i18n.language, ''),
                 })}
+                {before}{#if heard.last_webhook_event}<span class="mono"
+                    >{heard.last_webhook_event_label ?? heard.last_webhook_event}</span
+                  >{:else}{t('Unknown')}{/if}{after}
               {:else}
                 {t('WebhookNoDeliveryYet', { service: SERVICE[form.instance_type] })}
               {/if}
@@ -831,9 +855,11 @@
               aria-describedby="instances-webhook-path-help"
             />
             <p id="instances-webhook-path-help" class="text-muted text-sm mt-1">
-              {t('WebhookUrlHelp', { service: SERVICE[form.instance_type] })}
-              {t('WebhookTriggers', {
-                triggers: editing.webhook.webhook_triggers.join(t('ListSeparator')),
+              {t('SideBySide', {
+                first: t('WebhookUrlHelp', { service: SERVICE[form.instance_type] }),
+                second: t('WebhookTriggers', {
+                  triggers: editing.webhook.webhook_triggers.join(t('ListSeparator')),
+                }),
               })}
             </p>
           </div>
@@ -887,6 +913,9 @@
               <CheckCircle2 size={16} aria-hidden="true" />
               {probed.text}
             </p>
+            {#if probed.inaccessible}
+              <p class="text-warning text-sm">{probed.inaccessible}</p>
+            {/if}
             {#if probed.warning}
               <p class="text-warning text-sm">{probed.warning}</p>
             {/if}

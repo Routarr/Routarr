@@ -107,6 +107,12 @@ describe('WebhookSigning', () => {
 
     expect(remove).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByText('whsec_made')).toBeNull());
+    // Stop signing goes with the secret, and the button that makes one takes the focus.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Generate a signing secret' }),
+      ),
+    );
   });
 
   it('says why the status could not be read, and asks again on Retry', async () => {
@@ -123,10 +129,6 @@ describe('WebhookSigning', () => {
     expect(await screen.findByText('Notifications are not signed.')).toBeTruthy();
     expect(status).toHaveBeenCalledTimes(2);
   });
-  /**
-   * A secret the installation cannot open sends nothing at all, so the card
-   * says so rather than that notifications are signed.
-   */
   it('says when the secret cannot be read', async () => {
     show(true, false);
     expect(

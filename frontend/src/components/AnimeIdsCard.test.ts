@@ -5,12 +5,9 @@ import { api } from '../api/client';
 import type { AnimeIdsState } from '../api/types';
 import { publishAccess } from '../lib/access.svelte';
 import { renderWithI18n } from '../test/render';
+import { dropFocus } from '../test/focus';
+import { nthCall } from '../test/spy';
 import AnimeIdsCard from './AnimeIdsCard.svelte';
-
-/**
- * The anime identifier table is loaded only when somebody asks: the card says whether one is
- * held, and offers the download and the file import to the owner alone.
- */
 
 const NONE: AnimeIdsState = {
   loaded_at: null,
@@ -59,6 +56,34 @@ describe('AnimeIdsCard', () => {
     expect(screen.getByText('From https://example.test/table.json.')).toBeTruthy();
   });
 
+  /** The table is large, and the card gone has nobody to tell. */
+  it('stops following the load once the card is gone', async () => {
+    vi.spyOn(api, 'getAnimeIds').mockResolvedValue(NONE);
+    const download = vi.spyOn(api, 'downloadAnimeIds').mockReturnValue(new Promise(() => {}));
+    const { unmount } = renderWithI18n(AnimeIdsCard);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Download now' }));
+
+    unmount();
+
+    expect(nthCall(download)[0]?.signal?.aborted).toBe(true);
+  });
+
+  /** Download turns disabled while the table loads. */
+  it('hands the focus back to Download once the table is loaded', async () => {
+    vi.spyOn(api, 'getAnimeIds').mockResolvedValue(NONE);
+    let finish: (loaded: { entries: number; titles: number }) => void = () => {};
+    vi.spyOn(api, 'downloadAnimeIds').mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    renderWithI18n(AnimeIdsCard);
+    const pressed = await screen.findByRole('button', { name: 'Download now' });
+    pressed.focus();
+    await fireEvent.click(pressed);
+    dropFocus();
+
+    finish({ entries: 2, titles: 1 });
+
+    await waitFor(() => expect(document.activeElement).toBe(pressed));
+  });
+
   it('imports a file a person saved', async () => {
     vi.spyOn(api, 'getAnimeIds').mockResolvedValue(NONE);
     const imported = vi.spyOn(api, 'importAnimeIds').mockResolvedValue({ entries: 2, titles: 1 });
@@ -68,7 +93,7 @@ describe('AnimeIdsCard', () => {
     const input = (await screen.findByLabelText('Import a file')) as HTMLInputElement;
     await fireEvent.change(input, { target: { files: [file] } });
 
-    await waitFor(() => expect(imported).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(imported).toHaveBeenCalledWith(file, expect.anything()));
   });
 
   it('offers nothing to load to a reader', async () => {

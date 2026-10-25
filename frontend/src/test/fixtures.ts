@@ -125,6 +125,7 @@ export function healthInstance(
     mapped_root_folders: 2,
     last_webhook_at: null,
     last_webhook_event: null,
+    last_webhook_event_label: null,
     ...over,
   };
 }
@@ -143,6 +144,7 @@ export function instance(over: Partial<Instance> = {}): Instance {
     auto_apply: true,
     last_webhook_at: null,
     last_webhook_event: null,
+    last_webhook_event_label: null,
     webhook_check: null,
     webhook_triggers: [
       'On File Import',

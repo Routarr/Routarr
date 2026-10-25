@@ -9,12 +9,6 @@ import { ApiError, api } from '../api/client';
 import type { Application, NewApplication } from '../api/types';
 import Applications from './Applications.svelte';
 
-/**
- * The owner hands out keys here. What the screen must get right: the token is
- * shown once and only after it is made, what a key allows reads at a glance,
- * and nothing is asked of a key that cannot be asked of it.
- */
-
 function application(over: Partial<Application> = {}): Application {
   return {
     id: 'k1',
@@ -70,19 +64,16 @@ describe('Applications', () => {
     expect(within(row).getByText('Never')).toBeTruthy();
   });
 
-  /** Who made a key, under the day it was made, as on the other screens. */
   it('names who created a key under its creation date', async () => {
     show([application({ created_by: 'owner' })]);
 
     const row = (await screen.findByText('n8n')).closest('tr') as HTMLElement;
     const made = within(row).getByText('owner');
     expect(made.closest('td')?.classList.contains('cell-timestamp')).toBe(true);
+    expect(made.closest('td')).toHaveTextContent(/Performed by\s*owner/);
   });
 
-  /**
-   * A key stopping within the week the notification warns of, one already refused and one
-   * nobody used for 90 days each read so in their row. An expired key is greyed until revoked.
-   */
+  /** An expired key is greyed until it is revoked. */
   it('marks a key that expires soon, an expired one and one left unused', async () => {
     const day = 86_400_000;
     const at = (offset: number) => new Date(Date.now() + offset).toISOString();
@@ -142,10 +133,6 @@ describe('Applications', () => {
     await waitFor(() => expect(screen.queryByText('rtr_k1_secret')).toBeNull());
   });
 
-  /**
-   * A guardrail or a file move is only ever asked of a key that operates. Kept
-   * editable without it, a box ticked there would be stored and never read.
-   */
   it('asks the guardrails and the file moves only of a key that operates', async () => {
     const user = userEvent.setup();
     show([]);
@@ -299,7 +286,6 @@ describe('Applications', () => {
   });
 });
 
-/** A revoked key takes its row and the pressed Revoke: the next key's takes the focus. */
 it('hands the focus to the key that took the place of the revoked one', async () => {
   const user = userEvent.setup();
   const next = application({ id: 'k2', name: 'cron' });

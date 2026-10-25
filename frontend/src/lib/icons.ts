@@ -1,6 +1,7 @@
 /**
  * The icons, under the names the screens use. `History` maps to `RotateCcwClock`, the same
- * drawing: `Clock`, the obvious guess, is a different one.
+ * drawing: `Clock`, the obvious guess, is a different one. `Trash2` is `Trash`, the name
+ * `@lucide/svelte` keeps for that drawing.
  */
 export {
   Activity,
@@ -58,7 +59,6 @@ export {
   SlidersHorizontal,
   Sparkles,
   Telescope,
-  Trash2,
   Tv,
   Undo2,
   Upload,
@@ -74,4 +74,5 @@ export {
   RotateCcwClock as History,
   LoaderCircle as Loader2,
   Ellipsis as MoreHorizontal,
+  Trash as Trash2,
 } from '@lucide/svelte';

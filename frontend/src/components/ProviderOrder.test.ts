@@ -6,13 +6,6 @@ import { renderWithI18n } from '../test/render';
 import type { MetadataProvider } from '../api/types';
 import ProviderOrder from './ProviderOrder.svelte';
 
-/**
- * A source's credential lives in the source's own row: a key is not a setting
- * of the application, it is a property of the source it unlocks. Stated below
- * the list, enabling TMDB would mean scrolling past the whole thing, saving,
- * scrolling back and saving again.
- */
-
 function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
   return {
     id: 'tmdb',
@@ -27,10 +20,6 @@ function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
   } as MetadataProvider;
 }
 
-/**
- * What enabling a source brings, in the reader's words rather than the
- * engine's identifiers, and for which titles: TheTVDB answers for series alone.
- */
 it('names the fields a source supplies by their captions, and a source for series alone', async () => {
   renderWithI18n(ProviderOrder, {
     props: {
@@ -56,14 +45,6 @@ it('names the fields a source supplies by their captions, and a source for serie
 });
 
 describe('a credential is edited in the row of the source it unlocks', () => {
-  /**
-   * The row reports the edit and does not reach into the parent's draft.
-   *
-   * `keys` is a plain record, not a `$bindable`, so writing through it is an
-   * ownership violation Svelte flags in development, and it works only when
-   * the caller passes a `$state` proxy. A caller passing an ordinary object
-   * would write into nothing, silently, and the key would never be saved.
-   */
   it('reports the key through its callback without writing the record it was given', async () => {
     const onKeyChange = vi.fn();
     // Frozen, so a write cannot pass unnoticed: assignment to a frozen object
@@ -90,14 +71,6 @@ describe('a credential is edited in the row of the source it unlocks', () => {
     expect(keys.tmdb_api_key).toBe('');
   });
 
-  /**
-   * A field is offered only where it can be written.
-   *
-   * Rendered on `keys` alone, with the write going through an optional
-   * callback, the row would give a caller passing the record without
-   * `onKeyChange` a field that accepts a key and drops it: the silent loss the
-   * callback exists to remove, moved one step along.
-   */
   it('offers no credential field it has no way to report', async () => {
     renderWithI18n(ProviderOrder, {
       props: {
@@ -114,12 +87,6 @@ describe('a credential is edited in the row of the source it unlocks', () => {
     expect(screen.queryByLabelText('TMDB')).toBeNull();
   });
 
-  /**
-   * The field is rendered whether or not the source is switched on and whether
-   * or not a key is stored: it is the only field for it anywhere, so hiding it
-   * once the source works leaves a leaked key impossible to rotate. The
-   * placeholder is what says which of the two situations the reader is in.
-   */
   it('offers the field for a source that already has a key', async () => {
     renderWithI18n(ProviderOrder, {
       props: {
@@ -136,10 +103,7 @@ describe('a credential is edited in the row of the source it unlocks', () => {
     expect(field.getAttribute('placeholder')).toBe('A key is stored. Type to replace it');
   });
 
-  /**
-   * A user-supported TheTVDB key also needs its subscriber's PIN, a credential
-   * as much as the key: masked, explained, and reported like it.
-   */
+  /** A user-supported TheTVDB key also needs its subscriber's PIN. */
   it("offers TheTVDB's subscriber PIN under its key, masked and explained", async () => {
     const onKeyChange = vi.fn();
     renderWithI18n(ProviderOrder, {
@@ -163,7 +127,6 @@ describe('a credential is edited in the row of the source it unlocks', () => {
   });
 });
 
-/** A row's buttons name their source, so a list of buttons tells them apart. */
 describe('each source button names its source', () => {
   it('names every button of a row with the source it acts on', async () => {
     renderWithI18n(ProviderOrder, {
@@ -191,11 +154,6 @@ describe('each source button names its source', () => {
   });
 });
 
-/**
- * A press that moves a row draws it again, in its new place or in the other
- * list, and the pressed button with it. The focus follows the source rather
- * than falling to the page, on the guide's own metadata step.
- */
 describe('a source keeps the focus when its row moves', () => {
   function showSources(value: string) {
     const view = renderWithI18n(ProviderOrder, {
@@ -241,7 +199,6 @@ describe('a source keeps the focus when its row moves', () => {
     );
   });
 
-  /** Its Enable refused until a key is given, the source's key field is what is left. */
   it('hands a source switched off without its key to that key field', async () => {
     showSources('arr,tmdb');
 

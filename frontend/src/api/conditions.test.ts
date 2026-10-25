@@ -9,7 +9,7 @@ import {
   parseScoreBound,
   parseWholeBound,
   canonicalKey,
-  certificationKey,
+  foldCertification,
   addValue,
   removeValue,
   withoutRepeats,
@@ -17,9 +17,10 @@ import {
   localFacets,
   MAX_PRIORITY,
   nextPriority,
-  statusKey,
+  foldStatus,
+  issueField,
 } from './conditions';
-import { readBackend } from '../test/backend';
+import { backendConstant, readBackend } from '../test/backend';
 
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
   type: 'x',
@@ -68,9 +69,9 @@ const RATINGS: [string, string][] = JSON.parse(
   readBackend('backend/src/services/rule_engine/certification_key_cases.json'),
 ) as [string, string][];
 
-describe('certificationKey', () => {
+describe('foldCertification', () => {
   it.each(RATINGS)('keys %j as the rule engine does', (raw, key) => {
-    expect(certificationKey(raw)).toBe(key);
+    expect(foldCertification(raw)).toBe(key);
   });
 
   it('keeps R+ apart from R in a rating condition, and only there', () => {
@@ -78,17 +79,17 @@ describe('certificationKey', () => {
       'R',
       'R+',
     ]);
-    expect(addValue(['R'], 'R+', certificationKey)).toEqual(['R', 'R+']);
-    expect(addValue(['PG-13'], 'pg 13', certificationKey)).toEqual(['PG-13']);
+    expect(addValue(['R'], 'R+', foldCertification)).toEqual(['R', 'R+']);
+    expect(addValue(['PG-13'], 'pg 13', foldCertification)).toEqual(['PG-13']);
     expect(withoutRepeats({ type: 'genre_contains', value: ['Sci-Fi', 'sci fi'] }).value).toEqual([
       'Sci-Fi',
     ]);
   });
 });
 
-describe('statusKey', () => {
+describe('foldStatus', () => {
   it('reads a status as one word, as the rule engine does', () => {
-    expect(statusKey('In Cinemas')).toBe(statusKey('inCinemas'));
+    expect(foldStatus('In Cinemas')).toBe(foldStatus('inCinemas'));
     expect(withoutRepeats({ type: 'status_is', value: ['inCinemas', 'In Cinemas'] }).value).toEqual(
       ['inCinemas'],
     );
@@ -240,6 +241,12 @@ describe('nextPriority', () => {
     expect(nextPriority([])).toBe(10);
     expect(nextPriority([MAX_PRIORITY - 5])).toBe(MAX_PRIORITY);
   });
+
+  it('holds a priority to the ceiling the rule engine refuses past', () => {
+    expect(MAX_PRIORITY).toBe(
+      backendConstant('backend/src/services/rule_engine/validation.rs', 'MAX_PRIORITY'),
+    );
+  });
 });
 
 describe('the parsers of a typed value', () => {
@@ -269,5 +276,18 @@ describe('the parsers of a typed value', () => {
       // A zero with its sign, and digits past an exact integer.
       { examples: [['-0'], ['123456789012345678901234567890']] },
     );
+  });
+});
+
+describe('issueField', () => {
+  /** The server counts conditions from 1, the editor's rows from 0. */
+  it('names the row a condition issue places, else the list, else nothing', () => {
+    const at = (field: string, params: Record<string, string> = {}) =>
+      issueField({ field, params });
+    expect(at('name')).toBe('rules-rule-name');
+    expect(at('exclusions', { index: '2' })).toBe('rules-exclusions-1');
+    expect(at('conditions')).toBe('rules-conditions-add');
+    expect(at('conditions', { index: '0' })).toBe('rules-conditions-add');
+    expect(at('instance_ids')).toBeNull();
   });
 });

@@ -1,16 +1,9 @@
 import { basePath } from '../api/basePath';
 
 /**
- * The whole router. Flat routes, no nesting, no parameters.
- *
- * Written rather than installed, for one reason that is specific to this
- * application: the mount point is discovered at *runtime* from the `<base href>`
- * the backend injects, because a single Docker image has to serve any sub-path.
- * Every SPA router worth taking wants its base at build time, which would mean
- * one image per mount point, the opposite of what this project ships.
- *
- * A router this small also costs less than tracking a routing dependency's
- * position on Svelte 5.
+ * The whole router: flat routes, no nesting, no parameters. Written here because the mount
+ * point is read at run time from the `<base href>` the backend injects, where a router library
+ * wants it at build time, one image per mount point.
  */
 
 // Without the mount point and without a trailing slash: a bookmark or a proxy
@@ -37,14 +30,8 @@ if (router.path !== '/' && window.location.pathname.endsWith('/')) {
 }
 
 /**
- * The `href` of a route: the mount point and the path.
- *
- * A `<base href>` applies to relative URLs only, and these anchors are
- * root-absolute. A bare `/rules` lies outside the mount point, so the
- * interception below leaves it to the browser, and every way of following it
- * (a click, middle-click, ctrl-click, a copied address) reaches the proxy's
- * root and a 404. Every anchor to a route goes through this, so the attribute
- * says where the click will actually go.
+ * The `href` of a route: the mount point and the path. A `<base href>` applies to relative
+ * URLs only, so a bare `/rules` would send a middle-click or a copied address to the proxy's root.
  */
 export const href = (to: string) => `${basePath()}${to}`;
 
@@ -105,13 +92,8 @@ function go(to: string) {
 }
 
 /**
- * One delegated listener rather than a `<Link>` component.
- *
- * The markup stays a plain `<a href>`, which is what makes a link a link:
- * middle-click opens a tab, ctrl-click too, the status bar shows a destination,
- * and a screen reader announces it as a link with a name. A component that
- * renders a `<div role="link">` gets none of that, and the accessibility sweep
- * in `e2e/` queries these by role.
+ * One delegated listener, so the markup stays a plain `<a href>`: middle-click, the status bar
+ * and a screen reader all treat it as the link it is.
  */
 export function interceptLinks() {
   const onClick = (event: MouseEvent) => {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Download, RefreshCw } from '../lib/icons';
-  import { ApiError, api } from '../api/client';
+  import { ApiError, EXPORTED_AT_MOST, api } from '../api/client';
   import { capitalize, formatTimestamp } from '../api/format';
   import type { SecurityEventKind } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
@@ -67,8 +67,10 @@
 
   async function download() {
     try {
-      downloadBlob(await api.exportSecurityLog(filters), 'routarr-security-log.csv');
-      exported.clear();
+      const file = await api.exportSecurityLog(filters);
+      downloadBlob(file.blob, 'routarr-security-log.csv');
+      if (file.truncated) exported.warn(t('ExportTruncated', { count: EXPORTED_AT_MOST }));
+      else exported.clear();
     } catch (err) {
       exported.fail(
         err instanceof ApiError && err.status > 0 ? t('ExportFailed', { status: err.status }) : err,

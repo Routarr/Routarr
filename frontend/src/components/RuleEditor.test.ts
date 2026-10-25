@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -10,7 +10,7 @@ import { instance } from '../test/fixtures';
 import { unloading } from '../test/leaving';
 import { navigate, router } from '../lib/router.svelte';
 import { ApiError, api } from '../api/client';
-import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
+import type { LibraryFacets, PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
 import { publishAccess } from '../lib/access.svelte';
 import RuleEditor from './RuleEditor.svelte';
 
@@ -30,29 +30,34 @@ const DRAFT: RuleDraft = {
   target_category: 'anime',
 };
 
+const EMPTY_FACETS: LibraryFacets = {
+  total_media: 0,
+  without_metadata: 0,
+  vocabularies: { original_languages: [], origin_countries: [] },
+  genres: [],
+  original_languages: [],
+  origin_countries: [],
+  certifications: [],
+  tags: [],
+  series_types: [],
+  quality_profiles: [],
+  studios: [],
+  networks: [],
+  collections: [],
+  root_folders: [],
+  statuses: [],
+};
+
+/** The summary at the foot of the form, which lists every issue, each under its field too. */
+const summary = () => within(screen.getByRole('list', { name: 'Validation results' }));
+
 /** Any edit at all: what turns an untouched form into one being built. */
 async function touch() {
   await userEvent.type(await screen.findByLabelText('Rule name'), '!');
 }
 
 function render(ruleId?: string, extra: Record<string, unknown> = {}) {
-  vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({
-    total_media: 0,
-    without_metadata: 0,
-    vocabularies: { original_languages: [], origin_countries: [] },
-    genres: [],
-    original_languages: [],
-    origin_countries: [],
-    certifications: [],
-    tags: [],
-    series_types: [],
-    quality_profiles: [],
-    studios: [],
-    networks: [],
-    collections: [],
-    root_folders: [],
-    statuses: [],
-  });
+  vi.spyOn(api, 'getLibraryFacets').mockResolvedValue(EMPTY_FACETS);
   renderWithI18n(RuleEditor, {
     props: {
       draft: DRAFT,
@@ -98,10 +103,29 @@ describe('RuleEditor', () => {
     await touch();
 
     await waitFor(() =>
-      expect(screen.getByText('Condition 1 (Year): the range is inverted')).toBeInTheDocument(),
+      expect(summary().getByText('Condition 1 (Year): the range is inverted')).toBeInTheDocument(),
     );
-    expect(screen.getByRole('list', { name: 'Validation results' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
+  });
+
+  /** Chinese writes a note in full-width brackets, with no space before them. */
+  it('marks the description optional as the language sets a note', async () => {
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue(EMPTY_FACETS);
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    renderWithI18n(RuleEditor, {
+      props: {
+        draft: DRAFT,
+        categories: [],
+        instances: [],
+        catalog: { conditions: [] },
+        onClose: () => {},
+        onSaved: async () => {},
+      },
+      language: 'zh_CN',
+      strings: { Description: '描述', Optional: '可选', WithNote: '{text}（{note}）' },
+    });
+
+    expect(await screen.findByLabelText('描述（可选）')).toBeInTheDocument();
   });
 
   /** Which way the order runs is said under the field, where a keyboard reaches it too. */
@@ -196,7 +220,7 @@ describe('RuleEditor', () => {
     });
 
     const warning = await screen.findByText(message);
-    expect(warning).toHaveClass('banner-warning');
+    expect(warning.closest('li')).toHaveClass('banner-warning');
     const save = screen.getByRole('button', { name: 'Save rule' });
     expect(save).toBeEnabled();
     await userEvent.click(save);
@@ -234,12 +258,12 @@ describe('RuleEditor', () => {
 
     const field = await screen.findByLabelText('Rule name');
     await userEvent.type(field, '!');
-    await waitFor(() => expect(screen.getByText('A rule needs a name')).toBeInTheDocument());
+    await waitFor(() => expect(summary().getByText('A rule needs a name')).toBeInTheDocument());
 
     await userEvent.clear(field);
     await userEvent.type(field, 'Anime');
 
-    expect(screen.getByText('A rule needs a name')).toBeInTheDocument();
+    expect(summary().getByText('A rule needs a name')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
   });
 
@@ -264,7 +288,7 @@ describe('RuleEditor', () => {
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeEnabled();
 
     await touch();
-    await waitFor(() => expect(screen.getByText('A rule needs a name')).toBeInTheDocument());
+    await waitFor(() => expect(summary().getByText('A rule needs a name')).toBeInTheDocument());
   });
 
   it('speaks immediately about a rule that already exists', async () => {
@@ -282,7 +306,7 @@ describe('RuleEditor', () => {
     });
     render('rule-1');
 
-    await waitFor(() => expect(screen.getByText('anime no longer exists')).toBeInTheDocument());
+    await waitFor(() => expect(summary().getByText('anime no longer exists')).toBeInTheDocument());
   });
 
   it('keeps the name marked required', async () => {
@@ -317,9 +341,9 @@ describe('RuleEditor', () => {
 
     await fireEvent.click(save);
 
-    expect(
-      await screen.findByText('Condition 1 (Genre contains) has no value'),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(summary().getByText('Condition 1 (Genre contains) has no value')).toBeInTheDocument(),
+    );
     expect(create).not.toHaveBeenCalled();
     expect(save).toBeDisabled();
   });
@@ -395,10 +419,67 @@ describe('RuleEditor', () => {
     render();
     await waitFor(() => expect(api.validateRule).toHaveBeenCalled());
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    save.focus();
+    await fireEvent.click(save);
 
-    expect(await screen.findByText('A rule needs a name')).toBeInTheDocument();
+    // Under its field, which takes the focus: the dialog scrolls, the summary is a screen away.
+    const name = screen.getByLabelText('Rule name');
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveAccessibleDescription('A rule needs a name');
     expect(create).not.toHaveBeenCalled();
+
+    const summary = screen.getByRole('list', { name: 'Validation results' });
+    screen.getByLabelText('Priority').focus();
+    await userEvent.click(within(summary).getByRole('button', { name: 'A rule needs a name' }));
+    expect(name).toHaveFocus();
+  });
+
+  it('says the issue of a condition under its row and moves there on a refused Save', async () => {
+    const message = 'Condition 1 (Original language) has no value';
+    vi.spyOn(api, 'validateRule').mockResolvedValue({
+      valid: false,
+      issues: [
+        {
+          severity: 'error',
+          field: 'conditions',
+          key: 'ValidationConditionEmpty',
+          params: { section: 'conditions', index: '1', kind: 'original_language' },
+          message,
+        },
+      ],
+    });
+    render(undefined, {
+      draft: { ...DRAFT, conditions: [{ type: 'original_language', value: [] }] },
+      catalog: {
+        conditions: [
+          {
+            type: 'original_language',
+            label: 'Original language',
+            value_type: 'string_list',
+            needs_metadata: true,
+            suggestions: '',
+            quantifier: '',
+            counterpart: '',
+            media_types: ['movie', 'series'],
+            metadata_field: 'original_language',
+            available: true,
+          },
+        ],
+      },
+    });
+    await touch();
+    await waitFor(() => expect(api.validateRule).toHaveBeenCalled());
+
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    save.focus();
+    await fireEvent.click(save);
+
+    const value = screen.getByLabelText('Original language');
+    await waitFor(() => expect(value).toHaveFocus());
+    expect(value).toHaveAttribute('aria-invalid', 'true');
+    expect(value).toHaveAccessibleDescription(expect.stringContaining(message));
   });
 
   /** Save turns disabled while it writes, which drops its focus out of the dialog. */
@@ -451,27 +532,57 @@ describe('the instances a rule is kept to', () => {
 describe('the facets the parent already holds', () => {
   it('are used as they are, without a second request', async () => {
     render(undefined, {
-      knownFacets: {
-        total_media: 3,
-        without_metadata: 0,
-        vocabularies: { original_languages: [], origin_countries: [] },
-        genres: [{ value: 'Animation', count: 3 }],
-        original_languages: [],
-        origin_countries: [],
-        certifications: [],
-        tags: [],
-        series_types: [],
-        quality_profiles: [],
-        studios: [],
-        networks: [],
-        collections: [],
-        root_folders: [],
-        statuses: [],
-      },
+      knownFacets: { ...EMPTY_FACETS, total_media: 3, genres: [{ value: 'Animation', count: 3 }] },
     });
     await screen.findByLabelText('Rule name');
 
     expect(api.getLibraryFacets).not.toHaveBeenCalled();
+  });
+
+  /** `/rules?new=1` opens the editor once the rules are in, the facets maybe not yet. */
+  it('are offered once they arrive after the editor opened, and its own read is dropped', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    let dropped = false;
+    vi.spyOn(api, 'getLibraryFacets').mockImplementation(
+      (signal) =>
+        new Promise((_, reject) =>
+          signal?.addEventListener('abort', () => {
+            dropped = true;
+            reject(new DOMException('aborted', 'AbortError'));
+          }),
+        ),
+    );
+    const genres = {
+      type: 'genre_contains',
+      label: 'Genre contains',
+      value_type: 'string_list',
+      needs_metadata: false,
+      suggestions: 'genres',
+      quantifier: '',
+      counterpart: '',
+      media_types: ['movie', 'series'],
+      metadata_field: '',
+      available: true,
+    };
+    const props = {
+      draft: DRAFT,
+      categories: [],
+      instances: [],
+      catalog: { conditions: [genres] },
+      onClose: () => {},
+      onSaved: async () => {},
+    };
+    const { rerender } = renderWithI18n(RuleEditor, { props: { ...props, knownFacets: null } });
+    await screen.findByLabelText('Rule name');
+
+    await rerender({
+      ...props,
+      knownFacets: { ...EMPTY_FACETS, genres: [{ value: 'Animation', count: 3 }] },
+    });
+    await userEvent.click(screen.getByLabelText('Genre contains'));
+
+    expect(await screen.findByRole('option', { name: /Animation/ })).toBeInTheDocument();
+    expect(dropped).toBe(true);
   });
 });
 

@@ -4,7 +4,6 @@ import { renderWithI18n } from '../test/render';
 import Stat from './Stat.svelte';
 
 describe('Stat', () => {
-  /** A zero painted red reads as a failure. */
   it('draws a zero without its tone, and any other figure with it', () => {
     const zero = renderWithI18n(Stat, { props: { label: 'Failed', value: 0, tone: 'danger' } });
     const three = renderWithI18n(Stat, { props: { label: 'Failed', value: 3, tone: 'danger' } });

@@ -85,6 +85,8 @@
   let dialogError = $state<string | null>(null);
   // An empty answer says so, or it looks like a click that did nothing.
   let searched = $state(false);
+  /** Whether the library holds no title, which a sync fills. */
+  let libraryEmpty = $state(false);
 
   // Only the last search answers, and one the screen closed on is abandoned.
   let finding: AbortController | null = null;
@@ -97,8 +99,14 @@
     const mine = (finding = new AbortController());
     try {
       const page = await api.getLibrary({ search, per_page: 15 }, mine.signal);
+      // A blank search reads the whole library, and one that found titles shows it holds some.
+      const held =
+        page.pagination.total > 0 || !search.trim()
+          ? page.pagination.total
+          : (await api.getLibrary({ per_page: 1 }, mine.signal)).pagination.total;
       results = page.data;
       matched = page.pagination.total;
+      libraryEmpty = held === 0;
       searched = true;
     } catch (err) {
       if (!mine.signal.aborted) dialogError = describeError(err);
@@ -189,6 +197,7 @@
                   <span>{formatTimestamp(override.created_at, i18n.language)}</span>
                   {#if override.subject}
                     <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span
                       >{override.subject}</span
                     >
                   {/if}
@@ -252,7 +261,9 @@
            a table drawn under the field says nothing to a screen reader. -->
       <div role="status" class="mt-4">
         {#if searched && results.length === 0}
-          <p class="text-muted text-sm">{t('NoMediaMatches')}</p>
+          <p class="text-muted text-sm">
+            {t(libraryEmpty ? 'NoMediaMatches' : 'NoMediaMatchesFilters')}
+          </p>
         {:else if matched > results.length}
           <p class="text-muted text-sm">
             {t('SearchShowingFirst', { shown: results.length, total: matched })}
@@ -321,7 +332,7 @@
 
         <div class="form-group">
           <label class="form-label" for="overrides-reason">
-            {t('Reason')} ({t('Optional')})
+            {t('WithNote', { text: t('Reason'), note: t('Optional') })}
           </label>
           <input
             id="overrides-reason"

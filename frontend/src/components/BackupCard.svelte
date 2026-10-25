@@ -34,6 +34,10 @@
   const backups = createAsync((signal) => api.listBackups(signal));
   let busy = $state(false);
 
+  /** Stops following, not the backup, which runs on whatever the card does. */
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
   async function run(action: () => Promise<void>) {
     const pressed = document.activeElement as HTMLElement | null;
     busy = true;
@@ -41,7 +45,7 @@
       await action();
       await backups.reload();
     } catch (err) {
-      outcome.fail(err);
+      if (!leaving.signal.aborted) outcome.fail(err);
     } finally {
       busy = false;
       void handFocus(pressed);
@@ -144,7 +148,7 @@
     disabled={busy}
     onclick={() =>
       run(async () => {
-        await api.createBackup();
+        await api.createBackup({ signal: leaving.signal });
         outcome.clear();
       })}
   >

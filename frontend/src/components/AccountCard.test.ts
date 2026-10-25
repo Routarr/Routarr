@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
+import { backendConstant } from '../test/backend';
 import { ApiError, api } from '../api/client';
 import { createOutcome } from '../lib/outcome.svelte';
 import AccountCard from './AccountCard.svelte';
@@ -12,7 +13,9 @@ import AccountCard from './AccountCard.svelte';
  * sign-in, and a key minted by the revocation that nobody gets to copy.
  */
 
-const LONG_ENOUGH = 'twelve chars';
+/** The server's minimum, which the card holds a new password to before sending it. */
+const SHORTEST = backendConstant('backend/src/api/auth.rs', 'MIN_PASSWORD_LENGTH');
+const LONG_ENOUGH = 'x'.repeat(SHORTEST);
 
 function mount() {
   const outcome = createOutcome();
@@ -38,7 +41,9 @@ describe('AccountCard', () => {
     const outcome = mount();
 
     await fill('the old one', LONG_ENOUGH);
-    await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    const send = screen.getByRole('button', { name: 'Change password' });
+    send.focus();
+    await fireEvent.click(send);
 
     expect(change).toHaveBeenCalledWith('the old one', LONG_ENOUGH, false);
     await waitFor(() =>
@@ -47,18 +52,22 @@ describe('AccountCard', () => {
     for (const label of ['Current password', 'New password', 'Repeat the new password']) {
       expect(screen.getByLabelText(label)).toHaveValue('');
     }
+    // The button stays disabled with the fields emptied, so the first field takes the focus.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Current password')),
+    );
   });
 
   it('offers nothing to send until the new password is long enough and typed twice alike', async () => {
     mount();
     const send = screen.getByRole('button', { name: 'Change password' });
-    expect(screen.getByText('At least 12 characters.')).toBeInTheDocument();
+    expect(screen.getByText(`At least ${SHORTEST} characters.`)).toBeInTheDocument();
 
-    await fill('the old one', 'eleven char');
+    await fill('the old one', LONG_ENOUGH.slice(1));
     expect(screen.getByLabelText('New password')).toHaveAttribute('aria-invalid', 'true');
     expect(send).toBeDisabled();
 
-    await fill('the old one', LONG_ENOUGH, 'twelve chars!');
+    await fill('the old one', LONG_ENOUGH, `${LONG_ENOUGH}!`);
     expect(screen.getByText('The two passwords differ.')).toBeInTheDocument();
     expect(send).toBeDisabled();
 

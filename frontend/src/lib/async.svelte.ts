@@ -1,4 +1,4 @@
-import { onDestroy } from 'svelte';
+import { onDestroy, untrack } from 'svelte';
 
 import { ApiError } from '../api/client';
 import { t } from './i18n.svelte';
@@ -14,7 +14,9 @@ export function describeError(err: unknown): string {
     // A refusal with nothing to say of its own, as a proxy's error page.
     if (!err.message) {
       const said = t('ServerAnsweredStatus', { status: err.status });
-      return err.requestId ? `${said} (${t('RequestId', { id: err.requestId })})` : said;
+      return err.requestId
+        ? t('WithNote', { text: said, note: t('RequestId', { id: err.requestId }) })
+        : said;
     }
     // The server says a failure of its own in English: a panic answers before
     // any setting is read.
@@ -27,7 +29,7 @@ export function describeError(err: unknown): string {
     // A server-side failure is one the operator will look for in the log, and
     // the id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {
-      return `${message} (${t('RequestId', { id: err.requestId })})`;
+      return t('WithNote', { text: message, note: t('RequestId', { id: err.requestId }) });
     }
     return message;
   }
@@ -91,7 +93,8 @@ export function createAsync<T>(
       state.failure = null;
     }
     try {
-      const result = await loader(controller.signal);
+      // Untracked: what the loader reads before its first `await` is no input, `deps` are.
+      const result = await untrack(() => loader(controller.signal));
       if (current === generation) {
         state.data = result;
         state.error = null;
@@ -112,10 +115,7 @@ export function createAsync<T>(
     }
   }
 
-  // Reading `deps()` inside the effect is what subscribes to it, so a filter
-  // change re-runs the loader: a dependency contract without a dependency
-  // array. With no `deps` the effect runs once, which is the load-on-mount
-  // case.
+  // Only `deps()` subscribes this effect, so with no `deps` it runs once, on mount.
   $effect(() => {
     deps?.();
     void load(true);
