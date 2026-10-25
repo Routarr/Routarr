@@ -18,4 +18,18 @@ describe('BannerList', () => {
     expect(screen.getByRole('listitem').textContent?.trim()).toBe(`Film${NO_BREAK}: raison`);
     expect(screen.getByText('Film', { exact: false, selector: 'strong' })).toBeTruthy();
   });
+
+  it('sets a note and the screen that settles a finding after it, a space apart', () => {
+    renderWithI18n(BannerList, {
+      props: {
+        tone: 'warning',
+        items: [
+          { text: 'No mapping.', note: 'Also a step.', link: { to: '/categories', label: 'Open' } },
+        ],
+      },
+    });
+
+    expect(screen.getByRole('listitem').textContent).toBe('No mapping. Also a step. Open');
+    expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/categories');
+  });
 });

@@ -80,13 +80,21 @@ export function nextAfter(
 }
 
 /**
- * The warnings the guide does not say itself: while it runs, one restating an open step is left
- * to that step. Once the required steps are done all show, since Finish may never be pressed.
+ * The open step that says `warning` itself, while the guide runs. Once the required steps are
+ * done none does, since Finish may never be pressed.
  */
+export function restatingStep(
+  warning: Warning,
+  status: OnboardingStatus | null,
+): OnboardingStep['id'] | null {
+  if (!status || status.state !== 'pending' || status.complete) return null;
+  const step = status.steps.find((each) => each.id === warning.guide_step);
+  return step && !step.done ? step.id : null;
+}
+
+/** The warnings the guide does not say itself, which the shell counts. */
 export function outsideTheGuide(warnings: Warning[], status: OnboardingStatus | null): Warning[] {
-  if (!status || status.state !== 'pending' || status.complete) return warnings;
-  const open = status.steps.filter((step) => !step.done).map((step) => step.id);
-  return warnings.filter((warning) => !warning.guide_step || !open.includes(warning.guide_step));
+  return warnings.filter((warning) => restatingStep(warning, status) === null);
 }
 
 /** The position of a required step among the required steps, from 1. */

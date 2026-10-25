@@ -96,7 +96,8 @@
   {:else if sessions.data}
     <div class="flex-col gap-2">
       {#each shown as session, index (session.handle)}
-        <div class="flex gap-2 items-center">
+        <!-- Wraps, so a long word on the button goes below the session rather than off a phone. -->
+        <div class="flex flex-wrap gap-2 items-center">
           <div class="flex-1">
             <!-- A key names nobody: its source says all there is. -->
             {#if session.source !== 'apikey'}

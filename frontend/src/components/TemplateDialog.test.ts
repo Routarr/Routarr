@@ -308,6 +308,18 @@ describe('TemplateDialog', () => {
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add' })),
     );
   });
+
+  /** A pointer has no Escape. */
+  it('closes from the button beside its title', async () => {
+    vi.spyOn(api, 'previewTemplate').mockResolvedValue(templatePreview());
+    const { onClose } = open(template());
+
+    const dialog = screen.getByRole('dialog', { name: template().name });
+    expect(within(dialog).getByRole('heading', { level: 2 })).toHaveTextContent(template().name);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('for a reader', () => {

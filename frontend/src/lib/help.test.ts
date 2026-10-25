@@ -130,6 +130,37 @@ describe('searchHelp', () => {
     expect(hits.map((hit) => hit.kind)).toEqual(['term', 'purpose']);
   });
 
+  it('ranks a match at the start of a word before one inside a word, and drops neither', () => {
+    const said: Record<string, string> = {
+      [HELP['/']!.purpose]: 'Taking a backup before an upgrade',
+      [HELP['/rules']!.purpose]: 'Akin to a sorting hat',
+    };
+    const purposes = (query: string) =>
+      searchHelp(query, (key) => said[key] ?? key)
+        .filter((hit) => hit.kind === 'purpose')
+        .map((hit) => hit.screen);
+
+    expect(purposes('aki')).toEqual(['/rules', '/']);
+    expect(purposes('tak')).toEqual(['/']);
+  });
+
+  /** Arabic joins its article to a noun, and German builds compounds. */
+  it.each([
+    ['Arabic', 'كتاب', 'افتح الكتاب'],
+    ['German', 'Regel', 'Jede Routingregel zählt'],
+  ])('finds a word written inside a longer one, in %s', (_, query, text) => {
+    const said = { [HELP['/']!.purpose]: text };
+    const hits = searchHelp(query, (key) => said[key] ?? key);
+    expect(hits.filter((hit) => hit.kind === 'purpose' && hit.screen === '/')).toHaveLength(1);
+  });
+
+  /** Chinese and Japanese set no space between words, so any place may start one. */
+  it('finds a text in a script written without spaces wherever it stands', () => {
+    const said = { [HELP['/']!.purpose]: '画面の設定を変更します' };
+    const hits = searchHelp('設定', (key) => said[key] ?? key);
+    expect(hits.filter((hit) => hit.kind === 'purpose' && hit.screen === '/')).toHaveLength(1);
+  });
+
   it('answers nothing to an empty query', () => {
     expect(searchHelp('   ', translate)).toEqual([]);
   });

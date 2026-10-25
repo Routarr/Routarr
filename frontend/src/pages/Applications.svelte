@@ -246,22 +246,11 @@
 
   {#if creating}
     <Modal
-      label={t('NewApplicationKey')}
+      title={t('NewApplicationKey')}
       onClose={() => (creating = false)}
       maxWidth={560}
       initialFocus="application-name"
     >
-      <div class="modal-header">
-        <h2 class="modal-title">{t('NewApplicationKey')}</h2>
-        <button
-          class="btn btn-secondary btn-sm"
-          onclick={() => (creating = false)}
-          aria-label={t('Dismiss')}
-          title={t('Dismiss')}
-        >
-          ✕
-        </button>
-      </div>
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
 
       <form novalidate onsubmit={save}>

@@ -171,9 +171,8 @@
   }
 </script>
 
-<Modal label={template.name} {onClose} maxWidth={760} initialFocus={firstField}>
+<Modal title={template.name} {onClose} maxWidth={760} initialFocus={firstField}>
   <form novalidate onsubmit={add}>
-    <h2 class="modal-title">{template.name}</h2>
     <p class="text-muted text-base mb-3">{template.description}</p>
     {#if template.needs.length > 0}
       <div class="banner banner-warning">

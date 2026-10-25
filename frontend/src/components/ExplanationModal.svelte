@@ -252,24 +252,13 @@
 <!-- Opened on its heading: opened from the quick search by Enter, a panel on
      its first button would take a second Enter as a pin nobody asked for. -->
 <Modal
-  label={view.media.title}
+  title={view.media.title}
+  titleId="explain-title"
   {onClose}
   maxWidth={780}
   maxHeight="88vh"
   initialFocus="explain-title"
 >
-  <div class="modal-header">
-    <h2 id="explain-title" class="modal-title" tabindex="-1">{view.media.title}</h2>
-    <button
-      class="btn btn-secondary btn-sm"
-      onclick={onClose}
-      aria-label={t('Dismiss')}
-      title={t('Dismiss')}
-    >
-      ✕
-    </button>
-  </div>
-
   {#if !access.readOnly}
     <div class="explain-actions">
       <div class="explain-action">

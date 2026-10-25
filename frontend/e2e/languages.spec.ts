@@ -4,14 +4,16 @@ import { test, expect, api, openScreen } from './fixtures';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /**
- * Every language holds on one line what English does, and no button spills out
- * of its card, banner or dialog. A button widens, and below 560px its label may
- * take two lines rather than spill.
+ * Every language holds on one line what English does, at the reflow width aside, and
+ * nothing spills out of its card, banner or dialog. A button widens, and below 560px
+ * its label may take two lines rather than spill.
  */
 
 /** Every screen and settings section, and the two dialogs a first run opens. */
 const PATHS = [...SCREENS, '/rules?new=1', '/instances?add=1', ...SETTINGS_SECTIONS];
-const WIDTHS = [1280, 390];
+/** The width WCAG 1.4.10 reflows to, a 1280px window at 400%: text may wrap, never spill. */
+const REFLOW = 320;
+const WIDTHS = [1280, 390, REFLOW];
 
 /** Text laid out to hold one line, whatever the language. */
 const ONE_LINE = [
@@ -152,7 +154,7 @@ async function speak(code: string): Promise<void> {
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
   // Every language on every path at each width, in WebKit too.
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   // Reduced motion keeps each transition within a frame.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   // The guide on screen, its first step done by the fixture's synced instance.
@@ -176,7 +178,7 @@ test('every language holds on one line what English does, and nothing spills', a
         const { wrapped, spilled, layout } = await read(page);
         const where = `${path} at ${width}px`;
         const before = faults.length;
-        for (const [key, text] of Object.entries(wrapped)) {
+        for (const [key, text] of Object.entries(width === REFLOW ? {} : wrapped)) {
           if (code === 'en') english.add(`${where} ${key}`);
           else if (!english.has(`${where} ${key}`)) {
             faults.push(`${code} ${where}: "${text}" wraps where English holds one line`);

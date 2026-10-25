@@ -297,25 +297,13 @@
 </script>
 
 <Modal
-  label={t(ruleId ? 'EditRule' : 'CreateRule')}
+  title={t(ruleId ? 'EditRule' : 'CreateRule')}
   onClose={() => void close()}
   maxWidth={860}
   maxHeight="88vh"
   initialFocus="rules-rule-name"
   {returnFocus}
 >
-  <div class="modal-header">
-    <h2 class="modal-title">{t(ruleId ? 'EditRule' : 'CreateRule')}</h2>
-    <button
-      class="btn btn-secondary btn-sm"
-      onclick={() => void close()}
-      aria-label={t('Dismiss')}
-      title={t('Dismiss')}
-    >
-      ✕
-    </button>
-  </div>
-
   <ErrorBanner message={error} onDismiss={() => (error = null)} />
 
   <!-- `novalidate`: the browser's bubble speaks the browser's language and fires before the

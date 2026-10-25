@@ -59,23 +59,37 @@ interface Hit {
   text: string;
 }
 
+/** Scripts that set no space between words, where any place may start one. */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}]/u;
+const WORD_CHARACTER = /[\p{L}\p{N}]/u;
+
+/** Whether `word` starts a word of `text`, both folded. */
+function startsAWord(text: string, word: string): boolean {
+  if (UNSPACED.test(word)) return text.includes(word);
+  for (let at = text.indexOf(word); at !== -1; at = text.indexOf(word, at + 1)) {
+    if (at === 0 || !WORD_CHARACTER.test(text[at - 1]!)) return true;
+  }
+  return false;
+}
+
 /**
- * Everything the help says that holds every word of `query`, a hit in a title
- * before one in a text, each in the order of the screens. A term is listed
- * under the first screen that uses it, once.
+ * Everything the help says that holds every word of `query`, ranked: at a word's start before
+ * inside a word (an Arabic or German word may sit inside another), then a title before a text,
+ * then the screens' order. A term is listed under the first screen that uses it, once.
  */
 export function searchHelp(query: string, translate: (key: string) => string): Hit[] {
   const words = folded(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
-  const holds = (text: string) => {
-    const haystack = folded(text);
-    return words.every((word) => haystack.includes(word));
-  };
-  const titled: Hit[] = [];
-  const texted: Hit[] = [];
+  const ranked: Hit[][] = [[], [], [], []];
   const consider = (hit: Hit) => {
-    if (holds(hit.title)) titled.push(hit);
-    else if (holds(`${hit.title} ${hit.text}`)) texted.push(hit);
+    const [title, text] = [folded(hit.title), folded(hit.text)];
+    const both = `${title} ${text}`;
+    if (!words.every((word) => both.includes(word))) return;
+    const starting = words.every((word) => startsAWord(both, word));
+    const inTitle = starting
+      ? words.every((word) => startsAWord(title, word))
+      : words.every((word) => title.includes(word));
+    ranked[(starting ? 0 : 2) + (inTitle ? 0 : 1)]!.push(hit);
   };
   const seen = new Set<string>();
   for (const screen of SCREENS) {
@@ -105,7 +119,7 @@ export function searchHelp(query: string, translate: (key: string) => string): H
       consider({ screen, kind: 'card', title: translate(card.title), text: translate(card.text) });
     }
   }
-  return [...titled, ...texted];
+  return ranked.flat();
 }
 
 interface GlossaryEntry {

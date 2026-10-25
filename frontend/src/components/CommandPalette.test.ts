@@ -343,6 +343,34 @@ describe('CommandPalette', () => {
     expect(actions(panel).filter((name) => WRITES.test(name))).toEqual([]);
   });
 
+  it('lists the titles found before the help, and opens the first one on Enter', async () => {
+    vi.spyOn(api, 'getLibrary').mockResolvedValue({
+      data: [media({ title: 'Akira' })],
+      pagination: { page: 1, per_page: 5, total: 1, total_pages: 1 },
+    });
+    const explain = vi.spyOn(api, 'explainTitle').mockReturnValue(new Promise(() => {}));
+    // More matches inside a word than the three rows the help keeps.
+    const inside = ['Taking stock', 'Making room', 'Baking', 'Shaking hands'];
+    renderWithI18n(CommandPalette, {
+      props: { onClose: () => {}, onHelp: vi.fn() },
+      strings: Object.fromEntries(
+        SCREENS.slice(0, 4).map((path, at) => [HELP[path]!.purpose, inside[at]!]),
+      ),
+    });
+    const field = screen.getByRole('combobox');
+
+    await userEvent.type(field, 'aki');
+    await screen.findByRole('group', { name: 'Library' });
+    const [library, help, ...rest] = within(screen.getByRole('listbox')).getAllByRole('group');
+    expect(rest).toEqual([]);
+    expect(library).toHaveAccessibleName('Library');
+    expect(help).toHaveAccessibleName('Help');
+    expect(within(help!).getAllByRole('option')).toHaveLength(3);
+
+    await fireEvent.keyDown(field, { key: 'Enter' });
+    expect(explain).toHaveBeenCalledWith('m-1', expect.any(AbortSignal));
+  });
+
   it('offers what the help says, and opens it on that screen', async () => {
     vi.spyOn(api, 'getLibrary').mockResolvedValue({
       data: [],

@@ -723,8 +723,9 @@ export const api = {
 
   getMoveLog: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<LogEntry>>(`/move-log${query(params)}`, { signal }),
-  /** A link the browser follows, since the sign-in has to leave this origin. */
-  oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
+  /** A link the browser follows, since the sign-in leaves this origin, back to `screen`. */
+  oidcStartUrl: (screen?: string) =>
+    `${API_BASE}/auth/oidc/start${screen ? `?return=${encodeURIComponent(screen)}` : ''}`,
   exportMoveLog: (params?: QueryParams) => download(`/move-log/export${query(params)}`),
   getSecurityLog: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<SecurityEvent>>(`/security-log${query(params)}`, { signal }),

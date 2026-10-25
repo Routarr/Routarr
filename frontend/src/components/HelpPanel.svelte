@@ -50,25 +50,13 @@
 
 <Modal
   label={t('HelpTitle', { screen: t(screenKey(shown)) })}
+  title={t('Help')}
   {onClose}
   maxWidth={480}
   closeOnBackdrop
   initialFocus="help-search"
 >
   <div class="help-panel">
-    <div class="modal-header">
-      <h2 class="modal-title">{t('Help')}</h2>
-      <button
-        type="button"
-        class="btn btn-secondary btn-sm"
-        onclick={onClose}
-        aria-label={t('Dismiss')}
-        title={t('Dismiss')}
-      >
-        ✕
-      </button>
-    </div>
-
     <SearchField
       id="help-search"
       bind:value={query}

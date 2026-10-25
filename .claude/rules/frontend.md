@@ -92,9 +92,10 @@ Components named without a path live in `frontend/src/components/`.
 
 ## Components and markup
 
-- A dialog is `Modal` with a `label`. Each file that renders `<Modal>` is listed by `covers:` in
-  `MODALS` in `frontend/e2e/accessibility.spec.ts`, which `frontend/src/test/modals.test.ts`
-  enforces.
+- A dialog is `Modal` with a `title`, which draws its heading and its close button, never one of
+  its own, or a `label` where it shows none. Each file that renders `<Modal>` is listed by
+  `covers:` in `MODALS` in `frontend/e2e/accessibility.spec.ts`, which
+  `frontend/src/test/modals.test.ts` enforces.
 - A destructive action asks through `askConfirmation` (yes or no) or `ask` (several outcomes) from
   `frontend/src/lib/confirm.svelte.ts`, never `window.confirm`. The message is a rendered string,
   a button label a dictionary key.

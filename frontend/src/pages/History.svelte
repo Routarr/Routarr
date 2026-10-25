@@ -439,18 +439,7 @@
 
   {#if reverting}
     {@const target = reverting}
-    <Modal label={t('Revert')} onClose={() => (reverting = null)} maxWidth={520}>
-      <div class="modal-header">
-        <h2 class="modal-title">{t('Revert')}</h2>
-        <button
-          class="btn btn-secondary btn-sm"
-          onclick={() => (reverting = null)}
-          aria-label={t('Dismiss')}
-          title={t('Dismiss')}
-        >
-          ✕
-        </button>
-      </div>
+    <Modal title={t('Revert')} onClose={() => (reverting = null)} maxWidth={520}>
       <p>
         {t('ConfirmRevert', {
           title: target.media_title,

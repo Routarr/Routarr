@@ -228,53 +228,110 @@ test.describe('on a phone', () => {
   });
 
   /**
-   * The bar's width depends on how many counts are non-zero and how long the language writes
-   * them, so every counter is forced on: the fixture alone never reaches the worst case.
+   * Every chip is forced on, the longer mode word and the guide included: the fixture alone
+   * never reaches the widest bar.
    */
-  test('every screen fits 360px with every counter at once', async ({ page }) => {
-    await page.route('**/api/v1/status', async (route) => {
-      const response = await route.fetch();
-      const body = await response.json();
-      await route.fulfill({
-        json: {
-          ...body,
-          dry_run: false,
-          running_jobs: 2,
-          pending_decisions: 12,
-          failed_decisions: 3,
-          warnings: ['a', 'b', 'c', 'd'].map((message) => ({ message, guide_step: null })),
-        },
+  for (const touch of [false, true]) {
+    test.describe(touch ? 'under a finger' : 'under a pointer', () => {
+      test.use({ hasTouch: touch });
+
+      test('every screen fits a phone with every chip of the bar at once', async ({
+        page,
+        browserName,
+      }) => {
+        test.setTimeout(120_000);
+        await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
+        await page.route('**/api/v1/status', async (route) => {
+          const response = await route.fetch();
+          const body = await response.json();
+          await route.fulfill({
+            json: {
+              ...body,
+              dry_run: true,
+              running_jobs: 2,
+              pending_decisions: 12,
+              failed_decisions: 3,
+              warnings: ['a', 'b', 'c', 'd'].map((message) => ({ message, guide_step: null })),
+            },
+          });
+        });
+
+        const check = async (where: string) => {
+          await expect(page.locator('.guide-pill')).toBeVisible();
+          const measured = await page.evaluate(() => {
+            const bar = document.querySelector('.topbar');
+            const height = (el: Element) => el.getBoundingClientRect().height;
+            // A chip's target is the transparent box drawn around it.
+            const target = (el: Element) => {
+              const own = el.getBoundingClientRect();
+              const around = getComputedStyle(el, '::before');
+              return Math.min(
+                Math.max(own.width, parseFloat(around.width) || 0),
+                Math.max(own.height, parseFloat(around.height) || 0),
+              );
+            };
+            return {
+              overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              // A label that wraps bursts the chrome, so nothing may be taller than the bar.
+              tallest: Math.max(0, ...[...(bar?.querySelectorAll('*') ?? [])].map(height)),
+              barHeight: bar ? height(bar) : 0,
+              chips: new Set(
+                [...(bar?.querySelectorAll('.mode-chip, .attention, .guide-pill') ?? [])].map(
+                  (el) => Math.round(height(el)),
+                ),
+              ).size,
+              coarse: matchMedia('(pointer: coarse)').matches,
+              smallest: Math.min(...[...(bar?.querySelectorAll('a, button') ?? [])].map(target)),
+            };
+          });
+
+          expect(measured.overflow, `${where} scrolls sideways`).toBeLessThanOrEqual(1);
+          expect(
+            measured.tallest,
+            `${where} has chrome ${measured.tallest}px tall in a ${measured.barHeight}px bar`,
+          ).toBeLessThanOrEqual(measured.barHeight);
+          expect(measured.chips, `${where} draws its chips at several heights`).toBe(1);
+          // Chromium emulates touch as a coarse pointer: there the check below must run.
+          if (touch && browserName === 'chromium') expect(measured.coarse).toBe(true);
+          if (touch && measured.coarse) {
+            expect(
+              measured.smallest,
+              `${where} offers a target ${measured.smallest}px across`,
+            ).toBeGreaterThanOrEqual(44);
+          }
+        };
+
+        for (const width of [375, 320]) {
+          await page.setViewportSize({ width, height: 780 });
+          for (const path of ROUTES) {
+            await openScreen(page, path);
+            await check(`${path} at ${width}px`);
+          }
+        }
+        // Spanish and Russian write the dry-run mode in the longest words.
+        for (const language of ['es', 'ru']) {
+          await api('/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ settings: { ui_language: language } }),
+          });
+          await openScreen(page, '/');
+          await check(`the dashboard in ${language} at 320px`);
+        }
       });
     });
-    await page.setViewportSize({ width: 360, height: 780 });
+  }
 
-    for (const path of ROUTES) {
-      await openScreen(page, path);
+  test('every settings tab shows on a phone, in German too', async ({ page }) => {
+    await api('/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings: { ui_language: 'de' } }),
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/settings');
 
-      const measured = await page.evaluate(() => {
-        const bar = document.querySelector('.topbar');
-        return {
-          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          // A label that wraps bursts the chrome, so nothing may be taller than the bar.
-          tallest: Math.max(
-            0,
-            ...[...(bar?.querySelectorAll('*') ?? [])].map(
-              (el) => el.getBoundingClientRect().height,
-            ),
-          ),
-          barHeight: bar?.getBoundingClientRect().height ?? 0,
-        };
-      });
-
-      expect(
-        measured.overflow,
-        `${path} scrolls sideways by ${measured.overflow}px`,
-      ).toBeLessThanOrEqual(1);
-      expect(
-        measured.tallest,
-        `${path} has chrome ${measured.tallest}px tall in a ${measured.barHeight}px bar`,
-      ).toBeLessThanOrEqual(measured.barHeight);
-    }
+    const tabs = page.getByRole('tab');
+    await expect(tabs).toHaveCount(6);
+    for (const tab of await tabs.all()) await expect(tab).toBeInViewport({ ratio: 1 });
   });
 
   /** The only readable copy of a credential, and an 85-character token has no break point. */
@@ -501,6 +558,23 @@ test('every select keeps the room its arrow is drawn in', async ({ page }) => {
   await measure('rule editor');
 
   expect(cramped).toEqual([]);
+});
+
+test('the whole navigation shows in a laptop window', async ({ page }) => {
+  for (const [width, height] of [
+    [1366, 768],
+    [1440, 900],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await openScreen(page, '/');
+    const nav = page.getByRole('navigation', { name: 'Main navigation' });
+    const [box, last] = [await nav.boundingBox(), await nav.getByRole('link').last().boundingBox()];
+    const cut = last!.y + last!.height - (box!.y + box!.height);
+    expect(
+      cut,
+      `at ${width} by ${height} the last entry ends ${cut}px below the fold`,
+    ).toBeLessThanOrEqual(0);
+  }
 });
 
 test.describe('the chrome draws one line', () => {

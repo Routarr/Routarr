@@ -503,21 +503,10 @@
   {#if renaming}
     {@const target = renaming}
     <Modal
-      label={t('RenameCategory')}
+      title={t('RenameCategory')}
       onClose={() => (renaming = null)}
       initialFocus="rootfolders-rename"
     >
-      <div class="modal-header">
-        <h2 class="modal-title">{t('RenameCategory')}</h2>
-        <button
-          class="btn btn-secondary btn-sm"
-          onclick={() => (renaming = null)}
-          aria-label={t('Dismiss')}
-          title={t('Dismiss')}
-        >
-          ✕
-        </button>
-      </div>
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
       <!-- `novalidate`: the browser's bubble speaks the browser's language. Save waits for the
            field instead. -->
@@ -563,21 +552,10 @@
 
   {#if creating}
     <Modal
-      label={t('NewCategory')}
+      title={t('NewCategory')}
       onClose={() => (creating = false)}
       initialFocus="rootfolders-name"
     >
-      <div class="modal-header">
-        <h2 class="modal-title">{t('NewCategory')}</h2>
-        <button
-          class="btn btn-secondary btn-sm"
-          onclick={() => (creating = false)}
-          aria-label={t('Dismiss')}
-          title={t('Dismiss')}
-        >
-          ✕
-        </button>
-      </div>
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
       <form novalidate onsubmit={createCategory}>
         <div class="form-group">

@@ -226,22 +226,11 @@
 
   {#if creating}
     <Modal
-      label={t('PinMediaTitle')}
+      title={t('PinMediaTitle')}
       onClose={() => (creating = false)}
       maxWidth={640}
       initialFocus="overrides-search"
     >
-      <div class="modal-header">
-        <h2 class="modal-title">{t('PinMediaTitle')}</h2>
-        <button
-          class="btn btn-secondary btn-sm"
-          onclick={() => (creating = false)}
-          aria-label={t('Dismiss')}
-          title={t('Dismiss')}
-        >
-          ✕
-        </button>
-      </div>
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
 
       <form novalidate class="flex gap-2" onsubmit={find}>

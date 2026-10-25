@@ -58,13 +58,13 @@
 
 {#if open}
   <Modal
-    label={t(words.title)}
+    title={t(words.title)}
+    closable={false}
     onClose={() => finish(null)}
     maxWidth={460}
     initialFocus="proof-value"
   >
     <form novalidate onsubmit={submit}>
-      <h2 class="card-title mb-3">{t(words.title)}</h2>
       {#if note}
         <p id="proof-note" class="field-error mb-3" role="alert">{note}</p>
       {:else}
