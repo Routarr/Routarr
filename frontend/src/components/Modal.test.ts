@@ -1,6 +1,7 @@
 import { describe, it, expect, onTestFinished, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 
+import { renderWithI18n } from '../test/render';
 import ModalHarness from '../test/ModalHarness.svelte';
 
 describe('Modal', () => {
@@ -35,6 +36,27 @@ describe('Modal', () => {
     render(ModalHarness, { label: 'Rename category', onClose: vi.fn() });
 
     expect(screen.getByRole('dialog', { name: 'Rename category' })).toBeTruthy();
+  });
+
+  it('draws its title as the heading that names it, with a close button beside it', async () => {
+    const onClose = vi.fn();
+    renderWithI18n(ModalHarness, { props: { title: 'Rename category', onClose } });
+
+    const heading = screen.getByRole('heading', { level: 2, name: 'Rename category' });
+    const dialog = screen.getByRole('dialog', { name: 'Rename category' });
+    expect(dialog).toHaveAttribute('aria-labelledby', heading.id);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the name it is given over its title, and offers no close when told not to', () => {
+    renderWithI18n(ModalHarness, {
+      props: { label: 'Help: Rules', title: 'Help', closable: false, onClose: vi.fn() },
+    });
+
+    expect(screen.getByRole('dialog', { name: 'Help: Rules' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Help' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
   });
 
   it('opens it as a modal, not merely as a visible element', () => {

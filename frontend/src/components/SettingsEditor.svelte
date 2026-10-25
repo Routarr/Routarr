@@ -577,20 +577,6 @@
         <SessionsCard {outcome} />
       {/if}
 
-      {#if section === 'general'}
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <CardTitle card="GuideRestart">{t('GuideTitle')}</CardTitle>
-              <p class="card-note">{t('GuideRestartText')}</p>
-            </div>
-            <button type="button" class="btn btn-secondary" onclick={() => void restartGuide()}>
-              {t('GuideRestart')}
-            </button>
-          </div>
-        </div>
-      {/if}
-
       {#if section === 'maintenance'}
         <BackupEncryptionCard
           {outcome}
@@ -817,6 +803,21 @@
           {/if}
         </div>
       </form>
+
+      <!-- Below the language and the theme, which a visit here is likeliest to want. -->
+      {#if section === 'general'}
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <CardTitle card="GuideRestart">{t('GuideTitle')}</CardTitle>
+              <p class="card-note">{t('GuideRestartText')}</p>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick={() => void restartGuide()}>
+              {t('GuideRestart')}
+            </button>
+          </div>
+        </div>
+      {/if}
 
       {#if section === 'notifications'}
         <NotificationTest {outcome} />

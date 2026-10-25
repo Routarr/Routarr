@@ -2,11 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { health, healthInstance, warning } from '../test/fixtures';
+import { health, healthInstance, onboardingStatus, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
 import { statusRevision, warningsRevision } from '../lib/status.svelte';
 import { publishAccess } from '../lib/access.svelte';
+import { publishOnboarding } from '../lib/onboarding.svelte';
 import Diagnostics from './Diagnostics.svelte';
 
 const show = () => renderWithI18n(Diagnostics);
@@ -14,7 +15,10 @@ const show = () => renderWithI18n(Diagnostics);
 const withProviders = (list: Health['metadata']['providers']) =>
   health({ metadata: { providers: list, cached_items: 0, media_missing_metadata: 0 } });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  publishOnboarding(null);
+});
 
 describe('Diagnostics', () => {
   it('says the re-check is running until it ends', async () => {
@@ -72,6 +76,54 @@ describe('Diagnostics', () => {
     expect(container.querySelectorAll('.banner-warning li')).toHaveLength(5);
     expect(screen.getByText('five')).toBeTruthy();
     expect(screen.queryByText('Everything checks out.')).toBeNull();
+  });
+
+  it('counts the warnings the guide restates apart, as the bar does, and names their step', async () => {
+    publishOnboarding(onboardingStatus());
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      health({
+        warnings: [
+          warning('Rule tests failing: 1 of 1.', null, 'rule_tests_failing'),
+          warning('Categories not mapped: 2.', 'categories', 'unmapped_categories'),
+          warning("'Radarr 4K' has no folder mapped.", 'categories', 'instance_without_mapping'),
+        ],
+      }),
+    );
+    show();
+
+    expect(
+      await screen.findByText('Warnings: 1, and 2 in the getting-started guide'),
+    ).toBeInTheDocument();
+    const [failing, unmapped] = screen.getAllByRole('listitem');
+    expect(failing).not.toHaveTextContent('getting-started guide');
+    expect(unmapped).toHaveTextContent(
+      'Also in the getting-started guide: Map root folders to categories',
+    );
+
+    // Once the guide is done, every warning counts.
+    publishOnboarding(onboardingStatus([], { state: 'done' }));
+    expect(await screen.findByText('Warnings: 3')).toBeInTheDocument();
+    expect(screen.queryByText(/getting-started guide/)).toBeNull();
+  });
+
+  it('links each warning to the screen that settles it, and offers nothing where none does', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      health({
+        warnings: [
+          warning('Rule tests failing: 1 of 1.', null, 'rule_tests_failing'),
+          warning('The disk is nearly full.', null, 'data_disk_low'),
+        ],
+      }),
+    );
+    show();
+
+    const failing = (await screen.findByText('Rule tests failing: 1 of 1.')).closest('li')!;
+    expect(within(failing).getByRole('link', { name: 'Open Rule tests' })).toHaveAttribute(
+      'href',
+      '/rule-tests',
+    );
+    const disk = screen.getByText('The disk is nearly full.').closest('li')!;
+    expect(within(disk).queryByRole('link')).toBeNull();
   });
 
   it('tells a source waiting for a key apart from one that answered badly', async () => {

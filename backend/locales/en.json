@@ -493,6 +493,8 @@
   "Details": "Details",
   "DiagnosticErrors": "Errors: {count}",
   "DiagnosticWarnings": "Warnings: {count}",
+  "DiagnosticWarningsBesideGuide": "Warnings: {count}, and {inGuide} in the getting-started guide",
+  "WarningInGuide": "Also in the getting-started guide: {title}.",
   "Diagnostics": "Diagnostics",
   "DiagnosticsSubtitle": "Connectivity, metadata coverage and anything that would silently stop routing from working.",
   "DisableSource": "Disable",

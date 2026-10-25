@@ -5,6 +5,7 @@
   import { describeError } from '../lib/async.svelte';
   import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
+  import { router } from '../lib/router.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
 
   /**
@@ -19,6 +20,8 @@
   // Taken out of the address once read, or a reload says it again.
   const refused = new URLSearchParams(location.search).get('signin') === 'failed';
   takeQueryFlag('signin');
+  // The server lands on it only if it is a screen under the mount point.
+  const opened = `${router.path}${location.search}${location.hash}`;
 
   let username = $state('admin');
   let password = $state('');
@@ -81,7 +84,7 @@
       <p class="text-muted text-base">{t('SignInWithProviderHelp')}</p>
       <!-- An anchor, not a button calling fetch: the browser has to leave this
            origin, and a redirect a script follows is one that can be trapped. -->
-      <a class="btn btn-primary" href={api.oidcStartUrl()}>{t('SignInWithProvider')}</a>
+      <a class="btn btn-primary" href={api.oidcStartUrl(opened)}>{t('SignInWithProvider')}</a>
     {:else}
       <p class="text-muted text-base">{t('PasswordWhere')}</p>
 

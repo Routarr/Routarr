@@ -43,6 +43,15 @@ test('the provider signs the browser in @oidc', async ({ page }) => {
   await expect(signedIn(page)).toBeVisible();
 });
 
+test('the provider sends the browser back to the screen it opened @oidc', async ({ page }) => {
+  await page.goto('/history');
+  await page.getByRole('link', { name: 'Sign in with your provider' }).click();
+
+  await expect(signedIn(page)).toBeVisible();
+  await expect(page).toHaveURL(/\/history$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'History' })).toBeVisible();
+});
+
 /**
  * A member of the read group reads and changes nothing: the shell says so, offers none of the
  * owner's screens, and a screen keeps its rows and drops its writes.

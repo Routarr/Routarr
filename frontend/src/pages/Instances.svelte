@@ -699,22 +699,11 @@
     {@const isEdit = Boolean(editing.id)}
     {@const intervalOk = intervalFits(form.sync_interval_minutes)}
     <Modal
-      label={t(isEdit ? 'EditInstance' : 'AddInstance')}
+      title={t(isEdit ? 'EditInstance' : 'AddInstance')}
       onClose={() => void close()}
       initialFocus="instances-name"
       returnFocus="instances-add"
     >
-      <div class="modal-header">
-        <h2 class="modal-title">{t(isEdit ? 'EditInstance' : 'AddInstance')}</h2>
-        <button
-          class="btn btn-secondary btn-sm"
-          onclick={() => void close()}
-          aria-label={t('Dismiss')}
-          title={t('Dismiss')}
-        >
-          ✕
-        </button>
-      </div>
       <ErrorBanner
         message={refused}
         onDismiss={() => {

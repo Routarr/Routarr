@@ -252,8 +252,12 @@ export function explainedMedia(over: Partial<ExplainedMedia> = {}): ExplainedMed
 }
 
 /** A warning as `/status` and `/health` send it, restating a guide step or none. */
-export function warning(message: string, guideStep: OnboardingStep['id'] | null = null): Warning {
-  return { code: 'a_warning', message, severity: 'warning', guide_step: guideStep };
+export function warning(
+  message: string,
+  guideStep: OnboardingStep['id'] | null = null,
+  code = 'a_warning',
+): Warning {
+  return { code, message, severity: 'warning', guide_step: guideStep };
 }
 
 /** A guide state with the named steps done, pending unless said otherwise. */

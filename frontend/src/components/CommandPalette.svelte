@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '../api/client';
   import { runsOf } from '../api/format';
-  import { RefreshCw, Search } from '../lib/icons';
+  import { RefreshCw, Search, X } from '../lib/icons';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import { folded, searchHelp } from '../lib/help';
@@ -35,9 +35,10 @@
   let error = $state<string | null>(null);
   let input = $state<HTMLInputElement | null>(null);
 
-  /** The first answers the help holds, once a word is typed. */
-  const HELP_ROWS = 5;
-  const help = $derived(query.trim().length < 2 ? [] : searchHelp(query, t).slice(0, HELP_ROWS));
+  /** The help's first answers, three beside titles found to keep those in view. */
+  const help = $derived(
+    query.trim().length < 2 ? [] : searchHelp(query, t).slice(0, media.length > 0 ? 3 : 5),
+  );
 
   /** Matched on the translated label: it is what is on screen and what is typed. */
   const destinations = $derived(
@@ -54,17 +55,18 @@
       label,
       hint: t(item.hint),
     })),
+    // The titles before the help: finding one and asking why is what the field is for.
+    ...media.map((entry) => ({
+      kind: 'media' as const,
+      id: `pal-media-${entry.id}`,
+      media: entry,
+    })),
     ...help.map((hit, at) => ({
       kind: 'help' as const,
       id: `pal-help-${at}`,
       screen: hit.screen,
       title: hit.title,
       where: t(screenKey(hit.screen)),
-    })),
-    ...media.map((entry) => ({
-      kind: 'media' as const,
-      id: `pal-media-${entry.id}`,
-      media: entry,
     })),
   ]);
 
@@ -194,12 +196,12 @@
              Escape is the keyboard's. -->
         <button
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="close-button"
           onclick={onClose}
           aria-label={t('Dismiss')}
           title={t('Dismiss')}
         >
-          ✕
+          <X size={18} aria-hidden="true" />
         </button>
       </div>
 

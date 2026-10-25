@@ -125,9 +125,14 @@ describe('Dashboard', () => {
   });
 
   /** The page is a summary: nine warnings must not push the numbers off the screen. */
-  it('shows at most three warnings, and links to the rest', async () => {
+  it('shows at most three warnings, each with where it is settled, and links to the rest', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ warnings: ['one', 'two', 'three', 'four', 'five'].map((each) => warning(each)) }),
+      health({
+        warnings: [
+          warning('one', null, 'instance_unreachable'),
+          ...['two', 'three', 'four', 'five'].map((each) => warning(each)),
+        ],
+      }),
     );
     const { container } = show();
 
@@ -136,6 +141,11 @@ describe('Dashboard', () => {
     expect(container.querySelectorAll('.banner-list li')).toHaveLength(3);
     expect(screen.queryByText('four')).toBeNull();
     expect(screen.getAllByRole('link', { name: 'Diagnostics' })[0]).toBeTruthy();
+    const first = screen.getByText('one').closest('li')!;
+    expect(within(first).getByRole('link', { name: 'Open Instances' })).toHaveAttribute(
+      'href',
+      '/instances',
+    );
   });
 
   it('says an instance has never synced rather than leaving the cell blank', async () => {

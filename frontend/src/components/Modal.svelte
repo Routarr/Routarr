@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
+  import { X } from '../lib/icons';
+  import { t } from '../lib/i18n.svelte';
 
   /**
    * A modal dialog on the native `<dialog>`, opened with `showModal()` for the top layer, the
@@ -9,6 +11,9 @@
    */
   let {
     label,
+    title,
+    closable = true,
+    titleId,
     onClose,
     maxWidth,
     maxHeight,
@@ -19,8 +24,14 @@
     describedBy,
     children,
   }: {
-    /** Names the dialog for assistive technology, usually the visible title. */
-    label: string;
+    /** Names a dialog that shows no title, or one whose name says more than its title. */
+    label?: string;
+    /** The header's heading, which names the dialog unless `label` does. */
+    title?: string;
+    /** Whether the header offers a close button: off where the dialog's Cancel is the way out. */
+    closable?: boolean;
+    /** The heading's id, which makes it focusable, for a dialog that opens on its heading. */
+    titleId?: string;
     onClose: () => void;
     /** The width of the content box, chosen by each screen for its content. */
     maxWidth?: number;
@@ -57,6 +68,8 @@
 
   let dialog = $state<HTMLDialogElement | null>(null);
   let pressedOnBackdrop = false;
+  const uid = $props.id();
+  const heading = $derived(titleId ?? `${uid}-title`);
 
   $effect(() => {
     const element = dialog;
@@ -107,6 +120,7 @@
   class="modal-overlay"
   role={alert ? 'alertdialog' : undefined}
   aria-label={label}
+  aria-labelledby={label || !title ? undefined : heading}
   aria-describedby={describedBy}
   oncancel={(event) => {
     event.preventDefault();
@@ -122,6 +136,27 @@
   }}
 >
   <div class="modal-content" {style}>
+    {#if title}
+      <div class="modal-header">
+        <!-- Focusable only where asked: a browser opens a dialog on a focusable heading. -->
+        {#if titleId}
+          <h2 id={heading} class="modal-title" tabindex="-1">{title}</h2>
+        {:else}
+          <h2 id={heading} class="modal-title">{title}</h2>
+        {/if}
+        {#if closable}
+          <button
+            type="button"
+            class="close-button"
+            onclick={onClose}
+            aria-label={t('Dismiss')}
+            title={t('Dismiss')}
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        {/if}
+      </div>
+    {/if}
     {@render children()}
   </div>
 </dialog>

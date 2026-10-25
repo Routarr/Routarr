@@ -59,6 +59,9 @@ describe('Layout', () => {
     const chip = await screen.findByLabelText('Dry-run: writes blocked');
     expect(chip).toHaveTextContent('Dry-run');
     expect(chip.querySelector('.mode-dot')?.className).toContain('is-held');
+    // The word apart from the dot, which a phone's bar shows alone, the sentence on hover.
+    expect(chip.querySelector('.mode-word')).toHaveTextContent('Dry-run');
+    expect(chip).toHaveAttribute('title', 'Dry-run: writes blocked');
   });
 
   it('states the writing mode without spending the danger colour on the normal one', async () => {
@@ -399,6 +402,32 @@ describe('Layout', () => {
     expect(main.contains(banner)).toBe(false);
     expect(main).toHaveAttribute('id', 'main');
     expect(within(banner).getByRole('button', { name: 'Quick search' })).toBeInTheDocument();
+  });
+
+  it('moves Help and Sign out from the bar to the drawer on a phone', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode: 'apikey',
+      api_key_configured: true,
+      api_key_pinned: false,
+    });
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { container } = show();
+    const drawer = container.querySelector('#sidebar') as HTMLElement;
+    const bar = await screen.findByRole('banner');
+
+    expect(await within(drawer).findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(within(bar).queryByRole('button', { name: 'Help' })).toBeNull();
+    expect(within(bar).queryByRole('button', { name: 'Sign out' })).toBeNull();
+    expect(within(bar).getByRole('button', { name: 'Quick search' })).toBeInTheDocument();
+
+    await fireEvent.click(within(bar).getByRole('button', { name: 'Open navigation' }));
+    await fireEvent.click(within(drawer).getByRole('button', { name: 'Help' }));
+    expect(await screen.findByRole('dialog', { name: 'Help: Dashboard' })).toBeInTheDocument();
   });
 
   it('leaves the page reachable beside the rail above the breakpoint', async () => {

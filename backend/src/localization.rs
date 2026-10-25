@@ -172,6 +172,7 @@ pub const COUNTS: &[&str] = &[
     "enriched",
     "failed",
     "folders",
+    "inGuide",
     "instances",
     "jobs",
     "left",

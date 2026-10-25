@@ -10,18 +10,7 @@
   const REPOSITORY = 'https://github.com/Routarr/Routarr';
 </script>
 
-<Modal label={t('AboutRoutarr')} {onClose} maxWidth={560} closeOnBackdrop>
-  <div class="modal-header">
-    <h2 class="modal-title">{t('AboutRoutarr')}</h2>
-    <button
-      class="btn btn-secondary btn-sm"
-      onclick={onClose}
-      aria-label={t('Dismiss')}
-      title={t('Dismiss')}
-    >
-      ✕
-    </button>
-  </div>
+<Modal title={t('AboutRoutarr')} {onClose} maxWidth={560} closeOnBackdrop>
   <p class="text-md">{t('AboutVersion', { version })}</p>
   <p class="text-muted text-md mt-2">
     {t('AboutLicence')}

@@ -12,6 +12,7 @@
   import { access } from '../lib/access.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { outsideTheGuide } from '../api/onboarding';
+  import { fixOf } from '../lib/warnings';
   import Count from '../components/Count.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import BannerList from '../components/BannerList.svelte';
@@ -92,7 +93,9 @@
     <BannerList
       tone="warning"
       title={t('DiagnosticWarnings', { count: warnings.length })}
-      items={warnings.slice(0, 3).map((warning) => ({ text: warning.message }))}
+      items={warnings
+        .slice(0, 3)
+        .map((warning) => ({ text: warning.message, link: fixOf(warning) }))}
     >
       {#snippet action()}
         <a href={href('/diagnostics')} class="btn btn-secondary btn-sm">{t('Diagnostics')}</a>

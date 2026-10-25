@@ -710,6 +710,9 @@ describe('the provider sign-in link', () => {
     const { api: mounted } = await import('./client');
 
     expect(mounted.oidcStartUrl()).toBe('/routarr/api/v1/auth/oidc/start');
+    expect(mounted.oidcStartUrl('/history')).toBe(
+      '/routarr/api/v1/auth/oidc/start?return=%2Fhistory',
+    );
   });
 });
 

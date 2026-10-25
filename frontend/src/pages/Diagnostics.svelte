@@ -16,6 +16,9 @@
   import InstanceStatus from '../components/InstanceStatus.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { access } from '../lib/access.svelte';
+  import { onboarding } from '../lib/onboarding.svelte';
+  import { STEP_GUIDES, restatingStep } from '../api/onboarding';
+  import { fixOf } from '../lib/warnings';
 
   // The shell counts what a probe records without probing. Opening the screen reads a recent
   // probe again, and a recheck asks every Arr and source anew.
@@ -31,6 +34,20 @@
     void report.reload();
   }
   const health = $derived(report.data);
+
+  // Counted as the bar and the navigation count them: a warning an open step of the guide says
+  // is listed with that step's name and counted apart.
+  const warnings = $derived(
+    (health?.warnings ?? []).map((warning) => {
+      const step = restatingStep(warning, onboarding.current);
+      return {
+        text: warning.message,
+        note: step && t('WarningInGuide', { title: t(STEP_GUIDES[step].titleKey) }),
+        link: fixOf(warning),
+      };
+    }),
+  );
+  const inGuide = $derived(warnings.filter((warning) => warning.note).length);
 </script>
 
 <div>
@@ -62,8 +79,13 @@
       {:else}
         <BannerList
           tone="warning"
-          title={t('DiagnosticWarnings', { count: health.warnings.length })}
-          items={health.warnings.map((warning) => ({ text: warning.message }))}
+          title={inGuide > 0
+            ? t('DiagnosticWarningsBesideGuide', {
+                count: warnings.length - inGuide,
+                inGuide,
+              })
+            : t('DiagnosticWarnings', { count: warnings.length })}
+          items={warnings}
         />
       {/if}
 

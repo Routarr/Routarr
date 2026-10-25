@@ -4,7 +4,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { access } from '../lib/access.svelte';
   import { groupsFor, type Counts } from '../lib/navigation';
-  import { X } from '../lib/icons';
+  import { HelpCircle, LogOut, X } from '../lib/icons';
 
   /** Amber asks for attention, red says something failed, the rest is just a
       number, so a count is never louder than what it counts. */
@@ -31,6 +31,8 @@
     counts = { jobs: 0, decisions: 0, failed: 0, warnings: 0 },
     version,
     onAbout,
+    onHelp,
+    onSignOut,
   }: {
     open?: boolean;
     /** Out of sight, a closed drawer: nothing in it may take the focus. */
@@ -45,6 +47,10 @@
     version?: string;
     /** Opens what Routarr is: its licence and the credits its sources ask for. */
     onAbout?: () => void;
+    /** Given on a phone, whose bar has no room for Help: the drawer's foot offers it. */
+    onHelp?: () => void;
+    /** Given on a phone where a session can be ended, as `onHelp` is. */
+    onSignOut?: () => void;
   } = $props();
 </script>
 
@@ -65,7 +71,7 @@
     <span class="sidebar-title">Routarr</span>
     <button
       type="button"
-      class="btn btn-ghost btn-sm sidebar-close"
+      class="close-button sidebar-close"
       aria-label={t('Dismiss')}
       title={t('Dismiss')}
       onclick={onClose}
@@ -112,6 +118,23 @@
       </ul>
     {/each}
   </nav>
+
+  {#if onHelp || onSignOut}
+    <div class="sidebar-tools">
+      {#if onHelp}
+        <button type="button" class="btn btn-ghost btn-sm" onclick={onHelp} aria-keyshortcuts="?">
+          <HelpCircle size={14} aria-hidden="true" />
+          {t('Help')}
+        </button>
+      {/if}
+      {#if onSignOut}
+        <button type="button" class="btn btn-ghost btn-sm" onclick={onSignOut}>
+          <LogOut size={14} aria-hidden="true" />
+          {t('SignOut')}
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   <!-- The version at the foot, out of the bar, which says what a click will do. -->
   {#if version}

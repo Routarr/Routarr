@@ -4,12 +4,16 @@
   /** Gives `Modal` the children snippet a test cannot pass. */
   let {
     label,
+    title,
+    closable,
     onClose,
     closeOnBackdrop = false,
     initialFocus,
     returnFocus,
   }: {
-    label: string;
+    label?: string;
+    title?: string;
+    closable?: boolean;
     onClose: () => void;
     closeOnBackdrop?: boolean;
     initialFocus?: string;
@@ -17,7 +21,7 @@
   } = $props();
 </script>
 
-<Modal {label} {onClose} {closeOnBackdrop} {initialFocus} {returnFocus}>
+<Modal {label} {title} {closable} {onClose} {closeOnBackdrop} {initialFocus} {returnFocus}>
   <p>body</p>
   <button type="button">inside</button>
   <input id="harness-field" aria-label="field" />

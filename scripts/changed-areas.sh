@@ -55,8 +55,9 @@ echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|contrib/m
 # The frontend job alone runs the bundle size check, and its tests read these
 # backend files: the routes the client calls, the settings' defaults, the
 # bounds its fields and exports repeat, the count placeholders, the dictionary
-# its components render, and the tables of cases both sides are held to.
-FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod|api/(deprecated|auth|move_log))\.rs|backend/src/services/(metadata|settings|rule_engine/validation|backup/sealed)\.rs|backend/src/.*\.json'
+# its components render, the warning codes it links to a screen, and the tables
+# of cases both sides are held to.
+FRONTEND_READS='backend/locales/en\.json|backend/src/(main|state|localization|jobs/mod|api/(deprecated|auth|health|move_log))\.rs|backend/src/services/(metadata|settings|rule_engine/validation|backup/sealed)\.rs|backend/src/.*\.json'
 echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$FRONTEND_READS|$CONTROL)")"
 # What the site's checks read from other deliverables: the crate's version, the dictionaries,
 # the contract, the README, the first-run screen, and the frontend's Playwright (`verify.mjs`).

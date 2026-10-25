@@ -85,18 +85,24 @@
   let drawer = $state(false);
   let drawerToggle = $state<HTMLButtonElement | null>(null);
 
-  // Below the drawer breakpoint of `index.css` a closed drawer is out of sight,
-  // and its links leave the tab order with it. Above it the rail is the
-  // navigation and stays reachable.
+  /** Follows a breakpoint of `index.css`, left false where the browser has no `matchMedia`. */
+  function follow(query: string, set: (matches: boolean) => void) {
+    const list = window.matchMedia?.(query);
+    if (!list) return;
+    set(list.matches);
+    const update = () => set(list.matches);
+    list.addEventListener('change', update);
+    return () => list.removeEventListener('change', update);
+  }
+
+  // Below the drawer breakpoint a closed drawer is out of sight, and its links leave the tab
+  // order with it. Above it the rail is the navigation and stays reachable.
   let narrow = $state(false);
-  $effect(() => {
-    const query = window.matchMedia?.('(max-width: 900px)');
-    if (!query) return;
-    narrow = query.matches;
-    const follow = () => (narrow = query.matches);
-    query.addEventListener('change', follow);
-    return () => query.removeEventListener('change', follow);
-  });
+  $effect(() => follow('(max-width: 900px)', (matches) => (narrow = matches)));
+
+  // A phone's bar holds the state and the search alone: Help and Sign out go to the drawer.
+  let phone = $state(false);
+  $effect(() => follow('(max-width: 560px)', (matches) => (phone = matches)));
 
   // An open drawer covers the page below the breakpoint, so it takes the focus
   // and the page under the scrim leaves the tab order, as under a dialog. The
@@ -216,6 +222,9 @@
   const sessionMode = $derived(
     auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' ? auth.data.mode : null,
   );
+  // Only where a browser holds a session, the key's included: a proxy or an open instance has
+  // none to end.
+  const endsSession = $derived(sessionMode !== null || auth.data?.mode === 'apikey');
 
   // A screen changes without a page load, so the tab, the history list and a
   // screen reader learn of it here. The first screen is the page load itself,
@@ -297,6 +306,8 @@
       onClose={() => void closeDrawer()}
       version={status.data?.version}
       onAbout={() => (about = true)}
+      onHelp={phone ? () => (help = {}) : undefined}
+      onSignOut={phone && endsSession ? () => void signOut() : undefined}
       counts={{
         jobs: status.data?.running_jobs ?? 0,
         decisions: status.data?.pending_decisions ?? 0,
@@ -346,7 +357,7 @@
               aria-label={t(held ? 'DryRunActive' : 'LiveModeActive')}
             >
               <i class="mode-dot {held ? 'is-held' : 'is-live'}" aria-hidden="true"></i>
-              {t(held ? 'ModeDryRunShort' : 'ModeLiveShort')}
+              <span class="mode-word">{t(held ? 'ModeDryRunShort' : 'ModeLiveShort')}</span>
             </span>
           {/if}
           {#if access.readOnly}
@@ -412,21 +423,21 @@
             <kbd class="palette-trigger-key">{shortcut}</kbd>
           </button>
 
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm topbar-icon"
-            onclick={() => (help = {})}
-            aria-label={t('Help')}
-            aria-keyshortcuts="?"
-            title={t('Help')}
-          >
-            <HelpCircle size={14} aria-hidden="true" />
-            <span class="topbar-label">{t('Help')}</span>
-          </button>
+          {#if !phone}
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm topbar-icon"
+              onclick={() => (help = {})}
+              aria-label={t('Help')}
+              aria-keyshortcuts="?"
+              title={t('Help')}
+            >
+              <HelpCircle size={14} aria-hidden="true" />
+              <span class="topbar-label">{t('Help')}</span>
+            </button>
+          {/if}
 
-          <!-- Only where a browser holds a session, the key's included: a proxy or an open
-               instance has none to end. -->
-          {#if sessionMode || auth.data?.mode === 'apikey'}
+          {#if !phone && endsSession}
             <button
               type="button"
               class="btn btn-ghost btn-sm topbar-icon"

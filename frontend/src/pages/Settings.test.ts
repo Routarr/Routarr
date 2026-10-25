@@ -1250,6 +1250,15 @@ describe('the getting-started guide', () => {
     );
   });
 
+  it('opens General on the language, the guide coming after the settings', async () => {
+    window.history.replaceState({}, '', '/settings');
+    mount({});
+
+    const language = await screen.findByLabelText('Language');
+    const guide = screen.getByRole('button', { name: 'Show the guide' });
+    expect(language.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('leads back to a guide that already shows, without writing anything', async () => {
     publishOnboarding(onboardingStatus());
     const set = vi.spyOn(api, 'setOnboarding');

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { ApiError, api } from '../api/client';
-import { interceptLinks, router } from '../lib/router.svelte';
+import { interceptLinks, navigate, router } from '../lib/router.svelte';
 import { dropFocus } from '../test/focus';
 import { click } from '../test/links';
 import LoginGate from './LoginGate.svelte';
@@ -83,6 +83,17 @@ describe('LoginGate', () => {
     const link = screen.getByRole('link', { name: 'Sign in with your provider' });
     expect(link).toHaveAttribute('href', expect.stringContaining('/auth/oidc/start'));
     expect(screen.queryByLabelText('Password')).toBeNull();
+  });
+
+  it('sends the provider back to the screen the address names', () => {
+    navigate('/settings?add=1#maintenance');
+    renderWithI18n(LoginGate, { props: { mode: 'oidc' } });
+
+    const link = screen.getByRole('link', { name: 'Sign in with your provider' });
+    expect(link).toHaveAttribute(
+      'href',
+      `/api/v1/auth/oidc/start?return=${encodeURIComponent('/settings?add=1#maintenance')}`,
+    );
   });
 
   /**
