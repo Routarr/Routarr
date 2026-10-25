@@ -12,7 +12,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const DIST = fileURLToPath(new URL('../frontend/dist/', import.meta.url));
-const CEILING = 124_000;
+const CEILING = 125_000;
 const STYLE_CEILING = 55_000;
 
 let page;

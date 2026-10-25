@@ -11,6 +11,7 @@
     active,
     clearable,
     onClear,
+    views,
     search,
     children,
   }: {
@@ -19,6 +20,8 @@
     /** Whether anything narrows the list, the search included. */
     clearable: boolean;
     onClear: () => void;
+    /** The views a list switches between, before its search: no filter clears them. */
+    views?: Snippet;
     search: Snippet;
     /** The panel's labelled fields. */
     children: Snippet;
@@ -29,6 +32,7 @@
 </script>
 
 <div class="toolbar">
+  {@render views?.()}
   {@render search()}
   <button
     type="button"

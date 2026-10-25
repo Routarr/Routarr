@@ -4,7 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { media, paginated } from '../test/fixtures';
+import { explainedMedia, explanation, media, paginated } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { Category, OverrideEntry } from '../api/types';
 import Exceptions from './Exceptions.svelte';
@@ -73,6 +73,36 @@ describe('Exceptions', () => {
     const row = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
     expect(within(row).getByText('request-bot').closest('td')).toHaveTextContent(
       /Performed by\s*request-bot/,
+    );
+  });
+
+  /** An exception the explanation replaces changes the list behind it. */
+  it('explains the title an exception holds, and reads the list again once it changed', async () => {
+    vi.spyOn(api, 'getSources').mockResolvedValue({ providers: [], order: [] });
+    vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
+      match_modes: ['all', 'any'],
+      conditions: [],
+      score_scales: [],
+    });
+    const explain = vi.spyOn(api, 'explainTitle').mockResolvedValue(
+      explanation({
+        media: explainedMedia({ id: 'm1', title: 'Akira' }),
+        current_category: 'standard',
+        override_category: 'anime',
+      }),
+    );
+    vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
+    show([override()]);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
+    expect(explain).toHaveBeenCalledWith('m1', expect.any(AbortSignal));
+    const dialog = await screen.findByRole('dialog');
+    const loads = vi.mocked(api.getExceptions).mock.calls.length;
+    await userEvent.click(within(dialog).getByRole('button', { name: /^Keep here/ }));
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getExceptions).mock.calls.length).toBeGreaterThan(loads),
     );
   });
 

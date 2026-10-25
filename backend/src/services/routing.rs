@@ -510,6 +510,7 @@ fn decide(
         subject: wording.subject.clone(),
         subject_key: wording.subject_key.clone(),
         revertible: false,
+        in_library: true,
         id: Uuid::new_v4().to_string(),
         media_id: media.id.clone(),
         media_title: media.title.clone(),

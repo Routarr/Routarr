@@ -640,6 +640,15 @@ const MODALS: {
         .first()
         .click(),
   },
+  {
+    // The revert of many, behind the header's menu, on the same move.
+    path: '/history',
+    covers: 'pages/History.svelte',
+    open: async (p) => {
+      await p.getByRole('button', { name: 'Actions', exact: true }).click();
+      await p.getByRole('menuitem', { name: /^Revert every move listed/ }).click();
+    },
+  },
   // Last: the draft it leaves holds a condition, which a navigation would ask about.
   {
     // A value picker whose query matches nothing left to add: the note beside the list.

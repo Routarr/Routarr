@@ -1,7 +1,14 @@
 <script lang="ts">
   import { Undo2 } from '../lib/icons';
   import { api, type Following } from '../api/client';
-  import { dayStart, formatTimestamp, setFields, statusKey, triggerKey } from '../api/format';
+  import {
+    dayStart,
+    formatDay,
+    formatTimestamp,
+    setFields,
+    statusKey,
+    triggerKey,
+  } from '../api/format';
   import { handFocus } from '../lib/focus';
   import type { Decision, DecisionFilter, SimulationResult } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
@@ -21,10 +28,16 @@
   import FilterBar from '../components/FilterBar.svelte';
   import DecisionFilterFields, {
     NO_TITLE_FILTER,
+    createFilterOptions,
+    describeTitles,
     type TitleFilter,
   } from '../components/DecisionFilterFields.svelte';
+  import ActionMenu from '../components/ActionMenu.svelte';
   import { endedOnFailure, reportMoves } from '../lib/moves';
   import { access } from '../lib/access.svelte';
+  import { createExplainer } from '../lib/explain.svelte';
+  import ExplanationModal from '../components/ExplanationModal.svelte';
+  import WhyButton from '../components/WhyButton.svelte';
 
   const STATUS_TONE: Record<string, string> = {
     applied: 'badge-success',
@@ -38,6 +51,7 @@
   let searchText = $state('');
   let includeSuperseded = $state(false);
   let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
+  const filterOptions = createFilterOptions(['instance', 'category', 'rule']);
   let run = $state('');
   let from = $state('');
   let to = $state('');
@@ -87,6 +101,7 @@
     });
   });
   const outcome = createOutcome();
+  const explainer = createExplainer();
 
   function clearFilters() {
     searchText = '';
@@ -106,6 +121,9 @@
   let reverting = $state<Decision | null>(null);
   let revertFiles = $state(false);
 
+  // Svelte trims the whitespace a block starts with.
+  const DOT = ' · ';
+
   // A reverted row loses its Revert, so the focus goes to a neighbour's, else the table.
   const revertId = (index: number) => `history-revert-${index}`;
 
@@ -113,6 +131,29 @@
   const leaving = new AbortController();
   $effect(() => () => leaving.abort());
 
+  /** What a revert of many covers, in words, so the dialog's "listed" is exact. */
+  const scopeTerms = $derived([
+    ...describeTitles(titles, filterOptions),
+    ...(searchText ? [{ label: t('Search'), value: searchText }] : []),
+    ...(run
+      ? [
+          {
+            label: t('Simulation'),
+            value: t('SimulationOf', {
+              when: formatTimestamp(
+                runs.data?.find((ran) => ran.id === run)?.when ?? run,
+                i18n.language,
+              ),
+            }),
+          },
+        ]
+      : []),
+    ...(from ? [{ label: t('DecidedFrom'), value: formatDay(from, i18n.language) }] : []),
+    ...(to ? [{ label: t('DecidedUntil'), value: formatDay(to, i18n.language) }] : []),
+  ]);
+
+  // The bulk revert asks in a dialog of its own, as one move does, its file choice in it.
+  let askingAll = $state(false);
   let revertAllFiles = $state(false);
   let revertingAll = $state(false);
   /** The task of the revert of many being followed, which Stop cancels. */
@@ -121,8 +162,7 @@
 
   /** Undo every move the filters match, asked by the server, which alone counts them. */
   async function revertAll() {
-    // Read before the button turns disabled, which drops the focus the question would give back.
-    const pressed = document.activeElement as HTMLElement | null;
+    askingAll = false;
     revertingAll = true;
     try {
       const report = await answering(
@@ -153,7 +193,7 @@
     } finally {
       revertingAll = false;
       task = null;
-      void handFocus(pressed, 'history-table');
+      void handFocus('history-more', 'history-table');
     }
   }
 
@@ -194,12 +234,39 @@
   }
 </script>
 
+{#snippet undoIcon()}<Undo2 size={14} aria-hidden="true" />{/snippet}
+
 <div>
   <div class="page-header">
     <div>
       <h1 class="page-title">{t('History')}</h1>
       <p class="page-subtitle">{t('HistorySubtitle')}</p>
     </div>
+    <!-- A bulk reversal is rare and destructive, so it sits behind a menu and a dialog. -->
+    {#if !access.readOnly && (revertingAll || (revertible.data ?? 0) > 0)}
+      <div class="flex gap-2">
+        {#if revertingAll && task}
+          <button class="btn btn-ghost" onclick={() => void stopRevertAll()}>
+            {t('StopTask')}
+          </button>
+        {/if}
+        <ActionMenu
+          id="history-more"
+          actions={[
+            {
+              label: t('RevertListed', { count: revertible.data ?? 0 }),
+              icon: undoIcon,
+              danger: true,
+              disabled: revertingAll,
+              onSelect: () => {
+                revertAllFiles = false;
+                askingAll = true;
+              },
+            },
+          ]}
+        />
+      </div>
+    {/if}
   </div>
 
   <ErrorBanner
@@ -208,6 +275,7 @@
     onRetry={() => void history.reload()}
   />
   <OutcomeBanner {outcome} />
+  <ErrorBanner message={explainer.failure} onDismiss={explainer.dismiss} />
 
   <FilterBar
     active={panelSet}
@@ -245,6 +313,7 @@
     <DecisionFilterFields
       bind:filter={titles}
       fields={['instance', 'category', 'rule']}
+      options={filterOptions}
       onchange={() => (page = 1)}
     />
     <div class="form-group filter-field">
@@ -307,33 +376,6 @@
   <ErrorBanner message={runs.error} onDismiss={() => (runs.error = null)} />
 
   <ErrorBanner message={revertible.error} onDismiss={() => (revertible.error = null)} />
-  {#if revertible.data && !access.readOnly}
-    <div class="card">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" bind:checked={revertAllFiles} />
-          <span>{t('MoveFilesLabel')}</span>
-        </label>
-        <div class="flex flex-wrap gap-2">
-          <button
-            class="btn btn-secondary"
-            onclick={() => void revertAll()}
-            disabled={revertingAll}
-            aria-describedby="revert-all-hint"
-          >
-            <Undo2 size={16} />
-            {t(narrowed ? 'RevertMatching' : 'RevertAll', { count: revertible.data })}
-          </button>
-          {#if revertingAll && task}
-            <button class="btn btn-ghost" onclick={() => void stopRevertAll()}>
-              {t('StopTask')}
-            </button>
-          {/if}
-        </div>
-      </div>
-      <p id="revert-all-hint" class="form-hint">{t('RevertAllHint')}</p>
-    </div>
-  {/if}
 
   <div class="card">
     <TableRegion label={t('History')} id="history-table">
@@ -344,7 +386,7 @@
             <th>{t('When')}</th>
             <th>{t('Media')}</th>
             <th>{t('Category')}</th>
-            <th>{t('TargetRoot')}</th>
+            <th>{t('HistoryMove')}</th>
             <th>{t('Rule')}</th>
             <th class="w-90">{t('Confidence')}</th>
             <th>{t('Status')}</th>
@@ -361,29 +403,44 @@
               <tr class:row-muted={decision.superseded}>
                 <td class="cell-timestamp" title={decision.decided_at}>
                   {formatTimestamp(decision.decided_at, i18n.language)}
-                  <!-- Null on a row stored without one, where a guess would read as a fact. -->
-                  {#if decision.actor}
-                    <span class="text-xs" title={t('TriggeredBy')}
-                      ><span class="visually-hidden">{t('TriggeredBy')}</span>{t(
-                        triggerKey(decision.actor),
-                      )}</span
-                    >
-                  {/if}
-                  <!-- Beside the trigger: "manual" and who answer different questions. -->
-                  {#if decision.subject}
-                    <span class="text-xs text-muted" title={t('PerformedBy')}
-                      ><span class="visually-hidden">{t('PerformedBy')}</span
-                      >{decision.subject}</span
+                  <!-- Null on a row stored without one, where a guess would read as a fact.
+                       Both named: "manual" and who answer different questions. -->
+                  {#if decision.actor || decision.subject}
+                    <span class="cell-by"
+                      >{#if decision.actor}<span title={t('TriggeredBy')}
+                          ><span class="visually-hidden">{t('TriggeredBy')}</span>{t(
+                            triggerKey(decision.actor),
+                          )}</span
+                        >{/if}{#if decision.actor && decision.subject}{DOT}{/if}{#if decision.subject}<span
+                          title={t('PerformedBy')}
+                          ><span class="visually-hidden">{t('PerformedBy')}</span
+                          >{decision.subject}</span
+                        >{/if}</span
                     >
                   {/if}
                 </td>
                 <td>
-                  <strong class="cell-title">{decision.media_title}</strong>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <strong class="cell-title">{decision.media_title}</strong>
+                    {#if decision.in_library}
+                      <WhyButton
+                        {explainer}
+                        mediaId={decision.media_id}
+                        title={decision.media_title}
+                      />
+                    {/if}
+                  </div>
                   <div class="text-muted text-sm">{decision.instance_name}</div>
                 </td>
                 <td><span class="badge badge-value">{decision.target_category}</span></td>
                 <td class="mono text-sm">
                   <span class="cell-path">
+                    {#if decision.current_root_folder}
+                      <bdi>{decision.current_root_folder}</bdi>
+                    {:else}
+                      <NoValue />
+                    {/if}
+                    <span class="dir-aware" aria-hidden="true">→</span>
                     {#if decision.target_root_folder}
                       <bdi>{decision.target_root_folder}</bdi>
                     {:else}
@@ -436,6 +493,41 @@
 
     <Pager {pagination} bind:page countKey="DecisionCount" />
   </div>
+
+  {#if explainer.shown}
+    <ExplanationModal
+      data={explainer.shown}
+      onClose={explainer.close}
+      onChanged={() => void history.reload()}
+    />
+  {/if}
+
+  {#if askingAll}
+    <Modal title={t('RevertListedTitle')} onClose={() => (askingAll = false)} maxWidth={520}>
+      <p>{t('RevertListedCount', { count: revertible.data ?? 0 })}</p>
+      {#if scopeTerms.length > 0}
+        <p class="mt-2">{t('RevertListedNarrowed')}</p>
+        <ul class="term-list">
+          {#each scopeTerms as term (term.label)}
+            <li>{t('FilterTerm', { label: term.label, value: term.value })}</li>
+          {/each}
+        </ul>
+      {/if}
+      <p class="form-hint mt-2">{t('RevertAllHint')}</p>
+      <label class="flex items-center gap-2 mt-4">
+        <input type="checkbox" bind:checked={revertAllFiles} />
+        {t('ConfirmRevertFiles')}
+      </label>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick={() => (askingAll = false)}>{t('Cancel')}</button>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-primary" onclick={() => void revertAll()}>
+            {t('RevertConfirm')}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  {/if}
 
   {#if reverting}
     {@const target = reverting}

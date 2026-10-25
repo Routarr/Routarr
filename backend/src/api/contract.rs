@@ -45,7 +45,7 @@ use crate::services::executor::{ApplyReport, BatchApplyReport};
 use crate::services::notify::Notification;
 use crate::services::placement::Placement;
 use crate::services::rule_health::RuleHealthReport;
-use crate::services::rule_tests::{NewRuleTest, RuleTest, RuleTestRun};
+use crate::services::rule_tests::{NewRuleTest, RuleTest, RuleTestExpectation, RuleTestRun};
 use crate::services::sync::SyncReport;
 
 /// The scope an operation asks of an application key, as the document states it.
@@ -173,6 +173,7 @@ kinds of a condition) may appear in any release."
         get_rule_test,
         create_rule_test,
         remove_rule_test,
+        expect_rule_test,
         run_rule_tests,
         create_category,
         rename_category,
@@ -1104,7 +1105,7 @@ fn import_template() {}
     get,
     path = "/rule-tests",
     tag = "rules",
-    params(PageQuery),
+    params(crate::api::rule_tests::RuleTestQuery),
     responses((status = 200, body = RuleTestPage))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -1143,6 +1144,20 @@ fn create_rule_test() {}
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn remove_rule_test() {}
+
+/// Change the category a rule test expects
+///
+/// The tests run again, so the answer carries the new verdict.
+#[utoipa::path(
+    put,
+    path = "/rule-tests/{id}/expected-category",
+    tag = "rules",
+    params(("id" = String, Path, description = "The test's id.")),
+    request_body = RuleTestExpectation,
+    responses((status = 200, body = RuleTest))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn expect_rule_test() {}
 
 /// Run every rule test against the rules as they are
 #[utoipa::path(

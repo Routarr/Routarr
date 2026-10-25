@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 import { nthCall } from '../test/spy';
 import { category, explainedMedia, explanation } from '../test/fixtures';
-import type { Explanation, MetadataProvider } from '../api/types';
+import type { Explanation, MetadataProvider, RuleTrace } from '../api/types';
 import { ApiError, api } from '../api/client';
 import ExplanationModal from './ExplanationModal.svelte';
 import { publishAccess } from '../lib/access.svelte';
@@ -57,6 +58,24 @@ function source(id: string, display_name: string, website: string | null): Metad
   };
 }
 
+/** The trace of the rule that sends Akira to anime, which matched unless a test says otherwise. */
+function trace(over: Partial<RuleTrace> = {}): RuleTrace {
+  return {
+    rule_id: 'r1',
+    rule_name: 'Japanese animation',
+    priority: 10,
+    category: 'anime',
+    matched: true,
+    excluded_by: null,
+    outcome: 'matched_lower_priority',
+    conditions: [],
+    ...over,
+  };
+}
+
+/** The pin's own form, folded behind its button in the footer. */
+const openPin = () => userEvent.click(screen.getByRole('button', { name: 'Pin as test…' }));
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('ExplanationModal', () => {
@@ -68,6 +87,99 @@ describe('ExplanationModal', () => {
     );
   });
 
+  it('answers what decided before the trace, the evidence and the actions', () => {
+    show(
+      explanation({
+        metadata: {
+          genres: ['Animation'],
+          keywords: [],
+          original_language: 'ja',
+          origin_countries: [],
+          certification: null,
+          certification_scale: null,
+          status: null,
+          overview: null,
+          ratings: {},
+          field_sources: {},
+          sources: ['arr'],
+        },
+        rule_traces: [trace({ outcome: 'winner' })],
+      }),
+    );
+
+    const order = [
+      screen.getByText('Decided by the rule "Japanese animation" (#10).'),
+      screen.getByRole('heading', { name: 'Rule evaluation' }),
+      screen.getByRole('heading', { name: 'Metadata' }),
+      screen.getByRole('button', { name: 'Keep here' }),
+    ];
+    for (const [earlier, later] of order.slice(0, -1).map((node, at) => [node, order[at + 1]!])) {
+      expect(earlier!.compareDocumentPosition(later!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
+  });
+
+  it('names the exception, or the default category, when no rule decided', () => {
+    const { unmount } = show(
+      explanation({ override_category: 'kids', target_category: 'kids', rule_traces: [trace()] }),
+    );
+    expect(
+      screen.getByText('An exception sends this title to "kids", whatever the rules decide.'),
+    ).toBeInTheDocument();
+    unmount();
+
+    show(explanation({ winning_rule: null, rule_traces: [trace({ outcome: 'not_matched' })] }));
+    expect(
+      screen.getByText('No rule matched, so the default category applies.'),
+    ).toBeInTheDocument();
+  });
+
+  /** The correction belongs where the wrong routing is read. */
+  it('sends the title to another category through an exception, and reloads what is behind', async () => {
+    const created = vi.spyOn(api, 'createException').mockResolvedValue({} as never);
+    const read = vi
+      .spyOn(api, 'explainTitle')
+      .mockResolvedValue(explanation({ override_category: 'kids', target_category: 'kids' }));
+    const onChanged = vi.fn();
+    show(explanation(), undefined, onChanged);
+
+    const send = screen.getByRole('button', { name: 'Send to another category…' });
+    await userEvent.click(send);
+    expect(send).toHaveAttribute('aria-expanded', 'true');
+    const choice = await screen.findByLabelText('Forced category');
+    await waitFor(() => expect(within(choice).getAllByRole('option')).toHaveLength(3));
+    await userEvent.selectOptions(choice, 'kids');
+    await userEvent.type(screen.getByLabelText('Reason (optional)'), 'a film for children');
+    await userEvent.click(screen.getByRole('button', { name: 'Create exception' }));
+
+    expect(created).toHaveBeenCalledWith({
+      media_id: 'm1',
+      target_category: 'kids',
+      reason: 'a film for children',
+    });
+    expect(
+      await screen.findByText('The category of "Akira" is now forced to kids'),
+    ).toBeInTheDocument();
+    expect(read).toHaveBeenCalledWith('m1', expect.anything());
+    expect(onChanged).toHaveBeenCalled();
+    expect(send).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText('Forced category')).not.toBeVisible();
+  });
+
+  it('keeps the form open and says why when the exception is refused', async () => {
+    vi.spyOn(api, 'createException').mockRejectedValue(
+      new ApiError('The category kids does not exist.', 400, 'bad_request'),
+    );
+    show(explanation());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Send to another category…' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create exception' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The category kids does not exist.');
+    expect(screen.getByLabelText('Forced category')).toBeInTheDocument();
+  });
+
   it('lists what the Arr reports that a rule can read, and leaves out what it does not', () => {
     const media = explainedMedia({ quality_profile: 'Ultra-HD', runtime: 86, studio: 'Ghibli' });
     show(explanation({ media }));
@@ -77,25 +189,31 @@ describe('ExplanationModal', () => {
     expect(text('definition')).toEqual(['Ultra-HD', '86 min', 'Ghibli']);
   });
 
-  it('says beside each action what it does', () => {
+  /** Every hint at once would push the answer out of sight, so the action at hand shows its own. */
+  it('says what each action does, in sight for the action pointed at', async () => {
     show(explanation());
+    const refresh = screen.getByRole('button', { name: 'Ask the sources again' });
+    const said =
+      'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.';
 
-    expect(
-      screen.getByRole('button', { name: 'Ask the sources again' }),
-    ).toHaveAccessibleDescription(
-      'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.',
-    );
-    expect(screen.getByRole('button', { name: 'Pin as test' })).toHaveAccessibleDescription(
-      'Require this title to keep landing in this category, and report it if a rule change moves it. While a test fails, automatic application waits.',
-    );
-    expect(
-      screen.getByText(
-        'Reads this title again from every source, and searches AniList and MyAnimeList for it anew.',
-      ),
-    ).toBeInTheDocument();
+    expect(refresh).toHaveAccessibleDescription(said);
     expect(screen.getByRole('button', { name: 'Keep here' })).toHaveAccessibleDescription(
       'Pins the title to "standard", the category of the folder it is in, so no run proposes to move it.',
     );
+    expect(screen.getByText(said)).not.toBeVisible();
+    await userEvent.hover(refresh);
+    expect(screen.getByText(said)).toBeVisible();
+    await userEvent.unhover(refresh);
+    await fireEvent.focus(refresh);
+    expect(screen.getByText(said)).toBeVisible();
+
+    await openPin();
+    const pinHint =
+      'Require this title to keep landing in this category, and report it if a rule change moves it. While a test fails, automatic application waits.';
+    expect(screen.getByRole('button', { name: 'Pin as test' })).toHaveAccessibleDescription(
+      pinHint,
+    );
+    expect(screen.getByText(pinHint)).toBeVisible();
   });
 
   it("keeps the title in its folder's category, and reloads what is behind", async () => {
@@ -115,14 +233,14 @@ describe('ExplanationModal', () => {
     expect(read).toHaveBeenCalledWith('m1', expect.anything());
     expect(onChanged).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Keep here' })).toBeDisabled();
-    expect(screen.getByText('Kept in "standard" by an exception.')).toBeInTheDocument();
+    expect(screen.getByText('Kept in "standard" by an exception.')).toBeVisible();
   });
 
   it('offers no keep when the folder leads to no category, and says where to map it', () => {
     show(explanation({ current_category: null }));
 
     expect(screen.getByRole('button', { name: 'Keep here' })).toBeDisabled();
-    expect(screen.getByText(/leads to no category/)).toBeInTheDocument();
+    expect(screen.getByText(/leads to no category/)).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open categories and folders' })).toHaveAttribute(
       'href',
       '/categories',
@@ -147,6 +265,7 @@ describe('ExplanationModal', () => {
   it('pins a test expecting another category, named and explained as such', async () => {
     const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
     show(explanation());
+    await openPin();
     const select = await screen.findByLabelText('Expected category');
     await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3));
 
@@ -165,22 +284,24 @@ describe('ExplanationModal', () => {
     show(
       explanation({ override_category: 'kids', target_category: 'kids', rules_category: 'anime' }),
     );
+    await openPin();
 
     expect(
       screen.getByText(
         'An exception forces this title, so the test pins what the rules decide: anime.',
       ),
     ).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Pin as test' }));
     expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
   });
 
   it('pins the category on display, and says nothing more, when no exception is in force', async () => {
     const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
     show(explanation());
+    await openPin();
 
     expect(screen.queryByText(/An exception forces this title/)).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Pin as test' }));
     expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
   });
 
@@ -194,7 +315,8 @@ describe('ExplanationModal', () => {
     const strings = { PinnedCaseName: '{title} في {category}', KeepHereHint: 'يبقى في {category}' };
     show(explanation(), strings, vi.fn(), 'rtl');
 
-    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
+    await openPin();
+    await fireEvent.click(screen.getByRole('button', { name: 'Pin as test' }));
 
     expect(nthCall(pin)[0]).toBe('Akira في anime');
     expect(nthCall(pin)[0]).not.toMatch(marks);
@@ -206,7 +328,8 @@ describe('ExplanationModal', () => {
     vi.spyOn(api, 'pinRuleTest').mockRejectedValue(new ApiError('already a case', 409, 'conflict'));
     show(explanation());
 
-    await fireEvent.click(screen.getByRole('button', { name: /pin as test/i }));
+    await openPin();
+    await fireEvent.click(screen.getByRole('button', { name: 'Pin as test' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('already a case');
   });
@@ -239,20 +362,23 @@ describe('ExplanationModal', () => {
    * focus goes back to the button, else to the panel's heading, never to the page.
    */
   it.each([
-    ['Ask the sources again', 'Ask the sources again'],
-    ['Keep here', 'Akira'],
-    ['Pin as test', 'Akira'],
-  ])('hands the focus on once %s is done', async (action, next) => {
+    ['Ask the sources again', 'Ask the sources again', null],
+    ['Keep here', 'Akira', null],
+    ['Pin as test', 'Akira', 'Pin as test…'],
+    ['Create exception', 'Send to another category…', 'Send to another category…'],
+  ])('hands the focus on once %s is done', async (action, next, opener) => {
     let release: () => void = () => {};
     const answered = new Promise<void>((resolve) => (release = resolve));
     const later = <T>(value: T) => answered.then(() => value);
     vi.spyOn(api, 'refreshTitleMetadata').mockReturnValue(later({ answered: 1 }));
     vi.spyOn(api, 'keepTitle').mockReturnValue(later({} as never));
     vi.spyOn(api, 'pinRuleTest').mockReturnValue(later({} as never));
+    vi.spyOn(api, 'createException').mockReturnValue(later({} as never));
     vi.spyOn(api, 'explainTitle').mockResolvedValue(
       explanation({ override_category: 'standard', current_category: 'standard' }),
     );
     show(explanation());
+    if (opener) await userEvent.click(screen.getByRole('button', { name: opener }));
     const pressed = screen.getByRole('button', { name: action });
     pressed.focus();
 
@@ -574,10 +700,15 @@ describe('ExplanationModal', () => {
 
 /** Asking the sources, keeping a title and pinning a case all write, which a reader is refused. */
 describe('for a reader', () => {
-  const ACTIONS = ['Ask the sources again', 'Keep here', 'Pin as test'];
+  const ACTIONS = [
+    'Keep here',
+    'Send to another category…',
+    'Pin as test…',
+    'Ask the sources again',
+  ];
   const offered = () => ACTIONS.filter((name) => screen.queryByRole('button', { name }));
 
-  it('offers the owner the three actions, and a reader the explanation alone', async () => {
+  it('offers the owner the four actions, and a reader the explanation alone', async () => {
     const { unmount } = show(explanation());
     await screen.findByRole('heading', { name: 'Akira' });
     expect(offered()).toEqual(ACTIONS);

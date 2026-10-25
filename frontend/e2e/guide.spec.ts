@@ -19,9 +19,13 @@ test('greets an installation not set up with its next steps', async ({ page }) =
 
   const guide = page.getByRole('region', { name: 'Getting started' });
   await expect(guide).toBeVisible();
-  await expect(guide.getByRole('listitem')).toHaveCount(6);
-  // The fixture's instance is synced, so the first step ticked itself.
-  await expect(guide.getByRole('listitem').first()).toContainText('Done');
+  // The fixture's instance is synced, so the first step ticked itself and folded away.
+  const steps = guide.getByRole('listitem');
+  await expect(steps.first()).toBeVisible();
+  expect(await steps.count()).toBeLessThan(6);
+  await guide.getByRole('button', { name: 'Show the steps done' }).click();
+  await expect(steps).toHaveCount(6);
+  await expect(steps.first()).toContainText('Done');
   await expect(
     page.getByRole('link', { name: /^\d\/4 Getting started, required steps done: \d of 4$/ }),
   ).toBeVisible();

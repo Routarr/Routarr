@@ -20,6 +20,7 @@ function status(over: Partial<Status> = {}): Status {
     dry_run: true,
     running_jobs: 0,
     pending_decisions: 0,
+    pending_moves: 0,
     failed_decisions: 0,
     warnings: [],
     ...over,
@@ -185,11 +186,13 @@ describe('Layout', () => {
     expect(screen.getByText('the page')).toBeTruthy();
   });
 
+  /** A skip waits for its category's folder, so the count of what to review is the moves. */
   it('turns each status figure into a count on the navigation', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(
       status({
         running_jobs: 1,
         pending_decisions: 12,
+        pending_moves: 3,
         failed_decisions: 2,
         warnings: [warning('a'), warning('b')],
       }),
@@ -197,7 +200,7 @@ describe('Layout', () => {
     show();
 
     await screen.findByText('Running tasks: 1');
-    screen.getByText('Decisions awaiting review: 12');
+    screen.getByText('Moves awaiting review: 3');
     screen.getByText('Failed moves: 2');
     screen.getByText('Warnings: 2');
   });
@@ -313,7 +316,7 @@ describe('Layout', () => {
 
     await screen.findByLabelText('Dry-run: writes blocked');
     expect(screen.queryByText(/Running tasks: \d+/)).toBeNull();
-    expect(screen.queryByText(/Decisions awaiting review: \d+/)).toBeNull();
+    expect(screen.queryByText(/Moves awaiting review: \d+/)).toBeNull();
     expect(screen.queryByText(/Failed moves: \d+/)).toBeNull();
     expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
   });

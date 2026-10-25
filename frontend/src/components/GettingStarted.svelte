@@ -20,6 +20,10 @@
   const progress = $derived(guideProgress(status));
   let busy = false;
 
+  /** A step done is history: folded into one line of names, the guide shrinks as it goes. */
+  const done = $derived(status.steps.filter((step) => step.done));
+  let showDone = $state(false);
+
   /**
    * Where the focus goes once a choice replaces the block that held the pressed button. No
    * button turns disabled while the choice is sent, since that drops the focus too: a second
@@ -67,8 +71,30 @@
       </div>
     </div>
 
-    <ol class="guide-steps">
-      {#each status.steps as step (step.id)}
+    {#if done.length > 0}
+      <div class="guide-done">
+        <p class="flex-1">
+          <span class="visually-hidden">{t('GuideStepDone')}</span>
+          {#each done as step, index (step.id)}
+            {#if index > 0}{t('ListSeparator')}{/if}<span class="guide-done-name"
+              ><CheckCircle2 size={14} aria-hidden="true" />{t(STEP_GUIDES[step.id].titleKey)}</span
+            >
+          {/each}
+        </p>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          aria-expanded={showDone}
+          aria-controls="guide-steps"
+          onclick={() => (showDone = !showDone)}
+        >
+          {t(showDone ? 'GuideHideDone' : 'GuideShowDone')}
+        </button>
+      </div>
+    {/if}
+
+    <ol class="guide-steps" id="guide-steps">
+      {#each status.steps.filter((step) => showDone || !step.done) as step (step.id)}
         {@const guide = STEP_GUIDES[step.id]}
         {@const current = step.id === progress.current}
         <li class="guide-step" class:is-done={step.done} class:is-current={current}>

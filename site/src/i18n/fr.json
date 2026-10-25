@@ -95,6 +95,7 @@
   "api.ref.op.list_rule_tests": "Les tests de règles",
   "api.ref.op.get_rule_test": "Un test de règles",
   "api.ref.op.create_rule_test": "Fixer en test ce que les règles décident pour un titre",
+  "api.ref.op.expect_rule_test": "Changer la catégorie qu'un test de règle attend",
   "api.ref.op.run_rule_tests": "Passer chaque test sur les règles telles qu'elles sont",
   "api.ref.op.remove_rule_test": "Retirer un test de règles",
   "api.ref.op.list_rules": "Les règles, par ordre de priorité",

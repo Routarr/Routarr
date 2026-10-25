@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { paginated } from '../test/fixtures';
+import { explanation, paginated } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { RuleTest, RuleTestRun } from '../api/types';
 import RuleTests from './RuleTests.svelte';
@@ -20,8 +20,24 @@ const CASE: RuleTest = {
   created_at: '2026-09-01 10:00:00',
   last_passed: null,
   last_checked_at: null,
+  last_actual_category: null,
+  source_media_id: null,
   subject: null,
 };
+
+/** The case, failing since a rule change sends its title to `standard`. */
+const FAILING: RuleTest = {
+  ...CASE,
+  last_passed: false,
+  last_actual_category: 'standard',
+  last_checked_at: '2026-10-18 09:00:00',
+};
+
+/** A row's ⋯ menu, opened as a reader opens it, and one of its items. */
+async function fromMenu(row: string, item: string) {
+  await userEvent.click(await screen.findByRole('button', { name: `Actions – ${row}` }));
+  await userEvent.click(screen.getByRole('menuitem', { name: item }));
+}
 
 const PASSED: RuleTestRun = {
   total: 1,
@@ -43,7 +59,10 @@ const PASSED: RuleTestRun = {
 
 const OTHER_CASE: RuleTest = { ...CASE, id: 't3', name: 'Paprika stays anime' };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.history.replaceState({}, '', '/');
+});
 
 describe('RuleTests', () => {
   it('shows the verdict the last run kept, and when it ran', async () => {
@@ -56,6 +75,105 @@ describe('RuleTests', () => {
     expect(within(row).getByText(/^Checked /)).toBeTruthy();
     const other = screen.getByRole('row', { name: /Paprika stays anime/ });
     expect(within(other).getByText('not run yet')).toBeTruthy();
+  });
+
+  /** The question a failure raises, kept with the verdict so it survives the visit. */
+  it('says where a failing test sends its title now, without a run on this visit', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([FAILING]));
+    renderWithI18n(RuleTests);
+
+    const row = await screen.findByRole('row', { name: /Akira stays anime/ });
+    expect(within(row).getByText('Fails')).toBeInTheDocument();
+    expect(within(row).getByText('now goes to standard')).toBeInTheDocument();
+  });
+
+  /** A test pinned from a title gone from the library has no explanation to open. */
+  it('explains the title a test was pinned from, while the library holds it', async () => {
+    vi.spyOn(api, 'getSources').mockResolvedValue({ providers: [], order: [] });
+    vi.spyOn(api, 'getCategories').mockResolvedValue([]);
+    vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
+      match_modes: ['all', 'any'],
+      conditions: [],
+      score_scales: [],
+    });
+    const explain = vi.spyOn(api, 'explainTitle').mockResolvedValue(explanation());
+    const list = vi
+      .spyOn(api, 'getRuleTests')
+      .mockResolvedValue(paginated([{ ...FAILING, source_media_id: 'm7' }, OTHER_CASE]));
+    renderWithI18n(RuleTests);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Why? – Akira stays anime' }));
+
+    expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal));
+    expect(screen.queryByRole('button', { name: 'Why? – Paprika stays anime' })).toBeNull();
+    // Closed, the list is read again: the panel may have pinned another test.
+    const loads = list.mock.calls.length;
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Dismiss' }),
+    );
+    await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(loads));
+  });
+
+  /** The usual failure follows a deliberate rule change, which the test is then told to accept. */
+  it('expects where the title goes now in one press, asked first with both categories', async () => {
+    vi.spyOn(api, 'getRuleTests')
+      .mockResolvedValueOnce(paginated([FAILING]))
+      .mockResolvedValue(
+        paginated([{ ...FAILING, expected_category: 'standard', last_passed: true }]),
+      );
+    const expected = vi.spyOn(api, 'setRuleTestExpectation').mockResolvedValue(FAILING);
+    renderWithI18n(RuleTests);
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Expect standard – Akira stays anime' }),
+    );
+    expect(expected).not.toHaveBeenCalled();
+    expect(await answerConfirmation()).toBe(
+      'The test "Akira stays anime" will expect "standard" from now on, instead of "anime".',
+    );
+
+    await waitFor(() => expect(expected).toHaveBeenCalledWith('t1', 'standard'));
+    expect(
+      await screen.findByText('The test "Akira stays anime" now expects "standard".'),
+    ).toBeTruthy();
+    expect(await screen.findByText('Passes')).toBeTruthy();
+  });
+
+  it('changes no expectation when the question is declined, and offers none on a pass', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue(
+      paginated([FAILING, { ...OTHER_CASE, last_passed: true, last_actual_category: 'anime' }]),
+    );
+    const expected = vi.spyOn(api, 'setRuleTestExpectation');
+    renderWithI18n(RuleTests);
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Expect standard – Akira stays anime' }),
+    );
+    await answerConfirmation(null);
+
+    expect(expected).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /^Expect .* – Paprika stays anime$/ })).toBeNull();
+  });
+
+  /** The warning about failing tests leads here, to the failures it counts. */
+  it('lists the failing tests alone when sent to them, and all of them on request', async () => {
+    window.history.replaceState({}, '', '/rule-tests?failing=1');
+    const list = vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([FAILING]));
+    renderWithI18n(RuleTests);
+
+    const only = await screen.findByRole('checkbox', { name: 'Failing only' });
+    expect(only).toBeChecked();
+    expect(list).toHaveBeenLastCalledWith(
+      { page: 1, per_page: 50, failing: true },
+      expect.any(AbortSignal),
+    );
+    expect(window.location.search).toBe('');
+
+    await userEvent.click(only);
+
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ page: 1, per_page: 50 }, expect.any(AbortSignal)),
+    );
   });
 
   /** A run takes the whole library: the button says it is running, not only spins. */
@@ -160,9 +278,7 @@ describe('a suite longer than a page', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),
-    );
+    await fromMenu('Akira stays anime', 'Delete');
     await answerConfirmation();
 
     await waitFor(() =>
@@ -182,9 +298,7 @@ describe('deleting a case', () => {
     vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
     renderWithI18n(RuleTests);
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),
-    );
+    await fromMenu('Akira stays anime', 'Delete');
     await answerConfirmation();
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   }
@@ -194,9 +308,7 @@ describe('deleting a case', () => {
     const remove = vi.spyOn(api, 'deleteRuleTest');
     renderWithI18n(RuleTests);
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Delete – Perfect Blue stays anime' }),
-    );
+    await fromMenu('Perfect Blue stays anime', 'Delete');
     await answerConfirmation(null);
 
     expect(remove).not.toHaveBeenCalled();
@@ -211,7 +323,7 @@ describe('deleting a case', () => {
   it('keeps the list on screen while it reloads', async () => {
     await deleteFirst(new Promise(() => {}));
 
-    expect(screen.getByRole('button', { name: 'Delete – Perfect Blue stays anime' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Actions – Perfect Blue stays anime' })).toBeTruthy();
   });
 
   it('hands the focus to the case that took the place of the deleted one', async () => {
@@ -219,7 +331,7 @@ describe('deleting a case', () => {
 
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole('button', { name: 'Delete – Perfect Blue stays anime' }),
+        screen.getByRole('button', { name: 'Actions – Perfect Blue stays anime' }),
       ),
     );
   });
@@ -231,9 +343,7 @@ describe('deleting a case', () => {
     vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
     renderWithI18n(RuleTests);
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),
-    );
+    await fromMenu('Akira stays anime', 'Delete');
     await answerConfirmation();
 
     await waitFor(() =>
@@ -245,7 +355,7 @@ describe('deleting a case', () => {
 /** Running the cases records each verdict, and a reader is refused that as every write. */
 describe('for a reader', () => {
   const offered = () =>
-    ['Run tests', 'Delete – Akira stays anime'].filter((name) =>
+    ['Run tests', 'Actions – Akira stays anime'].filter((name) =>
       screen.queryByRole('button', { name }),
     );
 
@@ -253,7 +363,7 @@ describe('for a reader', () => {
     vi.spyOn(api, 'getRuleTests').mockResolvedValue(paginated([CASE]));
     const { unmount } = renderWithI18n(RuleTests);
     await screen.findByRole('row', { name: /Akira stays anime/ });
-    expect(offered()).toEqual(['Run tests', 'Delete – Akira stays anime']);
+    expect(offered()).toEqual(['Run tests', 'Actions – Akira stays anime']);
     unmount();
 
     publishAccess(true);

@@ -4,10 +4,17 @@ import { flushSync } from 'svelte';
 
 import { renderWithI18n } from '../test/render';
 import { onboardingStatus } from '../test/fixtures';
+import type { OnboardingStep } from '../api/types';
 import { publishOnboarding } from '../lib/onboarding.svelte';
 import GuideStepBanner from './GuideStepBanner.svelte';
 
 afterEach(() => publishOnboarding(null));
+
+/** The shell's reads as a step turns done during the session: open first, then done. */
+function justDone(done: OnboardingStep['id'][], step: OnboardingStep['id']) {
+  publishOnboarding(onboardingStatus(done.filter((each) => each !== step)));
+  publishOnboarding(onboardingStatus(done));
+}
 
 describe('GuideStepBanner', () => {
   it('says where the reader stands on the screen of the next step', () => {
@@ -28,7 +35,7 @@ describe('GuideStepBanner', () => {
   });
 
   it('offers the next step on the screen of a step just done', () => {
-    publishOnboarding(onboardingStatus(['instance']));
+    justDone(['instance'], 'instance');
     renderWithI18n(GuideStepBanner, { props: { step: 'instance' } });
 
     expect(
@@ -40,8 +47,16 @@ describe('GuideStepBanner', () => {
     expect(screen.getByRole('link', { name: 'Back to the guide' })).toBeTruthy();
   });
 
+  /** A step done long ago is history, and its screen is visited for other reasons. */
+  it('stays silent on the screen of a step done before this visit', () => {
+    publishOnboarding(onboardingStatus(['instance']));
+    renderWithI18n(GuideStepBanner, { props: { step: 'instance' } });
+
+    expect(screen.queryByRole('link', { name: 'Back to the guide' })).toBeNull();
+  });
+
   it('sends the reader back to finish once no step is left ahead', () => {
-    publishOnboarding(onboardingStatus(['instance', 'categories', 'rule', 'simulation', 'live']));
+    justDone(['instance', 'categories', 'rule', 'simulation', 'live'], 'simulation');
     renderWithI18n(GuideStepBanner, { props: { step: 'simulation' } });
 
     expect(screen.getByText('Every required step is done.')).toBeTruthy();
@@ -50,7 +65,7 @@ describe('GuideStepBanner', () => {
   });
 
   it('offers an optional step next, and a way past it', () => {
-    publishOnboarding(onboardingStatus(['instance', 'categories']));
+    justDone(['instance', 'categories'], 'categories');
     renderWithI18n(GuideStepBanner, { props: { step: 'categories' } });
 
     expect(
@@ -77,7 +92,7 @@ describe('GuideStepBanner', () => {
   });
 
   it('leads on once an optional step is done', () => {
-    publishOnboarding(onboardingStatus(['instance', 'categories', 'metadata']));
+    justDone(['instance', 'categories', 'metadata'], 'metadata');
     renderWithI18n(GuideStepBanner, { props: { step: 'metadata' } });
 
     expect(screen.getByText('Optional step done. Next: Add your first rule')).toBeTruthy();
@@ -86,13 +101,23 @@ describe('GuideStepBanner', () => {
 
   /** Past the last optional step there is only the guide, where Finish is. */
   it('skips the last optional step back to the guide', () => {
-    publishOnboarding(onboardingStatus(['instance', 'categories', 'rule', 'simulation']));
+    justDone(['instance', 'categories', 'rule', 'simulation'], 'simulation');
     renderWithI18n(GuideStepBanner, { props: { step: 'simulation' } });
 
     expect(
       screen.getByText('Step 4 of 4 is done. Next, optional: Turn off the global dry-run'),
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Skip this step' }).getAttribute('href')).toBe('/');
+  });
+
+  it('leads from a step just done to a required step left open, not to going live', () => {
+    justDone(['instance', 'rule', 'simulation'], 'rule');
+    renderWithI18n(GuideStepBanner, { props: { step: 'rule' } });
+
+    expect(
+      screen.getByText('Step 3 of 4 is done. Next: Map root folders to categories'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Open the guardrails' })).toBeNull();
   });
 
   it('stays silent once the guide is skipped', () => {

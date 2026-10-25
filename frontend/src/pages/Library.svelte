@@ -1,16 +1,15 @@
 <script lang="ts">
-  import { Film, HelpCircle, Lock, RefreshCw, Tv } from '../lib/icons';
+  import { Film, Lock, Tv } from '../lib/icons';
   import { api } from '../api/client';
   import { mediaTypeKey } from '../api/format';
-  import type { Explanation, MediaListItem } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
-  import { createOutcome } from '../lib/outcome.svelte';
+  import { createExplainer } from '../lib/explain.svelte';
   import { cut, t } from '../lib/i18n.svelte';
   import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import ExplanationModal from '../components/ExplanationModal.svelte';
+  import WhyButton from '../components/WhyButton.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import Pager from '../components/Pager.svelte';
@@ -21,7 +20,6 @@
   let unmatched = $state(false);
   const filtered = $derived(Boolean(search || mediaType || unmatched));
   let page = $state(1);
-  let explaining = $state<Explanation | null>(null);
 
   const library = createAsync(
     (signal) =>
@@ -37,31 +35,10 @@
       ),
     () => [search, mediaType, unmatched, page],
   );
-  const outcome = createOutcome();
+  const explainer = createExplainer();
 
   const items = $derived(library.data?.data ?? []);
   const pagination = $derived(library.data?.pagination);
-
-  // Only the last title asked about answers: a late answer would open the wrong explanation.
-  let asking: AbortController | null = null;
-  /** The title whose explanation is on its way, which its row says. */
-  let asked = $state<string | null>(null);
-
-  async function explain(media: MediaListItem) {
-    asking?.abort();
-    const mine = (asking = new AbortController());
-    asked = media.id;
-    try {
-      const answer = await api.explainTitle(media.id, mine.signal);
-      if (mine.signal.aborted) return;
-      explaining = answer;
-      outcome.clear();
-    } catch (err) {
-      if (!mine.signal.aborted) outcome.fail(err);
-    } finally {
-      if (!mine.signal.aborted) asked = null;
-    }
-  }
 
   /** The year after the title as the language sets a note, its brackets muted with it. */
   const yearNote = $derived(cut('WithNote', ['text', 'note']));
@@ -80,7 +57,7 @@
     onDismiss={() => (library.error = null)}
     onRetry={() => void library.reload()}
   />
-  <OutcomeBanner {outcome} />
+  <ErrorBanner message={explainer.failure} onDismiss={explainer.dismiss} />
 
   <div class="toolbar">
     <SearchField
@@ -140,15 +117,14 @@
             <th>{t('CurrentRootFolder')}</th>
             <th>{t('ProposedCategory')}</th>
             <th>{t('Metadata')}</th>
-            <th class="w-120"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if library.loading && items.length === 0}
-            <TableSkeleton columns={6} />
+            <TableSkeleton columns={5} />
           {:else if items.length === 0 && !library.error}
             <tr>
-              <td colspan="6">
+              <td colspan="5">
                 <EmptyState>{t(filtered ? 'NoMediaMatchesFilters' : 'NoMediaMatches')}</EmptyState>
               </td>
             </tr>
@@ -156,7 +132,7 @@
             {#each items as media (media.id)}
               <tr>
                 <td>
-                  <div class="flex items-center gap-2">
+                  <div class="flex flex-wrap items-center gap-2">
                     <!-- The icon for the eye, the word for a screen reader. -->
                     {#if media.media_type === 'movie'}
                       <Film size={16} class="text-radarr" />
@@ -176,6 +152,7 @@
                         <strong>{media.title}</strong>
                       {/if}
                     </span>
+                    <WhyButton {explainer} mediaId={media.id} title={media.title} />
                   </div>
                 </td>
                 <td>{media.instance_name}</td>
@@ -210,23 +187,6 @@
                     {t(media.has_metadata ? 'MetadataCached' : 'MetadataMissing')}
                   </span>
                 </td>
-                <td>
-                  <!-- The action is the same on every line, so it does not need
-                       spelling out once per row. -->
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    onclick={() => void explain(media)}
-                    aria-label="{t('WhyQuestion')} – {media.title}"
-                    aria-busy={asked === media.id}
-                    title={t('WhyQuestion')}
-                  >
-                    {#if asked === media.id}
-                      <RefreshCw size={15} class="spin" aria-hidden="true" />
-                    {:else}
-                      <HelpCircle size={15} aria-hidden="true" />
-                    {/if}
-                  </button>
-                </td>
               </tr>
             {/each}
           {/if}
@@ -237,10 +197,10 @@
     <Pager {pagination} bind:page countKey="ItemCount" />
   </div>
 
-  {#if explaining}
+  {#if explainer.shown}
     <ExplanationModal
-      data={explaining}
-      onClose={() => (explaining = null)}
+      data={explainer.shown}
+      onClose={explainer.close}
       onChanged={() => void library.reload()}
     />
   {/if}

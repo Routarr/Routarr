@@ -291,6 +291,25 @@ async fn a_rule_test_pinned_while_its_category_is_removed_leaves_no_orphan() {
 }
 
 #[tokio::test]
+async fn a_rule_test_told_to_expect_a_category_being_removed_leaves_no_orphan() {
+    let app = with_category("doomed-expectation").await;
+    let pinned = app.post("/api/v1/rule-tests", json!({ "name": "A case", "media_id": "m-1" }));
+    let id = pinned.await.assert_ok()["id"].as_str().unwrap().to_string();
+    race(
+        "rule_tests::write",
+        "doomed-expectation",
+        putting(
+            &app,
+            format!("/api/v1/rule-tests/{id}/expected-category"),
+            json!({ "expected_category": "doomed-expectation" }),
+        ),
+        removing(&app, "doomed-expectation"),
+    )
+    .await;
+    assert_eq!(dangling(&app).await, 0);
+}
+
+#[tokio::test]
 async fn a_rule_written_while_its_category_is_renamed_follows_the_rename() {
     let app = with_category("doomed-rename").await;
     race(

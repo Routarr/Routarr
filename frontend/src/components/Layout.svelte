@@ -310,7 +310,7 @@
       onSignOut={phone && endsSession ? () => void signOut() : undefined}
       counts={{
         jobs: status.data?.running_jobs ?? 0,
-        decisions: status.data?.pending_decisions ?? 0,
+        decisions: status.data?.pending_moves ?? 0,
         failed: status.data?.failed_decisions ?? 0,
         warnings: warned,
       }}

@@ -1,4 +1,8 @@
 <script lang="ts" module>
+  import { api } from '../api/client';
+  import { createAsync } from '../lib/async.svelte';
+  import { t } from '../lib/i18n.svelte';
+
   /** The titles a list of decisions narrows to, each field empty for every value. */
   export interface TitleFilter {
     instance_id: string;
@@ -17,12 +21,61 @@
     current_root_folder: '',
     rule_id: '',
   };
+
+  /** What each field offers, read once for the panel and for a screen that names its filters. */
+  export function createFilterOptions(fields: readonly TitleField[]) {
+    const shown = (field: TitleField) => fields.includes(field);
+    return createAsync(async (signal) => {
+      const [instances, categories, folders, rules] = await Promise.all([
+        shown('instance') ? api.getInstances(signal) : [],
+        shown('category') ? api.getCategories(signal) : [],
+        shown('folder') ? api.getRootFolders(signal) : [],
+        shown('rule') ? api.getRules(signal) : [],
+      ]);
+      // Two instances may name one path, and the filter reads the path alone.
+      const paths = [...new Set(folders.map((folder) => folder.path))].sort();
+      return { instances, categories, paths, rules };
+    });
+  }
+
+  export type FilterOptions = ReturnType<typeof createFilterOptions>;
+
+  /** Each field set, as its label and the value the panel shows, its id until the names load. */
+  export function describeTitles(
+    filter: TitleFilter,
+    options: FilterOptions,
+  ): { label: string; value: string }[] {
+    const named = options.data;
+    const terms = [
+      {
+        label: t('Instance'),
+        value: filter.instance_id,
+        name: named?.instances.find((each) => each.id === filter.instance_id)?.name,
+      },
+      {
+        label: t('Type'),
+        value: filter.media_type,
+        name: filter.media_type ? t(filter.media_type === 'movie' ? 'Movies' : 'Series') : '',
+      },
+      { label: t('Category'), value: filter.category, name: filter.category },
+      {
+        label: t('CurrentRootFolder'),
+        value: filter.current_root_folder,
+        name: filter.current_root_folder,
+      },
+      {
+        label: t('Rule'),
+        value: filter.rule_id,
+        name: named?.rules.find((each) => each.id === filter.rule_id)?.name,
+      },
+    ];
+    return terms
+      .filter((term) => term.value !== '')
+      .map((term) => ({ label: term.label, value: term.name || term.value }));
+  }
 </script>
 
 <script lang="ts">
-  import { api } from '../api/client';
-  import { createAsync } from '../lib/async.svelte';
-  import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
 
   /** The labelled selects of a filter panel that narrow a list of decisions by title. */
@@ -30,27 +83,18 @@
     filter = $bindable(),
     fields,
     onchange,
+    options = createFilterOptions(fields),
   }: {
     filter: TitleFilter;
     fields: readonly TitleField[];
     /** Fired after a field changed, where a screen resets its paging. */
     onchange?: () => void;
+    /** A screen's own read, shared when it also names the filters set. */
+    options?: FilterOptions;
   } = $props();
 
   const shown = (field: TitleField) => fields.includes(field);
   const id = $props.id();
-
-  const options = createAsync(async (signal) => {
-    const [instances, categories, folders, rules] = await Promise.all([
-      shown('instance') ? api.getInstances(signal) : [],
-      shown('category') ? api.getCategories(signal) : [],
-      shown('folder') ? api.getRootFolders(signal) : [],
-      shown('rule') ? api.getRules(signal) : [],
-    ]);
-    // Two instances may name one path, and the filter reads the path alone.
-    const paths = [...new Set(folders.map((folder) => folder.path))].sort();
-    return { instances, categories, paths, rules };
-  });
 
   function set(field: keyof TitleFilter, value: string) {
     filter = { ...filter, [field]: value };

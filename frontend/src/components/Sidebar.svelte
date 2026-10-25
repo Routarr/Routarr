@@ -18,7 +18,7 @@
   /** The sentence the badge replaces, kept as the accessible name. */
   const BADGE_LABEL: Record<keyof Counts, string> = {
     jobs: 'TasksRunning',
-    decisions: 'DecisionsAwaitingReview',
+    decisions: 'MovesAwaitingReview',
     failed: 'FailedMoves',
     warnings: 'DiagnosticWarnings',
   };

@@ -115,6 +115,10 @@ pub struct Decision {
     // `executor::REVERTIBLE` decides it.
     #[serde(default)]
     pub revertible: bool,
+    /// Whether the library still holds the title, whose explanation can then be read. A sync
+    /// removes a title its Arr stopped returning, and its history stays.
+    #[serde(default)]
+    pub in_library: bool,
     // As a run stores them, said in the reader's language (`routing::stored_reasons`).
     #[serde(skip)]
     pub stored_reasons: String,

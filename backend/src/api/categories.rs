@@ -268,6 +268,7 @@ pub(crate) async fn move_references(
         "UPDATE media_routing SET category = ? WHERE category = ?",
         // A case left on the old name would report a mismatch nobody caused.
         "UPDATE rule_tests SET expected_category = ? WHERE expected_category = ?",
+        "UPDATE rule_tests SET last_actual_category = ? WHERE last_actual_category = ?",
         "UPDATE settings SET value = ?, updated_at = datetime('now')
          WHERE key = 'default_category' AND value = ?",
     ] {

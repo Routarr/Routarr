@@ -86,6 +86,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "pending_moves": {
+            "description": "The pending decisions that move a title, as `/status` counts them.",
+            "format": "int64",
+            "type": "integer"
+          },
           "running_jobs": {
             "format": "int64",
             "type": "integer"
@@ -128,6 +133,7 @@
           "enabled_rules",
           "total_overrides",
           "pending_decisions",
+          "pending_moves",
           "applied_decisions",
           "failed_decisions",
           "unmapped_categories",
@@ -1799,6 +1805,10 @@
           },
           "id": {
             "type": "string"
+          },
+          "in_library": {
+            "description": "Whether the library still holds the title, whose explanation can then be read. A sync\nremoves a title its Arr stopped returning, and its history stays.",
+            "type": "boolean"
           },
           "instance_id": {
             "type": "string"
@@ -4818,6 +4828,13 @@
           "id": {
             "type": "string"
           },
+          "last_actual_category": {
+            "description": "Where the last run sent the title. Null until a run reads the case, or when its copy\ncould not be read.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "last_checked_at": {
             "description": "When the case last ran.",
             "format": "date-time",
@@ -4838,6 +4855,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "source_media_id": {
+            "description": "The library title the case was pinned from, while the library still holds it. Null once\na sync removed it: the case runs on from its own copy.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source_media_title": {
             "type": [
@@ -4860,6 +4884,20 @@
           "evaluated_at",
           "expected_category",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "RuleTestExpectation": {
+        "additionalProperties": false,
+        "description": "The category a case expects from now on.",
+        "properties": {
+          "expected_category": {
+            "description": "A category that exists, matched as category names are.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_category"
         ],
         "type": "object"
       },
@@ -5174,6 +5212,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "pending_moves": {
+            "description": "The pending decisions that move a title, which an apply can act on: a skip waits for its\ncategory to be mapped.",
+            "format": "int64",
+            "type": "integer"
+          },
           "running_jobs": {
             "format": "int64",
             "type": "integer"
@@ -5194,6 +5237,7 @@
           "dry_run",
           "running_jobs",
           "pending_decisions",
+          "pending_moves",
           "failed_decisions",
           "warnings"
         ],
@@ -9435,6 +9479,15 @@
               "minimum": 0,
               "type": "integer"
             }
+          },
+          {
+            "description": "`true` lists only the tests the last run found failing.",
+            "in": "query",
+            "name": "failing",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -9623,6 +9676,59 @@
           "rules"
         ],
         "x-routarr-scope": "read"
+      }
+    },
+    "/rule-tests/{id}/expected-category": {
+      "put": {
+        "description": "The tests run again, so the answer carries the new verdict.",
+        "operationId": "expect_rule_test",
+        "parameters": [
+          {
+            "description": "The test's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleTestExpectation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTest"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Change the category a rule test expects",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
       }
     },
     "/rules": {

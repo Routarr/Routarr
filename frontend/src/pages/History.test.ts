@@ -4,7 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { decision, instance, job, paginated, rule } from '../test/fixtures';
+import { decision, explanation, instance, job, paginated, rule } from '../test/fixtures';
 import { api, ApiError } from '../api/client';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
@@ -21,6 +21,15 @@ beforeEach(() => {
   vi.spyOn(api, 'getCategories').mockResolvedValue([]);
   vi.spyOn(api, 'getRules').mockResolvedValue([]);
 });
+
+/** The revert of many, from the header's menu, and the dialog that asks it. */
+async function revertMany(count: number): Promise<HTMLElement> {
+  await userEvent.click(await screen.findByRole('button', { name: 'Actions' }));
+  await userEvent.click(
+    screen.getByRole('menuitem', { name: `Revert every move listed (${count})…` }),
+  );
+  return screen.findByRole('dialog', { name: 'Revert every move listed' });
+}
 
 /** A field of the filter panel, opened first as a reader opens it. */
 function filterField(label: string): HTMLElement {
@@ -298,6 +307,30 @@ describe('History', () => {
     ]);
   });
 
+  /** A sync removes a title its Arr stopped returning, and its history stays. */
+  it('explains a title the library holds, and offers no explanation of one it lost', async () => {
+    vi.spyOn(api, 'getSources').mockResolvedValue({ providers: [], order: [] });
+    vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
+      match_modes: ['all', 'any'],
+      conditions: [],
+      score_scales: [],
+    });
+    const explain = vi.spyOn(api, 'explainTitle').mockResolvedValue(explanation());
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([
+        decision({ media_id: 'm7', media_title: 'Akira', status: 'applied' }),
+        decision({ media_title: 'Totoro', status: 'applied', in_library: false }),
+      ]),
+    );
+    show();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
+
+    expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Why? – Totoro' })).toBeNull();
+  });
+
   it('names what caused a decision, and stays silent when nothing recorded it', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
@@ -314,6 +347,20 @@ describe('History', () => {
     expect(within(older).queryByTitle('Triggered by')).toBeNull();
   });
 
+  /** A history of moves reads as from and to, as the explanation writes a move. */
+  it('writes each move from where it was to where it went', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', current_root_folder: '/films' })]),
+    );
+    show();
+
+    const row = await screen.findByRole('row', { name: /Akira/ });
+    expect(screen.getByRole('columnheader', { name: 'Move' })).toBeInTheDocument();
+    expect(within(row).getByText('/films').closest('td')).toHaveTextContent(
+      /\/films\s*→\s*\/anime/,
+    );
+  });
+
   it('names who asked, beside what caused it, and only when a mode named one', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
@@ -326,10 +373,10 @@ describe('History', () => {
     const row = await screen.findByRole('row', { name: /Akira/ });
     expect(within(row).getByTitle('Triggered by')).toHaveTextContent('Manual');
     expect(within(row).getByTitle('Performed by')).toHaveTextContent('alice');
-    // Said in words too, since a title reaches a mouse alone.
-    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent(
-      /Triggered by\s*Manual.*Performed by\s*alice/,
-    );
+    // Said in words too, since a title reaches a mouse alone, on a line under the date.
+    const by = within(row).getByTitle('Triggered by').parentElement!;
+    expect(by).toHaveTextContent(/^Triggered by\s*Manual\s*·\s*Performed by\s*alice$/);
+    expect(by).toHaveClass('cell-by');
 
     const swept = screen.getByRole('row', { name: /Totoro/ });
     expect(within(swept).getByTitle('Triggered by')).toHaveTextContent('Schedule');
@@ -489,7 +536,43 @@ describe('narrowing and reverting many', () => {
     show();
 
     await screen.findByText('Akira');
-    expect(screen.queryByRole('button', { name: /Revert all/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Actions' })).toBeNull();
+  });
+
+  /** A bulk reversal is a deliberate step, not the first control of a screen people read. */
+  it('keeps the revert of many behind a menu, and asks it in a dialog that says what goes back', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
+    const revertAll = vi.spyOn(api, 'revertAllDecisions').mockResolvedValue(report);
+    show();
+    await screen.findByText('Akira');
+    expect(screen.queryByRole('button', { name: /^Revert all/ })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /files on disk/ })).toBeNull();
+
+    const dialog = await revertMany(3);
+
+    expect(dialog).toHaveTextContent('Moves that can still be reverted: 3.');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Move the files on disk back as well?' }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
+
+    expect(await screen.findByText('Moves reverted: 3 of 3. Batches: 1.')).toBeTruthy();
+    expect(nthCall(revertAll)[1]).toBe(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('reverts nothing when the dialog of the revert of many is cancelled', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
+    const revertAll = vi.spyOn(api, 'revertAllDecisions');
+    show();
+
+    const dialog = await revertMany(3);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(revertAll).not.toHaveBeenCalled();
   });
 
   /** The server counts and asks, so the reader confirms the count it will act on. */
@@ -504,23 +587,25 @@ describe('narrowing and reverting many', () => {
       )
       .mockResolvedValue(report);
     show();
-    expect(await screen.findByRole('button', { name: 'Revert all (3)' })).toBeTruthy();
 
     filterField('Rule');
     await screen.findByRole('option', { name: 'Japanese animation' });
     await userEvent.selectOptions(filterField('Rule'), 'r1');
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Revert the matching moves (3)' }),
-    );
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search a title' }), 'aki');
+    const dialog = await revertMany(3);
+    // The filters in words, so "listed" is exact.
+    expect(within(dialog).getByText('Rule: Japanese animation')).toBeInTheDocument();
+    expect(within(dialog).getByText('Search: aki')).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
     expect(await answerConfirmation()).toContain('Moves to revert: 3.');
 
     expect(await screen.findByText('Moves reverted: 3 of 3. Batches: 1.')).toBeTruthy();
-    expect(nthCall(revertAll)[0]).toEqual({ filter: { rule_id: 'r1' } });
+    expect(nthCall(revertAll)[0]).toEqual({ filter: { rule_id: 'r1', search: 'aki' } });
     expect(nthCall(revertAll, 1)[2]).toEqual(['batch']);
   });
 
-  /** The button turns disabled before the server's question opens, which then has no opener. */
-  it('hands the focus back to Revert all once the revert of many ends', async () => {
+  /** The menu item goes with its menu, and the dialog that opened from it is gone. */
+  it('hands the focus back to the menu once the revert of many ends', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
     vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
     vi.spyOn(api, 'revertAllDecisions')
@@ -529,14 +614,16 @@ describe('narrowing and reverting many', () => {
       )
       .mockResolvedValue(report);
     show();
-    const pressed = await screen.findByRole('button', { name: 'Revert all (3)' });
 
-    await userEvent.click(pressed);
+    const dialog = await revertMany(3);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
     dropFocus();
     await answerConfirmation();
 
     expect(await screen.findByText('Moves reverted: 3 of 3. Batches: 1.')).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(pressed));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions' })),
+    );
   });
 
   it('says a revert of many stopped by a refused slice left the rest applied', async () => {
@@ -553,7 +640,8 @@ describe('narrowing and reverting many', () => {
     });
     show();
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Revert all (3)' }));
+    const dialog = await revertMany(3);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
 
     expect(
       await screen.findByText(
@@ -579,9 +667,9 @@ describe('for a reader', () => {
       ]),
     );
     const offered = () =>
-      [/^Revert – Akira$/, /^Revert all/].filter((name) => screen.queryByRole('button', { name }));
+      [/^Revert – Akira$/, /^Actions$/].filter((name) => screen.queryByRole('button', { name }));
     const { unmount } = show();
-    await screen.findByRole('button', { name: 'Revert all (3)' });
+    await screen.findByRole('button', { name: 'Actions' });
     expect(offered()).toHaveLength(2);
     unmount();
 
@@ -591,6 +679,6 @@ describe('for a reader', () => {
     expect(await screen.findByText('Akira')).toBeInTheDocument();
     await waitFor(() => expect(api.countDecisions).toHaveBeenCalledTimes(2));
     expect(offered()).toEqual([]);
-    expect(screen.queryByLabelText(/Move the files on disk too/)).toBeNull();
+    expect(screen.queryByLabelText(/files on disk/)).toBeNull();
   });
 });

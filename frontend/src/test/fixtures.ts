@@ -49,6 +49,7 @@ export function decision(over: Partial<Decision> = {}): Decision {
     actor: null,
     subject: null,
     revertible: false,
+    in_library: true,
     ...over,
   };
 }
@@ -98,6 +99,7 @@ export function health(over: Partial<Health> = {}): Health {
       enabled_rules: 0,
       total_overrides: 0,
       pending_decisions: 0,
+      pending_moves: 0,
       applied_decisions: 0,
       failed_decisions: 0,
       unmapped_categories: 0,

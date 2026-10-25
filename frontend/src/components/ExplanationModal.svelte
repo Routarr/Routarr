@@ -1,7 +1,7 @@
 <script lang="ts">
   import CardTitle from './CardTitle.svelte';
   import { api } from '../api/client';
-  import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
+  import { ArrowRight, Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
   import { DECISION_ACTION_KEY, formatCount, formatDecimal, localName } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
@@ -81,7 +81,28 @@
   );
   const synopsisLine = $derived(around('SynopsisFrom'));
 
-  /** One click pins a case: the panel already holds the item, its metadata and the category. */
+  /** The verdict's reason in one sentence: the exception, the rule that won, or neither. */
+  const decided = $derived.by(() => {
+    if (view.override_category) {
+      return t('ExplainDecidedByException', { category: view.override_category });
+    }
+    const winner = view.rule_traces.find((trace) => trace.outcome === 'winner');
+    return winner
+      ? t('ExplainDecidedByRule', { rule: winner.rule_name, priority: winner.priority })
+      : t('ExplainDecidedByDefault');
+  });
+
+  /** The action whose own form is open under the footer, one at a time. */
+  let opened = $state<'send' | 'pin' | null>(null);
+  /** The action pointed at or focused, whose help shows under the footer. */
+  let hinted = $state<'keep' | 'refresh' | null>(null);
+  const point = (action: 'keep' | 'refresh') => ({
+    onmouseenter: () => (hinted = action),
+    onmouseleave: () => (hinted = null),
+    onfocus: () => (hinted = action),
+    onblur: () => (hinted = null),
+  });
+
   let pinning = $state(false);
   let pinned = $state(false);
   let pinError = $state<string | null>(null);
@@ -197,6 +218,41 @@
     }
   }
 
+  let sending = $state(false);
+  let sendError = $state<string | null>(null);
+  // Null shows the category the title goes to now, so the choice made reads as a change.
+  let sendTo = $state<string | null>(null);
+  const sendCategory = $derived(sendTo ?? view.target_category);
+  let sendReason = $state('');
+
+  async function send() {
+    if (sending) return;
+    const pressed = document.activeElement;
+    const category = sendCategory;
+    sending = true;
+    sendError = null;
+    try {
+      await api.createException({
+        media_id: view.media.id,
+        target_category: category,
+        reason: sendReason.trim() || null,
+      });
+      refreshed = await api.explainTitle(view.media.id, leaving.signal);
+      opened = null;
+      sendTo = null;
+      sendReason = '';
+      invalidateStatus();
+      onChanged?.();
+      outcome.succeed(t('OverrideCreated', { title: view.media.title, category }));
+    } catch (err) {
+      if (!leaving.signal.aborted) sendError = describeError(err);
+    } finally {
+      sending = false;
+      // Back to the button that opened the form once it folds, else to the one pressed.
+      void handFocus(opened === 'send' ? (pressed as HTMLElement | null) : 'explain-send');
+    }
+  }
+
   const outcome = createOutcome();
   let refreshing = $state(false);
 
@@ -250,7 +306,7 @@
 {/snippet}
 
 <!-- Opened on its heading: opened from the quick search by Enter, a panel on
-     its first button would take a second Enter as a pin nobody asked for. -->
+     its first button would take a second Enter as a press nobody asked for. -->
 <Modal
   title={view.media.title}
   titleId="explain-title"
@@ -259,82 +315,6 @@
   maxHeight="88vh"
   initialFocus="explain-title"
 >
-  {#if !access.readOnly}
-    <div class="explain-actions">
-      <div class="explain-action">
-        <button
-          class="btn btn-secondary btn-sm"
-          disabled={refreshing}
-          onclick={() => void refresh()}
-          aria-describedby="explain-refresh-hint"
-        >
-          <RefreshCw size={14} />
-          {t('RefreshTitleMetadata')}
-        </button>
-        <p id="explain-refresh-hint" class="form-hint">{t('RefreshTitleMetadataHint')}</p>
-      </div>
-      <div class="explain-action">
-        <button
-          class="btn btn-secondary btn-sm"
-          disabled={keeping || kept || view.current_category === null}
-          onclick={() => void keep()}
-          aria-describedby="explain-keep-hint"
-        >
-          <Lock size={14} />
-          {t('KeepHere')}
-        </button>
-        <p id="explain-keep-hint" class="form-hint">
-          {#if view.current_category === null}
-            {t('KeepHereUnmapped')}
-            <a class="text-link" href={href('/categories')}>{t('GuideCategoriesAction')}</a>
-          {:else if kept}
-            {t('KeptHere', { category: view.current_category })}
-          {:else}
-            {t('KeepHereHint', { category: view.current_category })}
-          {/if}
-        </p>
-      </div>
-      <div class="explain-action">
-        <div class="form-group">
-          <label class="form-label" for="explain-pin-category">{t('PinExpectedCategory')}</label>
-          <select
-            id="explain-pin-category"
-            class="form-select"
-            value={expected}
-            disabled={pinned}
-            onchange={(event) => (chosen = event.currentTarget.value)}
-          >
-            {#each categoryNames as name (name)}
-              <option value={name}>{name}</option>
-            {/each}
-          </select>
-        </div>
-        <!-- Disabled once taken rather than hidden: a button that vanishes leaves
-             the user unsure whether it worked. -->
-        <button
-          class="btn btn-secondary btn-sm"
-          disabled={pinning || pinned}
-          onclick={() => void pin()}
-          aria-describedby="explain-pin-hint{view.override_category ? ' explain-pin-rules' : ''}"
-        >
-          <ShieldCheck size={14} />
-          {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
-        </button>
-        <p id="explain-pin-hint" class="form-hint">
-          {expectsOther
-            ? t('PinAsRuleTestExpectedHint', { category: expected })
-            : t('PinAsRuleTestHint')}
-        </p>
-        {#if view.override_category && !expectsOther}
-          <p id="explain-pin-rules" class="form-hint">
-            {t('PinRulesUnderException', { category: view.rules_category })}
-          </p>
-        {/if}
-      </div>
-    </div>
-  {/if}
-
-  <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
   <ErrorBanner message={categories.error} onRetry={() => void categories.reload()} />
   <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
   <ErrorBanner message={conditions.error} onRetry={() => void conditions.reload()} />
@@ -370,6 +350,7 @@
       <span class="dir-aware">→</span>
       <span class="mono">{view.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
+    <p class="text-md mt-2">{decided}</p>
     {#if facts.length > 0}
       <dl class="fact-list">
         {#each facts as fact (fact.label)}
@@ -385,6 +366,67 @@
     {/if}
   </div>
 
+  <div class="card">
+    <div class="card-header">
+      <CardTitle card="RuleEvaluation" level={3}>{t('RuleEvaluation')}</CardTitle>
+    </div>
+    {#if view.rule_traces.length === 0}
+      <EmptyState>{t('NoRuleApplies')}</EmptyState>
+    {:else}
+      {#each view.rule_traces as trace (trace.rule_id)}
+        <div class="mt-4">
+          <div class="flex items-center gap-2">
+            <strong>{trace.rule_name}</strong>
+            <span class="num">#{trace.priority}</span>
+            <span class="badge badge-value">{trace.category}</span>
+            <span
+              class="badge {trace.outcome === 'winner'
+                ? 'badge-success'
+                : trace.outcome === 'excluded'
+                  ? 'badge-danger'
+                  : 'badge-warning'}"
+            >
+              {t(OUTCOME_KEY[trace.outcome] ?? 'OutcomeNotMatched')}
+            </span>
+          </div>
+
+          {#if trace.excluded_by}
+            <p class="text-danger text-sm mt-2">
+              ⛔ {t('VetoedByExclusion', { reason: trace.excluded_by })}
+            </p>
+          {/if}
+
+          <div class="mt-2">
+            {#each trace.conditions as condition, index (index)}
+              <div class="explain-row">
+                <!-- The glyph and its colour for the eye, the word for a screen reader. -->
+                <span
+                  class={condition.matched ? 'explain-match' : 'explain-miss'}
+                  aria-hidden="true"
+                >
+                  {condition.matched ? '✓' : '✗'}
+                </span>
+                <span class="visually-hidden">
+                  {t(condition.matched ? 'ConditionHeld' : 'ConditionNotHeld')}
+                </span>
+                <span class="flex-1">{condition.expected}</span>
+                <span class="explain-observed">
+                  {condition.observed || t('Unknown')}
+                  {#if condition.source}
+                    <span class="text-muted text-xs ms-1">
+                      {t('MetadataFromSource', {
+                        source: providerOf(condition.source)?.display_name ?? condition.source,
+                      })}
+                    </span>
+                  {/if}
+                </span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </div>
   {#if view.metadata}
     <div class="card">
       <div class="card-header">
@@ -455,65 +497,144 @@
     <div class="banner banner-warning">{t('NoMetadataCached')}</div>
   {/if}
 
-  <div class="card">
-    <div class="card-header">
-      <CardTitle card="RuleEvaluation" level={3}>{t('RuleEvaluation')}</CardTitle>
-    </div>
-    {#if view.rule_traces.length === 0}
-      <EmptyState>{t('NoRuleApplies')}</EmptyState>
-    {:else}
-      {#each view.rule_traces as trace (trace.rule_id)}
-        <div class="mt-4">
-          <div class="flex items-center gap-2">
-            <strong>{trace.rule_name}</strong>
-            <span class="num">#{trace.priority}</span>
-            <span class="badge badge-value">{trace.category}</span>
-            <span
-              class="badge {trace.outcome === 'winner'
-                ? 'badge-success'
-                : trace.outcome === 'excluded'
-                  ? 'badge-danger'
-                  : 'badge-warning'}"
+  {#if !access.readOnly}
+    <!-- After the answer, and sticky: a long trace keeps the actions in reach. -->
+    <div class="explain-footer">
+      <div class="flex flex-wrap gap-2">
+        <button
+          class="btn btn-secondary btn-sm"
+          disabled={keeping || kept || view.current_category === null}
+          onclick={() => void keep()}
+          aria-describedby="explain-keep-hint"
+          {...point('keep')}
+        >
+          <Lock size={14} />
+          {t('KeepHere')}
+        </button>
+        <button
+          id="explain-send"
+          class="btn btn-secondary btn-sm"
+          aria-expanded={opened === 'send'}
+          aria-controls="explain-send-form"
+          onclick={() => (opened = opened === 'send' ? null : 'send')}
+        >
+          <ArrowRight size={14} class="dir-aware" />
+          {t('SendToCategory')}
+        </button>
+        <button
+          id="explain-pin"
+          class="btn btn-secondary btn-sm"
+          aria-expanded={opened === 'pin'}
+          aria-controls="explain-pin-form"
+          onclick={() => (opened = opened === 'pin' ? null : 'pin')}
+        >
+          <ShieldCheck size={14} />
+          {t('PinAsRuleTestOpen')}
+        </button>
+        <button
+          class="btn btn-secondary btn-sm"
+          disabled={refreshing}
+          onclick={() => void refresh()}
+          aria-describedby="explain-refresh-hint"
+          {...point('refresh')}
+        >
+          <RefreshCw size={14} />
+          {t('RefreshTitleMetadata')}
+        </button>
+      </div>
+
+      <!-- A state stays in sight, a help only for the action at hand. Hidden, each still
+           describes its button. -->
+      <p
+        id="explain-keep-hint"
+        class="form-hint"
+        hidden={view.current_category !== null && !kept && hinted !== 'keep'}
+      >
+        {#if view.current_category === null}
+          {t('KeepHereUnmapped')}
+          <a class="text-link" href={href('/categories')}>{t('GuideCategoriesAction')}</a>
+        {:else if kept}
+          {t('KeptHere', { category: view.current_category })}
+        {:else}
+          {t('KeepHereHint', { category: view.current_category })}
+        {/if}
+      </p>
+      <p id="explain-refresh-hint" class="form-hint" hidden={hinted !== 'refresh'}>
+        {t('RefreshTitleMetadataHint')}
+      </p>
+
+      <div id="explain-send-form" class="explain-form" hidden={opened !== 'send'}>
+        <ErrorBanner message={sendError} onDismiss={() => (sendError = null)} />
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="explain-send-category">{t('ForcedCategory')}</label>
+            <select
+              id="explain-send-category"
+              class="form-select"
+              value={sendCategory}
+              onchange={(event) => (sendTo = event.currentTarget.value)}
             >
-              {t(OUTCOME_KEY[trace.outcome] ?? 'OutcomeNotMatched')}
-            </span>
+              {#each categoryNames as name (name)}
+                <option value={name}>{name}</option>
+              {/each}
+            </select>
           </div>
-
-          {#if trace.excluded_by}
-            <p class="text-danger text-sm mt-2">
-              ⛔ {t('VetoedByExclusion', { reason: trace.excluded_by })}
-            </p>
-          {/if}
-
-          <div class="mt-2">
-            {#each trace.conditions as condition, index (index)}
-              <div class="explain-row">
-                <!-- The glyph and its colour for the eye, the word for a screen reader. -->
-                <span
-                  class={condition.matched ? 'explain-match' : 'explain-miss'}
-                  aria-hidden="true"
-                >
-                  {condition.matched ? '✓' : '✗'}
-                </span>
-                <span class="visually-hidden">
-                  {t(condition.matched ? 'ConditionHeld' : 'ConditionNotHeld')}
-                </span>
-                <span class="flex-1">{condition.expected}</span>
-                <span class="explain-observed">
-                  {condition.observed || t('Unknown')}
-                  {#if condition.source}
-                    <span class="text-muted text-xs ms-1">
-                      {t('MetadataFromSource', {
-                        source: providerOf(condition.source)?.display_name ?? condition.source,
-                      })}
-                    </span>
-                  {/if}
-                </span>
-              </div>
-            {/each}
+          <div class="form-group">
+            <label class="form-label" for="explain-send-reason">
+              {t('WithNote', { text: t('Reason'), note: t('Optional') })}
+            </label>
+            <input
+              id="explain-send-reason"
+              class="form-input"
+              placeholder={t('ReasonPlaceholder')}
+              bind:value={sendReason}
+            />
           </div>
         </div>
-      {/each}
-    {/if}
-  </div>
+        <button class="btn btn-primary btn-sm" disabled={sending} onclick={() => void send()}>
+          {sending ? t('Saving') : t('CreateOverride')}
+        </button>
+      </div>
+
+      <div id="explain-pin-form" class="explain-form" hidden={opened !== 'pin'}>
+        <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
+        <div class="form-group">
+          <label class="form-label" for="explain-pin-category">{t('PinExpectedCategory')}</label>
+          <select
+            id="explain-pin-category"
+            class="form-select"
+            value={expected}
+            disabled={pinned}
+            onchange={(event) => (chosen = event.currentTarget.value)}
+          >
+            {#each categoryNames as name (name)}
+              <option value={name}>{name}</option>
+            {/each}
+          </select>
+        </div>
+        <!-- Disabled once taken rather than hidden: a button that vanishes leaves
+             the user unsure whether it worked. -->
+        <button
+          class="btn btn-primary btn-sm"
+          disabled={pinning || pinned}
+          onclick={() => void pin()}
+          aria-describedby="explain-pin-hint{view.override_category ? ' explain-pin-rules' : ''}"
+        >
+          <ShieldCheck size={14} />
+          {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
+        </button>
+        <!-- In sight beside the button: while a test fails, automatic application waits. -->
+        <p id="explain-pin-hint" class="form-hint">
+          {expectsOther
+            ? t('PinAsRuleTestExpectedHint', { category: expected })
+            : t('PinAsRuleTestHint')}
+        </p>
+        {#if view.override_category && !expectsOther}
+          <p id="explain-pin-rules" class="form-hint">
+            {t('PinRulesUnderException', { category: view.rules_category })}
+          </p>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </Modal>

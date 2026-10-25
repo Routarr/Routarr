@@ -14,6 +14,10 @@ import { publishAccess } from '../lib/access.svelte';
 
 const show = () => renderWithI18n(Dashboard);
 
+/** An installation with one instance, whose figures the dashboard has something to count. */
+const connected = (over: Parameters<typeof health>[0] = {}) =>
+  health({ instances: [healthInstance()], ...over });
+
 /** Both calls answer the same thing unless a test says otherwise. */
 const bothReturn = (value: ReturnType<typeof health>) =>
   vi.spyOn(api, 'getHealth').mockResolvedValue(value);
@@ -38,16 +42,16 @@ describe('Dashboard', () => {
     const banner = await screen.findByRole('alert');
     await userEvent.click(within(banner).getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByText('No instance connected yet.')).toBeTruthy();
+    expect(await screen.findByText('Connect Radarr or Sonarr to start.')).toBeTruthy();
     expect(getHealth).toHaveBeenCalledTimes(4);
   });
 
   it('sends every link through the mount point a reverse proxy adds', async () => {
     withBase('/routarr/');
-    bothReturn(health());
+    bothReturn(connected());
     show();
 
-    await screen.findByText('No instance connected yet.');
+    await screen.findByText('Radarr');
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
@@ -80,31 +84,88 @@ describe('Dashboard', () => {
     expect(getHealth.mock.calls.length).toBeGreaterThan(2);
   });
 
-  it('leads with the number the user came to see', async () => {
+  /** A skip waits for its category's folder: what the reader came to review is the moves. */
+  it('leads with the moves to review, not every pending decision', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ stats: { ...health().stats, pending_decisions: 12 } }),
+      connected({ stats: { ...health().stats, pending_decisions: 12, pending_moves: 3 } }),
     );
     const { container } = show();
 
     await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
     // The headline, not one of the context figures below it.
-    expect(container.querySelector('.headline-value')?.textContent).toBe('12');
+    await waitFor(() => expect(container.querySelector('.headline-value')?.textContent).toBe('3'));
+    expect(container.querySelector('.headline-label')).toHaveTextContent('Moves to review');
+  });
+
+  /** Before the first instance every figure is a zero, and the next step is to add one. */
+  it('shows a fresh installation the guide alone, without a wall of zeros', async () => {
+    publishOnboarding(onboardingStatus());
+    bothReturn(health());
+    const { container } = show();
+
+    expect(await screen.findByRole('heading', { name: 'Getting started' })).toBeInTheDocument();
+    expect(container.querySelector('.headline')).toBeNull();
+    expect(container.querySelector('.metrics')).toBeNull();
+    expect(screen.queryByRole('table', { name: 'Instances' })).toBeNull();
+    expect(screen.queryByText(/^Metadata:/)).toBeNull();
+    expect(screen.queryByText('Connect Radarr or Sonarr to start.')).toBeNull();
+  });
+
+  it('offers the first instance once the guide is set aside and none exists', async () => {
+    publishOnboarding(onboardingStatus([], { state: 'dismissed' }));
+    bothReturn(health());
+    const { container } = show();
+
+    expect(await screen.findByText('Connect Radarr or Sonarr to start.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Add an instance' })).toHaveAttribute(
+      'href',
+      '/instances?add=1',
+    );
+    expect(container.querySelector('.headline')).toBeNull();
+  });
+
+  /** Both figures count the library's titles, so the line is true on an Arr-only installation. */
+  it('says how many titles have metadata, and leads to the sources while some lack it', async () => {
+    const counted = (missing: number) =>
+      connected({
+        stats: { ...health().stats, total_media: 4 },
+        metadata: { ...health().metadata, cached_items: 0, media_missing_metadata: missing },
+      });
+    bothReturn(counted(0));
+    const { unmount } = show();
+
+    expect(await screen.findByText('Metadata: 4 of 4 titles')).toHaveClass('text-muted');
+    expect(screen.queryByRole('link', { name: 'Open Metadata sources' })).toBeNull();
+    unmount();
+
+    bothReturn(counted(1));
+    show();
+
+    expect(await screen.findByText('Metadata: 3 of 4 titles')).toHaveClass('text-warning');
+    expect(screen.getByRole('link', { name: 'Open Metadata sources' })).toHaveAttribute(
+      'href',
+      '/sources',
+    );
   });
 
   it('groups the headline figure the way the language does', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ stats: { ...health().stats, pending_decisions: 12345 } }),
+      connected({ stats: { ...health().stats, pending_moves: 12345 } }),
     );
     const { container } = renderWithI18n(Dashboard, { language: 'fr' });
 
     await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
-    expect(container.querySelector('.headline-value')?.textContent).toBe(formatCount(12345, 'fr'));
+    await waitFor(() =>
+      expect(container.querySelector('.headline-value')?.textContent).toBe(
+        formatCount(12345, 'fr'),
+      ),
+    );
     expect(formatCount(12345, 'fr')).not.toBe('12345');
   });
 
   it('marks the failure count and only the failure count', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ stats: { ...health().stats, failed_decisions: 3, total_movies: 900 } }),
+      connected({ stats: { ...health().stats, failed_decisions: 3, total_movies: 900 } }),
     );
     const { container } = show();
 
@@ -117,7 +178,7 @@ describe('Dashboard', () => {
   });
 
   it('leaves the row unmarked when nothing has failed', async () => {
-    vi.spyOn(api, 'getHealth').mockResolvedValue(health());
+    vi.spyOn(api, 'getHealth').mockResolvedValue(connected());
     const { container } = show();
 
     await screen.findByText('Failed moves');
@@ -252,7 +313,8 @@ describe('for a reader', () => {
     publishAccess(true);
     show();
 
-    expect(await screen.findByText('No instance connected yet.')).toBeInTheDocument();
+    expect(await screen.findByText('Connect Radarr or Sonarr to start.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Add an instance' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Getting started' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Skip the guide' })).toBeNull();
   });

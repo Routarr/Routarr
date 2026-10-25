@@ -116,7 +116,7 @@ describe('Sidebar', () => {
     expect(entry('Warnings: 3')?.getAttribute('href')).toBe(href('/diagnostics'));
     expect(entry('Running tasks: 2')?.getAttribute('href')).toBe(href('/tasks'));
     // Where the waiting proposals are applied, not where past ones are listed.
-    expect(entry('Decisions awaiting review: 5')?.getAttribute('href')).toBe(href('/simulation'));
+    expect(entry('Moves awaiting review: 5')?.getAttribute('href')).toBe(href('/simulation'));
     expect(entry('Failed moves: 1')?.getAttribute('href')).toBe(href('/move-log'));
 
     expect(badge('Warnings: 3')?.className).toContain('is-warning');

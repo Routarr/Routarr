@@ -73,7 +73,7 @@ NOT_COUNTS = {
     "countries", "country", "date", "detail", "ends", "entry", "error", "event", "expected", "field", "file", "first",
     "folder", "found", "free", "handle", "host", "id", "index", "instance", "issue", "key", "kind", "label",
     "language", "last", "max", "message", "method", "min", "minimum", "name", "names", "needed", "next",
-    "note", "number", "observed", "opened", "origin", "other", "path", "paths", "provider", "query", "reason",
+    "note", "number", "observed", "opened", "origin", "other", "path", "paths", "priority", "provider", "query", "reason",
     "reasons", "template", "regions", "route", "rule", "scale", "schema", "scope", "scopes", "screen", "second",
     "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
     "tab", "tags", "task", "terms", "text", "title", "titles", "triggers", "type", "url", "used", "value", "values", "variable", "version", "when", "year",

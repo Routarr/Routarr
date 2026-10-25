@@ -3,10 +3,19 @@ import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { category, decision, job, paginated, rule } from '../test/fixtures';
+import {
+  category,
+  decision,
+  explainedMedia,
+  explanation,
+  job,
+  paginated,
+  rule,
+} from '../test/fixtures';
 import userEvent from '@testing-library/user-event';
 import { ApiError, api, type Following } from '../api/client';
-import type { Decision, SimulationResult } from '../api/types';
+import type { CapacityForecast, Decision, SimulationResult } from '../api/types';
+import { formatTimestamp } from '../api/format';
 import Simulation from './Simulation.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
@@ -38,6 +47,21 @@ function simulation(decisions: Decision[]): SimulationResult {
     no_category_match: 0,
     skipped_unmapped: 0,
     excluded_by_rule: 0,
+  };
+}
+
+/** A destination of a run, with room for what it receives unless a test says otherwise. */
+function destination(over: Partial<CapacityForecast> = {}): CapacityForecast {
+  return {
+    instance_id: 'i1',
+    instance_name: 'Radarr',
+    path: '/anime',
+    incoming_bytes: 0,
+    same_filesystem_bytes: 0,
+    free_bytes: 1_000_000,
+    items: 1,
+    fits: true,
+    ...over,
   };
 }
 
@@ -97,6 +121,7 @@ async function show(pending: Decision[]) {
 // No run is going on when the screen opens, unless a test says otherwise, and nothing to filter.
 beforeEach(() => {
   vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([]));
+  vi.spyOn(api, 'countDecisions').mockResolvedValue(0);
   vi.spyOn(api, 'getSettings').mockResolvedValue({ batch_limit: '50' });
   vi.spyOn(api, 'getInstances').mockResolvedValue([]);
   vi.spyOn(api, 'getCategories').mockResolvedValue([]);
@@ -178,24 +203,60 @@ describe('what the screen shows', () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue({
       ...simulation([decision()]),
-      capacity: [
-        {
-          instance_id: 'i1',
-          instance_name: 'Radarr',
-          path: '/anime',
-          incoming_bytes: 0,
-          same_filesystem_bytes: 0,
-          free_bytes: 1_000_000,
-          items: 12345,
-          fits: true,
-        },
-      ],
+      capacity: [destination({ items: 12345, fits: false })],
     });
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
 
     const table = await screen.findByRole('table', { name: 'Destination capacity' });
     expect(within(table).getByText('12,345')).toBeTruthy();
+  });
+
+  /** A figure that only confirms needs no card: the proposals are what the run is read for. */
+  it('says in one line that every destination has room, its table a press away', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue({
+      ...simulation([decision()]),
+      capacity: [destination()],
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    expect(await screen.findByText('Every destination has room.')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Destination capacity' })).toBeNull();
+    const details = screen.getByRole('button', { name: 'Details' });
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(details);
+    expect(screen.getByRole('table', { name: 'Destination capacity' })).toBeInTheDocument();
+  });
+
+  it('keeps the capacity table in sight beside the warning for a destination short of room', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue({
+      ...simulation([decision()]),
+      capacity: [destination({ incoming_bytes: 2_000_000, fits: false })],
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    expect(await screen.findByRole('table', { name: 'Destination capacity' })).toBeInTheDocument();
+    expect(screen.getByText(/^\/anime would receive/)).toBeInTheDocument();
+    expect(screen.queryByText('Every destination has room.')).toBeNull();
+  });
+
+  /** The screen does not otherwise say which run the proposals come from. */
+  it('says which run it shows, beside what the run counted', async () => {
+    const started = new Date('2026-10-25T10:42:00Z');
+    vi.useFakeTimers({ toFake: ['Date'], now: started });
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+
+    await userEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    const line = (await screen.findByText(/^Simulation of /)).closest('.metrics');
+    vi.useRealTimers();
+    expect(line).toHaveTextContent(formatTimestamp(started.toISOString(), 'en'));
+    expect(line).toHaveTextContent(/1\s*Evaluated/);
   });
 
   it('tells the shell a simulation ran', async () => {
@@ -233,6 +294,59 @@ describe('what the screen shows', () => {
   });
 });
 
+/** The screen's job is to review moves, which skips waiting on a mapping would bury. */
+describe('the moves apart from the skips', () => {
+  it('lists the moves first, the skips a press away, each view with its count', async () => {
+    await show([
+      decision({ media_title: 'Akira' }),
+      decision({ media_title: 'Dune', action: 'skip', target_root_folder: null }),
+      decision({ media_title: 'Heat', action: 'skip', target_root_folder: null }),
+    ]);
+    const view = (name: string) => screen.getByRole('button', { name });
+
+    expect(await screen.findByRole('button', { name: 'To move 1' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(await screen.findByRole('button', { name: 'Skipped 2' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'All 3' })).toBeInTheDocument();
+    expect(await screen.findByText('Akira')).toBeInTheDocument();
+    expect(screen.queryByText('Dune')).toBeNull();
+
+    await userEvent.click(view('Skipped 2'));
+
+    expect(await screen.findByText('Dune')).toBeInTheDocument();
+    expect(screen.queryByText('Akira')).toBeNull();
+    expect(
+      screen.getByText(
+        'Titles with no folder for their category on their instance: 2. Once the category is mapped, the next run proposes their move.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Categories and folders' })).toHaveAttribute(
+      'href',
+      '/categories',
+    );
+
+    await userEvent.click(view('All 3'));
+    expect(await screen.findByText('Akira')).toBeInTheDocument();
+    expect(screen.getByText('Heat')).toBeInTheDocument();
+  });
+
+  it('counts each view under the filters set', async () => {
+    await show([decision({ media_title: 'Akira' })]);
+    await screen.findByRole('button', { name: 'To move 1' });
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search a title' }), 'heat');
+
+    await waitFor(() =>
+      expect(api.countDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'pending', search: 'heat' }),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+});
+
 describe('keeping a title where it is', () => {
   it('pins a pending proposal to its folder category, and reloads the list', async () => {
     const kept = vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
@@ -248,6 +362,30 @@ describe('keeping a title where it is', () => {
     ).toBeTruthy();
     expect(statusRevision()).toBeGreaterThan(before);
     expect(vi.mocked(api.getDecisions).mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('explains a proposal from its row, and reads the list again once its title is kept', async () => {
+    vi.spyOn(api, 'getSources').mockResolvedValue({ providers: [], order: [] });
+    vi.spyOn(api, 'getConditionCatalog').mockResolvedValue({
+      match_modes: ['all', 'any'],
+      conditions: [],
+      score_scales: [],
+    });
+    const explain = vi
+      .spyOn(api, 'explainTitle')
+      .mockResolvedValue(explanation({ media: explainedMedia({ id: 'm7', title: 'Akira' }) }));
+    vi.spyOn(api, 'keepTitle').mockResolvedValue({} as never);
+    await show([decision({ media_id: 'm7', media_title: 'Akira' })]);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
+    expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal));
+    const dialog = await screen.findByRole('dialog');
+    const loads = vi.mocked(api.getDecisions).mock.calls.length;
+    await userEvent.click(within(dialog).getByRole('button', { name: /^Keep here/ }));
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getDecisions).mock.calls.length).toBeGreaterThan(loads),
+    );
   });
 
   it('offers no keep for a title whose folder leads to no category', async () => {
@@ -281,7 +419,7 @@ describe('the file move', () => {
     const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
-    await fireEvent.click(await screen.findByLabelText(/^Move the files on disk too/));
+    await fireEvent.click(await screen.findByLabelText('Also move the files on disk'));
     await fireEvent.click(screen.getByRole('button', { name: /apply selected/i }));
 
     await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
@@ -298,7 +436,7 @@ describe('the file move', () => {
     await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(1));
     expect(nthCall(applyAll)[2]).toBe(false);
 
-    await fireEvent.click(await screen.findByLabelText(/^Move the files on disk too/));
+    await fireEvent.click(await screen.findByLabelText('Also move the files on disk'));
     await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
     await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(2));
     expect(nthCall(applyAll, 1)[2]).toBe(true);
@@ -306,16 +444,23 @@ describe('the file move', () => {
 });
 
 describe('what the screen refuses to do', () => {
-  it('applies nothing when nothing is selected', async () => {
-    const apply = vi.spyOn(api, 'applyDecisions');
+  /** A primary button that can do nothing is the loudest thing on a screen that waits. */
+  it('offers an apply only once a move is ticked, with the choice of moving the files', async () => {
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
     // Pending decisions are shown but not pre-selected: only a run selects.
     await show([decision({ media_title: 'Akira' })]);
+    await screen.findByText('Akira');
 
-    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    expect(screen.queryByRole('button', { name: /apply/i })).toBeNull();
+    expect(screen.queryByLabelText('Also move the files on disk')).toBeNull();
 
-    // Settled first: a `waitFor` around a negative passes before the handler has run.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(apply).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select the move for "Akira"' }));
+
+    expect(screen.getByLabelText('Also move the files on disk')).toHaveAccessibleDescription(
+      'Off: Radarr or Sonarr only points the title to its new folder.',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Apply selected (1)' }));
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
   });
 
   it('applies nothing when the confirmation is declined', async () => {
@@ -404,6 +549,10 @@ describe('what the screen refuses to do', () => {
         'Items matching a category with no root folder on their instance: 2. They will be skipped. Map the category on the Categories and folders screen.',
       ),
     ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Categories and folders' })).toHaveAttribute(
+      'href',
+      '/categories',
+    );
   });
 
   it('says that Apply all reaches past the rows on screen', async () => {
@@ -678,7 +827,7 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'applyDecisions').mockRejectedValue(batchQuestion());
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
-    await fireEvent.click(await screen.findByLabelText(/^Move the files on disk too/));
+    await fireEvent.click(await screen.findByLabelText('Also move the files on disk'));
     await fireEvent.click(screen.getByRole('button', { name: /apply selected/i }));
 
     expect(await answerConfirmation(null)).toContain(
@@ -875,14 +1024,16 @@ describe('narrowing what is reviewed and applied', () => {
     expect(screen.getByRole('button', { name: 'Apply selected (2)' })).toBeTruthy();
   });
 
-  it('counts every pending decision and pages through them', async () => {
+  it('counts every pending move and pages through them', async () => {
     const getDecisions = vi
       .spyOn(api, 'getDecisions')
       .mockResolvedValue(paginated([decision()], { total_pages: 3, total: 120 }));
-    vi.spyOn(api, 'countDecisions').mockResolvedValue(0);
+    vi.spyOn(api, 'countDecisions').mockImplementation(async (params) =>
+      params.action === 'move' ? 120 : 130,
+    );
     renderWithI18n(Simulation);
 
-    expect(await screen.findByText('Decisions awaiting review: 120')).toBeTruthy();
+    expect(await screen.findByText('Moves awaiting review: 120')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     await waitFor(() =>
@@ -905,14 +1056,14 @@ describe('narrowing what is reviewed and applied', () => {
       paginated([job({ kind: 'simulate', result: latest })]),
     );
     RUNS.set(reviewed.simulation_id, []);
-    await userEvent.selectOptions(filterField('Action'), 'move');
+    await userEvent.click(screen.getByRole('button', { name: /^All/ }));
 
     expect(await screen.findByText('A newer simulation replaced these proposals.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Show the latest proposals' }));
 
     expect(await screen.findByText('Totoro')).toBeTruthy();
     expect(api.getDecisions).toHaveBeenLastCalledWith(
-      expect.objectContaining({ simulation_id: latest.simulation_id, action: 'move', page: 1 }),
+      expect.objectContaining({ simulation_id: latest.simulation_id, action: '', page: 1 }),
       expect.any(AbortSignal),
     );
   });
@@ -947,7 +1098,7 @@ describe('narrowing what is reviewed and applied', () => {
     expect(await screen.findByRole('button', { name: 'Apply all (2)' })).toBeTruthy();
   });
 
-  it('applies nothing past a filter on skips, which keeps no move', async () => {
+  it('applies nothing from the skips, which hold no move', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
       simulation([decision(), decision({ action: 'skip' })]),
@@ -955,7 +1106,7 @@ describe('narrowing what is reviewed and applied', () => {
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await screen.findByRole('button', { name: 'Apply all (1)' });
 
-    await userEvent.selectOptions(filterField('Action'), 'skip');
+    await userEvent.click(screen.getByRole('button', { name: /^Skipped/ }));
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull());
     expect(screen.getAllByRole('row')).toHaveLength(2);
@@ -994,6 +1145,9 @@ describe('for a reader', () => {
 
   it('offers the owner the run, the apply, the keep and the selection, and a reader none', async () => {
     const { unmount } = await show([decision({ media_title: 'Akira' })]);
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Select the move for "Akira"' }),
+    );
     await screen.findByRole('button', { name: /^Apply selected/ });
     expect(offered()).toHaveLength(4);
     unmount();
@@ -1002,9 +1156,9 @@ describe('for a reader', () => {
     await show([decision({ media_title: 'Akira' })]);
 
     expect(await screen.findByText('Akira')).toBeInTheDocument();
-    expect(screen.getByText('Decisions awaiting review: 1')).toBeInTheDocument();
+    expect(await screen.findByText('Moves awaiting review: 1')).toBeInTheDocument();
     expect(offered()).toEqual([]);
-    expect(screen.queryByLabelText(/Move the files on disk too/)).toBeNull();
+    expect(screen.queryByLabelText('Also move the files on disk')).toBeNull();
     expect(screen.getByRole('button', { name: /^Filters/ })).toBeInTheDocument();
   });
 

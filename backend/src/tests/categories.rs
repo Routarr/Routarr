@@ -41,13 +41,11 @@ async fn seed_every_reference(app: &TestApp) {
     .await
     .unwrap();
 
-    // A pinned expectation names a category too, and its snapshot columns are
-    // deliberately opaque JSON, so only `expected_category` has to follow a
-    // rename.
+    // Both category columns of a case follow a rename, and its snapshot JSON stays as it was.
     sqlx::query(
         "INSERT INTO rule_tests (id, name, media_type, media_json, evaluated_at,
-         expected_category)
-         VALUES ('rt-1', 'Akira stays', 'movie', '{}', '2026-01-01 00:00:00', 'anime')",
+         expected_category, last_actual_category)
+         VALUES ('rt-1', 'Akira stays', 'movie', '{}', '2026-01-01 00:00:00', 'anime', 'anime')",
     )
     .execute(&app.state.pool)
     .await

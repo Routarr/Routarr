@@ -1220,6 +1220,8 @@ describe('the getting-started guide', () => {
   it('follows the guide from the sources screen to the guardrails', async () => {
     const stop = interceptLinks();
     try {
+      // The sources step turns done on this visit, as the shell reads it again.
+      publishOnboarding(onboardingStatus(['instance', 'categories', 'rule', 'simulation']));
       publishOnboarding(
         onboardingStatus(['instance', 'categories', 'metadata', 'rule', 'simulation']),
       );

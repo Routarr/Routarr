@@ -91,6 +91,14 @@ describe('nextAfter', () => {
     ).toBe('rule');
   });
 
+  /** Going live while titles cannot yet be routed is no next step. */
+  it('offers a required step left open before an optional one after it', () => {
+    const status = onboardingStatus(['instance', 'rule', 'simulation']);
+
+    expect(nextAfter(status, 'rule')?.id).toBe('categories');
+    expect(nextAfter(status, 'instance')?.id).toBe('categories');
+  });
+
   it('comes back to a required step left behind, and to none once all are done', () => {
     const done = ['categories', 'rule', 'simulation', 'live'] as const;
     expect(nextAfter(onboardingStatus([...done]), 'live')?.id).toBe('instance');

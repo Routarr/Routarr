@@ -48,6 +48,7 @@ struct DecisionRow {
     subject: Option<String>,
     subject_key: Option<String>,
     revertible: bool,
+    in_library: bool,
 }
 
 const DECISION_COLUMNS: &str = "id, media_id, media_title, media_type, instance_id, instance_name,
@@ -82,6 +83,7 @@ pub async fn list(
 
     let list_sql = format!(
         "SELECT {DECISION_COLUMNS}, CASE WHEN {} THEN 1 ELSE 0 END AS revertible,
+         EXISTS (SELECT 1 FROM media m WHERE m.id = d.media_id) AS in_library,
          (SELECT rf.category FROM root_folders rf
            WHERE rf.instance_id = d.instance_id AND rf.path = d.current_root_folder COLLATE path
              AND rf.category IS NOT NULL AND rf.category != '') AS current_category
@@ -305,6 +307,7 @@ fn decision_from_row(r: DecisionRow, localizer: &crate::localization::Localizer)
         subject: r.subject,
         subject_key: r.subject_key,
         revertible: r.revertible,
+        in_library: r.in_library,
         id: r.id,
         media_id: r.media_id,
         media_title: r.media_title,

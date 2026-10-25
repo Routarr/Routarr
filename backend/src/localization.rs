@@ -168,6 +168,7 @@ pub const COUNTS: &[&str] = &[
     "copies",
     "count",
     "decisions",
+    "described",
     "done",
     "enriched",
     "failed",

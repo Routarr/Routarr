@@ -420,3 +420,15 @@ export function dayStart(day: string, after = false): string | undefined {
   if (!year || !month || !date) return undefined;
   return new Date(year, month - 1, date + (after ? 1 : 0)).toISOString();
 }
+
+/** The day a date field holds, `2026-10-17`, as the language writes a date. */
+export function formatDay(day: string, language: string): string {
+  const start = dayStart(day);
+  if (!start) return day;
+  try {
+    return new Intl.DateTimeFormat(bcp47(language), { dateStyle: 'short' }).format(new Date(start));
+  } catch {
+    // An unknown locale must not blank the sentence.
+    return day;
+  }
+}
