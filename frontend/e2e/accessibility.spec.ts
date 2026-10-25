@@ -110,7 +110,7 @@ test.describe('modal dialogs', () => {
     // Named, or a screen reader says only "dialog".
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog).toHaveAttribute('aria-label', /instance/i);
+    await expect(dialog).toHaveAccessibleName(/instance/i);
 
     // The background is inert: the sidebar link behind refuses the focus even when asked.
     const behind = page.locator('.sidebar-nav a').first();
