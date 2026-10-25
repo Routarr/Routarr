@@ -135,7 +135,11 @@
                     >
                       {formatRelative(instance.last_webhook_at, i18n.language, t('Never'))}
                       {#if instance.last_webhook_event}
-                        <span class="text-muted text-xs">{instance.last_webhook_event}</span>
+                        <span class="mono text-xs text-muted"
+                          >{instance.last_webhook_event_label ?? instance.last_webhook_event}</span
+                        >
+                      {:else if instance.last_webhook_at}
+                        <span class="text-muted text-xs">{t('Unknown')}</span>
                       {/if}
                     </td>
                   </tr>

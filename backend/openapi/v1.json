@@ -2323,7 +2323,14 @@
             ]
           },
           "last_webhook_event": {
-            "description": "The event that delivery carried, as `Test` or `MovieAdded`.",
+            "description": "The event that delivery carried, as `Test` or `MovieAdded`. Null when it carried none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_webhook_event_label": {
+            "description": "The Arr's name for the switch that sends that event, `On File Import` for `Download`. Null\nfor an event no switch sends, as `Test`.",
             "type": [
               "string",
               "null"
@@ -2440,7 +2447,14 @@
             ]
           },
           "last_webhook_event": {
-            "description": "The `eventType` that delivery carried, as `Test` or `MovieAdded`.",
+            "description": "The `eventType` that delivery carried, as `Test` or `MovieAdded`. Null when it carried\nnone.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_webhook_event_label": {
+            "description": "The Arr's name for the switch that sends that event, `On File Import` for `Download`. Null\nfor an event no switch sends, as `Test`.",
             "type": [
               "string",
               "null"

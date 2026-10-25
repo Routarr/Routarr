@@ -141,7 +141,9 @@
                 <td>
                   <span class="badge badge-info">{t(triggerKey(job.trigger))}</span>
                   {#if job.subject}
-                    <span class="text-xs text-muted" title={t('PerformedBy')}>{job.subject}</span>
+                    <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span>{job.subject}</span
+                    >
                   {/if}
                 </td>
                 <td>

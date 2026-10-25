@@ -71,7 +71,9 @@ describe('Exceptions', () => {
     show([override({ subject: 'request-bot' })]);
 
     const row = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
-    expect(within(row).getByText('request-bot')).toBeTruthy();
+    expect(within(row).getByText('request-bot').closest('td')).toHaveTextContent(
+      /Performed by\s*request-bot/,
+    );
   });
 
   it('asks before removing, naming what would be removed', async () => {
@@ -149,25 +151,23 @@ describe('Exceptions', () => {
     expect(await screen.findByLabelText('Force category for "Perfect Blue"')).toBeTruthy();
   });
 
-  it('says a search found nothing, rather than seeming to ignore the click', async () => {
-    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([]));
+  /** An empty library is told to sync, a search that missed in a full one is not. */
+  it.each([
+    [0, 'No media matches. Sync an instance from the Instances screen to populate this list.'],
+    [12, 'No title matches this search or these filters.'],
+  ])('says a search found nothing in a library of %i titles', async (held, said) => {
+    vi.spyOn(api, 'getLibrary').mockImplementation((params) =>
+      Promise.resolve(params?.search ? paginated([]) : paginated([], { total: held })),
+    );
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    expect(
-      screen.queryByText(
-        'No media matches. Sync an instance from the Instances page to populate this list.',
-      ),
-    ).toBeNull();
+    expect(screen.queryByText(said)).toBeNull();
     await fireEvent.input(search, { target: { value: 'nothing' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
 
-    expect(
-      await screen.findByText(
-        'No media matches. Sync an instance from the Instances page to populate this list.',
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText(said)).toBeTruthy();
   });
 
   it('says how many it shows of how many matched, under named columns', async () => {

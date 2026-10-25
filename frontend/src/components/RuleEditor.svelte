@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { FlaskConical } from '../lib/icons';
   import { ApiError, api } from '../api/client';
-  import { conditionAppliesTo, defaultConditionValue } from '../api/conditions';
+  import { conditionAppliesTo, defaultConditionValue, issueField } from '../api/conditions';
   import { toggled } from '../api/format';
   import type {
     ValidationIssue,
@@ -22,6 +23,7 @@
   import { access } from '../lib/access.svelte';
   import ConditionList from './ConditionList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
+  import FieldIssues from './FieldIssues.svelte';
   import Modal from './Modal.svelte';
   import PreviewPanel from './PreviewPanel.svelte';
 
@@ -129,6 +131,43 @@
   );
   // Gated as the list is: a button disabled for a reason nobody is shown is a dead control.
   const blocking = $derived(shown.some((issue) => issue.severity === 'error'));
+
+  // Each error is said under its control as well as in the summary.
+  const errors = $derived(shown.filter((issue) => issue.severity === 'error'));
+  const errorsOf = (field: string) => errors.filter((issue) => issueField(issue) === field);
+  /** A field's own descriptions, then the errors said under it. */
+  const describedBy = (field: string, ...own: string[]) =>
+    [...own, errorsOf(field).length > 0 ? `${field}-issue` : ''].filter(Boolean).join(' ') ||
+    undefined;
+  const invalid = (field: string) => (errorsOf(field).length > 0 ? 'true' : undefined);
+
+  /** Hands the focus to the control `field` names, the value of a condition for its row. */
+  function focusField(field: string) {
+    const element = document.getElementById(field);
+    const control = element?.matches('input, select, textarea')
+      ? element
+      : (element?.querySelector<HTMLElement>('.condition-value :is(input, select, textarea)') ??
+        element?.querySelector<HTMLElement>('input, select, textarea'));
+    control?.focus();
+  }
+
+  /** On a refused Save, the first field in the form's order that an error is said under. */
+  async function focusFirstError() {
+    await tick();
+    const first = errors
+      .map((issue) => issueField(issue))
+      .map((field) => (field ? document.getElementById(field) : null))
+      .reduce<HTMLElement | null>(
+        (earliest, element) =>
+          element &&
+          (!earliest ||
+            element.compareDocumentPosition(earliest) & Node.DOCUMENT_POSITION_FOLLOWING)
+            ? element
+            : earliest,
+        null,
+      );
+    if (first) focusField(first.id);
+  }
   // Checked here: a fraction never reaches the live validation, since the
   // server refuses the draft before reading it, and Save would stay lit.
   const wholePriority = $derived(Number.isInteger(draft.priority));
@@ -231,7 +270,10 @@
       const verdict = await api.validateRule(draft).catch(() => null);
       if (verdict) issues = verdict.issues;
     }
-    if (issues.some((issue) => issue.severity === 'error')) return;
+    if (issues.some((issue) => issue.severity === 'error')) {
+      await focusFirstError();
+      return;
+    }
     busy = 'save';
     error = null;
     try {
@@ -288,7 +330,10 @@
         bind:value={draft.name}
         oninput={touched}
         required
+        aria-invalid={invalid('rules-rule-name')}
+        aria-describedby={describedBy('rules-rule-name')}
       />
+      <FieldIssues field="rules-rule-name" issues={errorsOf('rules-rule-name')} />
     </div>
 
     <div class="form-group">
@@ -300,11 +345,14 @@
         class="form-input"
         placeholder={t('RuleDescriptionPlaceholder')}
         value={draft.description ?? ''}
+        aria-invalid={invalid('rules-description')}
+        aria-describedby={describedBy('rules-description')}
         oninput={(event) => {
           draft.description = event.currentTarget.value;
           touched();
         }}
       />
+      <FieldIssues field="rules-description" issues={errorsOf('rules-description')} />
     </div>
 
     <div class="form-row">
@@ -314,6 +362,8 @@
           id="rules-target-category"
           class="form-select"
           bind:value={draft.target_category}
+          aria-invalid={invalid('rules-target-category')}
+          aria-describedby={describedBy('rules-target-category')}
           onchange={touched}
         >
           {#each categories as category (category.id)}
@@ -324,6 +374,7 @@
             </option>
           {/each}
         </select>
+        <FieldIssues field="rules-target-category" issues={errorsOf('rules-target-category')} />
       </div>
 
       <div class="form-group flex-fill-200">
@@ -331,6 +382,8 @@
         <select
           id="rules-applies-to"
           class="form-select"
+          aria-invalid={invalid('rules-applies-to')}
+          aria-describedby={describedBy('rules-applies-to')}
           value={draft.media_type}
           onchange={(event) => {
             draft.media_type = event.currentTarget.value as RuleMediaType;
@@ -341,6 +394,7 @@
           <option value="movie">{t('MoviesOnly')}</option>
           <option value="series">{t('SeriesOnly')}</option>
         </select>
+        <FieldIssues field="rules-applies-to" issues={errorsOf('rules-applies-to')} />
       </div>
 
       <div class="form-group flex-fixed-120">
@@ -350,9 +404,9 @@
           type="number"
           step="1"
           class="form-input"
-          aria-invalid={wholePriority ? undefined : 'true'}
+          aria-invalid={wholePriority ? invalid('rules-priority') : 'true'}
           aria-describedby={wholePriority
-            ? 'rules-priority-help'
+            ? describedBy('rules-priority', 'rules-priority-help')
             : 'rules-priority-help rules-priority-error'}
           value={draft.priority}
           oninput={(event) => {
@@ -363,6 +417,8 @@
         <p id="rules-priority-help" class="form-hint">{t('PriorityHint')}</p>
         {#if !wholePriority}
           <p id="rules-priority-error" class="field-error">{t('EnterWholeNumber')}</p>
+        {:else}
+          <FieldIssues field="rules-priority" issues={errorsOf('rules-priority')} />
         {/if}
       </div>
     </div>
@@ -420,6 +476,7 @@
       {facetsLoading}
       {facetsError}
       scales={catalog.score_scales ?? []}
+      {errorsOf}
       onAdd={(type) => addCondition('conditions', type)}
       onRetype={(index, type) => retypeCondition('conditions', index, type)}
       onUpdate={(index, value, unreadableText) =>
@@ -438,6 +495,7 @@
       {facetsLoading}
       {facetsError}
       scales={catalog.score_scales ?? []}
+      {errorsOf}
       onAdd={(type) => addCondition('exclusions', type)}
       onRetype={(index, type) => retypeCondition('exclusions', index, type)}
       onUpdate={(index, value, unreadableText) =>
@@ -455,8 +513,15 @@
       {#if shown.length}
         <ul class="validation-issues" aria-label={t('ValidationIssues')}>
           {#each shown as issue, index (index)}
+            {@const field = issueField(issue)}
             <li class="banner {issue.severity === 'error' ? 'banner-danger' : 'banner-warning'}">
-              {issue.message}
+              {#if field}
+                <button type="button" class="issue-link" onclick={() => focusField(field)}>
+                  <span>{issue.message}</span>
+                </button>
+              {:else}
+                {issue.message}
+              {/if}
             </li>
           {/each}
         </ul>

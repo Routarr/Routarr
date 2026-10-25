@@ -181,7 +181,7 @@ describe('Dashboard', () => {
       );
       show();
 
-      expect(await screen.findByText('unknown')).toBeTruthy();
+      expect(await screen.findByText('Unknown')).toBeTruthy();
       expect(screen.queryByText('Checking…')).toBeNull();
     });
 
@@ -257,7 +257,7 @@ describe('for a reader', () => {
     show();
 
     const row = await screen.findByRole('row', { name: /Radarr/ });
-    expect(within(row).getByText('unknown')).toBeInTheDocument();
+    expect(within(row).getByText('Unknown')).toBeInTheDocument();
     expect(screen.queryByText('Checking…')).toBeNull();
   });
 });

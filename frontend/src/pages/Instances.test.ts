@@ -165,17 +165,20 @@ describe('Instances', () => {
     expect(sync.title).toBe("Instance 'Radarr' is disabled. Enable it to sync it.");
   });
 
+  /** The badge's word on screen, the whole fact to a screen reader, which reads no title. */
   it('says the key is sealed without showing any of it', async () => {
     show([instance({ api_key_masked: 'abc•••••xyz' })]);
 
-    expect(await screen.findByText('encrypted')).toBeTruthy();
+    const badge = (await screen.findByText('Encrypted')).closest('.badge') as HTMLElement;
+    expect(badge).toHaveTextContent('Encrypted at rest');
     expect(screen.queryByText('abc•••••xyz')).toBeNull();
   });
 
   it('states encryption as a fact rather than as a success', async () => {
     show([instance()]);
 
-    const badge = await screen.findByText('encrypted');
+    const badge = (await screen.findByText('Encrypted')).closest('.badge') as HTMLElement;
+    expect(badge.className).toContain('badge-value');
     expect(badge.className).not.toContain('badge-success');
   });
 
@@ -237,9 +240,9 @@ describe('Instances', () => {
     show([instance({ api_key_set: false, api_key_masked: '' })]);
 
     const row = await screen.findByRole('row', { name: /Radarr/ });
-    expect(row).toHaveTextContent('key missing');
+    expect(row).toHaveTextContent('Key missing');
     expect(row).toHaveTextContent('No API key is stored. Edit the instance to enter it.');
-    expect(within(row).queryByText('encrypted')).toBeNull();
+    expect(within(row).queryByText('Encrypted')).toBeNull();
   });
 
   it('asks before dropping a changed instance form, and keeps it on Cancel', async () => {
@@ -381,10 +384,20 @@ describe('Instances', () => {
     expect(nthCall(update)[1]).toMatchObject({ auto_apply: true });
   });
 
+  /** An event reads as the Arr's form names its switch, one no switch sends as the Arr wrote it. */
   it('says when each instance last sent a webhook, and what to do while none has', async () => {
     const heard = new Date(Date.now() - 120_000).toISOString();
     show([
-      instance({ id: 'i1', name: 'Radarr', last_webhook_at: heard, last_webhook_event: 'Test' }),
+      instance({
+        id: 'i1',
+        name: 'Radarr',
+        webhook_path: '/api/v1/webhook/i1',
+        webhook_url: '/api/v1/webhook/i1/tok',
+        webhook_token: 'tok',
+        last_webhook_at: heard,
+        last_webhook_event: 'Download',
+        last_webhook_event_label: 'On File Import',
+      }),
       instance({
         id: 'i2',
         name: 'Radarr 4K',
@@ -392,12 +405,34 @@ describe('Instances', () => {
         webhook_url: '/api/v1/webhook/i2/tok',
         webhook_token: 'tok',
       }),
+      instance({
+        id: 'i3',
+        name: 'Radarr Kids',
+        last_webhook_at: heard,
+        last_webhook_event: 'Test',
+      }),
+      instance({ id: 'i4', name: 'Radarr Docs', last_webhook_at: heard }),
     ]);
 
-    const heardCell = (await screen.findByText('Test')).closest('td') as HTMLElement;
-    expect(heardCell).toHaveTextContent('2 minutes ago');
+    const label = await screen.findByText('On File Import');
+    expect(label.classList.contains('mono')).toBe(true);
+    expect(label.closest('td')).toHaveTextContent('2 minutes ago');
+    expect(screen.queryByText('Download')).toBeNull();
     const silent = screen.getByText('Radarr 4K').closest('tr') as HTMLElement;
     expect(within(silent).getAllByText('Never').length).toBeGreaterThan(0);
+    const tested = screen.getByText('Radarr Kids').closest('tr') as HTMLElement;
+    expect(within(tested).getByText('Test').classList.contains('mono')).toBe(true);
+    const unnamed = screen.getByText('Radarr Docs').closest('tr') as HTMLElement;
+    expect(within(unnamed).getByText('Unknown')).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr' }));
+    const dialog = await screen.findByRole('dialog');
+    const delivery = within(dialog).getByText('On File Import');
+    expect(delivery.classList.contains('mono')).toBe(true);
+    expect(delivery.parentElement).toHaveTextContent(
+      'Last delivery: On File Import, 2 minutes ago.',
+    );
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
     await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr 4K' }));
     expect(
@@ -749,7 +784,7 @@ describe('Instances', () => {
     warning: null,
     webhook: null,
   };
-  const CONNECTED = 'Radarr: connected (v5.2.6), root folders: 2';
+  const CONNECTED = 'Radarr: connected (v5.2.6), root folders: 2.';
 
   async function openAdd(): Promise<HTMLElement> {
     await fireEvent.click(await screen.findByRole('button', { name: 'Add instance' }));
@@ -905,6 +940,21 @@ describe('Instances', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
 
     await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
+    expect(region).not.toHaveTextContent('Not accessible');
+  });
+
+  /** A sleeping share is a folder Routarr cannot route to now, which an apply would ask about. */
+  it('says how many root folders the Arr cannot reach now', async () => {
+    vi.spyOn(api, 'probeInstance').mockResolvedValue({ ...PROBED, inaccessible_root_folders: 2 });
+    show([]);
+    const dialog = await openAdd();
+    const region = within(dialog).getByRole('status');
+    await typeAddressAndKey('http://radarr:7878', 'secret');
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
+
+    await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
+    expect(within(region).getByText('Not accessible to Radarr now: 2.')).toBeTruthy();
   });
 
   it('says beside a working connection what an older Arr lacks', async () => {
@@ -1128,8 +1178,31 @@ it('tests the connection of the instance whose row was used', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: /Actions – Sonarr/ }));
   await fireEvent.click(await screen.findByRole('menuitem', { name: 'Test connectivity' }));
 
-  expect(await screen.findByText('Sonarr: connected (v4.0.1), root folders: 2')).toBeTruthy();
+  expect(await screen.findByText('Sonarr: connected (v4.0.1), root folders: 2.')).toBeTruthy();
+  expect(screen.queryByText(/Not accessible/)).toBeNull();
   expect(probe).toHaveBeenCalledExactlyOnceWith('i2');
+});
+
+/** A warning, as the form draws the sentence. */
+it('says from the row how many root folders the Arr cannot reach now', async () => {
+  show([instance()]);
+  vi.spyOn(api, 'testInstance').mockResolvedValue({
+    success: true,
+    version: '5.2.6',
+    app_name: 'Radarr',
+    root_folders: 3,
+    inaccessible_root_folders: 2,
+    warning: null,
+    webhook: null,
+  });
+
+  await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
+  await fireEvent.click(await screen.findByRole('menuitem', { name: 'Test connectivity' }));
+
+  const said = await screen.findByText(
+    'Radarr: connected (v5.2.6), root folders: 3. Not accessible to Radarr now: 2.',
+  );
+  expect(said.closest('.banner')).toHaveClass('banner-warning');
 });
 
 /** Every action on an instance writes or reaches the Arr, which a reader is refused. */

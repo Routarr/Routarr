@@ -74,6 +74,19 @@ pub fn acted_on(event: &str) -> bool {
     TRIGGERS.iter().any(|trigger| trigger.event == event)
 }
 
+/// The switch of a `kind` Arr's webhook connection that sends `event`, as its interface names
+/// it. `None` for an event no switch sends, as `Test`.
+pub fn label_of(kind: &str, event: Option<&str>) -> Option<String> {
+    let event = event?.to_ascii_lowercase();
+    if event == "grab" {
+        return Some("On Grab".to_string());
+    }
+    TRIGGERS
+        .iter()
+        .find(|trigger| trigger.kind == kind && trigger.event == event)
+        .map(|trigger| trigger.label.to_string())
+}
+
 /// The switches an instance of `kind` needs ticked, as its Arr names them.
 pub fn labels(kind: &str) -> Vec<String> {
     TRIGGERS

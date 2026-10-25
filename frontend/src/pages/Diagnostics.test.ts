@@ -176,15 +176,20 @@ describe('Diagnostics', () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({
         instances: [
-          healthInstance({ last_webhook_at: heard, last_webhook_event: 'MovieAdded' }),
+          healthInstance({
+            last_webhook_at: heard,
+            last_webhook_event: 'MovieAdded',
+            last_webhook_event_label: 'On Movie Added',
+          }),
           healthInstance({ id: 'i2', name: 'Radarr 4K' }),
         ],
       }),
     );
     show();
 
-    const heardCell = (await screen.findByText('MovieAdded')).closest('td') as HTMLElement;
-    expect(heardCell).toHaveTextContent('2 minutes ago');
+    const label = await screen.findByText('On Movie Added');
+    expect(label.classList.contains('mono')).toBe(true);
+    expect(label.closest('td')).toHaveTextContent('2 minutes ago');
     const silent = screen.getByText('Radarr 4K').closest('tr') as HTMLElement;
     expect(within(silent).getAllByText('Never').length).toBeGreaterThan(0);
   });
@@ -245,7 +250,7 @@ describe('for a reader', () => {
     show();
 
     const row = await screen.findByRole('row', { name: /Radarr/ });
-    expect(within(row).getByText('unknown')).toBeInTheDocument();
+    expect(within(row).getByText('Unknown')).toBeInTheDocument();
     expect(screen.queryByText('Checking…')).toBeNull();
   });
 });

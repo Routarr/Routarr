@@ -198,6 +198,7 @@
                   <span>{formatTimestamp(application.created_at, i18n.language)}</span>
                   {#if application.created_by}
                     <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span
                       >{application.created_by}</span
                     >
                   {/if}

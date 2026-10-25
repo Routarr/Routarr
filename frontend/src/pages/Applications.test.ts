@@ -70,6 +70,7 @@ describe('Applications', () => {
     const row = (await screen.findByText('n8n')).closest('tr') as HTMLElement;
     const made = within(row).getByText('owner');
     expect(made.closest('td')?.classList.contains('cell-timestamp')).toBe(true);
+    expect(made.closest('td')).toHaveTextContent(/Performed by\s*owner/);
   });
 
   /** An expired key is greyed until it is revoked. */

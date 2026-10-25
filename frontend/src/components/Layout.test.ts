@@ -71,11 +71,13 @@ describe('Layout', () => {
     expect(chip.querySelector('.mode-dot')?.className).toContain('is-live');
   });
 
-  it('says the state is unknown rather than showing nothing at all', async () => {
+  /** The reason goes in a banner: a tooltip reaches a mouse alone. */
+  it('says the state is unknown rather than showing nothing at all, and why', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new Error('connection refused'));
     show();
 
     expect(await screen.findByText('Status unavailable')).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('connection refused');
   });
 
   it('says the state is unknown once a later read fails', async () => {

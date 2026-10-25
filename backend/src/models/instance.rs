@@ -286,8 +286,12 @@ pub struct InstanceResponse {
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_webhook_at: Option<String>,
-    /// The `eventType` that delivery carried, as `Test` or `MovieAdded`.
+    /// The `eventType` that delivery carried, as `Test` or `MovieAdded`. Null when it carried
+    /// none.
     pub last_webhook_event: Option<String>,
+    /// The Arr's name for the switch that sends that event, `On File Import` for `Download`. Null
+    /// for an event no switch sends, as `Test`.
+    pub last_webhook_event_label: Option<String>,
     /// The Arr's webhook connection to this instance, read at each sync and by a connection
     /// test. Null until one is read, and again once the address or the token changes.
     pub webhook_check: Option<WebhookCheckResponse>,
@@ -314,6 +318,10 @@ impl InstanceResponse {
         };
         let webhook_check = WebhookCheckResponse::stored(&i, localizer);
         let webhook_triggers = crate::integrations::arr_webhook::labels(&i.instance_type);
+        let last_webhook_event_label = crate::integrations::arr_webhook::label_of(
+            &i.instance_type,
+            i.last_webhook_event.as_deref(),
+        );
         let webhook_path =
             i.webhook_token.as_ref().map(|_| format!("{base_path}/api/v1/webhook/{}", i.id));
         let webhook_url = webhook_path
@@ -341,6 +349,7 @@ impl InstanceResponse {
             api_key_set: key_set,
             auto_apply: i.auto_apply,
             last_webhook_at: i.last_webhook_at,
+            last_webhook_event_label,
             last_webhook_event: i.last_webhook_event,
             webhook_check,
             webhook_triggers,

@@ -58,6 +58,9 @@ describe('Move log', () => {
     const manual = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
     expect(within(manual).getByText('Manual')).toBeTruthy();
     expect(within(manual).getByText('alice')).toBeTruthy();
+    expect(within(manual).getAllByRole('cell')[0]).toHaveTextContent(
+      /Triggered by\s*Manual.*Performed by\s*alice/,
+    );
     const scheduled = screen.getByText('Totoro').closest('tr') as HTMLElement;
     expect(within(scheduled).getByText('Schedule')).toBeTruthy();
   });

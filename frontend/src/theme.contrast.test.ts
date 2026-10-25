@@ -112,11 +112,16 @@ const PAIRS: [string, string][] = [
  * The custom property a rule of the stylesheet sets `property` to, read off the rule so a pair
  * follows the rule when it changes tokens.
  */
-function declared(selector: string, property: string): string {
+function declares(selector: string, property: string): string | undefined {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const body = CSS.match(new RegExp(`^${escaped}\\s*\\{([^}]*)\\}`, 'm'))?.[1] ?? '';
-  // Anchored so `color` is not read out of `background-color` or `border-color`.
-  const name = body.match(new RegExp(`(?:^|[\\s;])${property}\\s*:\\s*var\\((--[\\w-]+)\\)`))?.[1];
+  // Anchored so `color` is not read out of `border-color`, and the token may follow a width.
+  return body.match(new RegExp(`(?:^|[\\s;])${property}\\s*:[^;]*?var\\((--[\\w-]+)\\)`))?.[1];
+}
+
+/** As `declares`, for a property the rule must set. */
+function declared(selector: string, property: string): string {
+  const name = declares(selector, property);
   if (name === undefined) throw new Error(`${selector} sets no ${property} from a token`);
   return name;
 }
@@ -130,6 +135,18 @@ const FILLED: [string, string, string][] = [
   ['hovered primary', '.btn-primary', '.btn-primary:hover:not(:disabled)'],
   // White on the dark theme's light red falls short.
   ['dialog danger', '.modal-content .btn-danger', '.modal-content .btn-danger'],
+];
+
+/**
+ * The grounds muted text falls under AA on, each lifting `--text-muted` in the rule that paints
+ * it: `[rule, the ground under its fill]`.
+ */
+const HIGHLIGHTED: [string, string][] = [
+  ['.picker-option:hover', '--bg-card'],
+  [".picker-option[aria-selected='true']", '--bg-card'],
+  ['.row-selected', '--bg-surface'],
+  ['tr:hover td', '--bg-card'],
+  ['tr:hover td', '--bg-surface'],
 ];
 
 /** Badge text on its own translucent background, itself over a card. */
@@ -155,6 +172,11 @@ it('states the light palette identically for the explicit theme and for auto', (
   expect(tokensOf(AUTO)).toEqual(explicit);
 });
 
+/** An opacity fades a dismissed suggestion's muted lines under AA on every palette. */
+it('fades no dismissed folder suggestion', () => {
+  expect(CSS).not.toMatch(/\.is-dismissed[^{}]*\{[^}]*\bopacity\s*:/);
+});
+
 describe.each([
   ['dark', dark],
   ['light', light],
@@ -177,6 +199,16 @@ describe.each([
     expect(ratio, `${name}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each(HIGHLIGHTED)('reads muted text at AA on %s over %s', (rule, under) => {
+    const muted = declares(rule, '--text-muted') ?? '--text-muted';
+    const fill = declared(rule, 'background-color');
+    const ground = over(token(palette, fill), token(palette, under));
+    const ratio = contrast(token(palette, muted), ground);
+    expect(ratio, `${name}: ${muted} on ${rule} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
+      4.5,
+    );
+  });
+
   it.each(BADGES)('reads %s badge text at AA', (status) => {
     const background = over(token(palette, `--status-${status}-bg`), token(palette, '--bg-card'));
     const ratio = contrast(token(palette, `--status-${status}`), background);
@@ -184,6 +216,14 @@ describe.each([
       ratio,
       `${name}: --status-${status} on its badge is ${ratio.toFixed(2)}:1`,
     ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  /** WCAG 1.4.11: the tick is what tells a checked box from an empty one. */
+  it("draws the checked box's tick at 3:1 on its fill", () => {
+    const tick = declared("input[type='checkbox']:checked::after", 'border');
+    const fill = declared("input[type='checkbox']:checked", 'background-color');
+    const ratio = contrast(token(palette, tick), token(palette, fill));
+    expect(ratio, `${name}: ${tick} on ${fill} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
   });
 
   /**

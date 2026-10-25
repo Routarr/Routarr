@@ -568,7 +568,7 @@ describe('ExplanationModal', () => {
     const row = screen
       .getByText('Genre contains [Animation]')
       .closest('.explain-row') as HTMLElement;
-    expect(within(row).getByText('unknown')).toBeTruthy();
+    expect(within(row).getByText('Unknown')).toBeTruthy();
   });
 });
 

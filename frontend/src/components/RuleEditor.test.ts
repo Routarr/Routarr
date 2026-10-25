@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -47,6 +47,9 @@ const EMPTY_FACETS: LibraryFacets = {
   root_folders: [],
   statuses: [],
 };
+
+/** The summary at the foot of the form, which lists every issue, each under its field too. */
+const summary = () => within(screen.getByRole('list', { name: 'Validation results' }));
 
 /** Any edit at all: what turns an untouched form into one being built. */
 async function touch() {
@@ -100,9 +103,8 @@ describe('RuleEditor', () => {
     await touch();
 
     await waitFor(() =>
-      expect(screen.getByText('Condition 1 (Year): the range is inverted')).toBeInTheDocument(),
+      expect(summary().getByText('Condition 1 (Year): the range is inverted')).toBeInTheDocument(),
     );
-    expect(screen.getByRole('list', { name: 'Validation results' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
   });
 
@@ -218,7 +220,7 @@ describe('RuleEditor', () => {
     });
 
     const warning = await screen.findByText(message);
-    expect(warning).toHaveClass('banner-warning');
+    expect(warning.closest('li')).toHaveClass('banner-warning');
     const save = screen.getByRole('button', { name: 'Save rule' });
     expect(save).toBeEnabled();
     await userEvent.click(save);
@@ -256,12 +258,12 @@ describe('RuleEditor', () => {
 
     const field = await screen.findByLabelText('Rule name');
     await userEvent.type(field, '!');
-    await waitFor(() => expect(screen.getByText('A rule needs a name')).toBeInTheDocument());
+    await waitFor(() => expect(summary().getByText('A rule needs a name')).toBeInTheDocument());
 
     await userEvent.clear(field);
     await userEvent.type(field, 'Anime');
 
-    expect(screen.getByText('A rule needs a name')).toBeInTheDocument();
+    expect(summary().getByText('A rule needs a name')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
   });
 
@@ -286,7 +288,7 @@ describe('RuleEditor', () => {
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeEnabled();
 
     await touch();
-    await waitFor(() => expect(screen.getByText('A rule needs a name')).toBeInTheDocument());
+    await waitFor(() => expect(summary().getByText('A rule needs a name')).toBeInTheDocument());
   });
 
   it('speaks immediately about a rule that already exists', async () => {
@@ -304,7 +306,7 @@ describe('RuleEditor', () => {
     });
     render('rule-1');
 
-    await waitFor(() => expect(screen.getByText('anime no longer exists')).toBeInTheDocument());
+    await waitFor(() => expect(summary().getByText('anime no longer exists')).toBeInTheDocument());
   });
 
   it('keeps the name marked required', async () => {
@@ -339,9 +341,9 @@ describe('RuleEditor', () => {
 
     await fireEvent.click(save);
 
-    expect(
-      await screen.findByText('Condition 1 (Genre contains) has no value'),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(summary().getByText('Condition 1 (Genre contains) has no value')).toBeInTheDocument(),
+    );
     expect(create).not.toHaveBeenCalled();
     expect(save).toBeDisabled();
   });
@@ -417,10 +419,67 @@ describe('RuleEditor', () => {
     render();
     await waitFor(() => expect(api.validateRule).toHaveBeenCalled());
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    save.focus();
+    await fireEvent.click(save);
 
-    expect(await screen.findByText('A rule needs a name')).toBeInTheDocument();
+    // Under its field, which takes the focus: the dialog scrolls, the summary is a screen away.
+    const name = screen.getByLabelText('Rule name');
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveAccessibleDescription('A rule needs a name');
     expect(create).not.toHaveBeenCalled();
+
+    const summary = screen.getByRole('list', { name: 'Validation results' });
+    screen.getByLabelText('Priority').focus();
+    await userEvent.click(within(summary).getByRole('button', { name: 'A rule needs a name' }));
+    expect(name).toHaveFocus();
+  });
+
+  it('says the issue of a condition under its row and moves there on a refused Save', async () => {
+    const message = 'Condition 1 (Original language) has no value';
+    vi.spyOn(api, 'validateRule').mockResolvedValue({
+      valid: false,
+      issues: [
+        {
+          severity: 'error',
+          field: 'conditions',
+          key: 'ValidationConditionEmpty',
+          params: { section: 'conditions', index: '1', kind: 'original_language' },
+          message,
+        },
+      ],
+    });
+    render(undefined, {
+      draft: { ...DRAFT, conditions: [{ type: 'original_language', value: [] }] },
+      catalog: {
+        conditions: [
+          {
+            type: 'original_language',
+            label: 'Original language',
+            value_type: 'string_list',
+            needs_metadata: true,
+            suggestions: '',
+            quantifier: '',
+            counterpart: '',
+            media_types: ['movie', 'series'],
+            metadata_field: 'original_language',
+            available: true,
+          },
+        ],
+      },
+    });
+    await touch();
+    await waitFor(() => expect(api.validateRule).toHaveBeenCalled());
+
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    save.focus();
+    await fireEvent.click(save);
+
+    const value = screen.getByLabelText('Original language');
+    await waitFor(() => expect(value).toHaveFocus());
+    expect(value).toHaveAttribute('aria-invalid', 'true');
+    expect(value).toHaveAccessibleDescription(new RegExp(message.replace(/[()]/g, '\\$&')));
   });
 
   /** Save turns disabled while it writes, which drops its focus out of the dialog. */

@@ -83,7 +83,7 @@ describe('Tasks', () => {
 
     const row = (await screen.findByText('Sync')).closest('tr') as HTMLElement;
     expect(within(row).getByText('Application')).toBeTruthy();
-    expect(within(row).getByText('n8n')).toBeTruthy();
+    expect(within(row).getByText('n8n').closest('td')).toHaveTextContent(/Performed by\s*n8n/);
   });
 
   it('marks the detail of a task that failed on its own count as a failure', async () => {

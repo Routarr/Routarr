@@ -19,6 +19,7 @@
     loading = false,
     error = null,
     describedBy,
+    invalid = false,
     keyOf = canonicalKey,
     onChange,
   }: {
@@ -30,8 +31,10 @@
     options: Facet[];
     loading?: boolean;
     error?: string | null;
-    /** The element that qualifies the field, as the fixed "any of" beside it. */
+    /** What qualifies the field: the fixed "any of" beside it, a refusal under it. */
     describedBy?: string;
+    /** Whether the server refused the condition the field holds. */
+    invalid?: boolean;
     /** What makes two values one, as the engine compares this condition's. */
     keyOf?: (value: string) => string;
     onChange: (values: string[]) => void;
@@ -213,6 +216,7 @@
     aria-controls={listId}
     aria-activedescendant={listed && cursor >= 0 ? optionId(cursor) : undefined}
     aria-describedby={describedBy}
+    aria-invalid={invalid ? 'true' : undefined}
     autocomplete="off"
     placeholder={t('PlaceholderPickValues')}
     value={query}

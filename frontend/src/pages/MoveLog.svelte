@@ -138,11 +138,15 @@
                        which only a mode that vouches for a name can say. -->
                   {#if entry.actor}
                     <span class="text-xs" title={t('TriggeredBy')}
-                      >{t(triggerKey(entry.actor))}</span
+                      ><span class="visually-hidden">{t('TriggeredBy')}</span>{t(
+                        triggerKey(entry.actor),
+                      )}</span
                     >
                   {/if}
                   {#if entry.subject}
-                    <span class="text-xs text-muted" title={t('PerformedBy')}>{entry.subject}</span>
+                    <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span>{entry.subject}</span
+                    >
                   {/if}
                 </td>
                 <td

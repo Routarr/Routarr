@@ -79,7 +79,7 @@ describe('RuleTests', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Run tests' }));
     expect(
-      await screen.findByText('All cases still route where they were pinned. Checked: 1.'),
+      await screen.findByText('All tests still route where they were pinned. Checked: 1.'),
     ).toBeTruthy();
     expect(screen.getByText('Passes')).toBeTruthy();
 
@@ -87,7 +87,7 @@ describe('RuleTests', () => {
 
     expect(await screen.findByText('The rules could not be read')).toBeTruthy();
     expect(
-      screen.queryByText('All cases still route where they were pinned. Checked: 1.'),
+      screen.queryByText('All tests still route where they were pinned. Checked: 1.'),
     ).toBeNull();
     expect(screen.queryByText('Passes')).toBeNull();
   });
@@ -116,7 +116,7 @@ describe('RuleTests', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Run tests' }));
 
     const summary = await screen.findByText(
-      'Cases no longer routing where they were pinned: 1 of 1.',
+      'Tests no longer routing where they were pinned: 1 of 1.',
     );
     expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
     expect(screen.getByText('Fails')).toBeTruthy();
@@ -127,7 +127,7 @@ describe('RuleTests', () => {
     renderWithI18n(RuleTests);
 
     await screen.findByText(
-      "No pinned cases yet. Open any title's explanation and pin the decision: it becomes a case that fails if a later rule change moves it.",
+      "No pinned tests yet. Open any title's explanation and pin the decision: it becomes a test that fails if a later rule change moves it.",
     );
     expect(screen.getByRole('button', { name: 'Run tests' })).toBeDisabled();
   });

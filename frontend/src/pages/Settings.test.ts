@@ -30,7 +30,7 @@ vi.mock('../lib/proof.svelte', () => ({
 const LIVE_MODE =
   'Global dry-run is OFF: applying a decision will write to Radarr/Sonarr immediately.';
 const AUTO_APPLY_ARMED =
-  'Automatic application is armed: a routing decision for a media with no files yet is written to Radarr/Sonarr as soon as it is made, without confirmation.';
+  'Automatic application is armed: a routing decision for a title with no files yet is written to Radarr/Sonarr as soon as it is made, without confirmation.';
 const API_KEY_HELP =
   'Routarr generates one at first start unless ROUTARR_API_KEY is set. Scripts send it as X-Api-Key. This browser sent it once to open a session, and keeps no copy.';
 
@@ -510,9 +510,9 @@ describe("a source's stored key", () => {
     expect(screen.queryByRole('button', { name: 'Remove – TMDB' })).toBeNull();
   });
 
-  it('stops marking the source inactive once a saved key lets it answer', async () => {
+  it('stops marking the source as waiting for its key once a saved key lets it answer', async () => {
     mountSources({ metadata_providers: 'arr,tmdb' }, { order: ['arr', 'tmdb'] });
-    expect(await screen.findByText('Inactive', { selector: '.badge' })).toBeTruthy();
+    expect(await screen.findByText('Waiting for its key', { selector: '.badge' })).toBeTruthy();
 
     await userEvent.type(screen.getByLabelText('TMDB'), 'a-key');
     vi.mocked(api.getSettings).mockResolvedValue({
@@ -524,17 +524,19 @@ describe("a source's stored key", () => {
     );
     await save();
 
-    await waitFor(() => expect(screen.queryByText('Inactive', { selector: '.badge' })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByText('Waiting for its key', { selector: '.badge' })).toBeNull(),
+    );
     expect(screen.getByRole('button', { name: 'Remove – TMDB' })).toBeTruthy();
   });
 
-  it('marks the source inactive once its removed key leaves it nothing to answer with', async () => {
+  it('marks the source as waiting for its key once a removed key leaves it nothing', async () => {
     mountSources(
       { metadata_providers: 'arr,tmdb', tmdb_api_key_configured: true },
       { configured: true, order: ['arr', 'tmdb'] },
     );
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove – TMDB' }));
-    expect(screen.queryByText('Inactive', { selector: '.badge' })).toBeNull();
+    expect(screen.queryByText('Waiting for its key', { selector: '.badge' })).toBeNull();
 
     vi.mocked(api.getSettings).mockResolvedValue({ metadata_providers: 'arr,tmdb' });
     vi.mocked(api.getSources).mockResolvedValue(
@@ -542,7 +544,7 @@ describe("a source's stored key", () => {
     );
     await save();
 
-    expect(await screen.findByText('Inactive', { selector: '.badge' })).toBeTruthy();
+    expect(await screen.findByText('Waiting for its key', { selector: '.badge' })).toBeTruthy();
   });
 });
 

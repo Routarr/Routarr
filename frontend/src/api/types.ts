@@ -33,6 +33,8 @@ export interface Instance {
   last_webhook_at: string | null;
   /** The event that delivery carried, as `Test`. */
   last_webhook_event: string | null;
+  /** The Arr's switch that sends it, as `On File Import`, null for `Test`. */
+  last_webhook_event_label: string | null;
   /** The Arr's webhook connection as last read, null until a sync or a test reads it. */
   webhook_check: WebhookCheck | null;
   /** The switches that connection needs ticked, as the Arr's interface names them. */
@@ -954,6 +956,7 @@ export interface Health {
     mapped_root_folders: number;
     last_webhook_at: string | null;
     last_webhook_event: string | null;
+    last_webhook_event_label: string | null;
   }[];
   metadata: {
     providers: {

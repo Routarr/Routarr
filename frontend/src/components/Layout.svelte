@@ -442,6 +442,8 @@
       </header>
 
       <main class="page-main" id="main" tabindex="-1" inert={narrow && drawer}>
+        <!-- The badge's reason, which a title would show to a mouse alone. -->
+        <ErrorBanner message={status.error} />
         <ErrorBanner
           message={shellError?.message ?? null}
           onReload={shellError?.reload ? () => location.reload() : undefined}

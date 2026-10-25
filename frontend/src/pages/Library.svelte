@@ -19,6 +19,7 @@
   let search = $state('');
   let mediaType = $state('');
   let unmatched = $state(false);
+  const filtered = $derived(Boolean(search || mediaType || unmatched));
   let page = $state(1);
   let explaining = $state<Explanation | null>(null);
 
@@ -114,7 +115,7 @@
       {t('UnclassifiedOnly')}
     </label>
     <!-- Offered only while a filter is active: a button that does nothing is noise. -->
-    {#if search || mediaType || unmatched}
+    {#if filtered}
       <button
         type="button"
         class="btn btn-ghost"
@@ -146,7 +147,11 @@
           {#if library.loading && items.length === 0}
             <TableSkeleton columns={6} />
           {:else if items.length === 0 && !library.error}
-            <tr><td colspan="6"><EmptyState>{t('NoMediaMatches')}</EmptyState></td></tr>
+            <tr>
+              <td colspan="6">
+                <EmptyState>{t(filtered ? 'NoMediaMatchesFilters' : 'NoMediaMatches')}</EmptyState>
+              </td>
+            </tr>
           {:else}
             {#each items as media (media.id)}
               <tr>

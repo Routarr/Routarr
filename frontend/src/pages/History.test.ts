@@ -326,6 +326,10 @@ describe('History', () => {
     const row = await screen.findByRole('row', { name: /Akira/ });
     expect(within(row).getByTitle('Triggered by')).toHaveTextContent('Manual');
     expect(within(row).getByTitle('Performed by')).toHaveTextContent('alice');
+    // Said in words too, since a title reaches a mouse alone.
+    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent(
+      /Triggered by\s*Manual.*Performed by\s*alice/,
+    );
 
     const swept = screen.getByRole('row', { name: /Totoro/ });
     expect(within(swept).getByTitle('Triggered by')).toHaveTextContent('Schedule');

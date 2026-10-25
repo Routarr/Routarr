@@ -364,12 +364,15 @@
                   <!-- Null on a row stored without one, where a guess would read as a fact. -->
                   {#if decision.actor}
                     <span class="text-xs" title={t('TriggeredBy')}
-                      >{t(triggerKey(decision.actor))}</span
+                      ><span class="visually-hidden">{t('TriggeredBy')}</span>{t(
+                        triggerKey(decision.actor),
+                      )}</span
                     >
                   {/if}
                   <!-- Beside the trigger: "manual" and who answer different questions. -->
                   {#if decision.subject}
                     <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span
                       >{decision.subject}</span
                     >
                   {/if}

@@ -212,8 +212,11 @@ pub struct InstanceHealth {
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
     pub last_webhook_at: Option<String>,
-    /// The event that delivery carried, as `Test` or `MovieAdded`.
+    /// The event that delivery carried, as `Test` or `MovieAdded`. Null when it carried none.
     pub last_webhook_event: Option<String>,
+    /// The Arr's name for the switch that sends that event, `On File Import` for `Download`. Null
+    /// for an event no switch sends, as `Test`.
+    pub last_webhook_event_label: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, utoipa::ToSchema)]
@@ -1217,6 +1220,10 @@ async fn counts_for(
         mapped_root_folders,
         last_webhook_at: instance.last_webhook_at.clone(),
         last_webhook_event: instance.last_webhook_event.clone(),
+        last_webhook_event_label: crate::integrations::arr_webhook::label_of(
+            &instance.instance_type,
+            instance.last_webhook_event.as_deref(),
+        ),
     })
 }
 

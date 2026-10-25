@@ -31,9 +31,25 @@ describe('Library', () => {
 
     expect(
       await screen.findByText(
-        'No media matches. Sync an instance from the Instances page to populate this list.',
+        'No media matches. Sync an instance from the Instances screen to populate this list.',
       ),
     ).toBeTruthy();
+  });
+
+  it('says a search or a filter found nothing, without sending the reader to sync', async () => {
+    const getLibrary = show([]);
+    await screen.findByText(
+      'No media matches. Sync an instance from the Instances screen to populate this list.',
+    );
+
+    await userEvent.type(
+      screen.getByRole('searchbox', { name: 'Search the library by title' }),
+      'zzz',
+    );
+    await waitFor(() => expect(getLibrary).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText('No title matches this search or these filters.')).toBeTruthy();
+    expect(screen.queryByText(/Sync an instance/)).toBeNull();
   });
 
   /**
@@ -63,13 +79,13 @@ describe('Library', () => {
   it('says an item has not been evaluated rather than leaving the cell blank', async () => {
     show([media({ computed_category: null, override_category: null })]);
 
-    expect(await screen.findByText('not evaluated')).toBeTruthy();
+    expect(await screen.findByText('Not evaluated')).toBeTruthy();
   });
 
   it('warns about missing metadata', async () => {
     show([media({ has_metadata: false })]);
 
-    const warning = await screen.findByText('missing');
+    const warning = await screen.findByText('Missing');
     expect(warning.className).toContain('badge-warning');
   });
 

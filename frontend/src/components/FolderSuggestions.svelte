@@ -217,7 +217,7 @@
         </li>
       {/each}
       {#each shown as each, index (each.root_folder_id)}
-        <li class="suggestion-row" class:is-dismissed={each.dismissed}>
+        <li class="suggestion-row">
           <div class="suggestion-what">
             <span class="mono">{each.path}</span>
             <span class="text-muted text-sm">{each.instance_name}</span>

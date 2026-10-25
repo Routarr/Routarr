@@ -64,7 +64,7 @@ describe('Categories', () => {
     );
 
     await screen.findByText('standard');
-    expect(screen.getByText('default')).toBeTruthy();
+    expect(screen.getByText('Default')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Delete – standard' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });

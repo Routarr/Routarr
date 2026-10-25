@@ -7,6 +7,7 @@ import type {
   Facet,
   FacetAxis,
   LibraryFacets,
+  ValidationIssue,
   Vocabularies,
 } from './types';
 import { localName } from './format';
@@ -272,4 +273,27 @@ export function localFacets(facets: LibraryFacets, language: string): LibraryFac
       origin_countries: rename('region', facets.vocabularies.origin_countries),
     },
   };
+}
+
+const ISSUE_FIELDS: Record<string, string> = {
+  name: 'rules-rule-name',
+  description: 'rules-description',
+  target_category: 'rules-target-category',
+  media_type: 'rules-applies-to',
+  priority: 'rules-priority',
+};
+
+/**
+ * The id of the rule editor's control `issue` is about: a condition's row when it names the
+ * condition's place, from 1, the list's add picker when it names the list alone. Null for a field
+ * the editor does not draw.
+ */
+export function issueField(issue: Pick<ValidationIssue, 'field' | 'params'>): string | null {
+  if (issue.field === 'conditions' || issue.field === 'exclusions') {
+    const place = Number(issue.params.index);
+    return Number.isInteger(place) && place > 0
+      ? `rules-${issue.field}-${place - 1}`
+      : `rules-${issue.field}-add`;
+  }
+  return ISSUE_FIELDS[issue.field] ?? null;
 }
