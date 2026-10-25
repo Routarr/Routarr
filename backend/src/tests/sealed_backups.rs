@@ -39,10 +39,11 @@ fn archives(dir: &TempDir) -> Vec<String> {
     names
 }
 
-/// Wait for the pass a passphrase change starts, the `finished`th backup task.
+/// Wait for the pass a passphrase change starts, the `finished`th backup task: its row, and its
+/// lock, which the task lets go only after marking the row finished.
 async fn finished_backup_tasks(app: &TestApp, finished: i64) {
     for _ in 0..200 {
-        if finished_backups(app).await >= finished {
+        if finished_backups(app).await >= finished && app.state.jobs.try_lock("backup").is_some() {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
