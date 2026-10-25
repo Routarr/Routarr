@@ -479,7 +479,7 @@ describe('RuleEditor', () => {
     const value = screen.getByLabelText('Original language');
     await waitFor(() => expect(value).toHaveFocus());
     expect(value).toHaveAttribute('aria-invalid', 'true');
-    expect(value).toHaveAccessibleDescription(new RegExp(message.replace(/[()]/g, '\\$&')));
+    expect(value).toHaveAccessibleDescription(expect.stringContaining(message));
   });
 
   /** Save turns disabled while it writes, which drops its focus out of the dialog. */

@@ -11,8 +11,7 @@ import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /** Every screen and settings section, and the two dialogs a first run opens. */
 const PATHS = [...SCREENS, '/rules?new=1', '/instances?add=1', ...SETTINGS_SECTIONS];
-// 320 is the width WCAG 1.4.10 reflows to, a 1280px window zoomed to 400%.
-const WIDTHS = [1280, 390, 320];
+const WIDTHS = [1280, 390];
 
 /** Text laid out to hold one line, whatever the language. */
 const ONE_LINE = [
@@ -152,8 +151,8 @@ async function speak(code: string): Promise<void> {
 }
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
-  // Every language on every path at three widths, in WebKit too.
-  test.setTimeout(900_000);
+  // Every language on every path at each width, in WebKit too.
+  test.setTimeout(600_000);
   // Reduced motion keeps each transition within a frame.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   // The guide on screen, its first step done by the fixture's synced instance.

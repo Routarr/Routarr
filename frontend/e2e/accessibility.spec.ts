@@ -654,7 +654,8 @@ const MODALS: {
       await picker.click();
       await p.getByRole('option', { name: 'Animation' }).click();
       await picker.fill('animation');
-      await p.getByRole('status').filter({ hasText: 'No value matches' }).waitFor();
+      // The note, not its region: drawn in an absolute list, the region has no box.
+      await p.getByRole('status').getByText('No value matches').waitFor();
     },
   },
 ];
