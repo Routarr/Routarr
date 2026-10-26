@@ -63,7 +63,7 @@ test.describe('right to left', () => {
   test('a select arrow and the facets chevron still point down', async ({ page }) => {
     await setLanguage('ar');
     await page.goto('/rules');
-    await expect(page.locator('.facet-panel > summary')).toBeVisible();
+    await expect(page.locator('.fold-card:has(#facets-title) > summary')).toBeVisible();
 
     const drawn = await page.evaluate(() => {
       const select = document.createElement('select');
@@ -74,7 +74,7 @@ test.describe('right to left', () => {
         .map((position) => parseFloat(position));
       select.remove();
       const chevron = getComputedStyle(
-        document.querySelector('.facet-panel > summary')!,
+        document.querySelector('.fold-card:has(#facets-title) > summary')!,
         '::after',
       );
       return {

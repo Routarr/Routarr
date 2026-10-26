@@ -74,11 +74,10 @@ test.describe('navigation', () => {
   });
 });
 
-/** Add a condition of `kind` to the rule the editor holds, through its own controls. */
-async function addCondition(page: Page, kind: string): Promise<void> {
-  const list = 'Conditions (all of)';
-  await page.getByRole('combobox', { name: list, exact: true }).selectOption(kind);
-  await page.getByRole('button', { name: `Add – ${list}` }).click();
+/** Add the condition captioned `caption` to the rule the editor holds, through its own menu. */
+async function addCondition(page: Page, caption: string): Promise<void> {
+  await page.getByRole('button', { name: 'Add a condition – Conditions', exact: true }).click();
+  await page.getByRole('menuitem', { name: new RegExp(`^${caption}`) }).click();
 }
 
 test.describe('unsaved work', () => {
@@ -118,8 +117,8 @@ test.describe('picking a condition value', () => {
     await page.getByRole('button', { name: 'New Rule' }).click();
 
     await page.getByLabel('Rule name', { exact: true }).fill('Animated');
-    await page.getByLabel('Target category', { exact: true }).selectOption('anime');
-    await addCondition(page, 'genre_contains');
+    await page.getByLabel('Sends to', { exact: true }).selectOption('anime');
+    await addCondition(page, 'Genre contains');
 
     // Named exactly: the quantifier selector beside it carries the same words.
     const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
@@ -152,8 +151,8 @@ test.describe('the routing journey', () => {
     await page.getByRole('button', { name: 'New Rule' }).click();
 
     await page.getByLabel('Rule name', { exact: true }).fill('Japanese animation');
-    await page.getByLabel('Target category', { exact: true }).selectOption('anime');
-    await addCondition(page, 'title_contains');
+    await page.getByLabel('Sends to', { exact: true }).selectOption('anime');
+    await addCondition(page, 'Title contains');
     await page.getByLabel('Title contains', { exact: true }).fill('akira, totoro, perfect blue');
 
     await page.getByRole('button', { name: 'Save rule' }).click();
@@ -220,6 +219,8 @@ test.describe('the templates', () => {
     const table = page.getByRole('table', { name: 'Rules' });
     await expect(table.getByText('Anime series', { exact: true })).toBeVisible();
     await expect(table.getByText('Anime films', { exact: true })).toBeVisible();
+    // The gallery folds once rules exist.
+    await page.getByRole('button', { name: 'Templates', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Replace – Anime' })).toBeVisible();
   });
 });

@@ -1,4 +1,4 @@
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { test, expect, api, openScreen, proveWithKey, unfold } from './fixtures';
 import { seedRows } from './seed';
@@ -20,6 +20,17 @@ async function verticalSpread(cell: Locator): Promise<number> {
     });
     return centres.length < 2 ? 0 : Math.max(...centres) - Math.min(...centres);
   });
+}
+
+/** A new rule in the editor, given a genre condition through the editor's own menu. */
+async function addGenreCondition(page: Page): Promise<Locator> {
+  await openScreen(page, '/rules');
+  await page.getByRole('button', { name: 'New Rule' }).click();
+  await page.getByRole('button', { name: 'Add a condition – Conditions', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Genre contains/ }).click();
+  const row = page.locator('.condition-row').first();
+  await expect(row).toBeVisible();
+  return row;
 }
 
 test.describe('a long title or path is read whole', () => {
@@ -376,14 +387,7 @@ test.describe('on a phone', () => {
   /** A caption held at 190px pushes the picker and Delete past a phone's dialog. */
   test('a condition in the rule editor fits the dialog', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await openScreen(page, '/rules');
-    await page.getByRole('button', { name: 'New Rule' }).click();
-    const list = 'Conditions (all of)';
-    await page.getByRole('combobox', { name: list, exact: true }).selectOption('genre_contains');
-    await page.getByRole('button', { name: `Add – ${list}` }).click();
-
-    const row = page.locator('.condition-row').first();
-    await expect(row).toBeVisible();
+    const row = await addGenreCondition(page);
     // Room for the value too: squeezed beside the caption, the picker fits and cannot be used.
     const fits = await row.evaluate((node) => {
       const dialog = node.closest('dialog')!;
@@ -524,6 +528,19 @@ test.describe('buttons are one size', () => {
   });
 });
 
+/** The value is what a person types and checks, beside a caption chosen once. */
+test("a condition's value takes the room its row leaves", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const row = await addGenreCondition(page);
+
+  const share = await row.evaluate(
+    (node) =>
+      node.querySelector('.condition-value')!.getBoundingClientRect().width /
+      node.getBoundingClientRect().width,
+  );
+  expect(share).toBeGreaterThanOrEqual(0.4);
+});
+
 /**
  * `select.form-select` draws its arrow over its end padding, so a padding shorthand, as in a
  * compact row, puts the arrow over the text.
@@ -548,13 +565,10 @@ test('every select keeps the room its arrow is drawn in', async ({ page }) => {
   }
 
   // The compact selects live in the rule editor, one per condition with a quantifier.
-  await page.goto('/rules?new=1');
-  const dialog = page.getByRole('dialog');
-  await dialog
-    .getByRole('combobox', { name: 'Conditions (all of)', exact: true })
-    .selectOption('genre_contains');
-  await dialog.getByRole('button', { name: 'Add – Conditions (all of)' }).click();
-  await expect(dialog.getByRole('combobox', { name: /^How these values combine/ })).toBeVisible();
+  await addGenreCondition(page);
+  await expect(
+    page.getByRole('dialog').getByRole('combobox', { name: /^How these values combine/ }),
+  ).toBeVisible();
   await measure('rule editor');
 
   expect(cramped).toEqual([]);
@@ -876,17 +890,19 @@ test.describe('every screen draws a shared thing the same way', () => {
  */
 test("the library card's help stays clear of its chevron", async ({ page }) => {
   await openScreen(page, '/rules');
-  const help = page.locator('.facet-help');
+  const help = page.locator('.fold-wrap:has(#facets-title) > .fold-help');
   await expect(help).toBeVisible();
 
   const [helpEnd, chevronStart] = await page.evaluate(() => {
-    const summary = document.querySelector('.facet-panel > summary')!;
+    const summary = document.querySelector('.fold-card:has(#facets-title) > summary')!;
     const chevron = getComputedStyle(summary, '::after');
     // A bordered square turned 45 degrees takes its diagonal on the line.
     const side = parseFloat(chevron.width) + 2 * parseFloat(chevron.borderRightWidth);
     const end =
       summary.getBoundingClientRect().right - parseFloat(getComputedStyle(summary).paddingRight);
-    const helpBox = document.querySelector('.facet-help')!.getBoundingClientRect();
+    const helpBox = document
+      .querySelector('.fold-wrap:has(#facets-title) > .fold-help')!
+      .getBoundingClientRect();
     return [helpBox.right, end - side * Math.SQRT2];
   });
   expect(helpEnd).toBeLessThanOrEqual(chevronStart);

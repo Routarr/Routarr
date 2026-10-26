@@ -96,12 +96,35 @@ async function rowAction(rule: string | RegExp, action: string) {
 
 describe('Rules', () => {
   /** A rule kept to some instances never fires on the others, which its row has to say. */
-  it('names the instances a rule is kept to beside its media type', async () => {
-    show([rule({ instance_ids: ['i2'] })]);
+  it('reads a rule across its row, from what it covers to where it sends', async () => {
+    show([
+      rule({
+        media_type: 'movie',
+        instance_ids: ['i2'],
+        match_mode: 'any',
+        conditions: [
+          { type: 'genre_contains', value: ['Animation'] },
+          { type: 'genre_contains', value: ['Family'] },
+        ],
+      }),
+      rule({ id: 'r2', name: 'Kids', target_category: 'kids' }),
+    ]);
 
     const row = await screen.findByRole('row', { name: /Japanese animation/ });
-    expect(within(row).getByText('Radarr 4K')).toBeTruthy();
-    expect(within(row).queryByText('Radarr')).toBeNull();
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent?.trim())).toEqual([
+      'Priority',
+      'Rule',
+      'When',
+      'Sends to',
+      'Actions',
+    ]);
+    const [, covers, when, sends] = within(row).getAllByRole('cell');
+    expect(covers).toHaveTextContent(/^Japanese animation\s*Movies only, Radarr 4K$/);
+    expect(when).toHaveTextContent(/^Any of:\s*Genres include any of Animation/);
+    expect(sends).toHaveTextContent(/^anime$/);
+    // One condition reads the same under either logic, so it goes unsaid.
+    const [, , single] = within(screen.getByRole('row', { name: /Kids/ })).getAllByRole('cell');
+    expect(single).toHaveTextContent(/^Genres include any of Animation$/);
   });
 
   it('says the rule analysis is missing, and reads it again on Retry', async () => {
@@ -154,15 +177,30 @@ describe('Rules', () => {
     ).toBeNull();
   });
 
-  it('offers the import as a button that opens the file picker', async () => {
+  it("opens the file picker from Import in the header's menu", async () => {
     show([]);
     const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
-    const button = await screen.findByRole('button', { name: 'Import' });
 
-    button.focus();
-    expect(document.activeElement).toBe(button);
-    await fireEvent.click(button);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Import' }));
+
     expect(pick).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the library panel out while the library holds nothing', async () => {
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({ ...NO_FACETS, total_media: 4 });
+    const { unmount } = show([rule()]);
+    expect(
+      await screen.findByRole('heading', { name: 'What your library holds (4)' }),
+    ).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getLibraryFacets).mockResolvedValue(NO_FACETS);
+    show([rule()]);
+
+    await screen.findByRole('row', { name: /Japanese animation/ });
+    await waitFor(() => expect(api.getLibraryFacets).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('heading', { name: /What your library holds/ })).toBeNull();
   });
 
   it('invites a first rule instead of showing an empty table', async () => {
@@ -487,9 +525,10 @@ describe('Rules', () => {
     show([]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
+    const [add] = await screen.findAllByRole('button', { name: /^Add a condition – / });
+    await fireEvent.click(add!);
 
-    // Found in both pickers, conditions and exclusions, since one catalogue drives both.
-    expect((await screen.findAllByText('Genre contains')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('menuitem', { name: 'Genre contains' })).toBeInTheDocument();
   });
 
   async function importFile(
@@ -568,7 +607,7 @@ describe('Rules', () => {
 });
 
 describe('the templates', () => {
-  it('offers the templates in place of the empty table, and after the rules once one is', async () => {
+  it('offers the templates in place of the empty table, and folded after the rules once one is', async () => {
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
     const { unmount } = show([]);
     await screen.findByRole('heading', { name: 'Start from a template' });
@@ -579,9 +618,12 @@ describe('the templates', () => {
     unmount();
 
     show([rule()]);
-    const below = await screen.findByRole('heading', { name: 'Templates' });
+    const folded = (await screen.findByRole('heading', { name: 'Templates (1)' })).closest(
+      'details',
+    )!;
+    expect(folded.open).toBe(false);
     const after = screen.getByRole('table', { name: 'Rules' });
-    expect(below.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(folded.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
   it('says a template is added, names a category made without a folder, and reloads', async () => {
@@ -655,18 +697,15 @@ describe('the templates', () => {
     expect(chips.getByText(/French/)).toBeTruthy();
   });
 
-  it('follows the link to the gallery from the screen it is on', async () => {
+  it("unfolds the gallery from the header's Templates and hands it the focus", async () => {
     vi.spyOn(api, 'getTemplates').mockResolvedValue([template()]);
     show([rule()]);
 
-    const link = await screen.findByRole('link', { name: 'Templates' });
-    expect(link.getAttribute('href')).toBe('/rules#templates');
-    window.history.pushState({}, '', '/rules#templates');
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Templates' }));
 
-    const title = await screen.findByRole('heading', { name: 'Templates', level: 2 });
+    const title = screen.getByRole('heading', { name: 'Templates (1)', level: 2 });
     await waitFor(() => expect(document.activeElement).toBe(title));
-    window.history.replaceState({}, '', '/rules');
+    expect(title.closest('details')?.open).toBe(true);
   });
 });
 
@@ -759,8 +798,8 @@ describe('the rule health badges', () => {
  */
 describe('for a reader', () => {
   const WRITES = [
+    'Templates',
     'New rule',
-    'Import',
     'Raise priority – Kids',
     'Lower priority – Anime',
     'Edit – Anime',
@@ -769,6 +808,10 @@ describe('for a reader', () => {
   ];
   const offered = () =>
     WRITES.filter((name) => screen.queryAllByRole('button', { name }).length > 0);
+  const headerMenu = async () => {
+    await fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    return screen.getAllByRole('menuitem').map((item) => item.textContent?.trim());
+  };
   const two = () => [
     rule({ id: 'r1', name: 'Anime' }),
     rule({ id: 'r2', name: 'Kids', priority: 20 }),
@@ -780,7 +823,7 @@ describe('for a reader', () => {
 
     await screen.findByRole('button', { name: 'Add – Documentaries' });
     expect(offered()).toEqual(WRITES);
-    expect(screen.getByRole('link', { name: 'Templates' })).toBeInTheDocument();
+    expect(await headerMenu()).toEqual(['Import', 'Export']);
   });
 
   it('shows a reader the rules and their conditions, and nothing that writes', async () => {
@@ -792,9 +835,8 @@ describe('for a reader', () => {
     expect(within(row).getByText(/Animation/)).toBeInTheDocument();
     await waitFor(() => expect(api.getTemplates).toHaveBeenCalled());
     expect(offered()).toEqual([]);
-    expect(screen.queryByRole('link', { name: 'Templates' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Templates' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled();
+    expect(screen.queryByRole('heading', { name: /^Templates/ })).toBeNull();
+    expect(await headerMenu()).toEqual(['Export']);
   });
 
   /** The guide never sends a reader there, and an address kept from the owner's must not either. */

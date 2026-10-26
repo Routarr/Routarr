@@ -86,6 +86,50 @@ describe('RuleEditor', () => {
     expect(document.activeElement).toBe(await screen.findByLabelText('Rule name'));
   });
 
+  it('reads in the order a rule is thought, with what is seldom changed folded under More', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+
+    const conditions = screen.getByRole('group', { name: 'Conditions' });
+    const more = screen.getByText('More (Description, Priority 100, Enabled)');
+    const order = [
+      await screen.findByLabelText('Rule name'),
+      screen.getByLabelText('Sends to'),
+      screen.getByLabelText('Applies to'),
+      screen.getByRole('group', { name: 'Instances' }),
+      conditions,
+      screen.getByRole('group', { name: 'Exclusions' }),
+      more,
+    ];
+    order
+      .slice(1)
+      .forEach((later, index) =>
+        expect(order[index]!.compareDocumentPosition(later)).toBe(Node.DOCUMENT_POSITION_FOLLOWING),
+      );
+    const folded = more.closest('details')!;
+    expect(folded.open).toBe(false);
+    for (const field of ['Description (optional)', 'Priority', 'Enabled']) {
+      expect(folded).toContainElement(screen.getByLabelText(field));
+    }
+    const logic = within(conditions).getByRole('group', { name: 'Condition logic' });
+    expect(
+      within(logic).getByRole('button', { name: 'ALL conditions must match' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens More by itself when one of its fields is refused', async () => {
+    const message = 'Priority must be between 0 and 10000';
+    vi.spyOn(api, 'validateRule').mockResolvedValue({
+      valid: false,
+      issues: [{ severity: 'error', field: 'priority', key: 'Invalid', params: {}, message }],
+    });
+    render('r1');
+
+    const priority = await screen.findByLabelText('Priority');
+    await waitFor(() => expect(priority.closest('details')?.open).toBe(true));
+    expect(priority).toHaveAccessibleDescription(expect.stringContaining(message));
+  });
+
   it('names a dead condition before the rule is saved, and holds Save until it is fixed', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -128,8 +172,7 @@ describe('RuleEditor', () => {
     expect(await screen.findByLabelText('描述（可选）')).toBeInTheDocument();
   });
 
-  /** Which way the order runs is said under the field, where a keyboard reaches it too. */
-  it('says under the priority which rule is evaluated first', async () => {
+  it('says beside the priority which rule is evaluated first', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     render();
 
@@ -386,7 +429,7 @@ describe('RuleEditor', () => {
     const priority = screen.getByLabelText('Priority');
     await user.clear(priority);
     await user.type(priority, '42');
-    await user.selectOptions(screen.getByLabelText('Condition logic'), 'any');
+    await user.click(screen.getByRole('button', { name: 'ANY condition is enough' }));
     await user.click(screen.getByLabelText('Enabled'));
     await user.click(screen.getByRole('button', { name: 'Save rule' }));
 
@@ -480,6 +523,41 @@ describe('RuleEditor', () => {
     await waitFor(() => expect(value).toHaveFocus());
     expect(value).toHaveAttribute('aria-invalid', 'true');
     expect(value).toHaveAccessibleDescription(expect.stringContaining(message));
+  });
+
+  it('moves to the add button of a list refused for holding no condition', async () => {
+    const message = 'A rule needs at least one condition';
+    vi.spyOn(api, 'validateRule').mockResolvedValue({
+      valid: false,
+      issues: [{ severity: 'error', field: 'conditions', key: 'Invalid', params: {}, message }],
+    });
+    render(undefined, {
+      draft: { ...DRAFT, conditions: [] },
+      catalog: {
+        conditions: [
+          {
+            type: 'original_language',
+            label: 'Original language',
+            group: 'metadata',
+            value_type: 'string_list',
+            needs_metadata: true,
+            suggestions: '',
+            quantifier: '',
+            counterpart: '',
+            media_types: ['movie', 'series'],
+            metadata_field: 'original_language',
+            available: true,
+          },
+        ],
+      },
+    });
+    await waitFor(() => expect(api.validateRule).toHaveBeenCalled());
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+
+    const add = screen.getByRole('button', { name: 'Add a condition – Conditions' });
+    await waitFor(() => expect(add).toHaveFocus());
+    expect(add).toHaveAccessibleDescription(message);
   });
 
   /** Save turns disabled while it writes, which drops its focus out of the dialog. */

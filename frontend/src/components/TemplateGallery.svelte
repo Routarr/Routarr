@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Component, Snippet } from 'svelte';
   import CardTitle from './CardTitle.svelte';
+  import HelpToggle from './HelpToggle.svelte';
   import type { TemplateSummary } from '../api/types';
   import {
     AlertTriangle,
@@ -15,24 +16,30 @@
     Telescope,
     UsersRound,
   } from '../lib/icons';
+  import { formatCount } from '../api/format';
   import { href } from '../lib/router.svelte';
-  import { t } from '../lib/i18n.svelte';
+  import { i18n, t } from '../lib/i18n.svelte';
 
   /**
    * The templates the Rules screen offers, one row each, each opening the dialog that adds it.
-   * In place of the empty table while no rule is written, below the table once one is.
+   * In place of the empty table while no rule is written, folded below the table once one is.
    */
   let {
     templates,
     title,
     lead,
     onChoose,
+    foldable = false,
+    open = $bindable(false),
     children,
   }: {
     templates: TemplateSummary[];
     title: string;
     lead: string;
     onChoose: (template: TemplateSummary) => void;
+    /** Folded to its title, which counts the templates, until it is opened. */
+    foldable?: boolean;
+    open?: boolean;
     /** What follows the rows, as the empty screen's way to write a rule instead. */
     children?: Snippet;
   } = $props();
@@ -47,6 +54,9 @@
     requesters: UsersRound,
   };
 
+  /** The title of either form, which the screen hands the focus to. */
+  const TITLE = 'templates-title';
+
   // Requesters are added person by person: the template is updated, not replaced.
   const actionOf = (template: TemplateSummary) =>
     t(
@@ -58,10 +68,7 @@
     );
 </script>
 
-<section class="card" id="templates" aria-labelledby="templates-title">
-  <div class="card-header">
-    <CardTitle card="Templates" id="templates-title" tabindex={-1}>{title}</CardTitle>
-  </div>
+{#snippet rows()}
   <p class="text-muted text-base">{lead}</p>
   <ul class="template-list">
     {#each templates as template (template.id)}
@@ -120,4 +127,26 @@
     {/each}
   </ul>
   {@render children?.()}
-</section>
+{/snippet}
+
+<!-- The "?" lies beside a summary, since a button inside one is a control inside another. -->
+<div id="templates" class={foldable ? 'fold-wrap' : undefined}>
+  {#if foldable}
+    <details class="card fold-card" bind:open>
+      <summary class="card-header">
+        <h2 class="card-title" id={TITLE} tabindex="-1">
+          {t('WithNote', { text: title, note: formatCount(templates.length, i18n.language) })}
+        </h2>
+      </summary>
+      {@render rows()}
+    </details>
+    <span class="fold-help"><HelpToggle card="Templates" title={TITLE} /></span>
+  {:else}
+    <section class="card" aria-labelledby={TITLE}>
+      <div class="card-header">
+        <CardTitle card="Templates" id={TITLE} tabindex={-1}>{title}</CardTitle>
+      </div>
+      {@render rows()}
+    </section>
+  {/if}
+</div>

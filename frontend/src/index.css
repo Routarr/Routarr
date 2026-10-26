@@ -2097,6 +2097,47 @@ td * {
   padding-inline-start: 10px;
   font-size: 13px;
 }
+/* A list's caption and what governs the list, as the conditions' logic, on one line. */
+.condition-list-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: 8px;
+}
+.condition-list-head > .form-label {
+  margin-bottom: 0;
+}
+
+/* What a rule seldom changes, folded under one line that says what it holds. */
+.rule-more {
+  margin-bottom: 20px;
+}
+.rule-more > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.rule-more[open] > summary {
+  margin-bottom: 12px;
+}
+
+/* A short field with its hint beside it, the hint wrapping in its own column. */
+.field-beside {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.field-beside > .form-hint {
+  margin: 0;
+}
+
+/* A share of the row, the value the rest: at the field's 100% width the caption takes the row. */
+.condition-row > .condition-caption {
+  flex: 0 1 17rem;
+  width: auto;
+}
 /* On a phone the caption takes its own line, or the picker and Delete run past the dialog. */
 @media (max-width: 560px) {
   .condition-row {
@@ -2854,6 +2895,10 @@ td * {
   inset-inline-end: 0;
   z-index: var(--z-menu);
   min-width: 200px;
+  /* As wide as its longest item up to a cap, past which an item wraps rather than leave a
+     phone's dialog. The button it hangs from is too narrow to size it. */
+  width: max-content;
+  max-width: min(24rem, 80vw);
   padding: var(--space-1);
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -2861,6 +2906,23 @@ td * {
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
+  /* A long choice scrolls inside the menu rather than past the dialog it opens in. */
+  max-height: 60vh;
+  overflow-y: auto;
+}
+/* Under a button that opens a line, as the rule editor's add buttons, it hangs towards the end. */
+.action-menu-list.is-start {
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+}
+/* A family over its items, set as the command palette's group headings. */
+.action-menu-group {
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .action-menu-item {
   display: flex;
@@ -2875,7 +2937,6 @@ td * {
   font-weight: 500;
   text-align: start;
   cursor: pointer;
-  white-space: nowrap;
 }
 .action-menu-item:hover {
   background-color: var(--bg-card-hover);
@@ -3123,32 +3184,32 @@ select.form-select {
     18px 50%;
 }
 
-/* The library's facets, a decorative bar per value beside the figure a screen reader gets.
+/* A card folded to its header, as the library's facets and the rule templates once rules exist.
    The "?" sits just before the chevron that ends the summary, which keeps no end padding. */
-.facet-wrap {
+.fold-wrap {
   position: relative;
 }
 
-.facet-help {
+.fold-help {
   position: absolute;
   top: 20px;
   inset-inline-end: calc(20px + 10px + var(--space-2));
 }
 
-.facet-panel > summary {
+.fold-card > summary {
   padding-inline-end: 0;
   cursor: pointer;
   list-style: none;
   /* Closed, the header is the whole card and keeps no gap below it. */
   margin-bottom: 0;
 }
-.facet-panel[open] > summary {
+.fold-card[open] > summary {
   margin-bottom: 20px;
 }
-.facet-panel > summary::-webkit-details-marker {
+.fold-card > summary::-webkit-details-marker {
   display: none;
 }
-.facet-panel > summary::after {
+.fold-card > summary::after {
   content: '';
   width: 7px;
   height: 7px;
@@ -3159,10 +3220,10 @@ select.form-select {
   transform: rotate(45deg) translate(-2px, -2px);
   transition: transform var(--transition);
 }
-.facet-panel[open] > summary::after {
+.fold-card[open] > summary::after {
   transform: rotate(-135deg) translate(-2px, -2px);
 }
-.facet-panel > summary:hover::after {
+.fold-card > summary:hover::after {
   border-color: var(--text-secondary);
 }
 

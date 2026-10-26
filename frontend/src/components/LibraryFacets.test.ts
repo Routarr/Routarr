@@ -47,7 +47,7 @@ describe('LibraryFacets', () => {
     const panel = container.querySelector('details');
     expect(panel?.hasAttribute('open')).toBe(false);
     // Folded is not hidden: the library's size says whether the panel is worth opening.
-    expect(screen.getByText('In your library (38)')).toBeInTheDocument();
+    expect(screen.getByText('What your library holds (38)')).toBeInTheDocument();
   });
 
   it('shows the axes once it is opened', async () => {
