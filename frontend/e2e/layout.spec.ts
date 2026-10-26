@@ -447,7 +447,7 @@ test.describe('on a phone', () => {
       const copy = dialog.getByRole('button', { name: `Copy – ${name}`, exact: true });
       await copy.scrollIntoViewIfNeeded();
       const fits = await copy.evaluate((node) => {
-        const frame = node.closest('[role="dialog"]')!.getBoundingClientRect();
+        const frame = node.closest('dialog, [role="dialog"]')!.getBoundingClientRect();
         const value = node.previousElementSibling!;
         const box = value.getBoundingClientRect();
         return {
