@@ -169,7 +169,7 @@ test.describe('the routing journey', () => {
 
     // The explanation is on screen beside the move, never a click away.
     await expect(page.getByText(/Title contains .*found \[Akira\]/)).toBeVisible();
-    await expect(page.getByText('/movies/anime').first()).toBeVisible();
+    await expect(page.getByRole('cell', { name: '/movies/anime' }).first()).toBeVisible();
 
     // Below the confirmation threshold the apply asks nothing, so the banner follows the click.
     await page.getByRole('checkbox', { name: 'Select the move for "Akira"' }).check();
