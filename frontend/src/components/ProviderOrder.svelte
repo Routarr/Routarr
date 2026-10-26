@@ -194,6 +194,7 @@
               type="button"
               class="btn btn-secondary btn-sm"
               aria-label="{t('MoveUp')} – {provider.display_name}"
+              title={t('MoveUp')}
               disabled={index === 0}
               onclick={() => move(index, -1)}
             >
@@ -204,6 +205,7 @@
               type="button"
               class="btn btn-secondary btn-sm"
               aria-label="{t('MoveDown')} – {provider.display_name}"
+              title={t('MoveDown')}
               disabled={index === enabled.length - 1}
               onclick={() => move(index, 1)}
             >

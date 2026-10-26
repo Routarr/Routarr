@@ -91,6 +91,7 @@ describe('AccountCard', () => {
     expect(
       screen.getByText('Copy it now. It is shown once and cannot be read again.'),
     ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy – API key' })).toBeInTheDocument();
     expect(outcome.notice).toBe(
       'Password changed. Every other session was ended and every key revoked.',
     );

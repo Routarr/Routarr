@@ -30,8 +30,11 @@
     NO_TITLE_FILTER,
     createFilterOptions,
     describeTitles,
+    titlesFromAddress,
+    titlesInAddress,
     type TitleFilter,
   } from '../components/DecisionFilterFields.svelte';
+  import { keepInAddress } from '../lib/address.svelte';
   import ActionMenu from '../components/ActionMenu.svelte';
   import { endedOnFailure, reportMoves } from '../lib/moves';
   import { access } from '../lib/access.svelte';
@@ -47,15 +50,40 @@
     skipped: 'badge-info',
   };
 
+  const STATUSES = ['pending', 'requested', 'applied', 'failed', 'skipped'];
+  const TITLE_FIELDS = ['instance', 'category', 'rule'] as const;
+  const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '');
+
   let status = $state('');
   let searchText = $state('');
   let includeSuperseded = $state(false);
   let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
-  const filterOptions = createFilterOptions(['instance', 'category', 'rule']);
+  const filterOptions = createFilterOptions(TITLE_FIELDS);
   let run = $state('');
   let from = $state('');
   let to = $state('');
   let page = $state(1);
+  keepInAddress(
+    () => ({
+      status,
+      search: searchText,
+      ...titlesInAddress(titles, TITLE_FIELDS),
+      run,
+      from,
+      to,
+      superseded: includeSuperseded ? '1' : '',
+    }),
+    (read) => {
+      status = read('status', STATUSES);
+      searchText = read('search');
+      titles = titlesFromAddress(read, TITLE_FIELDS);
+      run = read('run');
+      from = day(read('from'));
+      to = day(read('to'));
+      includeSuperseded = read('superseded') !== '';
+      page = 1;
+    },
+  );
 
   // What a revert of many takes too: the titles, the simulation and the days.
   const filter = $derived<DecisionFilter>(setFields({ ...titles, search: searchText }));
@@ -102,6 +130,11 @@
   });
   const outcome = createOutcome();
   const explainer = createExplainer();
+
+  // A link may name a run past those listed, or one since purged: the list falls back to all.
+  $effect(() => {
+    if (run && runs.data && !runs.data.some((ran) => ran.id === run)) run = '';
+  });
 
   function clearFilters() {
     searchText = '';
@@ -312,7 +345,7 @@
     </div>
     <DecisionFilterFields
       bind:filter={titles}
-      fields={['instance', 'category', 'rule']}
+      fields={TITLE_FIELDS}
       options={filterOptions}
       onchange={() => (page = 1)}
     />

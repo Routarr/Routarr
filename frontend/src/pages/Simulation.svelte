@@ -28,8 +28,11 @@
   import FilterBar from '../components/FilterBar.svelte';
   import DecisionFilterFields, {
     NO_TITLE_FILTER,
+    titlesFromAddress,
+    titlesInAddress,
     type TitleFilter,
   } from '../components/DecisionFilterFields.svelte';
+  import { keepInAddress } from '../lib/address.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { invalidateStatus } from '../lib/status.svelte';
   import { access } from '../lib/access.svelte';
@@ -81,6 +84,22 @@
     searchText = '';
     page = 1;
   }
+
+  const TITLE_FIELDS = ['instance', 'type', 'category', 'folder', 'rule'] as const;
+  keepInAddress(
+    () => ({
+      view: action === 'move' ? '' : action || 'all',
+      search: searchText,
+      ...titlesInAddress(titles, TITLE_FIELDS),
+    }),
+    (read) => {
+      const view = read('view', ['skip', 'all']);
+      action = view === 'skip' ? 'skip' : view === 'all' ? '' : 'move';
+      searchText = read('search');
+      titles = titlesFromAddress(read, TITLE_FIELDS);
+      page = 1;
+    },
+  );
 
   const PAGE = 50;
   const BATCH_LIMIT = Number(FIELDS.find((field) => field.key === 'batch_limit')?.fallback);
@@ -578,11 +597,7 @@
         debounce={200}
       />
     {/snippet}
-    <DecisionFilterFields
-      bind:filter={titles}
-      fields={['instance', 'type', 'category', 'folder', 'rule']}
-      onchange={() => (page = 1)}
-    />
+    <DecisionFilterFields bind:filter={titles} fields={TITLE_FIELDS} onchange={() => (page = 1)} />
   </FilterBar>
 
   <div class="card">

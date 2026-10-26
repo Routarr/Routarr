@@ -2365,25 +2365,24 @@ td * {
   max-width: 460px;
 }
 
-/* One click selects all of it: a drag stopping short pastes a path that does not exist. */
-.gate-command,
-.secret-once {
-  display: block;
+.copy-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* One click selects all of it: a drag stopping short pastes a path that does not exist. A token
+   has no break point: unwrapped, it pushes a phone's page sideways. */
+.copy-value {
+  flex: 1;
+  min-width: 0;
   padding: 8px 12px;
   background-color: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
   user-select: all;
-}
-
-.gate-command {
-  margin: 6px 0 20px;
-}
-
-/* A token has no break point: unwrapped, it pushes a phone's page sideways. */
-.secret-once {
-  margin-top: 8px;
 }
 
 /* The settings form's measure, its tab strip included: a caption stretched across 1400px
@@ -2897,6 +2896,10 @@ td * {
 .max-w-320 {
   max-width: 320px;
 }
+/* A number's field, as wide as the numbers it takes. */
+.max-w-12ch {
+  max-width: 12ch;
+}
 /* A field in a row of fields: grows, and wraps once it cannot keep this width. */
 .flex-fill-200 {
   flex: 1 1 200px;
@@ -2918,13 +2921,6 @@ td * {
   flex: 0 0 120px;
 }
 /* As wide as its caption, at least 160px: a fixed width folds every longer caption. */
-.flex-fit {
-  flex: 0 0 auto;
-  min-width: 160px;
-}
-.flex-fit > .form-label {
-  white-space: nowrap;
-}
 /* Status and source colours on an icon or a word, where a badge would be too much. */
 .text-success {
   color: var(--status-success);

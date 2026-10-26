@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import { api } from '../api/client';
+  import type { ReadFilter } from '../lib/address.svelte';
   import { createAsync } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
 
@@ -21,6 +22,31 @@
     current_root_folder: '',
     rule_id: '',
   };
+
+  /** The value each field sets. The address carries each under the field's own name. */
+  const SETS: Record<TitleField, keyof TitleFilter> = {
+    instance: 'instance_id',
+    type: 'media_type',
+    category: 'category',
+    folder: 'current_root_folder',
+    rule: 'rule_id',
+  };
+
+  /** The values of `fields` a link names, an unknown type read as every type. */
+  export function titlesFromAddress(read: ReadFilter, fields: readonly TitleField[]): TitleFilter {
+    const filter = { ...NO_TITLE_FILTER };
+    for (const field of fields) {
+      filter[SETS[field]] = read(field, field === 'type' ? ['movie', 'series'] : undefined);
+    }
+    return filter;
+  }
+
+  export function titlesInAddress(
+    filter: TitleFilter,
+    fields: readonly TitleField[],
+  ): Record<string, string> {
+    return Object.fromEntries(fields.map((field) => [field, filter[SETS[field]]]));
+  }
 
   /** What each field offers, read once for the panel and for a screen that names its filters. */
   export function createFilterOptions(fields: readonly TitleField[]) {
@@ -100,6 +126,24 @@
     filter = { ...filter, [field]: value };
     onchange?.();
   }
+
+  // A link may name what was deleted since: the list falls back to every value, not to none.
+  $effect(() => {
+    const named = options.data;
+    if (!named) return;
+    const offered: Partial<Record<keyof TitleFilter, string[]>> = {
+      instance_id: named.instances.map((each) => each.id),
+      category: named.categories.map((each) => each.name),
+      current_root_folder: named.paths,
+      rule_id: named.rules.map((each) => each.id),
+    };
+    const stale = fields
+      .map((field) => SETS[field])
+      .filter((key) => filter[key] && offered[key] && !offered[key].includes(filter[key]));
+    if (stale.length === 0) return;
+    filter = { ...filter, ...Object.fromEntries(stale.map((key) => [key, ''])) };
+    onchange?.();
+  });
 </script>
 
 <ErrorBanner

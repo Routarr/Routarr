@@ -208,6 +208,22 @@ describe('Library', () => {
     );
   });
 
+  /** The Dashboard's figures link here with the type they count. */
+  it('opens on the filters its address names, and keeps each change there', async () => {
+    window.history.replaceState({}, '', '/library?type=series&outcome=move');
+    const getLibrary = show([media()]);
+
+    await waitFor(() =>
+      expect(getLibrary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ media_type: 'series', action: 'move' }),
+        expect.any(AbortSignal),
+      ),
+    );
+    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'unclassified');
+
+    expect(window.location.search).toBe('?type=series&outcome=unclassified');
+  });
+
   it('returns to the first page when the filter changes', async () => {
     const getLibrary = show([media()], 2);
     await screen.findByText('Akira');

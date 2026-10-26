@@ -167,13 +167,14 @@ describe('RuleTests', () => {
       { page: 1, per_page: 50, failing: true },
       expect.any(AbortSignal),
     );
-    expect(window.location.search).toBe('');
+    expect(window.location.search).toBe('?failing=1');
 
     await userEvent.click(only);
 
     await waitFor(() =>
       expect(list).toHaveBeenLastCalledWith({ page: 1, per_page: 50 }, expect.any(AbortSignal)),
     );
+    expect(window.location.search).toBe('');
   });
 
   /** A run takes the whole library: the button says it is running, not only spins. */

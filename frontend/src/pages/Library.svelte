@@ -14,13 +14,24 @@
   import TableRegion from '../components/TableRegion.svelte';
   import Pager from '../components/Pager.svelte';
   import SearchField from '../components/SearchField.svelte';
+  import { keepInAddress } from '../lib/address.svelte';
 
+  /** `move` and `skip` are the outcomes the server filters on, `unclassified` no rule matched. */
+  const OUTCOMES = ['move', 'skip', 'unclassified'] as const;
   let search = $state('');
   let mediaType = $state('');
-  /** `move` and `skip` are the outcomes the server filters on, `unclassified` no rule matched. */
-  let outcome = $state<'' | 'move' | 'skip' | 'unclassified'>('');
+  let outcome = $state<'' | (typeof OUTCOMES)[number]>('');
   const filtered = $derived(Boolean(search || mediaType || outcome));
   let page = $state(1);
+  keepInAddress(
+    () => ({ search, type: mediaType, outcome }),
+    (read) => {
+      search = read('search');
+      mediaType = read('type', ['movie', 'series']);
+      outcome = read('outcome', OUTCOMES) as typeof outcome;
+      page = 1;
+    },
+  );
 
   const library = createAsync(
     (signal) =>

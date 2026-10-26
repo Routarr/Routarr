@@ -10,7 +10,7 @@
   import { access } from '../lib/access.svelte';
   import { CheckCircle2, Play, Trash2 } from '../lib/icons';
   import type { RuleTest, RuleTestResult, RuleTestRun } from '../api/types';
-  import { takeQueryFlag } from '../api/onboarding';
+  import { keepInAddress } from '../lib/address.svelte';
   import { createExplainer } from '../lib/explain.svelte';
   import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -29,7 +29,14 @@
    */
   let page = $state(1);
   // The failing-tests warning leads here with `?failing=1`.
-  let failing = $state(takeQueryFlag('failing'));
+  let failing = $state(false);
+  keepInAddress(
+    () => ({ failing: failing ? '1' : '' }),
+    (read) => {
+      failing = read('failing') !== '';
+      page = 1;
+    },
+  );
   const cases = createAsync(
     (signal) =>
       api.getRuleTests({ page, per_page: 50, ...(failing ? { failing: true } : {}) }, signal),

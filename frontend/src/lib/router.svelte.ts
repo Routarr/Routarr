@@ -16,8 +16,11 @@ const strip = (pathname: string) => {
   return rooted.length > 1 ? rooted.replace(/\/+$/, '') : rooted;
 };
 
-/** The current route, without the mount point. Reactive. */
-export const router = $state({ path: strip(window.location.pathname) });
+/**
+ * The current route, without the mount point, and `visit`, counting the arrivals that keep the
+ * route and change its query, on which the screen on display reads its filters again. Reactive.
+ */
+export const router = $state({ path: strip(window.location.pathname), visit: 0 });
 
 // Arrived with a trailing slash, the address says the screen as its links do.
 if (router.path !== '/' && window.location.pathname.endsWith('/')) {
@@ -56,6 +59,16 @@ const routeOf = (to: string) => to.split(/[?#]/)[0] || '/';
 // The address of the screen on display. The browser has moved by the time Back
 // is heard, so a screen that keeps its work is put back under this one.
 let shown = window.location.href;
+let shownQuery = window.location.search;
+
+/** Take the address the browser now shows, `search` being the query of the one before. */
+function arrive(search: string) {
+  const path = strip(window.location.pathname);
+  if (path === router.path && window.location.search !== search) router.visit += 1;
+  router.path = path;
+  shown = window.location.href;
+  shownQuery = window.location.search;
+}
 
 /**
  * Follow a link the way the browser would, without reloading the document,
@@ -78,7 +91,7 @@ function go(to: string) {
   const here = url === `${pathname}${search}${hash}`;
   if (here) window.history.replaceState({}, '', url);
   else window.history.pushState({}, '', url);
-  router.path = strip(window.location.pathname);
+  arrive(search);
   // A link to another fragment of the page on screen is one the browser
   // follows with a `hashchange`, which `pushState` never fires. A page that
   // shows a section per fragment, as Settings does, listens for it.
@@ -87,7 +100,6 @@ function go(to: string) {
       new HashChangeEvent('hashchange', { oldURL: from, newURL: window.location.href }),
     );
   }
-  shown = window.location.href;
   window.scrollTo(0, 0);
 }
 
@@ -122,19 +134,11 @@ export function interceptLinks() {
 
   const onPop = () => {
     const to = strip(window.location.pathname);
-    const back = shown;
-    if (!guard || to === router.path) {
-      router.path = to;
-      shown = window.location.href;
-      return;
-    }
+    const [back, search] = [shown, shownQuery];
+    if (!guard || to === router.path) return arrive(search);
     void guard(to).then((leave) => {
-      if (leave) {
-        router.path = strip(window.location.pathname);
-        shown = window.location.href;
-      } else {
-        window.history.pushState({}, '', back);
-      }
+      if (leave) arrive(search);
+      else window.history.pushState({}, '', back);
     });
   };
 

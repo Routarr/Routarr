@@ -196,6 +196,7 @@
             type="button"
             class="chip-remove"
             aria-label="{t('Remove')} – {shown(value)}"
+            title={t('Remove')}
             onclick={() => remove(value, index)}
           >
             <X size={12} />

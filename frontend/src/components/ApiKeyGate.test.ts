@@ -27,6 +27,17 @@ async function send(key: string) {
 }
 
 describe('ApiKeyGate', () => {
+  /** A first visit is often on plain http, where the field selects it for the keyboard. */
+  it('offers to copy the command that prints the key', async () => {
+    show();
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'Copy – docker exec routarr cat /config/routarr.api_key',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('refuses to submit an empty key', async () => {
     show();
 

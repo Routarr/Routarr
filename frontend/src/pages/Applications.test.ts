@@ -123,6 +123,7 @@ describe('Applications', () => {
     });
     expect(await screen.findByText('rtr_k1_secret')).toBeTruthy();
     expect(screen.getByText('Key for n8n')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy – Key for n8n' })).toBeTruthy();
 
     const revoke = vi.spyOn(api, 'revokeApplication').mockResolvedValue(undefined);
     await user.click(await screen.findByRole('button', { name: 'Revoke – n8n' }));

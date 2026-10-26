@@ -32,6 +32,8 @@ export interface Field {
    * it, in a refusal naming a key in a tab the operator never opened.
    */
   range?: [number, number];
+  /** The unit a `number` counts in, drawn after its field and left out of its label. */
+  unitKey?: string;
   /** What a `choice` offers. */
   choices?: Choice[];
 }
@@ -118,6 +120,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '50',
     range: [1, 1_000],
+    unitKey: 'UnitItems',
   },
   {
     key: 'confirmation_threshold',
@@ -126,6 +129,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '10',
     range: [1, 10_000],
+    unitKey: 'UnitItems',
   },
   {
     key: 'auto_sync_enabled',
@@ -155,6 +159,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '15',
     range: [1, 24 * 60],
+    unitKey: 'UnitMinutes',
   },
   {
     key: 'metadata_providers',
@@ -236,6 +241,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '7',
     range: [1, 3_650],
+    unitKey: 'UnitDays',
   },
   {
     key: 'notification_webhook_url',
@@ -302,6 +308,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '24',
     range: [1, 24 * 7],
+    unitKey: 'UnitHours',
   },
   {
     key: 'backup_retention_count',
@@ -318,6 +325,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '30',
     range: [0, 3650],
+    unitKey: 'UnitDays',
   },
   {
     key: 'log_retention_days',
@@ -326,6 +334,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '90',
     range: [0, 3650],
+    unitKey: 'UnitDays',
   },
   {
     key: 'security_log_retention_days',
@@ -334,6 +343,7 @@ export const FIELDS: Field[] = [
     kind: 'number',
     fallback: '365',
     range: [0, 3650],
+    unitKey: 'UnitDays',
   },
 ];
 

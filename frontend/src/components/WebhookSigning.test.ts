@@ -41,6 +41,7 @@ describe('WebhookSigning', () => {
     expect(
       screen.getByText('Copy it now. It is shown once and cannot be read again.'),
     ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy – Signing secret' })).toBeTruthy();
   });
 
   it('asks before replacing a secret a receiver may be checking', async () => {

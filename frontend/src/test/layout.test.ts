@@ -24,6 +24,34 @@ function pages(): string[] {
 }
 
 /**
+ * Split each `<button>` into its attributes and its body, tracking brace depth: the `>` of
+ * `onclick={() => run()}` would end a regular expression's match inside the tag.
+ */
+function buttons(source: string): { attributes: string; body: string }[] {
+  const found: { attributes: string; body: string }[] = [];
+  const OPEN = /<button\b/g;
+  let opening: RegExpExecArray | null;
+  while ((opening = OPEN.exec(source)) !== null) {
+    let depth = 0;
+    let cursor = opening.index + opening[0].length;
+    while (cursor < source.length) {
+      const char = source[cursor];
+      if (char === '{') depth += 1;
+      else if (char === '}') depth -= 1;
+      else if (char === '>' && depth === 0) break;
+      cursor += 1;
+    }
+    const close = source.indexOf('</button>', cursor);
+    if (cursor >= source.length || close === -1) continue;
+    found.push({
+      attributes: source.slice(opening.index + opening[0].length, cursor),
+      body: source.slice(cursor + 1, close),
+    });
+  }
+  return found;
+}
+
+/**
  * A translated label can wrap where English does not, and a row that top-aligns its fields
  * then puts the inputs at different heights. `.form-row` bottom-aligns them.
  */
@@ -62,34 +90,6 @@ describe('a row of fields survives labels of different lengths', () => {
     expect(rows, 'found no bare flex row to look inside').toBeGreaterThan(10);
     expect(offenders).toEqual([]);
   });
-
-  /**
-   * Split each `<button>` into its attributes and its body, tracking brace depth: the `>` of
-   * `onclick={() => run()}` would end a regular expression's match inside the tag.
-   */
-  function buttons(source: string): { attributes: string; body: string }[] {
-    const found: { attributes: string; body: string }[] = [];
-    const OPEN = /<button\b/g;
-    let opening: RegExpExecArray | null;
-    while ((opening = OPEN.exec(source)) !== null) {
-      let depth = 0;
-      let cursor = opening.index + opening[0].length;
-      while (cursor < source.length) {
-        const char = source[cursor];
-        if (char === '{') depth += 1;
-        else if (char === '}') depth -= 1;
-        else if (char === '>' && depth === 0) break;
-        cursor += 1;
-      }
-      const close = source.indexOf('</button>', cursor);
-      if (cursor >= source.length || close === -1) continue;
-      found.push({
-        attributes: source.slice(opening.index + opening[0].length, cursor),
-        body: source.slice(cursor + 1, close),
-      });
-    }
-    return found;
-  }
 
   it('no button is left without an accessible name', () => {
     // An icon-only button announces nothing to a screen reader, a destructive
@@ -653,6 +653,22 @@ describe('every screen draws a shared thing the same way', () => {
         .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
     );
     expect(ghost).toEqual([]);
+  });
+
+  /** A pointer reads the name of an icon in its tooltip, as a screen reader reads its label. */
+  it('names every icon-only row action in its title too', () => {
+    const rowActions = pages().flatMap((file) =>
+      buttons(read(file))
+        .filter(({ attributes }) => /aria-label="\{[^"]*\} – \{/.test(attributes))
+        .map((button) => ({ file, ...button })),
+    );
+    const untitled = rowActions
+      .filter(({ body }) => body.replace(/\{[#:/@][^}]*\}|<[^>]*>/g, '').trim() === '')
+      .filter(({ attributes }) => !attributes.includes('title='))
+      .map(({ file, attributes }) => `${file}: ${/aria-label="([^"]*)"/.exec(attributes)?.[1]}`);
+
+    expect(rowActions.length).toBeGreaterThan(20);
+    expect(untitled).toEqual([]);
   });
 
   /** An icon in a title sits on the text's centre line, as the guide's does. */

@@ -141,13 +141,22 @@
       <!-- Everything else is context, so it reads as one line of facts rather
            than as competing cards. -->
       <div class="metrics">
-        <Stat label={t('MoviesManaged')} value={stats.total_movies} />
-        <Stat label={t('SeriesManaged')} value={stats.total_series} />
-        <Stat label={t('ActiveRules')} value={stats.enabled_rules} />
-        <Stat label={t('MovesApplied')} value={stats.applied_decisions} />
+        <Stat label={t('MoviesManaged')} value={stats.total_movies} to="/library?type=movie" />
+        <Stat label={t('SeriesManaged')} value={stats.total_series} to="/library?type=series" />
+        <Stat label={t('ActiveRules')} value={stats.enabled_rules} to="/rules" />
+        <Stat
+          label={t('MovesApplied')}
+          value={stats.applied_decisions}
+          to="/history?status=applied"
+        />
         <!-- The one number that changes colour, because a failure is the only
-             one of these that asks for something. -->
-        <Stat label={t('FailedMovesLabel')} value={stats.failed_decisions} tone="danger" />
+             one of these that asks for something. Where the top bar's count of it leads. -->
+        <Stat
+          label={t('FailedMovesLabel')}
+          value={stats.failed_decisions}
+          tone="danger"
+          to="/move-log?outcome=failure"
+        />
       </div>
 
       <!-- The library's titles both times: the sources' cache counts what they hold, which

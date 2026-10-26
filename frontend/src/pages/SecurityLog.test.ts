@@ -102,6 +102,22 @@ describe('Security log', () => {
     expect(saved[0]?.name).toBe('routarr-security-log.csv');
   });
 
+  it('opens on the filters its address names, and keeps each change there', async () => {
+    window.history.replaceState({}, '', '/security-log?kind=api_key&outcome=sometimes');
+    const list = vi.spyOn(api, 'getSecurityLog').mockResolvedValue(paginated([event()]));
+    show();
+
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ kind: 'api_key', outcome: undefined }),
+        expect.anything(),
+      ),
+    );
+    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'refused');
+
+    expect(window.location.search).toBe('?kind=api_key&outcome=refused');
+  });
+
   /** A file cut at the server's ceiling would otherwise read as the whole log. */
   it('warns that an export cut short holds the newest events only', async () => {
     vi.spyOn(api, 'getSecurityLog').mockResolvedValue(paginated([event()]));

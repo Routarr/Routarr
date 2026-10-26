@@ -64,6 +64,18 @@ describe('Tasks', () => {
     expect(nthCall(getTasks, 2)[0]).toMatchObject({ status: 'running', page: 1 });
   });
 
+  /** The warning of a failed backup links here with `?status=failed`. */
+  it('opens on the status its address names, and keeps a change there', async () => {
+    window.history.replaceState({}, '', '/tasks?status=failed');
+    const getTasks = vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job()]));
+    show();
+
+    await waitFor(() => expect(nthCall(getTasks)[0]).toMatchObject({ status: 'failed' }));
+    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), '');
+
+    expect(window.location.search).toBe('');
+  });
+
   it('names a job by what it did, not by the identifier it is stored under', async () => {
     vi.spyOn(api, 'getTasks').mockResolvedValue(paginated([job()]));
     show();

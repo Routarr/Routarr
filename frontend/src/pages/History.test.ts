@@ -491,6 +491,35 @@ describe('narrowing and reverting many', () => {
     errors: [],
   };
 
+  /** A bookmark may name a run since purged: that filter falls back to every run. */
+  it('opens on the filters its address names, and keeps each change there', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/history?status=failed&superseded=1&from=2026-10-01&to=soon&run=gone&rule=r1',
+    );
+    vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
+    const getDecisions = vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
+    show();
+
+    await waitFor(() =>
+      expect(window.location.search).toBe('?status=failed&rule=r1&from=2026-10-01&superseded=1'),
+    );
+    expect(getDecisions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        include_superseded: true,
+        rule_id: 'r1',
+        simulation_id: undefined,
+        until: undefined,
+      }),
+      expect.anything(),
+    );
+
+    await userEvent.selectOptions(filterField('Status'), 'applied');
+    expect(window.location.search).toBe('?status=applied&rule=r1&from=2026-10-01&superseded=1');
+  });
+
   it('asks the server for the instance, rule, simulation and days chosen', async () => {
     vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
     vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);

@@ -17,6 +17,7 @@
   import Pager from '../components/Pager.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { access } from '../lib/access.svelte';
+  import { keepInAddress } from '../lib/address.svelte';
 
   /** Backend enum values are lower-case, and the dictionary keys are PascalCase. */
   // `sync_all` reads `JobSyncAll`, as the backend's test of the labels builds it.
@@ -48,6 +49,13 @@
   // A sync every 15 minutes fills a page of 50 in half a day, and last night's
   // failure is then reachable only through a filter nobody thinks of.
   let page = $state(1);
+  keepInAddress(
+    () => ({ status }),
+    (read) => {
+      status = read('status', ['running', 'success', 'failed', 'cancelled']);
+      page = 1;
+    },
+  );
 
   const jobsPage = createAsync(
     (signal) => api.getTasks({ status: status || undefined, page, per_page: 50 }, signal),

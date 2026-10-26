@@ -57,6 +57,16 @@ describe('SessionsCard', () => {
     expect(row(there).queryByText('apikey')).toBeNull();
   });
 
+  it('draws ending a session as the deletion it is, an icon named by its tooltip', async () => {
+    mount();
+
+    for (const end of await ends()) {
+      expect(end).toHaveClass('btn-danger');
+      expect(end).toHaveAttribute('title', 'End');
+      expect(end.textContent?.trim()).toBe('');
+    }
+  });
+
   /** A person the read lists let in holds a session the owner may want to tell apart. */
   it('marks the session of a person who reads alone, and only that one', async () => {
     mount([HERE, session('cccc', { subject: 'guest', source: 'oidc', reach: 'read' })]);

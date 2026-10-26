@@ -276,7 +276,7 @@ describe('Instances', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Edit instance' });
     const webhook = within(dialog).getByText('Webhook', { selector: 'summary *' });
     expect((webhook.closest('details') as HTMLDetailsElement).open).toBe(true);
-    expect(within(dialog).getByLabelText('Webhook URL')).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Copy – Webhook URL' })).toBeVisible();
   });
 
   /** Pre-filled with a mask, the form would save the mask as the key. */
@@ -386,6 +386,17 @@ describe('Instances', () => {
     await waitFor(() => expect(document.activeElement).toBe(save));
   });
 
+  /** As Settings draws a number: as wide as the numbers it takes, its unit after it. */
+  it('draws the sync interval as a short field, its unit after it', async () => {
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    const every = await screen.findByLabelText('Sync every');
+
+    expect(every).toHaveClass('max-w-12ch');
+    expect(every).toHaveAccessibleDescription('minutes');
+  });
+
   /**
    * A number field emptied binds `null`, and the server wants an integer. Sent,
    * the save would come back 422 from serde, in English, behind the dialog.
@@ -394,7 +405,7 @@ describe('Instances', () => {
     show([instance()]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
-    const every = await screen.findByLabelText('Sync every (min)');
+    const every = await screen.findByLabelText('Sync every');
     const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     expect(save.disabled).toBe(false);
 
@@ -432,13 +443,13 @@ describe('Instances', () => {
     const bounds = `Enter a whole number from 1 to ${ceiling}.`;
     show([instance()]);
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
-    const every = await screen.findByLabelText('Sync every (min)');
+    const every = await screen.findByLabelText('Sync every');
     expect(every).toHaveAttribute('max', String(ceiling));
 
     await fireEvent.input(every, { target: { value: '' } });
 
     expect(every).toHaveAttribute('aria-invalid', 'true');
-    expect(every).toHaveAccessibleDescription(bounds);
+    expect(every).toHaveAccessibleDescription(`minutes ${bounds}`);
     await fireEvent.input(every, { target: { value: '30' } });
     expect(every).not.toHaveAttribute('aria-invalid');
     expect(screen.queryByText(bounds)).toBeNull();
@@ -622,7 +633,7 @@ describe('Instances', () => {
     const behaviour = within(dialog).getByRole('group', { name: 'Behaviour' });
     expect(within(behaviour).getByLabelText('Enabled (synced and routed)')).toBeTruthy();
     expect(within(behaviour).getByLabelText('Automatic application')).toBeTruthy();
-    expect(within(behaviour).getByLabelText('Sync every (min)')).toBeTruthy();
+    expect(within(behaviour).getByLabelText('Sync every')).toBeTruthy();
     const webhook = within(dialog).getByText('Webhook', { selector: 'summary *' });
     const after = (first: Node, second: Node) =>
       Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -699,8 +710,12 @@ describe('Instances', () => {
       'Tick On File Import, On Rename, On Movie Added, On Movie Delete, On Movie File Delete',
       'Save, then press Test in Radarr',
     ]);
-    expect(within(steps[1]!).getByLabelText('Webhook URL')).toBeTruthy();
-    expect(within(steps[2]!).getByLabelText('Token for the X-Routarr-Token header')).toBeTruthy();
+    expect(within(steps[1]!).getByRole('button', { name: 'Copy – Webhook URL' })).toBeTruthy();
+    expect(
+      within(steps[2]!).getByRole('button', {
+        name: 'Copy – Token for the X-Routarr-Token header',
+      }),
+    ).toBeTruthy();
   });
 
   it.each(['Edit – Radarr', 'Add instance'])(
@@ -771,11 +786,10 @@ describe('Instances', () => {
   });
 
   /**
-   * On a plain http origin every Copy fails, so both setups are in the editor: the address and
-   * the token for an Arr that sends headers, which keeps the token out of the logged URL, and
-   * the address carrying the token for one that does not.
+   * Both setups: the address and the token for an Arr that sends headers, which keeps the token
+   * out of the logged URL, and the address carrying the token for one that does not.
    */
-  it('shows both webhook setups in the editor, with no copy to go through', async () => {
+  it('shows both webhook setups in the editor whole, each value beside its Copy', async () => {
     show([
       instance({
         webhook_url: '/api/v1/webhook/i1/tok',
@@ -787,15 +801,15 @@ describe('Instances', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
 
     const origin = window.location.origin;
-    const path = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
-    const token = screen.getByLabelText('Token for the X-Routarr-Token header') as HTMLInputElement;
-    const older = screen.getByLabelText('Webhook URL for an older Arr') as HTMLInputElement;
-    expect([path.value, token.value, older.value]).toEqual([
-      `${origin}/api/v1/webhook/i1`,
-      'tok',
-      `${origin}/api/v1/webhook/i1/tok`,
-    ]);
-    expect([path, token, older].every((field) => field.readOnly)).toBe(true);
+    const dialog = await screen.findByRole('dialog');
+    const shown = (name: string) =>
+      within(dialog).getByRole('button', { name: `Copy – ${name}` }).previousElementSibling
+        ?.textContent;
+    expect([
+      shown('Webhook URL'),
+      shown('Token for the X-Routarr-Token header'),
+      shown('Webhook URL for an older Arr'),
+    ]).toEqual([`${origin}/api/v1/webhook/i1`, 'tok', `${origin}/api/v1/webhook/i1/tok`]);
   });
 
   async function copyWebhookUrl() {

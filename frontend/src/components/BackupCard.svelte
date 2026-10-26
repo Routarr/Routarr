@@ -362,6 +362,7 @@
         class="btn btn-danger btn-sm"
         disabled={busy}
         aria-label="{t('Delete')} – {t('ReplacedDatabase')}"
+        title={t('Delete')}
         onclick={async () => {
           if (!(await askConfirmation(t('ConfirmDeleteReplacedDatabase'), 'Delete'))) return;
           await run(async () => {
