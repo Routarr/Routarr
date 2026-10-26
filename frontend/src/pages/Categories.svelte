@@ -1,10 +1,10 @@
 <script lang="ts">
   import CardTitle from '../components/CardTitle.svelte';
   import FolderSuggestions from '../components/FolderSuggestions.svelte';
-  import { Pencil, Plus, Trash2 } from '../lib/icons';
+  import { Pencil, Plus, RefreshCw, Save, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
-  import { formatBytes, formatRelative } from '../api/format';
+  import { ARR_NAME, formatBytes, formatRelative, instanceKindKey } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -23,6 +23,7 @@
   import { handFocus } from '../lib/focus';
   import { holdUnsaved } from '../lib/unsaved.svelte';
   import { access } from '../lib/access.svelte';
+  import { poll } from '../lib/poll.svelte';
 
   const bundle = createAsync(async (signal) => {
     const [folders, categories, conflicts, instances, suggestions] = await Promise.all([
@@ -36,11 +37,16 @@
     return { folders, categories, conflicts, instances, suggestions };
   });
 
+  // Its relative times follow on their own while it is open, the picks kept apart from the load.
+  poll(
+    () => void bundle.reload(),
+    () => 60_000,
+  );
+
   const outcome = createOutcome();
   let creating = $state(false);
-  /** The destination being declared: an instance and a path it can see. */
-  let target = $state('');
-  let targetPath = $state('');
+  /** The destination typed under each instance's folders, by instance id. */
+  const targetPaths = $state<Record<string, string>>({});
   let name = $state('');
   let description = $state('');
 
@@ -52,62 +58,153 @@
   const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
 
   /**
-   * The select shows the instance the declaration will use: bound to an empty string it renders
-   * blank, while the fallback would declare against `instances[0]`, which nobody chose.
+   * The folders of each instance under it, an instance with none included: its warnings and its
+   * first sync land there. A folder whose instance the list lacks keeps a group of its own.
    */
-  $effect(() => {
-    if (!instances.some((instance) => instance.id === target)) target = instances[0]?.id ?? '';
+  const groups = $derived.by(() => {
+    const listed = instances.map((instance) => ({
+      id: instance.id,
+      name: instance.name,
+      type: instance.instance_type as string,
+      instance: instance as Instance | null,
+    }));
+    for (const folder of folders) {
+      if (listed.some((group) => group.id === folder.instance_id)) continue;
+      listed.push({
+        id: folder.instance_id,
+        name: folder.instance_name,
+        type: folder.instance_type,
+        instance: null,
+      });
+    }
+    return listed.map((group) => ({
+      ...group,
+      folders: folders.filter((folder) => folder.instance_id === group.id),
+    }));
   });
 
   let renaming = $state<Category | null>(null);
   let newName = $state('');
 
   /**
-   * The category picked for each folder, by folder id, until Save writes it: an arrow key on a
-   * closed select fires `change` on Windows and Linux.
+   * The category picked for each folder, by folder id, until the save bar writes it: an arrow
+   * key on a closed select fires `change` on Windows and Linux.
    */
   const picked = $state<Record<string, string>>({});
   const pickedFor = (folder: RootFolder) => picked[folder.id] ?? folder.category ?? '';
-  const unsavedPicks = $derived(
-    folders.filter((folder) => pickedFor(folder) !== (folder.category ?? '')).length,
+  const changedFolders = $derived(
+    folders.filter((folder) => pickedFor(folder) !== (folder.category ?? '')),
   );
   holdUnsaved(
-    () => unsavedPicks > 0,
-    () => t('ConfirmLeaveUnsavedMappings', { count: unsavedPicks }),
+    () => changedFolders.length > 0,
+    () => t('ConfirmLeaveUnsavedMappings', { count: changedFolders.length }),
   );
 
-  /** The other folders of `folder`'s instance that `category` already leads to. */
-  const sharing = (folder: RootFolder, category: string) =>
+  /**
+   * The other folders of `folder`'s instance that `category` leads to, as stored or as `written`
+   * says a save in progress left them.
+   */
+  const sharing = (
+    folder: RootFolder,
+    category: string,
+    written: Readonly<Record<string, string | null>> = {},
+  ) =>
     folders.filter(
       (other) =>
         other.id !== folder.id &&
         other.instance_id === folder.instance_id &&
         category !== '' &&
-        other.category === category,
+        (other.id in written ? written[other.id] : other.category) === category,
     );
 
-  async function saveCategory(folder: RootFolder) {
-    const category = pickedFor(folder);
-    const others = sharing(folder, category);
-    // Joining a category another folder holds shares its new titles: asked, never assumed.
-    if (others.length > 0) {
-      const question = t('ConfirmAddToFolderSet', {
-        category,
-        instance: folder.instance_name,
-        folders: others.map((other) => other.path).join(t('ListSeparator')),
-        folder: folder.path,
-      });
-      if (!(await askConfirmation(question, 'AddFolderToCategory', false))) return;
+  let savingMappings = $state(false);
+
+  /**
+   * Writes each pick in turn, the API mapping one folder a request. A pick refused, or a share
+   * declined, stays in the bar beside the outcome that names it.
+   */
+  async function saveMappings() {
+    if (savingMappings) return;
+    savingMappings = true;
+    // What this save wrote, so a later pick is asked about an earlier one.
+    const written: Record<string, string | null> = {};
+    const failed: { path: string; cause: unknown }[] = [];
+    let saved = 0;
+    try {
+      for (const folder of changedFolders) {
+        const category = pickedFor(folder);
+        const others = sharing(folder, category, written);
+        // Joining a category another folder holds shares its new titles: asked, never assumed.
+        if (others.length > 0) {
+          const question = t('ConfirmAddToFolderSet', {
+            category,
+            instance: folder.instance_name,
+            folders: others.map((other) => other.path).join(t('ListSeparator')),
+            folder: folder.path,
+          });
+          if (!(await askConfirmation(question, 'AddFolderToCategory', false))) continue;
+        }
+        try {
+          await api.updateRootFolderCategory(folder.id, category || null, others.length > 0);
+          written[folder.id] = category || null;
+          delete picked[folder.id];
+          saved += 1;
+        } catch (cause) {
+          failed.push({ path: folder.path, cause });
+        }
+      }
+      const [only] = failed;
+      if (saved === 0 && only && failed.length === 1) outcome.fail(only.cause);
+      else if (failed.length > 0) {
+        const message = t('MappingsPartlySaved', { count: saved });
+        const named = failed.map(({ path, cause }) =>
+          t('FilterTerm', { label: path, value: describeError(cause) }),
+        );
+        if (saved > 0) outcome.warn(message, named);
+        else outcome.fail(message, named);
+      } else if (saved > 0) outcome.succeed(t('MappingsSaved', { count: saved }));
+      // Mapping a category, or removing one, is what clears the two warnings about categories
+      // and instances that reach no folder.
+      if (saved > 0) invalidateStatus();
+      await bundle.reload();
+    } finally {
+      savingMappings = false;
+      // The bar goes once nothing is pending, and its button with it.
+      void handFocus('mappings-save', 'folders-table');
     }
-    await act(
-      () => api.updateRootFolderCategory(folder.id, category || null, others.length > 0),
-      t('MappingUpdated'),
-    );
-    // Written or refused, the row reads what the server now holds.
-    delete picked[folder.id];
-    // Save turns disabled once nothing is pending, and a disabled button
-    // drops the focus: the folder's select takes it back.
-    void handFocus(`folder-${folder.id}-category`);
+  }
+
+  function discardMappings() {
+    for (const id of Object.keys(picked)) delete picked[id];
+    void handFocus('folders-table');
+  }
+
+  let syncing = $state<string | null>(null);
+  /** Stops following, not the sync, which runs on whatever the screen does. */
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
+  /** Offered where a group cannot list its folders yet: never synced, or failing to. */
+  const needsSync = (instance: Instance) =>
+    instance.enabled && (instance.last_sync_at === null || instance.last_sync_error !== null);
+
+  async function syncNow(instance: Instance) {
+    syncing = instance.id;
+    try {
+      const report = await api.syncInstance(instance.id, { signal: leaving.signal });
+      outcome.succeed(
+        t('SyncResult', { name: instance.name, media: report.media, folders: report.root_folders }),
+      );
+      invalidateStatus();
+    } catch (cause) {
+      if (!leaving.signal.aborted) outcome.fail(cause);
+    } finally {
+      syncing = null;
+    }
+    if (leaving.signal.aborted) return;
+    await bundle.reload();
+    // Synced, its group offers no sync, so the focus goes to the table.
+    void handFocus(`sync-${instance.id}`, 'folders-table');
   }
 
   /** Whether the write went through: what was typed is cleared on success only. */
@@ -177,21 +274,22 @@
    */
   let declaring = $state(false);
 
-  async function declare(event: SubmitEvent) {
+  async function declare(event: SubmitEvent, instanceId: string) {
     event.preventDefault();
-    if (!target || !targetPath.trim() || declaring) return;
+    const path = (targetPaths[instanceId] ?? '').trim();
+    if (!path || declaring) return;
     const pressed = document.activeElement as HTMLElement | null;
     declaring = true;
     try {
       const declared = await act(
-        () => api.declareRootFolder(target, targetPath.trim()),
-        t('DestinationDeclared', { path: targetPath.trim() }),
+        () => api.declareRootFolder(instanceId, path),
+        t('DestinationDeclared', { path }),
       );
-      if (declared) targetPath = '';
+      if (declared) targetPaths[instanceId] = '';
     } finally {
       declaring = false;
       // Add stays disabled once its path is cleared, so the next path takes the focus.
-      void handFocus(pressed, 'declare-path');
+      void handFocus(pressed, `declare-path-${instanceId}`);
     }
   }
 
@@ -211,6 +309,15 @@
     dialogError = null;
     open();
   }
+
+  /** A conflict as a banner line, led by its instance unless the sentence names it already. */
+  const finding = (conflict: MappingConflict) => ({
+    lead:
+      conflict.instance_name && !conflict.message.includes(conflict.instance_name)
+        ? conflict.instance_name
+        : null,
+    text: conflict.message,
+  });
 </script>
 
 <div>
@@ -240,12 +347,12 @@
   <BannerList
     tone="danger"
     title={t('DiagnosticErrors', { count: errors.length })}
-    items={errors.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
+    items={errors.map(finding)}
   />
   <BannerList
     tone="warning"
     title={t('DiagnosticWarnings', { count: warnings.length })}
-    items={warnings.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
+    items={warnings.map(finding)}
   />
 
   {#if bundle.data}
@@ -266,32 +373,79 @@
         <caption class="visually-hidden">{t('FolderMappings')}</caption>
         <thead>
           <tr>
-            <th>{t('Instance')}</th>
-            <th>{t('Type')}</th>
             <th>{t('Path')}</th>
-            <th>{t('FreeSpace')}</th>
-            <th>{t('State')}</th>
+            <th class="col-secondary">{t('FreeSpace')}</th>
+            <th class="col-secondary">{t('State')}</th>
             <th class="w-220">{t('Category')}</th>
             <th class="w-80"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
-        <tbody>
-          {#if bundle.loading && folders.length === 0}
-            <TableSkeleton columns={7} />
-          {:else if folders.length === 0 && !bundle.error}
-            <tr><td colspan="7"><EmptyState>{t('NoRootFolderDiscovered')}</EmptyState></td></tr>
-          {:else}
-            {#each folders as folder, index (folder.id)}
-              <tr>
-                <td><strong>{folder.instance_name}</strong></td>
-                <td>
-                  <span class="badge badge-kind kind-{folder.instance_type}">
-                    {folder.instance_type}
+        {#if bundle.loading && groups.length === 0}
+          <tbody><TableSkeleton columns={5} /></tbody>
+        {:else if groups.length === 0 && !bundle.error}
+          <tbody>
+            <tr><td colspan="5"><EmptyState>{t('NoRootFolderDiscovered')}</EmptyState></td></tr>
+          </tbody>
+        {/if}
+        {#each groups as group (group.id)}
+          {@const instance = group.instance}
+          <tbody>
+            <tr>
+              <th class="folder-group" colspan="5" scope="rowgroup">
+                <div class="folder-group-heading flex flex-wrap items-center gap-2">
+                  <strong>{group.name}</strong>
+                  <span class="text-muted text-sm">
+                    {t('WithNote', {
+                      text: ARR_NAME[group.type] ?? group.type,
+                      note: t(instanceKindKey(group.type)),
+                    })}
                   </span>
+                  {#if instance}
+                    <span class="text-muted text-sm" title={instance.last_sync_at ?? undefined}>
+                      {instance.last_sync_at
+                        ? t('SyncedWhen', {
+                            when: formatRelative(instance.last_sync_at, i18n.language),
+                          })
+                        : t('NeverSynced')}
+                    </span>
+                    {#if instance.last_sync_error !== null}
+                      <span class="badge badge-danger">{t('StatusFailed')}</span>
+                    {/if}
+                    {#if !instance.enabled}
+                      <span class="badge badge-warning">{t('InstanceDisabled')}</span>
+                    {/if}
+                    {#if needsSync(instance) && !access.readOnly}
+                      <button
+                        id="sync-{instance.id}"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        disabled={syncing !== null}
+                        aria-label="{t('SyncNow')} – {instance.name}"
+                        onclick={() => void syncNow(instance)}
+                      >
+                        <RefreshCw
+                          size={14}
+                          class={syncing === instance.id ? 'spin' : ''}
+                          aria-hidden="true"
+                        />
+                        {t('SyncNow')}
+                      </button>
+                    {/if}
+                  {/if}
+                </div>
+              </th>
+            </tr>
+            {#each group.folders as folder (folder.id)}
+              {@const index = folders.indexOf(folder)}
+              {@const shared = folder.category ? sharing(folder, folder.category) : []}
+              <tr>
+                <td class="mono">
+                  <span class="cell-path"><bdi>{folder.path}</bdi></span>
                 </td>
-                <td class="mono">{folder.path}</td>
-                <td class="text-muted">{formatBytes(folder.free_space, i18n.language)}</td>
-                <td>
+                <td class="text-muted col-secondary">
+                  {formatBytes(folder.free_space, i18n.language)}
+                </td>
+                <td class="col-secondary">
                   <!-- A warning with its date, not an error: a NAS that spins down is unreachable
                        every night, and the reader tells a nap from a fault by the date. -->
                   <span class="badge {folder.accessible ? 'badge-success' : 'badge-warning'}">
@@ -315,7 +469,7 @@
                       <span class="text-muted">{t('Unmapped')}</span>
                     {/if}
                   {:else}
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
                       <select
                         id="folder-{folder.id}-category"
                         class="form-select"
@@ -328,23 +482,15 @@
                           <option value={category.name}>{category.name}</option>
                         {/each}
                       </select>
-                      <button
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        disabled={pickedFor(folder) === (folder.category ?? '')}
-                        aria-label="{t('Save')} – {folder.path}"
-                        onclick={() => void saveCategory(folder)}
-                      >
-                        {t('Save')}
-                      </button>
+                      {#if changedFolders.includes(folder)}
+                        <span class="badge badge-info">{t('MappingChanged')}</span>
+                      {/if}
                     </div>
                   {/if}
-                  {#if folder.category && sharing(folder, folder.category).length > 0}
+                  {#if shared.length > 0}
                     <span class="status-reason">
                       {t('MappingSharedWith', {
-                        folders: sharing(folder, folder.category)
-                          .map((other) => other.path)
-                          .join(t('ListSeparator')),
+                        folders: shared.map((other) => other.path).join(t('ListSeparator')),
                       })}
                     </span>
                   {/if}
@@ -358,6 +504,7 @@
                       class="btn btn-danger btn-sm"
                       type="button"
                       aria-label="{t('Remove')} – {folder.path}"
+                      title={t('Remove')}
                       onclick={async () => {
                         if (
                           await askConfirmation(
@@ -373,50 +520,83 @@
                         }
                       }}
                     >
-                      {t('Remove')}
+                      <Trash2 size={14} aria-hidden="true" />
                     </button>
                   {/if}
                 </td>
               </tr>
+            {:else}
+              <tr>
+                <td colspan="5"><p class="folder-group-note text-muted">{t('NoFolderYet')}</p></td>
+              </tr>
             {/each}
-          {/if}
-        </tbody>
+            <!-- At the foot of the folders it adds to: what an operator is doing here is
+                 completing that list. -->
+            {#if instance && !access.readOnly}
+              <tr>
+                <td colspan="5">
+                  <details class="declare-fold">
+                    <summary class="text-link text-md cursor-pointer">
+                      {t('AddDestinationOn', { instance: instance.name })}
+                    </summary>
+                    <form
+                      novalidate
+                      class="form-row mt-3"
+                      onsubmit={(event) => void declare(event, instance.id)}
+                    >
+                      <!-- A base width, so on a phone the path takes a line of its own rather
+                           than folding its caption beside the button. -->
+                      <div class="form-group flex-fill-240">
+                        <label class="form-label" for="declare-path-{instance.id}">
+                          {t('DeclareDestination')}
+                        </label>
+                        <input
+                          id="declare-path-{instance.id}"
+                          class="form-input mono"
+                          aria-describedby="declare-path-{instance.id}-help"
+                          bind:value={targetPaths[instance.id]}
+                          placeholder={t('DeclareDestinationPlaceholder')}
+                        />
+                      </div>
+                      <button
+                        class="btn btn-secondary"
+                        type="submit"
+                        disabled={!(targetPaths[instance.id] ?? '').trim() || declaring}
+                      >
+                        {declaring ? t('Saving') : t('AddDestination')}
+                      </button>
+                    </form>
+                    <p id="declare-path-{instance.id}-help" class="text-muted text-sm mt-1">
+                      {t('DeclareDestinationHelp')}
+                    </p>
+                  </details>
+                </td>
+              </tr>
+            {/if}
+          </tbody>
+        {/each}
       </table>
     </TableRegion>
 
-    <!-- Under the table it adds to, not on a screen of its own: what an
-         operator is doing here is completing the list above. -->
-    {#if !access.readOnly}
-      <form novalidate class="form-row mt-4" onsubmit={declare}>
-        <div class="form-group">
-          <label class="form-label" for="declare-instance">{t('Instance')}</label>
-          <select id="declare-instance" class="form-select" bind:value={target}>
-            {#each instances as instance (instance.id)}
-              <option value={instance.id}>{instance.name}</option>
-            {/each}
-          </select>
+    <!-- Sticky, as the settings save: one write for every pick, counted while it waits. -->
+    {#if changedFolders.length > 0}
+      <div class="save-bar" role="status">
+        <strong>{t('MappingsChanged', { count: changedFolders.length })}</strong>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-secondary" onclick={discardMappings}>
+            {t('DiscardChanges')}
+          </button>
+          <button
+            id="mappings-save"
+            type="button"
+            class="btn btn-primary"
+            onclick={() => void saveMappings()}
+          >
+            <Save size={16} aria-hidden="true" />
+            {savingMappings ? t('Saving') : t('SaveMappings')}
+          </button>
         </div>
-        <!-- A base width, so on a phone the path takes a line of its own rather
-             than folding its caption beside the instance picker. -->
-        <div class="form-group flex-fill-240">
-          <label class="form-label" for="declare-path">{t('DeclareDestination')}</label>
-          <input
-            id="declare-path"
-            class="form-input mono"
-            aria-describedby="declare-path-help"
-            bind:value={targetPath}
-            placeholder={t('DeclareDestinationPlaceholder')}
-          />
-        </div>
-        <button
-          class="btn btn-secondary"
-          type="submit"
-          disabled={!targetPath.trim() || !target || declaring}
-        >
-          {declaring ? t('Saving') : t('AddDestination')}
-        </button>
-      </form>
-      <p id="declare-path-help" class="text-muted text-sm mt-1">{t('DeclareDestinationHelp')}</p>
+      </div>
     {/if}
   </div>
 

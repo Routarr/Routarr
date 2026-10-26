@@ -146,6 +146,11 @@ CREATE TABLE anime_ids_refused (
     PRIMARY KEY (source, external_id)
 );
 
+-- The folder the last run sends each title to and its action, `move`, `none` or `skip`. Null
+-- until a run stores them.
+ALTER TABLE media_routing ADD COLUMN target_root_folder TEXT;
+ALTER TABLE media_routing ADD COLUMN action TEXT CHECK (action IN ('move', 'none', 'skip'));
+
 -- The library in title order, which its screen pages through.
 CREATE INDEX idx_media_title ON media (title, id);
 

@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { Film, Lock, Tv } from '../lib/icons';
+  import { ArrowRight, Ban, Check, Film, Lock, Tv } from '../lib/icons';
   import { api } from '../api/client';
-  import { mediaTypeKey } from '../api/format';
+  import { formatCount, mediaTypeKey } from '../api/format';
   import { createAsync } from '../lib/async.svelte';
   import { createExplainer } from '../lib/explain.svelte';
-  import { cut, t } from '../lib/i18n.svelte';
+  import { cut, i18n, t } from '../lib/i18n.svelte';
   import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -17,8 +17,9 @@
 
   let search = $state('');
   let mediaType = $state('');
-  let unmatched = $state(false);
-  const filtered = $derived(Boolean(search || mediaType || unmatched));
+  /** `move` and `skip` are the outcomes the server filters on, `unclassified` no rule matched. */
+  let outcome = $state<'' | 'move' | 'skip' | 'unclassified'>('');
+  const filtered = $derived(Boolean(search || mediaType || outcome));
   let page = $state(1);
 
   const library = createAsync(
@@ -27,21 +28,33 @@
         {
           search: search || undefined,
           media_type: mediaType || undefined,
-          unmatched: unmatched || undefined,
+          action: outcome === 'move' || outcome === 'skip' ? outcome : undefined,
+          unmatched: outcome === 'unclassified' || undefined,
           page,
           per_page: 50,
         },
         signal,
       ),
-    () => [search, mediaType, unmatched, page],
+    () => [search, mediaType, outcome, page],
   );
+  /** Of the whole library, whatever the filters: no genre or keyword rule can match these. */
+  const bare = createAsync((signal) => api.countLibrary({ without_metadata: true }, signal));
   const explainer = createExplainer();
+
+  function reload() {
+    void library.reload();
+    void bare.reload();
+  }
 
   const items = $derived(library.data?.data ?? []);
   const pagination = $derived(library.data?.pagination);
 
-  /** The year after the title as the language sets a note, its brackets muted with it. */
-  const yearNote = $derived(cut('WithNote', ['text', 'note']));
+  /**
+   * A value and its note as the language sets one, the note muted with its brackets: a title's
+   * year, and the word that says a category is forced.
+   */
+  const withNote = $derived(cut('WithNote', ['text', 'note']));
+  const movesTo = $derived(cut('LibraryMovesTo', ['folder']));
 </script>
 
 <div>
@@ -53,9 +66,12 @@
   </div>
 
   <ErrorBanner
-    message={library.error}
-    onDismiss={() => (library.error = null)}
-    onRetry={() => void library.reload()}
+    message={library.error ?? bare.error}
+    onDismiss={() => {
+      library.error = null;
+      bare.error = null;
+    }}
+    onRetry={reload}
   />
   <ErrorBanner message={explainer.failure} onDismiss={explainer.dismiss} />
 
@@ -80,17 +96,20 @@
       <option value="movie">{t('Movies')}</option>
       <option value="series">{t('Series')}</option>
     </select>
-    <label class="flex items-center gap-2 text-md">
-      <input
-        type="checkbox"
-        checked={unmatched}
-        onchange={(event) => {
-          page = 1;
-          unmatched = event.currentTarget.checked;
-        }}
-      />
-      {t('UnclassifiedOnly')}
-    </label>
+    <select
+      class="form-select"
+      aria-label={t('FilterByOutcome')}
+      value={outcome}
+      onchange={(event) => {
+        page = 1;
+        outcome = event.currentTarget.value as typeof outcome;
+      }}
+    >
+      <option value="">{t('AllOutcomes')}</option>
+      <option value="move">{t('OutcomeWillMove')}</option>
+      <option value="skip">{t('OutcomeNoFolder')}</option>
+      <option value="unclassified">{t('OutcomeUnclassified')}</option>
+    </select>
     <!-- Offered only while a filter is active: a button that does nothing is noise. -->
     {#if filtered}
       <button
@@ -99,10 +118,15 @@
         onclick={() => {
           search = '';
           mediaType = '';
-          unmatched = false;
+          outcome = '';
           page = 1;
         }}>{t('ClearFilters')}</button
       >
+    {/if}
+    {#if (bare.data ?? 0) > 0}
+      <span class="badge badge-warning">
+        {t('LibraryWithoutMetadata', { count: formatCount(bare.data ?? 0, i18n.language) })}
+      </span>
     {/if}
   </div>
 
@@ -110,21 +134,21 @@
     <TableRegion label={t('Library')}>
       <table>
         <caption class="visually-hidden">{t('Library')}</caption>
+        <!-- What the screen answers first: on a phone the secondary columns go. -->
         <thead>
           <tr>
             <th>{t('Title')}</th>
-            <th>{t('Instance')}</th>
-            <th>{t('CurrentRootFolder')}</th>
-            <th>{t('ProposedCategory')}</th>
-            <th>{t('Metadata')}</th>
+            <th>{t('LibraryRouting')}</th>
+            <th class="col-secondary">{t('CurrentRootFolder')}</th>
+            <th class="col-secondary">{t('Instance')}</th>
           </tr>
         </thead>
         <tbody>
           {#if library.loading && items.length === 0}
-            <TableSkeleton columns={5} />
+            <TableSkeleton columns={4} />
           {:else if items.length === 0 && !library.error}
             <tr>
-              <td colspan="5">
+              <td colspan="4">
                 <EmptyState>{t(filtered ? 'NoMediaMatchesFilters' : 'NoMediaMatches')}</EmptyState>
               </td>
             </tr>
@@ -144,7 +168,7 @@
                          rather than the edge of the room a title keeps. -->
                     <span class="cell-title">
                       {#if media.year}
-                        {@const [before, between, after] = yearNote}
+                        {@const [before, between, after] = withNote}
                         {before}<strong>{media.title}</strong><span class="text-muted"
                           >{between}{media.year}{after}</span
                         >
@@ -153,10 +177,46 @@
                       {/if}
                     </span>
                     <WhyButton {explainer} mediaId={media.id} title={media.title} />
+                    {#if !media.has_metadata}
+                      <!-- Missing it stops genre and keyword rules matching. -->
+                      <span class="badge badge-warning">{t('NoMetadata')}</span>
+                    {/if}
                   </div>
                 </td>
-                <td>{media.instance_name}</td>
-                <td class="mono text-sm">
+                <td>
+                  {#if media.override_category}
+                    {@const [before, between, after] = withNote}
+                    {before}<span class="badge badge-value"
+                      ><Lock size={11} aria-hidden="true" />{media.override_category}</span
+                    ><span class="text-muted text-sm"
+                      >{between}{t('LibraryExceptionNote')}{after}</span
+                    >
+                  {:else if media.computed_category}
+                    <span class="badge badge-value">{media.computed_category}</span>
+                  {:else}
+                    <!-- A pill either way: a pill beside grey prose reads as two kinds
+                         of data in one column. -->
+                    <span class="badge badge-value muted">{t('NotEvaluated')}</span>
+                  {/if}
+                  {#if media.action === 'move' && media.target_root_folder}
+                    {@const [before, after] = movesTo}
+                    <div class="routing-outcome flex items-center gap-1 mt-1 text-xs text-muted">
+                      <ArrowRight size={14} class="text-warning dir-aware" aria-hidden="true" />
+                      <span>{before}<bdi class="mono">{media.target_root_folder}</bdi>{after}</span>
+                    </div>
+                  {:else if media.action === 'none'}
+                    <div class="routing-outcome flex items-center gap-1 mt-1 text-xs text-muted">
+                      <Check size={14} class="text-success" aria-hidden="true" />
+                      <span>{t('LibraryStays')}</span>
+                    </div>
+                  {:else if media.action === 'skip'}
+                    <div class="routing-outcome flex items-center gap-1 mt-1 text-xs text-muted">
+                      <Ban size={14} class="text-danger" aria-hidden="true" />
+                      <span>{t('LibraryNoFolder')}</span>
+                    </div>
+                  {/if}
+                </td>
+                <td class="mono text-sm col-secondary">
                   <span class="cell-path">
                     {#if media.current_root_folder}
                       <bdi>{media.current_root_folder}</bdi>
@@ -165,28 +225,7 @@
                     {/if}
                   </span>
                 </td>
-                <td>
-                  {#if media.override_category}
-                    <span class="badge badge-value" title={t('ManualOverride')}>
-                      <Lock size={11} aria-hidden="true" />
-                      {media.override_category}
-                      <span class="visually-hidden">{t('ManualOverride')}</span>
-                    </span>
-                  {:else if media.computed_category}
-                    <span class="badge badge-value">{media.computed_category}</span>
-                  {:else}
-                    <!-- A pill either way: a pill beside grey prose reads as two kinds
-                         of data in one column. -->
-                    <span class="badge badge-value muted">{t('NotEvaluated')}</span>
-                  {/if}
-                </td>
-                <td>
-                  <!-- Having metadata is not an outcome, so it carries no status colour.
-                       Missing it stops genre and keyword rules matching: a warning. -->
-                  <span class="badge {media.has_metadata ? 'badge-value muted' : 'badge-warning'}">
-                    {t(media.has_metadata ? 'MetadataCached' : 'MetadataMissing')}
-                  </span>
-                </td>
+                <td class="col-secondary">{media.instance_name}</td>
               </tr>
             {/each}
           {/if}
@@ -198,10 +237,6 @@
   </div>
 
   {#if explainer.shown}
-    <ExplanationModal
-      data={explainer.shown}
-      onClose={explainer.close}
-      onChanged={() => void library.reload()}
-    />
+    <ExplanationModal data={explainer.shown} onClose={explainer.close} onChanged={reload} />
   {/if}
 </div>

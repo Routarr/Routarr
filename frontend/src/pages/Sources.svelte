@@ -2,7 +2,6 @@
   import SettingsEditor from '../components/SettingsEditor.svelte';
   import SourceCredits from '../components/SourceCredits.svelte';
   import SourceRefresh from '../components/SourceRefresh.svelte';
-  import AnimeIdsCard from '../components/AnimeIdsCard.svelte';
   import { t } from '../lib/i18n.svelte';
 </script>
 
@@ -16,15 +15,14 @@
 
   <SettingsEditor page="sources" />
 
-  <div class="card mt-4">
-    <SourceRefresh />
-  </div>
+  <!-- At the measure of the cards above, outside their form: these act at once. -->
+  <div class="settings-column">
+    <div class="card mt-4">
+      <SourceRefresh />
+    </div>
 
-  <div class="card mt-4">
-    <AnimeIdsCard />
-  </div>
-
-  <div class="card mt-4">
-    <SourceCredits />
+    <div class="card mt-4">
+      <SourceCredits />
+    </div>
   </div>
 </div>

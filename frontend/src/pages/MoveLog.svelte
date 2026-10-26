@@ -115,13 +115,14 @@
     <TableRegion label={t('MoveLog')}>
       <table>
         <caption class="visually-hidden">{t('MoveLog')}</caption>
+        <!-- The title and how its write went first: on a phone the other columns go. -->
         <thead>
           <tr>
-            <th>{t('When')}</th>
-            <th>{t('Action')}</th>
             <th>{t('Media')}</th>
-            <th>{t('Details')}</th>
             <th>{t('Outcome')}</th>
+            <th class="col-secondary">{t('When')}</th>
+            <th class="col-secondary">{t('Action')}</th>
+            <th class="col-secondary">{t('Details')}</th>
           </tr>
         </thead>
         <tbody>
@@ -132,7 +133,18 @@
           {:else}
             {#each entries as entry (entry.id)}
               <tr>
-                <td class="cell-timestamp" title={entry.executed_at}>
+                <td
+                  >{#if entry.media_title}{entry.media_title}{:else}<NoValue />{/if}</td
+                >
+                <td>
+                  <span class="badge {entry.success ? 'badge-success' : 'badge-danger'}">
+                    {t(entry.success ? 'StatusSuccess' : 'StatusFailed')}
+                  </span>
+                  {#if entry.error_message}
+                    <span class="status-reason text-danger">{entry.error_message}</span>
+                  {/if}
+                </td>
+                <td class="cell-timestamp col-secondary" title={entry.executed_at}>
                   {formatTimestamp(entry.executed_at, i18n.language)}
                   <!-- As History draws a decision: the trigger, then who asked,
                        which only a mode that vouches for a name can say. -->
@@ -149,25 +161,11 @@
                     >
                   {/if}
                 </td>
-                <td
+                <td class="col-secondary"
                   ><span class="badge badge-value muted">{t(LOG_ACTION_KEY[entry.action])}</span
                   ></td
                 >
-                <td
-                  >{#if entry.media_title}{entry.media_title}{:else}<NoValue />{/if}</td
-                >
-                <td class="mono text-sm">
-                  {#if entry.error_message}
-                    <span class="text-danger">{entry.error_message}</span>
-                  {:else}
-                    {entry.details}
-                  {/if}
-                </td>
-                <td>
-                  <span class="badge {entry.success ? 'badge-success' : 'badge-danger'}">
-                    {t(entry.success ? 'StatusSuccess' : 'StatusFailed')}
-                  </span>
-                </td>
+                <td class="mono text-sm col-secondary">{entry.details}</td>
               </tr>
             {/each}
           {/if}

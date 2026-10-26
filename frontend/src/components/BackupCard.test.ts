@@ -52,6 +52,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** The row's own menu, then the item named `action` in it. */
+async function pickFromRow(name: string, action: string) {
+  await userEvent.click(await screen.findByRole('button', { name: `Actions – ${name}` }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: action }));
+}
+
 const inMode = (mode: AuthMode['mode']) =>
   vi.spyOn(api, 'authMode').mockResolvedValue({
     mode,
@@ -64,6 +70,34 @@ const inMode = (mode: AuthMode['mode']) =>
  * takes one away, as before it makes a key, and saves it under its own name.
  */
 describe('downloading an archive', () => {
+  it('offers the download beside a menu that restores, and deletes as a danger last', async () => {
+    mount();
+
+    expect(await screen.findByRole('button', { name: `Download – ${FILE.name}` })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: `Restore – ${FILE.name}` })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: `Actions – ${FILE.name}` }));
+    const items = screen.getAllByRole('menuitem');
+    expect(items.map((item) => item.textContent?.trim())).toEqual(['Restore', 'Delete']);
+    expect(items[1]).toHaveClass('is-danger');
+  });
+
+  it('says the archive is downloading in its row until it is saved', async () => {
+    inMode('apikey');
+    let arrive = (_: Blob) => {};
+    vi.spyOn(api, 'downloadBackup').mockReturnValue(new Promise((resolve) => (arrive = resolve)));
+    captureDownloads();
+    mount();
+
+    await userEvent.click(await screen.findByRole('button', { name: `Download – ${FILE.name}` }));
+    await answerProof('the-key');
+
+    expect(await screen.findByText('Downloading…')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: `Download – ${FILE.name}` })).toBeNull();
+    arrive(new Blob(['zip']));
+    expect(await screen.findByRole('button', { name: `Download – ${FILE.name}` })).toBeTruthy();
+    expect(screen.queryByText('Downloading…')).toBeNull();
+  });
+
   it('sends the proof and saves the archive of its row under its name', async () => {
     inMode('forms');
     const archive = new Blob(['zip']);
@@ -209,7 +243,7 @@ describe('restoring a backup', () => {
     vi.spyOn(api, 'restoreBackup').mockResolvedValue(result(true));
     const outcome = mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await pickFromRow(FILE.name, 'Restore');
     await answerConfirmation();
 
     await waitFor(() =>
@@ -221,7 +255,7 @@ describe('restoring a backup', () => {
     vi.spyOn(api, 'restoreBackup').mockResolvedValue(result(false));
     const outcome = mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await pickFromRow(FILE.name, 'Restore');
     await answerConfirmation();
 
     await waitFor(() =>
@@ -237,7 +271,7 @@ describe('restoring a backup', () => {
     const outcome = mount();
     outcome.succeed('Settings saved.');
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await pickFromRow(FILE.name, 'Restore');
     await answerConfirmation(null);
 
     expect(restore).not.toHaveBeenCalled();
@@ -253,7 +287,7 @@ describe('restoring a backup', () => {
       .mockResolvedValue(result(true));
     const outcome = mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await pickFromRow(FILE.name, 'Restore');
     await answerConfirmation();
     expect(await answerProof('the wrong one')).toEqual({ asked: 'passphrase', note: undefined });
     expect(await answerProof('the right one')).toEqual({
@@ -277,7 +311,7 @@ describe('restoring a backup', () => {
       .mockRejectedValue(new ApiError('This archive is encrypted.', 400, 'passphrase_required'));
     const outcome = mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await pickFromRow(FILE.name, 'Restore');
     await answerConfirmation();
     await answerProof(null);
 
@@ -358,7 +392,7 @@ describe('deleting a backup', () => {
   it('deletes nothing when the deletion is cancelled', async () => {
     mountTwo(new Promise(() => {}));
 
-    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await pickFromRow(FILE.name, 'Delete');
     await answerConfirmation(null);
 
     expect(api.deleteBackup).not.toHaveBeenCalled();
@@ -367,7 +401,7 @@ describe('deleting a backup', () => {
   it('deletes the archive whose row was used', async () => {
     mountTwo(new Promise(() => {}));
 
-    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${OLDER.name}` }));
+    await pickFromRow(OLDER.name, 'Delete');
     await answerConfirmation();
 
     expect(api.deleteBackup).toHaveBeenCalledExactlyOnceWith(OLDER.name);
@@ -376,11 +410,11 @@ describe('deleting a backup', () => {
   it('keeps the list on screen while it reloads', async () => {
     const list = mountTwo(new Promise(() => {}));
 
-    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await pickFromRow(FILE.name, 'Delete');
     await answerConfirmation();
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
-    expect(screen.getByRole('button', { name: `Delete – ${OLDER.name}` })).toBeTruthy();
+    expect(screen.getByText(OLDER.name)).toBeTruthy();
   });
 
   it('hands the focus to the archive that took the place of the deleted one', async () => {
@@ -388,12 +422,12 @@ describe('deleting a backup', () => {
       Promise.resolve({ backups: [OLDER], retention_count: 7, copy: null, ...NOTHING_STAGED }),
     );
 
-    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await pickFromRow(FILE.name, 'Delete');
     await answerConfirmation();
 
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole('button', { name: `Delete – ${OLDER.name}` }),
+        screen.getByRole('button', { name: `Actions – ${OLDER.name}` }),
       ),
     );
   });
@@ -405,7 +439,7 @@ describe('deleting a backup', () => {
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() } });
 
-    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await pickFromRow(FILE.name, 'Delete');
     await answerConfirmation();
 
     await waitFor(() =>
@@ -517,7 +551,7 @@ describe('the copy folder', () => {
     vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
     mountWith(COPY);
 
-    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await pickFromRow(FILE.name, 'Delete');
     const asked = await answerConfirmation(null);
 
     expect(asked).toBe(

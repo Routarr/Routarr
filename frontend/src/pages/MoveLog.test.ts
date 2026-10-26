@@ -57,22 +57,29 @@ describe('Move log', () => {
 
     const manual = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
     expect(within(manual).getByText('Manual')).toBeTruthy();
-    expect(within(manual).getByText('alice')).toBeTruthy();
-    expect(within(manual).getAllByRole('cell')[0]).toHaveTextContent(
+    expect(within(manual).getByText('alice').closest('td')).toHaveTextContent(
       /Triggered by\s*Manual.*Performed by\s*alice/,
     );
     const scheduled = screen.getByText('Totoro').closest('tr') as HTMLElement;
     expect(within(scheduled).getByText('Schedule')).toBeTruthy();
   });
 
-  it('shows the reason a write failed, not only that it failed', async () => {
+  /** Beside the outcome, which a phone keeps in view with the title. */
+  it('shows the reason a write failed under its outcome, after the title', async () => {
     vi.spyOn(api, 'getMoveLog').mockResolvedValue(
       paginated([entry({ success: false, error_message: 'Radarr said 409' })]),
     );
     show();
 
-    expect(await screen.findByText('Radarr said 409')).toBeTruthy();
-    expect(screen.getByText('Failed')).toBeTruthy();
+    const reason = await screen.findByText('Radarr said 409');
+    expect(reason.closest('td')).toBe(screen.getByText('Failed').closest('td'));
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
+      'Media',
+      'Outcome',
+      'When',
+      'Action',
+      'Details',
+    ]);
   });
 
   /**

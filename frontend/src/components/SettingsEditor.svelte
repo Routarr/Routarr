@@ -23,8 +23,9 @@
     type Field,
   } from '../lib/settings';
   import FileButton from '../components/FileButton.svelte';
+  import AnimeIdsCard from '../components/AnimeIdsCard.svelte';
   import BackupCard from '../components/BackupCard.svelte';
-  import BackupEncryptionCard from '../components/BackupEncryptionCard.svelte';
+  import BackupEncryption from '../components/BackupEncryption.svelte';
   import AccountCard from '../components/AccountCard.svelte';
   import SessionsCard from '../components/SessionsCard.svelte';
   import NotificationTest from '../components/NotificationTest.svelte';
@@ -238,16 +239,27 @@
 
   const active = $derived(sections.find((entry) => entry.id === section) ?? first);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
+  /** The backup schedule, drawn in the card of the backups it takes. */
+  const SCHEDULE = ['backup_enabled', 'backup_interval_hours', 'backup_retention_count'];
+  /** The title of a section's own card where it says more than the tab's name. */
+  const OWN_TITLE: Partial<Record<SectionId, string>> = {
+    metadata: 'SettingsMetadataCoverage',
+    maintenance: 'Retention',
+  };
+
   /**
-   * Drawn by the metadata section itself, not the field loop: each credential in its source's
-   * row, and the source list as a subject of its own. Both stay in `SECTIONS`, which the payload
-   * and the "every field exactly once" check read.
+   * Drawn outside the field loop: each credential in its source's row, the source list as a
+   * subject of its own, the weekly download and the backup schedule in the cards they govern. All
+   * stay in `SECTIONS`, which the payload and the "every field exactly once" check read.
    */
   const SELF_RENDERED = new Set([
     ...Object.values(SOURCE_KEY_SETTING),
     ...Object.values(SOURCE_EXTRA_SETTINGS).flat(),
     'metadata_providers',
+    'anime_ids_weekly',
+    ...SCHEDULE,
   ]);
+  const fieldOf = (key: string) => FIELDS.find((field) => field.key === key);
 
   /**
    * The sealed fields, where blank leaves the stored value alone: the backend never returns
@@ -458,6 +470,122 @@
   }
 </script>
 
+{#snippet fieldRow(field: Field)}
+  <div class="form-group">
+    <label class="form-label" for="setting-{field.key}">{t(field.labelKey)}</label>
+
+    {#if field.kind === 'bool'}
+      <select
+        id="setting-{field.key}"
+        aria-describedby="setting-{field.key}-help"
+        class="form-select"
+        value={draft[field.key] ?? field.fallback}
+        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+      >
+        <!-- Keys of their own: a setting's state agrees otherwise than a rule's or an
+               instance's badge, in French and Italian among others. -->
+        <option value="true">{t('SettingOn')}</option>
+        <option value="false">{t('SettingOff')}</option>
+      </select>
+    {:else if field.kind === 'language'}
+      <select
+        id="setting-{field.key}"
+        aria-describedby="setting-{field.key}-help"
+        class="form-select"
+        value={draft[field.key] ?? field.fallback}
+        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+      >
+        {#each languages as language (language.code)}
+          <!-- Each name is its language's own, read in it. -->
+          <option value={language.code} lang={bcp47(language.code)}>
+            {language.completion >= 100
+              ? language.name
+              : t('WithNote', {
+                  text: language.name,
+                  note: formatPercent(language.completion / 100, i18n.language),
+                })}
+          </option>
+        {/each}
+      </select>
+    {:else if field.kind === 'choice'}
+      <select
+        id="setting-{field.key}"
+        aria-describedby="setting-{field.key}-help"
+        class="form-select"
+        value={draft[field.key] ?? field.fallback}
+        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+      >
+        {#each field.choices ?? [] as choice (choice.value)}
+          <option value={choice.value}>
+            {'name' in choice ? choice.name : t(choice.labelKey)}
+          </option>
+        {/each}
+      </select>
+    {:else if field.kind === 'category'}
+      <select
+        id="setting-{field.key}"
+        aria-describedby="setting-{field.key}-help"
+        class="form-select"
+        value={draft[field.key] ?? field.fallback}
+        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+      >
+        {#each categories as category (category.id)}
+          <option value={category.name}>{category.name}</option>
+        {/each}
+      </select>
+    {:else if field.kind === 'secret'}
+      <!-- Empty on every load, as the server never returns it: the placeholder says
+             whether a value is stored, and only Remove clears one. -->
+      <div class="flex gap-2">
+        <input
+          id="setting-{field.key}"
+          aria-describedby="setting-{field.key}-help"
+          type="password"
+          autocomplete="off"
+          class="form-input"
+          placeholder={removing.has(field.key)
+            ? t('SecretRemovedOnSave')
+            : stored.has(field.key)
+              ? t('SecretStoredPlaceholder')
+              : undefined}
+          value={draft[field.key] ?? ''}
+          oninput={(event) => (draft[field.key] = event.currentTarget.value)}
+        />
+        {#if stored.has(field.key) && !removing.has(field.key)}
+          <button
+            type="button"
+            class="btn btn-secondary"
+            aria-label="{t('Remove')} – {t(field.labelKey)}"
+            onclick={() => remove(field)}
+          >
+            {t('Remove')}
+          </button>
+        {/if}
+      </div>
+    {:else}
+      {@const outside = outOfRange(field)}
+      <input
+        id="setting-{field.key}"
+        aria-describedby="setting-{field.key}-help{outside ? ` setting-${field.key}-range` : ''}"
+        type={field.kind === 'number' ? 'number' : 'text'}
+        min={field.range?.[0]}
+        max={field.range?.[1]}
+        aria-invalid={outside ? 'true' : undefined}
+        class="form-input"
+        value={draft[field.key] ?? field.fallback}
+        oninput={(event) => (draft[field.key] = event.currentTarget.value)}
+      />
+      {#if outside && field.range}
+        <p id="setting-{field.key}-range" class="field-error">{bounds(field.range)}</p>
+      {/if}
+    {/if}
+
+    <p id="setting-{field.key}-help" class="text-muted text-sm mt-1">
+      {t(field.helpKey)}
+    </p>
+  </div>
+{/snippet}
+
 <!-- Above the placeholder, so an action's outcome is said in the region that
      was there before the reload it starts. -->
 <OutcomeBanner {outcome} />
@@ -577,19 +705,31 @@
         <SessionsCard {outcome} />
       {/if}
 
+      <!-- Outside the form, which its passphrase form cannot nest in. Its schedule is the form's
+           all the same, saved by the bar below every card. -->
       {#if section === 'maintenance'}
-        <BackupEncryptionCard
-          {outcome}
-          configured={bundle.data?.sealed.includes('backup_passphrase') ?? false}
-        />
-        <BackupCard {outcome} />
+        <BackupCard {outcome}>
+          {#snippet schedule()}
+            {#each SCHEDULE as key (key)}
+              {@const field = fieldOf(key)}
+              {#if field}{@render fieldRow(field)}{/if}
+            {/each}
+          {/snippet}
+          {#snippet encryption()}
+            <BackupEncryption
+              {outcome}
+              configured={bundle.data?.sealed.includes('backup_passphrase') ?? false}
+            />
+          {/snippet}
+        </BackupCard>
       {/if}
 
-      <form novalidate onsubmit={save}>
+      <form id="settings-form" novalidate onsubmit={save}>
         <!-- The source list is a subject, not a field: in a card of its own, its sentence sits
                above the rows it governs, with no field caption to compete with the title. -->
         {#if section === 'metadata'}
-          {@const sources = FIELDS.find((field) => field.key === 'metadata_providers')}
+          {@const sources = fieldOf('metadata_providers')}
+          {@const weekly = fieldOf('anime_ids_weekly')}
           {#if sources}
             <div class="card">
               <div class="card-header">
@@ -614,137 +754,50 @@
               />
             </div>
           {/if}
+          <!-- The weekly download in the card of the table it loads, saved by the bar. -->
+          <div class="card">
+            <AnimeIdsCard>
+              {#snippet setting()}
+                {#if weekly}{@render fieldRow(weekly)}{/if}
+              {/snippet}
+            </AnimeIdsCard>
+          </div>
         {/if}
 
         <div class="card">
           <div class="card-header">
             <CardTitle card={section === 'metadata' ? 'SettingsMetadataCoverage' : active.labelKey}>
-              {t(section === 'metadata' ? 'SettingsMetadataCoverage' : active.labelKey)}
+              {t(OWN_TITLE[section] ?? active.labelKey)}
             </CardTitle>
           </div>
 
           <!-- The source list draws the metadata credentials, each in the row of the source it
                unlocks, so turning a source on takes one place and one save. -->
           {#each FIELDS.filter((field) => (active.keys as readonly string[]).includes(field.key) && !SELF_RENDERED.has(field.key)) as field (field.key)}
-            <div class="form-group">
-              <label class="form-label" for="setting-{field.key}">{t(field.labelKey)}</label>
-
-              {#if field.kind === 'bool'}
-                <select
-                  id="setting-{field.key}"
-                  aria-describedby="setting-{field.key}-help"
-                  class="form-select"
-                  value={draft[field.key] ?? field.fallback}
-                  onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-                >
-                  <!-- Keys of their own: a setting's state agrees otherwise than a rule's or an
-                         instance's badge, in French and Italian among others. -->
-                  <option value="true">{t('SettingOn')}</option>
-                  <option value="false">{t('SettingOff')}</option>
-                </select>
-              {:else if field.kind === 'language'}
-                <select
-                  id="setting-{field.key}"
-                  aria-describedby="setting-{field.key}-help"
-                  class="form-select"
-                  value={draft[field.key] ?? field.fallback}
-                  onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-                >
-                  {#each languages as language (language.code)}
-                    <!-- Each name is its language's own, read in it. -->
-                    <option value={language.code} lang={bcp47(language.code)}>
-                      {language.completion >= 100
-                        ? language.name
-                        : t('WithNote', {
-                            text: language.name,
-                            note: formatPercent(language.completion / 100, i18n.language),
-                          })}
-                    </option>
-                  {/each}
-                </select>
-              {:else if field.kind === 'choice'}
-                <select
-                  id="setting-{field.key}"
-                  aria-describedby="setting-{field.key}-help"
-                  class="form-select"
-                  value={draft[field.key] ?? field.fallback}
-                  onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-                >
-                  {#each field.choices ?? [] as choice (choice.value)}
-                    <option value={choice.value}>
-                      {'name' in choice ? choice.name : t(choice.labelKey)}
-                    </option>
-                  {/each}
-                </select>
-              {:else if field.kind === 'category'}
-                <select
-                  id="setting-{field.key}"
-                  aria-describedby="setting-{field.key}-help"
-                  class="form-select"
-                  value={draft[field.key] ?? field.fallback}
-                  onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-                >
-                  {#each categories as category (category.id)}
-                    <option value={category.name}>{category.name}</option>
-                  {/each}
-                </select>
-              {:else if field.kind === 'secret'}
-                <!-- Empty on every load, as the server never returns it: the placeholder says
-                       whether a value is stored, and only Remove clears one. -->
-                <div class="flex gap-2">
-                  <input
-                    id="setting-{field.key}"
-                    aria-describedby="setting-{field.key}-help"
-                    type="password"
-                    autocomplete="off"
-                    class="form-input"
-                    placeholder={removing.has(field.key)
-                      ? t('SecretRemovedOnSave')
-                      : stored.has(field.key)
-                        ? t('SecretStoredPlaceholder')
-                        : undefined}
-                    value={draft[field.key] ?? ''}
-                    oninput={(event) => (draft[field.key] = event.currentTarget.value)}
-                  />
-                  {#if stored.has(field.key) && !removing.has(field.key)}
-                    <button
-                      type="button"
-                      class="btn btn-secondary"
-                      aria-label="{t('Remove')} – {t(field.labelKey)}"
-                      onclick={() => remove(field)}
-                    >
-                      {t('Remove')}
-                    </button>
-                  {/if}
-                </div>
-              {:else}
-                {@const outside = outOfRange(field)}
-                <input
-                  id="setting-{field.key}"
-                  aria-describedby="setting-{field.key}-help{outside
-                    ? ` setting-${field.key}-range`
-                    : ''}"
-                  type={field.kind === 'number' ? 'number' : 'text'}
-                  min={field.range?.[0]}
-                  max={field.range?.[1]}
-                  aria-invalid={outside ? 'true' : undefined}
-                  class="form-input"
-                  value={draft[field.key] ?? field.fallback}
-                  oninput={(event) => (draft[field.key] = event.currentTarget.value)}
-                />
-                {#if outside && field.range}
-                  <p id="setting-{field.key}-range" class="field-error">{bounds(field.range)}</p>
-                {/if}
-              {/if}
-
-              <p id="setting-{field.key}-help" class="text-muted text-sm mt-1">
-                {t(field.helpKey)}
-              </p>
-            </div>
+            {@render fieldRow(field)}
           {/each}
 
           {#if section === 'maintenance'}
-            <div class="flex flex-wrap gap-2 mt-4">
+            <!-- Deletes what the fields above let go: asked first, drawn as a deletion. -->
+            <button type="button" class="btn btn-danger mt-2" onclick={purge}>
+              <Trash2 size={16} />
+              {t('PurgeNow')}
+            </button>
+          {/if}
+
+          {#if section === 'security'}
+            <p class="text-muted text-sm mt-3">
+              <a class="text-link" href={href('/security-log')}>{t('OpenSecurityLog')}</a>
+            </p>
+          {/if}
+        </div>
+
+        {#if section === 'maintenance'}
+          <div class="card">
+            <div class="card-header">
+              <CardTitle card="ConfigurationFile">{t('ConfigurationFile')}</CardTitle>
+            </div>
+            <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary" onclick={() => void exportConfig()}>
                 <Download size={16} />
                 {t('ExportConfig')}
@@ -754,54 +807,12 @@
                 accept="application/json"
                 onFile={(file) => void importConfig(file)}
               />
-              <button type="button" class="btn btn-secondary" onclick={purge}>
-                <Trash2 size={16} />
-                {t('PurgeNow')}
-              </button>
             </div>
             <p class="text-muted text-sm mt-3">
               {t('BackupCopyHint')}
             </p>
-          {/if}
-
-          {#if section === 'security'}
-            <p class="text-muted text-sm mt-3">
-              <a class="text-link" href={href('/security-log')}>{t('OpenSecurityLog')}</a>
-            </p>
-          {/if}
-
-          <!-- Sticky, with a count and its scope: a Save inside the open section saves every
-               section of the screen, which nothing else on it says. -->
-          {#if changed.length > 0}
-            <div class="save-bar" role="status">
-              <div>
-                <strong>{t('UnsavedChanges', { count: changed.length })}</strong>
-                {#if tabbed}
-                  <div class="save-bar-scope">{t('SavesEverySection')}</div>
-                {/if}
-                {#if invalid.length > 0}
-                  <div class="field-error" id="settings-save-held">{t('SaveHeldInvalid')}</div>
-                {/if}
-              </div>
-              <div class="flex gap-2">
-                <button type="button" class="btn btn-secondary" onclick={discard}>
-                  {t('DiscardChanges')}
-                </button>
-                <!-- Held while the settings could not be read: the draft may then hold values
-                       the server does not store. -->
-                <button
-                  type="submit"
-                  class="btn btn-primary"
-                  aria-describedby={invalid.length > 0 ? 'settings-save-held' : undefined}
-                  disabled={invalid.length > 0 || bundle.error !== null}
-                >
-                  <Save size={16} />
-                  {saving ? t('Saving') : t('Save')}
-                </button>
-              </div>
-            </div>
-          {/if}
-        </div>
+          </div>
+        {/if}
       </form>
 
       <!-- Below the language and the theme, which a visit here is likeliest to want. -->
@@ -822,6 +833,41 @@
       {#if section === 'notifications'}
         <NotificationTest {outcome} />
         <WebhookSigning {outcome} />
+      {/if}
+
+      <!-- Sticky below every card of the section, those outside the form included, with a count
+           and its scope: Save writes every section of the screen, which nothing else says. -->
+      {#if changed.length > 0}
+        <div class="save-bar" role="status">
+          <div>
+            <strong>{t('UnsavedChanges', { count: changed.length })}</strong>
+            {#if tabbed}
+              <div class="save-bar-scope">{t('SavesEverySection')}</div>
+            {:else if page === 'sources'}
+              <div class="save-bar-scope">{t('SavesSourceSettings')}</div>
+            {/if}
+            {#if invalid.length > 0}
+              <div class="field-error" id="settings-save-held">{t('SaveHeldInvalid')}</div>
+            {/if}
+          </div>
+          <div class="flex gap-2">
+            <button type="button" class="btn btn-secondary" onclick={discard}>
+              {t('DiscardChanges')}
+            </button>
+            <!-- Held while the settings could not be read: the draft may then hold values
+                   the server does not store. -->
+            <button
+              type="submit"
+              form="settings-form"
+              class="btn btn-primary"
+              aria-describedby={invalid.length > 0 ? 'settings-save-held' : undefined}
+              disabled={invalid.length > 0 || bundle.error !== null}
+            >
+              <Save size={16} />
+              {saving ? t('Saving') : t('Save')}
+            </button>
+          </div>
+        </div>
       {/if}
     </div>
   </div>

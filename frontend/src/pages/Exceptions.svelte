@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Search, Trash2 } from '../lib/icons';
+  import { Check, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, MediaListItem } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
@@ -96,8 +96,7 @@
   let finding: AbortController | null = null;
   $effect(() => () => finding?.abort());
 
-  async function find(event: SubmitEvent) {
-    event.preventDefault();
+  async function find() {
     dialogError = null;
     finding?.abort();
     const mine = (finding = new AbortController());
@@ -115,6 +114,13 @@
     } catch (err) {
       if (!mine.signal.aborted) dialogError = describeError(err);
     }
+  }
+
+  /** Starts the category on the one the title goes to now, so the one chosen reads as a change. */
+  function pick(media: MediaListItem) {
+    selected = media;
+    const now = media.override_category ?? media.computed_category;
+    chosenCategory = categories.some((option) => option.name === now) ? now : null;
   }
 
   let saving = $state(false);
@@ -254,18 +260,14 @@
     >
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
 
-      <form novalidate class="flex gap-2" onsubmit={find}>
-        <SearchField
-          id="overrides-search"
-          bind:value={search}
-          placeholder={t('SearchLibrary')}
-          label={t('SearchLibrary')}
-        />
-        <button class="btn btn-secondary" type="submit">
-          <Search size={16} />
-          {t('Search')}
-        </button>
-      </form>
+      <SearchField
+        id="overrides-search"
+        bind:value={search}
+        placeholder={t('SearchLibrary')}
+        label={t('SearchLibrary')}
+        oninput={() => void find()}
+        debounce={200}
+      />
 
       <!-- Mounted before the first search, so what each one finds is announced:
            a table drawn under the field says nothing to a screen reader. -->
@@ -305,10 +307,16 @@
                       class="row-pick"
                       aria-label="{t('SelectItem')} – {media.title}"
                       aria-pressed={selected?.id === media.id}
-                      onclick={() => (selected = media)}
+                      onclick={() => pick(media)}
                     >
                       <strong>{media.title}</strong>
                       <span class="text-muted">{media.year ?? ''}</span>
+                      {#if selected?.id === media.id}
+                        <span class="badge badge-info">
+                          <Check size={12} aria-hidden="true" />
+                          {t('PickSelected')}
+                        </span>
+                      {/if}
                     </button>
                   </td>
                   <td class="text-muted">{media.instance_name}</td>

@@ -4,7 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { instance } from '../test/fixtures';
+import { health, healthInstance, instance } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { WebhookCheck } from '../api/types';
 import { statusRevision } from '../lib/status.svelte';
@@ -30,8 +30,21 @@ const readOf = (over: Partial<WebhookCheck> = {}): WebhookCheck => ({
 });
 const MISSES_RENAME = 'The webhook in Radarr leaves On Rename unticked.';
 
+/** Each instance answering, as `/health` says once it probed. */
+const answering = (list: ReturnType<typeof instance>[]) =>
+  health({
+    instances: list.map((each) =>
+      healthInstance({
+        id: each.id,
+        name: each.name,
+        status: each.enabled ? 'connected' : 'disabled',
+      }),
+    ),
+  });
+
 const show = (list: ReturnType<typeof instance>[]) => {
   vi.spyOn(api, 'getInstances').mockResolvedValue(list);
+  vi.spyOn(api, 'getHealth').mockResolvedValue(answering(list));
   return renderWithI18n(Instances);
 };
 
@@ -165,21 +178,105 @@ describe('Instances', () => {
     expect(sync.title).toBe("Instance 'Radarr' is disabled. Enable it to sync it.");
   });
 
-  /** The badge's word on screen, the whole fact to a screen reader, which reads no title. */
-  it('says the key is sealed without showing any of it', async () => {
+  /** Every stored key is sealed, said once in the subtitle: a column would repeat a constant. */
+  it('names what each instance runs under its name, with no column for its type or key', async () => {
     show([instance({ api_key_masked: 'abc•••••xyz' })]);
 
-    const badge = (await screen.findByText('Encrypted')).closest('.badge') as HTMLElement;
-    expect(badge).toHaveTextContent('Encrypted at rest');
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent(/^Radarr\s*Radarr \(Movies\)$/);
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual(
+      ['Name', 'Status', 'Base URL', 'Last sync', 'Last webhook', 'Actions'],
+    );
+    expect(screen.queryByText('Encrypted')).toBeNull();
     expect(screen.queryByText('abc•••••xyz')).toBeNull();
   });
 
-  it('states encryption as a fact rather than as a success', async () => {
+  /** The list answers at once, the probe after a connect timeout on an Arr that is down. */
+  it('says it checks whether each instance answers until the probe says', async () => {
+    let probed = (_: unknown) => {};
+    vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
+    vi.spyOn(api, 'getHealth').mockReturnValue(
+      new Promise((resolve) => (probed = resolve as (value: unknown) => void)),
+    );
+    renderWithI18n(Instances);
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    await waitFor(() => expect(row).toHaveTextContent('Checking…'));
+    probed(
+      health({
+        instances: [
+          healthInstance({ status: 'error: refused', detail: 'Nothing answers at the address' }),
+        ],
+      }),
+    );
+
+    expect(await within(row).findByText('Error')).toHaveClass('badge-danger');
+    expect(row).toHaveTextContent('Nothing answers at the address');
+  });
+
+  /** A probe asks every Arr and source again, OMDb's daily quota included. */
+  it('reads its instances again every minute without probing them', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      show([instance()]);
+      expect(await screen.findByText('Connected')).toBeTruthy();
+      const opened = vi.mocked(api.getHealth).mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(vi.mocked(api.getInstances).mock.calls.length).toBeGreaterThan(1);
+      const polled = vi.mocked(api.getHealth).mock.calls.slice(opened);
+      expect(polled.every(([options]) => options?.probe === false)).toBe(true);
+      expect(screen.getByText('Connected')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** A verdict on the address the probe tried says nothing of the one saved since. */
+  it('forgets what the probe found of an instance once it is saved, probing nothing', async () => {
+    vi.spyOn(api, 'updateInstance').mockResolvedValue(
+      instance({ last_sync_at: '2026-08-27 10:05:00' }),
+    );
+    show([instance()]);
+    expect(await screen.findByText('Connected')).toBeTruthy();
+    const opened = vi.mocked(api.getHealth).mock.calls.length;
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr' }));
+    const url = await screen.findByLabelText('Base URL');
+    await fireEvent.input(url, { target: { value: 'http://nas:7878' } });
+    await fireEvent.submit(url.closest('form') as HTMLFormElement);
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    await waitFor(() => expect(within(row).getByText('Unknown')).toBeTruthy());
+    expect(vi.mocked(api.getHealth).mock.calls.slice(opened)).toEqual([]);
+  });
+
+  it('edits from a pencil named by its action and its instance', async () => {
     show([instance()]);
 
-    const badge = (await screen.findByText('Encrypted')).closest('.badge') as HTMLElement;
-    expect(badge.className).toContain('badge-value');
-    expect(badge.className).not.toContain('badge-success');
+    const edit = await screen.findByRole('button', { name: 'Edit – Radarr' });
+    expect(edit).toHaveTextContent(/^$/);
+    expect(edit).toHaveAttribute('title', 'Edit');
+    expect(edit.querySelector('svg')).toBeTruthy();
+  });
+
+  it('offers to set a webhook up from its row, opening the editor on its steps', async () => {
+    show([
+      instance({
+        webhook_path: '/api/v1/webhook/i1',
+        webhook_url: '/api/v1/webhook/i1/tok',
+        webhook_token: 'tok',
+        webhook_check: readOf({ state: 'absent' }),
+      }),
+    ]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Set up – Radarr' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit instance' });
+    const webhook = within(dialog).getByText('Webhook', { selector: 'summary *' });
+    expect((webhook.closest('details') as HTMLDetailsElement).open).toBe(true);
+    expect(within(dialog).getByLabelText('Webhook URL')).toBeVisible();
   });
 
   /** Pre-filled with a mask, the form would save the mask as the key. */
@@ -495,9 +592,6 @@ describe('Instances', () => {
       within(dialog).getByText('The webhook in Radarr sends every event Routarr acts on.'),
     ).toBeTruthy();
     expect(within(dialog).getByText('Checked 1 minute ago.')).toBeTruthy();
-    expect(within(dialog).getByLabelText('Webhook URL')).toHaveAccessibleDescription(
-      /Tick On File Import, On Rename, On Movie Added, On Movie Delete, On Movie File Delete\./,
-    );
 
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connectivity' }));
     await waitFor(() => expect(tried).toHaveBeenCalledTimes(1));
@@ -506,6 +600,107 @@ describe('Instances', () => {
     expect(
       within(dialog).queryByText('The webhook in Radarr sends every event Routarr acts on.'),
     ).toBeNull();
+  });
+
+  /** The switches used often above a set-up done once, each group under its name. */
+  it('groups the editor as its connection, its behaviour, then its webhook', async () => {
+    show([
+      instance({
+        webhook_path: '/api/v1/webhook/i1',
+        webhook_url: '/api/v1/webhook/i1/tok',
+        webhook_token: 'tok',
+      }),
+    ]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+
+    const dialog = await screen.findByRole('dialog');
+    const connection = within(dialog).getByRole('group', { name: 'Connection' });
+    expect(within(connection).getByLabelText('Base URL')).toBeTruthy();
+    expect(within(connection).getByLabelText('API key')).toBeTruthy();
+    expect(within(connection).getByRole('button', { name: 'Test connectivity' })).toBeTruthy();
+    const behaviour = within(dialog).getByRole('group', { name: 'Behaviour' });
+    expect(within(behaviour).getByLabelText('Enabled (synced and routed)')).toBeTruthy();
+    expect(within(behaviour).getByLabelText('Automatic application')).toBeTruthy();
+    expect(within(behaviour).getByLabelText('Sync every (min)')).toBeTruthy();
+    const webhook = within(dialog).getByText('Webhook', { selector: 'summary *' });
+    const after = (first: Node, second: Node) =>
+      Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(after(connection, behaviour) && after(behaviour, webhook)).toBe(true);
+    const footer = dialog.querySelector('.dialog-actions') as HTMLElement;
+    expect(
+      within(footer)
+        .getAllByRole('button')
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(['Cancel', 'Save']);
+  });
+
+  it('has no webhook part before the instance is saved', async () => {
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add instance' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('group', { name: 'Connection' })).toBeTruthy();
+    expect(within(dialog).queryByText('Webhook', { selector: 'summary *' })).toBeNull();
+  });
+
+  /** A webhook that works is set up once, so its steps fold away under the state they reached. */
+  it.each([
+    ['works', { webhook_check: readOf() }, false, 'Working'],
+    ['delivered', { last_webhook_at: new Date().toISOString() }, false, 'Working'],
+    ['is missing', { webhook_check: readOf({ state: 'absent' }) }, true, 'Not set up'],
+    [
+      'needs a fix',
+      { webhook_check: readOf({ state: 'misconfigured', problems: [MISSES_RENAME] }) },
+      true,
+      'Needs a fix',
+    ],
+  ])(
+    'opens the webhook part by itself only while it is not working: one that %s',
+    async (_, over, open, state) => {
+      show([
+        instance({
+          webhook_path: '/api/v1/webhook/i1',
+          webhook_url: '/api/v1/webhook/i1/tok',
+          webhook_token: 'tok',
+          ...over,
+        }),
+      ]);
+
+      await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+
+      const dialog = await screen.findByRole('dialog');
+      const summary = within(dialog)
+        .getByText('Webhook', { selector: 'summary *' })
+        .closest('summary') as HTMLElement;
+      expect((summary.closest('details') as HTMLDetailsElement).open).toBe(open);
+      expect(summary).toHaveTextContent(state);
+    },
+  );
+
+  it('sets the webhook up in numbered steps, the events named as the Arr shows them', async () => {
+    show([
+      instance({
+        webhook_path: '/api/v1/webhook/i1',
+        webhook_url: '/api/v1/webhook/i1/tok',
+        webhook_token: 'tok',
+      }),
+    ]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+
+    const dialog = await screen.findByRole('dialog');
+    const steps = within(within(dialog).getByRole('list')).getAllByRole('listitem');
+    expect(steps.map((step) => step.textContent?.trim().split('.')[0])).toEqual([
+      'In Radarr, open Settings → Connect, press + and choose Webhook',
+      'Paste this address as its URL',
+      'Turn on Show Advanced, then under Headers add X-Routarr-Token with this token',
+      'Tick On File Import, On Rename, On Movie Added, On Movie Delete, On Movie File Delete',
+      'Save, then press Test in Radarr',
+    ]);
+    expect(within(steps[1]!).getByLabelText('Webhook URL')).toBeTruthy();
+    expect(within(steps[2]!).getByLabelText('Token for the X-Routarr-Token header')).toBeTruthy();
   });
 
   it.each(['Edit – Radarr', 'Add instance'])(
@@ -1208,18 +1403,25 @@ it('says from the row how many root folders the Arr cannot reach now', async () 
 /** Every action on an instance writes or reaches the Arr, which a reader is refused. */
 describe('for a reader', () => {
   const offered = () =>
-    ['Sync all', 'Add instance', 'Sync now – Radarr', 'Edit – Radarr', 'Actions – Radarr'].filter(
-      (name) => screen.queryByRole('button', { name }),
-    );
+    [
+      'Sync all',
+      'Add instance',
+      'Sync now – Radarr',
+      'Edit – Radarr',
+      'Set up – Radarr',
+      'Actions – Radarr',
+    ].filter((name) => screen.queryByRole('button', { name }));
+  const silent = () =>
+    instance({ webhook_url: '/w', webhook_path: '/w', webhook_check: readOf({ state: 'absent' }) });
 
   it('offers the owner every action on an instance, and a reader none', async () => {
-    const { unmount } = show([instance()]);
+    const { unmount } = show([silent()]);
     await screen.findByRole('button', { name: 'Edit – Radarr' });
-    expect(offered()).toHaveLength(5);
+    expect(offered()).toHaveLength(6);
     unmount();
 
     publishAccess(true);
-    show([instance()]);
+    show([silent()]);
 
     expect(await screen.findByRole('row', { name: /Radarr/ })).toBeInTheDocument();
     expect(offered()).toEqual([]);

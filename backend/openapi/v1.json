@@ -3179,6 +3179,18 @@
       },
       "MediaListItem": {
         "properties": {
+          "action": {
+            "description": "`move` while the title is elsewhere than `target_root_folder`, `none` once there, `skip`\nwhen its category has no folder on its instance. Null until a run evaluates the title.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "x-extensible-enum": [
+              "move",
+              "none",
+              "skip"
+            ]
+          },
           "arr_id": {
             "format": "int64",
             "type": "integer"
@@ -3238,6 +3250,13 @@
             ]
           },
           "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_root_folder": {
+            "description": "The folder of that category on the title's instance the last stored run sends it to,\nnull when the category has none there or no run has evaluated the title.",
             "type": [
               "string",
               "null"
@@ -7704,6 +7723,24 @@
             }
           },
           {
+            "description": "Only the titles whose `action` is this one: `move`, `none` or `skip`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles no source holds anything about that a rule could read.",
+            "in": "query",
+            "name": "without_metadata",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "description": "From 1. Defaults to 1.",
             "in": "query",
             "name": "page",
@@ -8222,6 +8259,24 @@
             "description": "Only the titles no rule matched at the last run, and those no run has\nread yet, for the \"unclassified\" view.",
             "in": "query",
             "name": "unmatched",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only the titles whose `action` is this one: `move`, `none` or `skip`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles no source holds anything about that a rule could read.",
+            "in": "query",
+            "name": "without_metadata",
             "required": false,
             "schema": {
               "type": "boolean"

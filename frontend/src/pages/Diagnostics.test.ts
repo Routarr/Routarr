@@ -34,6 +34,43 @@ describe('Diagnostics', () => {
     expect(recheck).toHaveAttribute('aria-busy', 'true');
   });
 
+  /** A probe asks every Arr and source again, OMDb's daily quota included. */
+  it('reads the database alone every minute, keeping what the probe found', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const getHealth = vi.spyOn(api, 'getHealth').mockImplementation((options) =>
+        Promise.resolve(
+          options?.probe === false
+            ? health({
+                instances: [healthInstance({ status: 'unchecked' })],
+                warnings: [warning('Stored since the probe')],
+              })
+            : health({
+                instances: [
+                  healthInstance({
+                    status: 'error: refused',
+                    detail: 'Nothing answers at the address',
+                  }),
+                ],
+              }),
+        ),
+      );
+      show();
+      expect(await screen.findByText('Nothing answers at the address')).toBeTruthy();
+      const opened = getHealth.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(await screen.findByText('Stored since the probe')).toBeTruthy();
+      const polled = getHealth.mock.calls.slice(opened).map(([options]) => options);
+      expect(polled.length).toBeGreaterThan(0);
+      expect(polled.every((options) => options?.probe === false)).toBe(true);
+      expect(screen.getByText('Nothing answers at the address')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('asks for a fresh probe on a recheck alone', async () => {
     const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();

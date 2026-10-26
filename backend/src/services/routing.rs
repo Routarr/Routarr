@@ -333,6 +333,8 @@ struct Verdict {
     category: String,
     /// The rule that sent the title there, `OVERRIDE_RULE_ID` for an exception.
     matched_rule_id: Option<String>,
+    target: Option<String>,
+    action: DecisionAction,
 }
 
 /// One rule set over one library.
@@ -414,6 +416,8 @@ fn evaluate_pass(
         verdicts.push(Verdict {
             category: route.category.clone(),
             matched_rule_id: route.evaluation.winner.as_ref().map(|w| w.rule_id.clone()),
+            target: route.target.clone(),
+            action: route.action,
         });
         let Some(wording) = wording else { continue };
         if route.action == DecisionAction::None {
@@ -1566,7 +1570,13 @@ async fn store_run(
         .iter()
         .zip(verdicts)
         .map(|(media, verdict)| {
-            serde_json::json!([media.id, verdict.category, verdict.matched_rule_id])
+            serde_json::json!([
+                media.id,
+                verdict.category,
+                verdict.matched_rule_id,
+                verdict.target,
+                verdict.action.as_str()
+            ])
         })
         .collect();
     let rows = serde_json::to_string(&rows)?;
@@ -1574,14 +1584,16 @@ async fn store_run(
     crate::race::checked("routing::store", trigger).await;
     let mut tx = crate::db::write_transaction(pool).await?;
     sqlx::query(
-        "INSERT INTO media_routing (media_id, category, matched_rule_id, load_order,
-                                    simulation_id, evaluated_at)
-         SELECT j.value ->> 0, j.value ->> 1, j.value ->> 2, ?, ?, ?
+        "INSERT INTO media_routing (media_id, category, matched_rule_id, target_root_folder,
+                                    action, load_order, simulation_id, evaluated_at)
+         SELECT j.value ->> 0, j.value ->> 1, j.value ->> 2, j.value ->> 3, j.value ->> 4, ?, ?, ?
            FROM json_each(?) j
           WHERE EXISTS (SELECT 1 FROM media m WHERE m.id = j.value ->> 0)
          ON CONFLICT(media_id) DO UPDATE SET
             category = excluded.category,
             matched_rule_id = excluded.matched_rule_id,
+            target_root_folder = excluded.target_root_folder,
+            action = excluded.action,
             load_order = excluded.load_order,
             simulation_id = excluded.simulation_id,
             evaluated_at = excluded.evaluated_at

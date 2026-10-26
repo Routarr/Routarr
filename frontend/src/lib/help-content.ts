@@ -323,9 +323,9 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
     ],
     cards: [
       'SettingsMetadataSources',
+      'AnimeIds',
       'SettingsMetadataCoverage',
       'SourceRefreshTitle',
-      'AnimeIds',
       'SourceCreditsTitle',
     ],
   },
@@ -359,9 +359,9 @@ export const HELP: Readonly<Record<string, ScreenHelp>> = {
       'SettingsTabNotifications',
       'NotificationTest',
       'WebhookSigning',
-      'BackupEncryption',
       'Backups',
       'SettingsTabMaintenance',
+      'ConfigurationFile',
     ],
   },
   '/applications': {
@@ -425,10 +425,10 @@ export const CARD_HELP: Readonly<Record<string, CardHelp>> = {
   ApiTagStatus: { title: 'ApiTagStatus', text: 'HelpCardApiTagStatus' },
   ApiTagTasks: { title: 'ApiTagTasks', text: 'HelpCardApiTagTasks' },
   ArrInstances: { title: 'ArrInstances', text: 'HelpCardArrInstances' },
-  BackupEncryption: { title: 'BackupEncryption', text: 'HelpCardBackupEncryption' },
   Backups: { title: 'Backups', text: 'HelpCardBackups' },
   CapacityTitle: { title: 'CapacityTitle', text: 'HelpCardCapacityTitle' },
   Categories: { title: 'Categories', text: 'HelpCardCategories' },
+  ConfigurationFile: { title: 'ConfigurationFile', text: 'HelpCardConfigurationFile' },
   DashboardInstances: { title: 'Instances', text: 'HelpCardDashboardInstances' },
   FolderMappings: { title: 'FolderMappings', text: 'HelpCardFolderMappings' },
   FolderSuggestions: { title: 'FolderSuggestions', text: 'HelpCardFolderSuggestions' },
@@ -459,7 +459,7 @@ export const CARD_HELP: Readonly<Record<string, CardHelp>> = {
   SettingsTabGeneral: { title: 'SettingsTabGeneral', text: 'HelpCardSettingsTabGeneral' },
   SettingsTabGuardrails: { title: 'SettingsTabGuardrails', text: 'HelpCardSettingsTabGuardrails' },
   SettingsTabMaintenance: {
-    title: 'SettingsTabMaintenance',
+    title: 'Retention',
     text: 'HelpCardSettingsTabMaintenance',
   },
   SettingsTabNotifications: {

@@ -620,6 +620,14 @@ export const api = {
 
   getLibrary: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<MediaListItem>>(`/library${query(params)}`, { signal }),
+  /** How many titles `params` lists, read off a page of one. */
+  countLibrary: async (params: QueryParams, signal?: AbortSignal) => {
+    const page = await request<Paginated<MediaListItem>>(
+      `/library${query({ ...params, per_page: 1 })}`,
+      { signal },
+    );
+    return page.pagination.total;
+  },
   explainTitle: (id: string, signal?: AbortSignal) =>
     request<Explanation>(`/library/${id}/explain`, { signal }),
 

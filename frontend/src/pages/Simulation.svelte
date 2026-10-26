@@ -595,7 +595,7 @@
       </p>
     {/if}
     <TableRegion label={t('Simulation')}>
-      <table>
+      <table class="table-stacked stack-proposals">
         <caption class="visually-hidden">{t('Simulation')}</caption>
         <thead>
           <tr>

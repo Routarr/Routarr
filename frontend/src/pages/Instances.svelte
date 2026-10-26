@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity';
   import {
     CheckCircle2,
     ExternalLink,
     KeyRound,
     Link2,
+    Pencil,
     Plus,
     RefreshCw,
     Trash2,
@@ -11,10 +13,12 @@
   } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import {
+    ARR_NAME,
     formatCount,
     formatRelative,
     formatTimestamp,
     inClearPastHome,
+    instanceKindKey,
     withoutCredentials,
   } from '../api/format';
   import type { Instance, WebhookCheck } from '../api/types';
@@ -26,6 +30,7 @@
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import InstanceStatus from '../components/InstanceStatus.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
@@ -68,7 +73,32 @@
   });
 
   const list = createAsync((signal) => api.getInstances(signal));
+  /**
+   * Whether each instance answers, probed once when the screen opens: a probe asks every Arr and
+   * source, OMDb's daily quota included, and the database alone reads every one unchecked.
+   */
+  const probedHealth = createAsync((signal) => api.getHealth(undefined, signal));
+  /** The instances saved since the probe, whose verdict was about what they were before. */
+  const changedSince = new SvelteSet<string>();
   const outcome = createOutcome();
+
+  function statusOf(instance: Instance): { status: string; detail: string | null } {
+    if (!instance.enabled) return { status: 'disabled', detail: null };
+    const read = changedSince.has(instance.id)
+      ? undefined
+      : probedHealth.data?.instances.find((each) => each.id === instance.id);
+    if (read && read.status !== 'unchecked') return { status: read.status, detail: read.detail };
+    // Unchecked once the probe is over is not being checked, nor for a reader, whose read the
+    // server answers without a probe.
+    const settled = !probedHealth.loading || access.readOnly;
+    return { status: settled ? 'unknown' : 'unchecked', detail: null };
+  }
+
+  // Its relative times follow on their own while it is open, its verdicts from the probe.
+  poll(
+    () => void list.reload(),
+    () => 60_000,
+  );
   let busyId = $state<string | null>(null);
   // Closing the screen stops waiting for a sync, which goes on and is read on return.
   const leaving = new AbortController();
@@ -208,6 +238,20 @@
   }
 
   /**
+   * Where an instance's webhook stands, from the Arr's connection as last read and what arrived:
+   * one that answered or delivered works, one absent while nothing arrived is not set up.
+   */
+  function webhookState(
+    instance: Instance,
+    check: WebhookCheck | null = instance.webhook_check,
+  ): 'misconfigured' | 'working' | 'absent' | 'unheard' {
+    if (check?.state === 'misconfigured') return 'misconfigured';
+    if (check?.state === 'ok' || instance.last_webhook_at) return 'working';
+    if (check?.state === 'absent') return 'absent';
+    return 'unheard';
+  }
+
+  /**
    * Only an address the reader's browser can open is a link. A single-label
    * host, as the container name the form recommends in Docker, resolves
    * inside Routarr's network alone, and nothing but http runs from a click.
@@ -242,6 +286,7 @@
       saving = false;
     }
     editing = null;
+    changedSince.add(saved.id);
     const firstSync = saved.enabled && !saved.last_sync_at;
     outcome.succeed(
       firstSync
@@ -383,6 +428,9 @@
     }
   }
 
+  /** The webhook part of the editor, open by itself while the webhook does not work. */
+  let webhookOpen = $state(false);
+
   // A dialog opens on its own form, never on the refusal or the try of the one before.
   function startAdd() {
     stopTrying();
@@ -403,7 +451,8 @@
   // The guide's "Add an instance" lands here with the dialog open.
   if (takeQueryFlag('add') && !access.readOnly) startAdd();
 
-  function startEdit(instance: Instance) {
+  /** `toWebhook` opens it on the webhook's set-up, as its row's Set up does. */
+  function startEdit(instance: Instance, toWebhook = false) {
     stopTrying();
     formError = null;
     probe = null;
@@ -418,6 +467,7 @@
       auto_apply: instance.auto_apply,
     };
     editing = { id: instance.id, webhook: instance, form, opened: JSON.stringify(form) };
+    webhookOpen = toWebhook || webhookState(instance) !== 'working';
   }
 </script>
 
@@ -451,9 +501,9 @@
   </div>
 
   <ErrorBanner
-    message={list.error}
-    onDismiss={() => (list.error = null)}
-    onRetry={() => void list.reload()}
+    message={list.error ?? probedHealth.error}
+    onDismiss={() => ((list.error = null), (probedHealth.error = null))}
+    onRetry={() => void Promise.all([list.reload(), probedHealth.reload()])}
   />
   <OutcomeBanner {outcome} />
   <GuideStepBanner step="instance" />
@@ -465,9 +515,8 @@
         <thead>
           <tr>
             <th>{t('Name')}</th>
-            <th>{t('Type')}</th>
+            <th>{t('Status')}</th>
             <th>{t('BaseUrl')}</th>
-            <th>{t('ApiKey')}</th>
             <th>{t('LastSync')}</th>
             <th>{t('LastWebhook')}</th>
             <th class="w-230"><span class="visually-hidden">{t('Actions')}</span></th>
@@ -475,29 +524,32 @@
         </thead>
         <tbody>
           {#if list.loading && instances.length === 0}
-            <TableSkeleton columns={7} />
+            <TableSkeleton columns={6} />
           {:else if instances.length === 0 && !list.error}
-            <tr><td colspan="7"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
+            <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
             {#each instances as instance, index (instance.id)}
               {@const address = withoutCredentials(instance.base_url)}
+              {@const answer = statusOf(instance)}
+              {@const webhook = webhookState(instance)}
               <tr class:row-muted={!instance.enabled}>
                 <td>
-                  <strong>{instance.name}</strong>
-                  {#if !instance.enabled}
-                    <span class="badge badge-warning ms-2">
-                      {t('InstanceDisabled')}
-                    </span>
-                  {/if}
+                  <strong class="instance-name">{instance.name}</strong>
                   {#if !instance.auto_apply}
                     <span class="badge badge-info ms-2">{t('InstanceProposalsOnly')}</span>
                   {/if}
+                  <div class="instance-name text-muted text-sm">
+                    {t('WithNote', {
+                      text: ARR_NAME[instance.instance_type] ?? instance.instance_type,
+                      note: t(instanceKindKey(instance.instance_type)),
+                    })}
+                  </div>
+                  {#if !instance.api_key_set}
+                    <span class="badge badge-warning">{t('ApiKeyMissing')}</span>
+                    <span class="status-reason">{t('ApiKeyMissingHint')}</span>
+                  {/if}
                 </td>
-                <td>
-                  <span class="badge badge-kind kind-{instance.instance_type}">
-                    {instance.instance_type}
-                  </span>
-                </td>
+                <td><InstanceStatus status={answer.status} detail={answer.detail} /></td>
                 <td class="mono text-sm">
                   {#if opensInBrowser(address)}
                     <a
@@ -512,19 +564,6 @@
                     </a>
                   {:else}
                     {instance.base_url}
-                  {/if}
-                </td>
-                <td>
-                  {#if instance.api_key_set}
-                    <!-- Not green: encrypted is a property of the stored value, and green
-                         means an outcome that went well. -->
-                    <span class="badge badge-value muted" title={t('ApiKeyEncryptedHint')}>
-                      <span aria-hidden="true">{t('ApiKeyEncrypted')}</span>
-                      <span class="visually-hidden">{t('ApiKeyEncryptedHint')}</span>
-                    </span>
-                  {:else}
-                    <span class="badge badge-warning">{t('ApiKeyMissing')}</span>
-                    <span class="status-reason">{t('ApiKeyMissingHint')}</span>
                   {/if}
                 </td>
                 <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>
@@ -582,11 +621,21 @@
                   {:else if instance.last_webhook_at}
                     <span class="text-muted text-xs">{t('Unknown')}</span>
                   {/if}
-                  <!-- The badge alone: what to change takes sentences, which the form holds. -->
-                  {#if instance.webhook_check?.state === 'misconfigured'}
+                  <!-- The badge alone: what to change takes sentences, which the editor holds. -->
+                  {#if webhook === 'misconfigured'}
                     <span class="badge badge-warning">{t('WebhookMisconfigured')}</span>
-                  {:else if instance.webhook_check?.state === 'absent' && !instance.last_webhook_at}
+                  {:else if webhook === 'absent'}
                     <span class="badge badge-info">{t('WebhookNotSetUp')}</span>
+                  {/if}
+                  {#if (webhook === 'misconfigured' || webhook === 'absent') && instance.webhook_path && !access.readOnly}
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      aria-label="{t('WebhookSetUp')} – {instance.name}"
+                      onclick={() => startEdit(instance, true)}
+                    >
+                      {t('WebhookSetUp')}
+                    </button>
                   {/if}
                 </td>
                 <td>
@@ -608,9 +657,10 @@
                       <button
                         class="btn btn-secondary btn-sm"
                         aria-label="{t('Edit')} – {instance.name}"
+                        title={t('Edit')}
                         onclick={() => startEdit(instance)}
                       >
-                        {t('Edit')}
+                        <Pencil size={14} aria-hidden="true" />
                       </button>
                       <ActionMenu
                         id={menuId(index)}
@@ -714,12 +764,13 @@
       <!-- `novalidate`: the browser's bubble speaks the browser's language, not `ui_language`.
            Save is held until the required fields are filled instead. -->
       <form novalidate onsubmit={submit}>
-        <div class="form-group">
-          <label class="form-label" for="instances-name">{t('Name')}</label>
-          <input id="instances-name" class="form-input" bind:value={form.name} required />
-        </div>
-        <div class="form-row">
-          <div class="form-group flex-fill-200">
+        <fieldset class="form-group form-section">
+          <legend>{t('InstanceConnection')}</legend>
+          <div class="form-group">
+            <label class="form-label" for="instances-name">{t('Name')}</label>
+            <input id="instances-name" class="form-input" bind:value={form.name} required />
+          </div>
+          <div class="form-group">
             <label class="form-label" for="instances-type">{t('Type')}</label>
             <select
               id="instances-type"
@@ -733,7 +784,96 @@
               <option value="sonarr">{t('WithNote', { text: 'Sonarr', note: t('Series') })}</option>
             </select>
           </div>
-          <div class="form-group flex-fit">
+          <div class="form-group">
+            <label class="form-label" for="instances-base-url">{t('BaseUrl')}</label>
+            <input
+              id="instances-base-url"
+              class="form-input"
+              placeholder={EXAMPLE_URL[form.instance_type]}
+              aria-describedby={inClearPastHome(form.base_url)
+                ? 'instances-base-url-help instances-base-url-in-clear'
+                : 'instances-base-url-help'}
+              bind:value={form.base_url}
+              onblur={() => completeScheme(form)}
+              autocapitalize="off"
+              spellcheck="false"
+              required
+            />
+            <p id="instances-base-url-help" class="text-muted text-sm mt-1">
+              {t('InstanceUrlHelp', { service: SERVICE[form.instance_type] })}
+            </p>
+            {#if inClearPastHome(form.base_url)}
+              <p id="instances-base-url-in-clear" class="text-warning text-sm mt-1">
+                {t('InstanceUrlInClear')}
+              </p>
+            {/if}
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="instances-api-key">{t('ApiKey')}</label>
+            <input
+              id="instances-api-key"
+              type="password"
+              class="form-input"
+              placeholder={isEdit ? t('ApiKeyKeepHint') : undefined}
+              aria-describedby="instances-api-key-help"
+              bind:value={form.api_key}
+              required={!isEdit}
+            />
+            <p id="instances-api-key-help" class="text-muted text-sm mt-1">
+              {t('InstanceKeyHelp', { service: SERVICE[form.instance_type] })}
+            </p>
+          </div>
+          <!-- Beside the values it tries. Never held while a try runs: a focused button turning
+               disabled drops the focus, and a second press starts the try over. -->
+          <button
+            type="button"
+            class="btn btn-secondary"
+            disabled={!form.base_url.trim() || (!isEdit && !form.api_key.trim())}
+            onclick={() => void tryConnection()}
+          >
+            <Wifi size={16} class={probing ? 'spin' : ''} aria-hidden="true" />
+            {t('TestConnection')}
+          </button>
+          <!-- Mounted before the answer, so filling it is a change a screen reader reports. -->
+          <div role="status">
+            {#if probed?.ok}
+              <p class="probe-ok">
+                <CheckCircle2 size={16} aria-hidden="true" />
+                {probed.text}
+              </p>
+              {#if probed.inaccessible}
+                <p class="text-warning text-sm">{probed.inaccessible}</p>
+              {/if}
+              {#if probed.warning}
+                <p class="text-warning text-sm">{probed.warning}</p>
+              {/if}
+            {/if}
+          </div>
+        </fieldset>
+
+        <fieldset class="form-group form-section">
+          <legend>{t('InstanceBehaviour')}</legend>
+          <!-- Apart, so each box keeps the 24px target WCAG 2.2 asks of a control. -->
+          <div class="flex flex-col gap-2">
+            <label class="flex items-center gap-2 text-base">
+              <input type="checkbox" bind:checked={form.enabled} />
+              {t('EnabledSyncedRouted')}
+            </label>
+            <div>
+              <label class="flex items-center gap-2 text-base">
+                <input
+                  type="checkbox"
+                  bind:checked={form.auto_apply}
+                  aria-describedby="instances-auto-apply-help"
+                />
+                {t('InstanceAutoApply')}
+              </label>
+              <p id="instances-auto-apply-help" class="text-muted text-sm mt-1">
+                {t('InstanceAutoApplyHelp')}
+              </p>
+            </div>
+          </div>
+          <div class="form-group flex-fit mt-4">
             <label class="form-label" for="instances-sync-every-minutes">
               {t('SyncEveryMinutes')}
             </label>
@@ -747,185 +887,123 @@
               aria-describedby={intervalOk ? undefined : 'instances-sync-every-minutes-range'}
               bind:value={form.sync_interval_minutes}
             />
-          </div>
-        </div>
-        <!-- Under the row rather than in the interval's column: the two fields
-             share a bottom edge, which a line under one of them would break. -->
-        {#if !intervalOk}
-          <p id="instances-sync-every-minutes-range" class="field-error">
-            {t('RangeBetween', { min: 1, max: MAX_INTERVAL_MINUTES })}
-          </p>
-        {/if}
-        <div class="form-group">
-          <label class="form-label" for="instances-base-url">{t('BaseUrl')}</label>
-          <input
-            id="instances-base-url"
-            class="form-input"
-            placeholder={EXAMPLE_URL[form.instance_type]}
-            aria-describedby={inClearPastHome(form.base_url)
-              ? 'instances-base-url-help instances-base-url-in-clear'
-              : 'instances-base-url-help'}
-            bind:value={form.base_url}
-            onblur={() => completeScheme(form)}
-            autocapitalize="off"
-            spellcheck="false"
-            required
-          />
-          <p id="instances-base-url-help" class="text-muted text-sm mt-1">
-            {t('InstanceUrlHelp', { service: SERVICE[form.instance_type] })}
-          </p>
-          {#if inClearPastHome(form.base_url)}
-            <p id="instances-base-url-in-clear" class="text-warning text-sm mt-1">
-              {t('InstanceUrlInClear')}
-            </p>
-          {/if}
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="instances-api-key">{t('ApiKey')}</label>
-          <input
-            id="instances-api-key"
-            type="password"
-            class="form-input"
-            placeholder={isEdit ? t('ApiKeyKeepHint') : undefined}
-            aria-describedby="instances-api-key-help"
-            bind:value={form.api_key}
-            required={!isEdit}
-          />
-          <p id="instances-api-key-help" class="text-muted text-sm mt-1">
-            {t('InstanceKeyHelp', { service: SERVICE[form.instance_type] })}
-          </p>
-        </div>
-        {#if editing.webhook?.webhook_path && editing.webhook.webhook_url}
-          <!-- The try's reading of the connection is the newer one while it stands. -->
-          {@const check = probed?.webhook ?? editing.webhook.webhook_check}
-          <div class="webhook-status">
-            <p>
-              {#if editing.webhook.last_webhook_at}
-                {@const heard = editing.webhook}
-                {@const [before, after] = cut('WebhookLastDelivery', ['event'], {
-                  when: formatRelative(heard.last_webhook_at, i18n.language, ''),
-                })}
-                {before}{#if heard.last_webhook_event}<span class="mono"
-                    >{heard.last_webhook_event_label ?? heard.last_webhook_event}</span
-                  >{:else}{t('Unknown')}{/if}{after}
-              {:else}
-                {t('WebhookNoDeliveryYet', { service: SERVICE[form.instance_type] })}
-              {/if}
-            </p>
-            {#if check}
-              {#if check.state === 'ok'}
-                <p class="text-success">
-                  {t('WebhookCheckOk', { instance: editing.webhook.name })}
-                </p>
-              {:else if check.state === 'absent'}
-                <p>{t('WebhookCheckAbsent', { instance: editing.webhook.name })}</p>
-              {/if}
-              {#each check.problems as problem (problem)}
-                <p class="text-warning">{problem}</p>
-              {/each}
-              {#each check.notes as note (note)}
-                <p class="text-muted">{note}</p>
-              {/each}
-              <p class="text-muted">
-                {t('WebhookCheckedAt', {
-                  when: formatRelative(check.checked_at, i18n.language, ''),
-                })}
+            {#if !intervalOk}
+              <p id="instances-sync-every-minutes-range" class="field-error">
+                {t('RangeBetween', { min: 1, max: MAX_INTERVAL_MINUTES })}
               </p>
             {/if}
           </div>
-          <!-- Here and not only behind Copy: on a plain http origin the clipboard is closed. -->
-          <div class="form-group">
-            <label class="form-label" for="instances-webhook-path">{t('WebhookUrl')}</label>
-            <input
-              id="instances-webhook-path"
-              class="form-input mono"
-              value={webhookAddress(editing.webhook.webhook_path)}
-              readonly
-              aria-describedby="instances-webhook-path-help"
-            />
-            <p id="instances-webhook-path-help" class="text-muted text-sm mt-1">
-              {t('SideBySide', {
-                first: t('WebhookUrlHelp', { service: SERVICE[form.instance_type] }),
-                second: t('WebhookTriggers', {
-                  triggers: editing.webhook.webhook_triggers.join(t('ListSeparator')),
-                }),
-              })}
-            </p>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="instances-webhook-token">{t('WebhookToken')}</label>
-            <input
-              id="instances-webhook-token"
-              class="form-input mono"
-              value={editing.webhook.webhook_token ?? ''}
-              readonly
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="instances-webhook-url">{t('WebhookUrlWithToken')}</label>
-            <input
-              id="instances-webhook-url"
-              class="form-input mono"
-              value={webhookAddress(editing.webhook.webhook_url)}
-              readonly
-              aria-describedby="instances-webhook-url-help"
-            />
-            <p id="instances-webhook-url-help" class="text-muted text-sm mt-1">
-              {t('WebhookUrlWithTokenHelp')}
-            </p>
-          </div>
-        {/if}
-        <!-- Apart, so each box keeps the 24px target WCAG 2.2 asks of a control. -->
-        <div class="flex flex-col gap-2">
-          <label class="flex items-center gap-2 text-base">
-            <input type="checkbox" bind:checked={form.enabled} />
-            {t('EnabledSyncedRouted')}
-          </label>
-          <div>
-            <label class="flex items-center gap-2 text-base">
+        </fieldset>
+
+        {#if editing.webhook?.webhook_path && editing.webhook.webhook_url}
+          <!-- The try's reading of the connection is the newer one while it stands. -->
+          {@const check = probed?.webhook ?? editing.webhook.webhook_check}
+          {@const heard = editing.webhook}
+          {@const state = webhookState(heard, check)}
+          {@const service = SERVICE[form.instance_type]}
+          <!-- Set up once, so folded under the state it reached once it works. -->
+          <details class="form-section" bind:open={webhookOpen}>
+            <summary class="flex flex-wrap items-center gap-2 cursor-pointer">
+              <strong class="text-md">{t('InstanceWebhook')}</strong>
+              {#if state === 'working'}
+                <span class="badge badge-success">{t('WebhookWorking')}</span>
+              {:else if state === 'misconfigured'}
+                <span class="badge badge-warning">{t('WebhookMisconfigured')}</span>
+              {:else if state === 'absent'}
+                <span class="badge badge-info">{t('WebhookNotSetUp')}</span>
+              {:else}
+                <span class="badge badge-value muted">{t('WebhookUnheard')}</span>
+              {/if}
+              {#if check}
+                <span class="text-muted text-sm">
+                  {t('WebhookCheckedAt', {
+                    when: formatRelative(check.checked_at, i18n.language, ''),
+                  })}
+                </span>
+              {/if}
+            </summary>
+            <div class="webhook-status mt-3">
+              <p>
+                {#if heard.last_webhook_at}
+                  {@const [before, after] = cut('WebhookLastDelivery', ['event'], {
+                    when: formatRelative(heard.last_webhook_at, i18n.language, ''),
+                  })}
+                  {before}{#if heard.last_webhook_event}<span class="mono"
+                      >{heard.last_webhook_event_label ?? heard.last_webhook_event}</span
+                    >{:else}{t('Unknown')}{/if}{after}
+                {:else}
+                  {t('WebhookNoDeliveryYet', { service })}
+                {/if}
+              </p>
+              {#if check?.state === 'ok'}
+                <p class="text-success">{t('WebhookCheckOk', { instance: heard.name })}</p>
+              {:else if check?.state === 'absent'}
+                <p>{t('WebhookCheckAbsent', { instance: heard.name })}</p>
+              {/if}
+              {#each check?.problems ?? [] as problem (problem)}
+                <p class="text-warning">{problem}</p>
+              {/each}
+              {#each check?.notes ?? [] as note (note)}
+                <p class="text-muted">{note}</p>
+              {/each}
+            </div>
+            <!-- Each value in a field and not only behind Copy: on a plain http origin the
+                 clipboard is closed. -->
+            <ol class="term-list flex flex-col gap-2 text-md mb-3">
+              <li>{t('WebhookStepOpen', { service })}</li>
+              <li>
+                <div>{t('WebhookStepUrl')}</div>
+                <label class="visually-hidden" for="instances-webhook-path">
+                  {t('WebhookUrl')}
+                </label>
+                <input
+                  id="instances-webhook-path"
+                  class="form-input mono mt-1"
+                  value={webhookAddress(heard.webhook_path ?? '')}
+                  readonly
+                />
+              </li>
+              <li>
+                <div>{t('WebhookStepToken')}</div>
+                <label class="visually-hidden" for="instances-webhook-token">
+                  {t('WebhookToken')}
+                </label>
+                <input
+                  id="instances-webhook-token"
+                  class="form-input mono mt-1"
+                  value={heard.webhook_token ?? ''}
+                  readonly
+                />
+              </li>
+              <li>
+                {t('WebhookTriggers', {
+                  triggers: heard.webhook_triggers.join(t('ListSeparator')),
+                })}
+              </li>
+              <li>{t('WebhookStepTest', { service })}</li>
+            </ol>
+            <div class="form-group text-sm">
+              <label class="form-label" for="instances-webhook-url">
+                {t('WebhookUrlWithToken')}
+              </label>
               <input
-                type="checkbox"
-                bind:checked={form.auto_apply}
-                aria-describedby="instances-auto-apply-help"
+                id="instances-webhook-url"
+                class="form-input mono"
+                value={webhookAddress(heard.webhook_url ?? '')}
+                readonly
+                aria-describedby="instances-webhook-url-help"
               />
-              {t('InstanceAutoApply')}
-            </label>
-            <p id="instances-auto-apply-help" class="text-muted text-sm mt-1">
-              {t('InstanceAutoApplyHelp')}
-            </p>
-          </div>
-        </div>
-        <!-- Mounted before the answer, so filling it is a change a screen reader reports. -->
-        <div role="status">
-          {#if probed?.ok}
-            <p class="probe-ok">
-              <CheckCircle2 size={16} aria-hidden="true" />
-              {probed.text}
-            </p>
-            {#if probed.inaccessible}
-              <p class="text-warning text-sm">{probed.inaccessible}</p>
-            {/if}
-            {#if probed.warning}
-              <p class="text-warning text-sm">{probed.warning}</p>
-            {/if}
-          {/if}
-        </div>
+              <p id="instances-webhook-url-help" class="text-muted text-sm mt-1">
+                {t('WebhookUrlWithTokenHelp')}
+              </p>
+            </div>
+          </details>
+        {/if}
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={() => void close()}>
             {t('Cancel')}
           </button>
           <div class="flex flex-wrap gap-2">
-            <!-- Never held while a try runs: a focused button turning disabled drops the focus,
-                 and a second press starts the try over. -->
-            <button
-              type="button"
-              class="btn btn-secondary"
-              disabled={!form.base_url.trim() || (!isEdit && !form.api_key.trim())}
-              onclick={() => void tryConnection()}
-            >
-              <Wifi size={16} class={probing ? 'spin' : ''} aria-hidden="true" />
-              {t('TestConnection')}
-            </button>
             <button
               type="submit"
               class="btn btn-primary"

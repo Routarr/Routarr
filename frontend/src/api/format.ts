@@ -103,6 +103,13 @@ export const METADATA_FIELD_KEY: Record<string, string> = {
 /** The dictionary key naming a kind of title. */
 export const mediaTypeKey = (type: MediaType): string => (type === 'movie' ? 'Movies' : 'Series');
 
+/** The product an instance runs, by its type: a name no language translates. */
+export const ARR_NAME: Readonly<Record<string, string>> = { radarr: 'Radarr', sonarr: 'Sonarr' };
+
+/** The dictionary key naming what an instance of `type` holds. */
+export const instanceKindKey = (type: string): string =>
+  mediaTypeKey(type === 'sonarr' ? 'series' : 'movie');
+
 /**
  * A path placed in a sentence, in a first strong isolate: in a right-to-left message its leading
  * slash otherwise lands at the far end, and its segments read in the message's direction.

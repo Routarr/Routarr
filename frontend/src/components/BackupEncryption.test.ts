@@ -6,7 +6,7 @@ import { backendConstant } from '../test/backend';
 import { answerConfirmation } from '../test/confirm';
 import { ApiError, api } from '../api/client';
 import { createOutcome } from '../lib/outcome.svelte';
-import BackupEncryptionCard from './BackupEncryptionCard.svelte';
+import BackupEncryption from './BackupEncryption.svelte';
 
 // The proof has its own tests (`lib/proof.test.ts`): here it is given, as the
 // dialog would hand it back.
@@ -20,7 +20,7 @@ const LONG_ENOUGH = 'x'.repeat(SHORTEST);
 
 function mount(configured: boolean) {
   const outcome = createOutcome();
-  renderWithI18n(BackupEncryptionCard, { props: { outcome, configured } });
+  renderWithI18n(BackupEncryption, { props: { outcome, configured } });
   return outcome;
 }
 
@@ -30,7 +30,7 @@ async function type(label: string, value: string) {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('BackupEncryptionCard', () => {
+describe('BackupEncryption', () => {
   it('encrypts the archives with a passphrase typed twice alike, with the proof sent', async () => {
     const set = vi.spyOn(api, 'setBackupPassphrase').mockResolvedValue(undefined);
     const outcome = mount(false);

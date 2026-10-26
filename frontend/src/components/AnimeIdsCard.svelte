@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import CardTitle from './CardTitle.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import FileButton from './FileButton.svelte';
@@ -17,6 +18,13 @@
    * The anime identifier table: whether one is loaded, and the two ways to load one. Routarr
    * never fetches it unless someone presses Download or turns on the weekly download.
    */
+  let {
+    setting,
+  }: {
+    /** The weekly download's field, saved by the screen's bar. */
+    setting?: Snippet;
+  } = $props();
+
   const table = createAsync((signal) => api.getAnimeIds(signal));
   const outcome = createOutcome();
   let loading = $state(false);
@@ -72,6 +80,9 @@
       </span>
     {/if}
   </p>
+  {#if setting}
+    <div class="mt-3">{@render setting()}</div>
+  {/if}
   {#if !access.readOnly}
     <div class="flex flex-wrap gap-2 mt-2">
       <button
