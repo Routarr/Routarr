@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick, type Snippet } from 'svelte';
   import { Plus, Trash2 } from '../lib/icons';
   import type {
     Condition,
@@ -11,6 +12,7 @@
   import { facetOf, localFacets } from '../api/conditions';
   import { phraseKey } from '../api/format';
   import { handFocus } from '../lib/focus';
+  import ActionMenu from './ActionMenu.svelte';
   import ConditionValue from './ConditionValue.svelte';
   import FieldIssues from './FieldIssues.svelte';
 
@@ -26,6 +28,7 @@
     facetsError = null,
     scales = [],
     errorsOf = () => [],
+    control,
     onAdd,
     onRetype,
     onUpdate,
@@ -41,7 +44,7 @@
      * and a condition with no spec shows only its raw type.
      */
     specs: ConditionSpec[];
-    /** The specs the add picker offers for this rule's media type. */
+    /** The specs the add menu offers for this rule's media type. */
     addable: ConditionSpec[];
     /** The library's values per axis, offered as suggestions. Null while they load. */
     facets?: LibraryFacets | null;
@@ -51,6 +54,8 @@
     scales?: ScoreScale[];
     /** The server's errors about the control an id names: a row, `rules-{list}-{index}`. */
     errorsOf?: (field: string) => ValidationIssue[];
+    /** What the caption carries beside it, as the conditions carry their logic. */
+    control?: Snippet;
     onAdd: (type: string) => void;
     /** Swap a condition for its counterpart with the other quantifier, keeping its values. */
     onRetype: (index: number, type: string) => void;
@@ -60,7 +65,7 @@
   } = $props();
 
   const named = $derived(facets ? localFacets(facets, i18n.language) : null);
-  // A list with no condition is refused at its add picker.
+  // A list with no condition is refused at its add button.
   const adding = $derived(errorsOf(`rules-${list}-add`));
 
   // A quantified pair is captioned by its `any` half, since the selector already says "all of".
@@ -85,20 +90,33 @@
   );
 
   /**
-   * The condition picked to add. Adding waits for the button: on Windows and Linux an arrow
-   * key on a closed select fires `change`.
+   * A menu rather than a select: on Windows and Linux an arrow key on a closed select fires
+   * `change`, which would add a condition per press.
    */
-  let chosen = $state('');
+  const choices = $derived(
+    families.flatMap((family) =>
+      family.specs.map((spec) => ({
+        // Flagged only when no enabled source, the Arr included, can answer it.
+        label: spec.available
+          ? spec.label
+          : t('SideBySide', { first: spec.label, second: t('NeedsMetadataSuffix') }),
+        group: t(FAMILIES[family.group]),
+        onSelect: () => void add(spec.type),
+      })),
+    ),
+  );
 
-  function addChosen() {
-    if (!chosen) return;
-    onAdd(chosen);
-    chosen = '';
-    // Add turns disabled with nothing picked, and a disabled button drops the focus.
-    void handFocus(`rules-${list}-add`);
+  async function add(type: string) {
+    const index = conditions.length;
+    onAdd(type);
+    await tick();
+    document
+      .getElementById(`rules-${list}-${index}`)
+      ?.querySelector<HTMLElement>('.condition-value :is(input, select, textarea)')
+      ?.focus();
   }
 
-  /** The focus goes to the row that moves up into the deleted one's place, else the picker. */
+  /** The focus goes to the row that moves up into the deleted one's place, else the add button. */
   function remove(index: number) {
     onRemove(index);
     void handFocus(`rules-${list}-${index}-delete`, `rules-${list}-add`);
@@ -116,7 +134,10 @@
 
 <!-- A group heading rather than a `<label>`, which names exactly one control. -->
 <div class="form-group" role="group" aria-labelledby="rules-{list}-caption">
-  <span class="form-label" id="rules-{list}-caption">{title}</span>
+  <div class="condition-list-head">
+    <span class="form-label" id="rules-{list}-caption">{title}</span>
+    {@render control?.()}
+  </div>
   {#if list === 'conditions'}
     <p class="text-muted text-sm mt-1">{t('ConditionValuesHelp')}</p>
   {:else}
@@ -185,40 +206,19 @@
     {/each}
   </div>
 
-  <div class="flex gap-2 mt-2">
-    <select
+  {#snippet adder()}
+    <Plus size={14} aria-hidden="true" />
+    {t('AddCondition')}
+  {/snippet}
+  <div class="mt-2">
+    <ActionMenu
       id="rules-{list}-add"
-      class="form-select"
-      aria-label={title}
-      aria-invalid={adding.length > 0 ? 'true' : undefined}
-      aria-describedby={adding.length > 0 ? `rules-${list}-add-issue` : undefined}
-      value={chosen}
-      onchange={(event) => (chosen = event.currentTarget.value)}
-    >
-      <option value="">{t('AddCondition')}</option>
-      {#each families as family (family.group)}
-        <optgroup label={t(FAMILIES[family.group])}>
-          {#each family.specs as spec (spec.type)}
-            <!-- Flagged only when no enabled source, the Arr included, can answer it. -->
-            <option value={spec.type}>
-              {spec.available
-                ? spec.label
-                : t('SideBySide', { first: spec.label, second: t('NeedsMetadataSuffix') })}
-            </option>
-          {/each}
-        </optgroup>
-      {/each}
-    </select>
-    <button
-      type="button"
-      class="btn btn-secondary"
-      disabled={!chosen}
-      aria-label="{t('Add')} – {title}"
-      onclick={addChosen}
-    >
-      <Plus size={14} />
-      {t('Add')}
-    </button>
+      label="{t('AddCondition')} – {title}"
+      trigger={adder}
+      align="start"
+      describedBy={adding.length > 0 ? `rules-${list}-add-issue` : undefined}
+      actions={choices}
+    />
   </div>
   <FieldIssues field="rules-{list}-add" issues={adding} />
 </div>

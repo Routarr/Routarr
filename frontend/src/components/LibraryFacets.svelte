@@ -80,12 +80,15 @@
 <!-- The "?" lies over the summary's line rather than in it: a button inside a
      summary is a control nested in another, which a screen reader cannot
      reach on its own. -->
-<div class="facet-wrap">
-  <details class="card facet-panel" bind:open>
+<div class="fold-wrap">
+  <details class="card fold-card" bind:open>
     <summary class="card-header">
       <!-- A bare figure in parentheses, which agrees with no noun in any language. -->
       <h2 class="card-title" id="facets-title">
-        {t('InYourLibrary', { count: facets.total_media })}
+        {t('WithNote', {
+          text: t('LibraryFacetsTitle'),
+          note: formatCount(facets.total_media, i18n.language),
+        })}
       </h2>
     </summary>
 
@@ -132,5 +135,5 @@
       </div>
     {/if}
   </details>
-  <span class="facet-help"><HelpToggle card="LibraryFacets" title="facets-title" /></span>
+  <span class="fold-help"><HelpToggle card="LibraryFacets" title="facets-title" /></span>
 </div>

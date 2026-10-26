@@ -285,7 +285,7 @@ const ISSUE_FIELDS: Record<string, string> = {
 
 /**
  * The id of the rule editor's control `issue` is about: a condition's row when it names the
- * condition's place, from 1, the list's add picker when it names the list alone. Null for a field
+ * condition's place, from 1, the list's add button when it names the list alone. Null for a field
  * the editor does not draw.
  */
 export function issueField(issue: Pick<ValidationIssue, 'field' | 'params'>): string | null {

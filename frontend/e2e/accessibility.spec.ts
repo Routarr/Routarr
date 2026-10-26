@@ -547,7 +547,11 @@ const MODALS: {
   {
     path: '/rules',
     covers: 'components/TemplateDialog.svelte',
-    open: (p) => p.getByRole('button', { name: 'Add – Documentaries' }).click(),
+    // The rules seeded fold the gallery, which the header's Templates unfolds.
+    open: async (p) => {
+      await p.getByRole('button', { name: 'Templates', exact: true }).click();
+      await p.getByRole('button', { name: 'Add – Documentaries' }).click();
+    },
   },
   {
     // Reachable from every screen. The rules page is the one already loaded.
@@ -656,9 +660,8 @@ const MODALS: {
     covers: 'components/RuleEditor.svelte',
     open: async (p) => {
       await p.getByRole('button', { name: 'New Rule' }).click();
-      const list = 'Conditions (all of)';
-      await p.getByRole('combobox', { name: list, exact: true }).selectOption('genre_contains');
-      await p.getByRole('button', { name: `Add – ${list}` }).click();
+      await p.getByRole('button', { name: 'Add a condition – Conditions', exact: true }).click();
+      await p.getByRole('menuitem', { name: /^Genre contains/ }).click();
       const picker = p.getByRole('combobox', { name: 'Genre contains', exact: true });
       await picker.click();
       await p.getByRole('option', { name: 'Animation' }).click();

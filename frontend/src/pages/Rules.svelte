@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import {
     CircleMinus,
     CirclePlus,
@@ -10,6 +11,7 @@
     Pencil,
     Plus,
     Trash2,
+    Upload,
   } from '../lib/icons';
   import { api } from '../api/client';
   import { describeCondition, formatDecimal, swapped } from '../api/format';
@@ -35,12 +37,11 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { handFocus } from '../lib/focus';
-  import { href } from '../lib/router.svelte';
   import { takeQueryFlag, takeQueryValue } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
-  import FileButton from '../components/FileButton.svelte';
+  import FilePicker from '../components/FilePicker.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
   import RuleEditor from '../components/RuleEditor.svelte';
@@ -117,7 +118,17 @@
     if (found) choosing = { ...found, category: categoryRequested ?? found.category };
   });
 
-  // Sent to `#templates` by the guide or the header, the gallery takes the focus once drawn.
+  /** Folded below the rules once one exists, opened from the header. */
+  let templatesOpen = $state(false);
+
+  /** Focusing the title brings the gallery into view. */
+  async function revealTemplates() {
+    templatesOpen = true;
+    await tick();
+    document.getElementById('templates-title')?.focus();
+  }
+
+  // Sent to `#templates` by the guide, the gallery takes the focus once drawn.
   let templatesRequested = $state(window.location.hash === '#templates');
   $effect(() => {
     const requested = () => (templatesRequested = window.location.hash === '#templates');
@@ -127,7 +138,7 @@
   $effect(() => {
     if (templatesRequested && templates.data && bundle.data) {
       templatesRequested = false;
-      void handFocus('templates-title');
+      void revealTemplates();
     }
   });
 
@@ -182,6 +193,13 @@
       scale: (id) => catalog?.score_scales.find((scale) => scale.id === id)?.name ?? id,
       number: (value) => formatDecimal(value, i18n.language),
     });
+  }
+
+  function scopeOf(rule: Rule): string {
+    return [
+      t(MEDIA_TYPE_KEY[rule.media_type]),
+      ...(rule.instance_ids ?? []).map((id) => instanceName.get(id) ?? id),
+    ].join(t('ListSeparator'));
   }
 
   function openCreate() {
@@ -245,6 +263,21 @@
     void handFocus(`rule-${from.id}-${pressed}`, `rule-${from.id}-${other}`);
   }
 
+  let importPicker = $state<ReturnType<typeof FilePicker> | null>(null);
+
+  // Moving rules between installations is rare, so it waits behind the header's menu.
+  const bundleActions = $derived([
+    ...(access.readOnly
+      ? []
+      : [{ label: t('Import'), icon: uploadIcon, onSelect: (): void => importPicker?.pick() }]),
+    {
+      label: t('Export'),
+      icon: downloadIcon,
+      disabled: rules.length === 0,
+      onSelect: (): void => void exportBundle(),
+    },
+  ]);
+
   async function exportBundle() {
     try {
       downloadJson(await api.exportRules(), 'routarr-rules.json');
@@ -283,6 +316,8 @@
 </script>
 
 {#snippet copyIcon()}<Copy size={14} aria-hidden="true" />{/snippet}
+{#snippet uploadIcon()}<Upload size={14} aria-hidden="true" />{/snippet}
+{#snippet downloadIcon()}<Download size={14} aria-hidden="true" />{/snippet}
 {#snippet trashIcon()}<Trash2 size={14} aria-hidden="true" />{/snippet}
 
 <div>
@@ -293,28 +328,24 @@
     </div>
     <div class="flex gap-2">
       {#if !access.readOnly}
-        <FileButton
-          label={t('Import')}
-          accept="application/json"
-          onFile={(file) => void importBundle(file)}
-        />
-      {/if}
-      <button class="btn btn-secondary" onclick={exportBundle} disabled={rules.length === 0}>
-        <Download size={16} />
-        {t('Export')}
-      </button>
-      {#if !access.readOnly}
         {#if templates.data && rules.length > 0}
-          <a class="btn btn-secondary" href={href('/rules#templates')}>
+          <button type="button" class="btn btn-secondary" onclick={() => void revealTemplates()}>
             <LayoutTemplate size={16} />
             {t('Templates')}
-          </a>
+          </button>
         {/if}
         <button id="rules-new" class="btn btn-primary" onclick={openCreate}>
           <Plus size={16} />
           {t('NewRule')}
         </button>
+        <FilePicker
+          bind:this={importPicker}
+          label={t('Import')}
+          accept="application/json"
+          onFile={(file) => void importBundle(file)}
+        />
       {/if}
+      <ActionMenu actions={bundleActions} />
     </div>
   </div>
 
@@ -331,7 +362,7 @@
 
   <!-- Above the rules: a rule written against a value the library does not carry
        matches nothing, and looks like one that should. -->
-  {#if library.data}
+  {#if library.data && library.data.total_media > 0}
     <LibraryFacetsPanel facets={library.data} captionOf={(type) => specByType.get(type)?.label} />
   {/if}
 
@@ -360,19 +391,17 @@
             <tr>
               <th class="w-90">{t('Priority')}</th>
               <th>{t('Rule')}</th>
-              <th>{t('Target')}</th>
-              <th>{t('Scope')}</th>
-              <th>{t('Logic')}</th>
-              <th>{t('Conditions')}</th>
+              <th>{t('RuleWhen')}</th>
+              <th>{t('SendsTo')}</th>
               <th class="w-190"><span class="visually-hidden">{t('Actions')}</span></th>
             </tr>
           </thead>
           <tbody>
             <!-- First load only: on a reload the skeleton would take the rows and the focus. -->
             {#if bundle.loading && rules.length === 0}
-              <TableSkeleton columns={7} />
+              <TableSkeleton columns={5} />
             {:else if rules.length === 0 && !bundle.error}
-              <tr><td colspan="7"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
+              <tr><td colspan="5"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
             {:else}
               {#each rules as rule, index (rule.id)}
                 {@const verdict = health.get(rule.id)}
@@ -410,6 +439,7 @@
                     {#if rule.description}
                       <div class="text-muted text-sm">{rule.description}</div>
                     {/if}
+                    <div class="text-muted text-sm">{scopeOf(rule)}</div>
                     {#if verdict?.shadowed_by}
                       <div class="text-muted text-sm">
                         {t('RuleShadowedHint', {
@@ -419,23 +449,12 @@
                       </div>
                     {/if}
                   </td>
-                  <td><span class="badge badge-value">{rule.target_category}</span></td>
                   <td>
-                    <div class="flex flex-wrap gap-1">
-                      <span class="badge badge-value muted"
-                        >{t(MEDIA_TYPE_KEY[rule.media_type])}</span
-                      >
-                      {#each rule.instance_ids ?? [] as id (id)}
-                        <span class="badge badge-value">{instanceName.get(id) ?? id}</span>
-                      {/each}
-                    </div>
-                  </td>
-                  <td>
-                    <span class="badge badge-value muted">
-                      {t(rule.match_mode === 'any' ? 'LogicAny' : 'LogicAll')}
-                    </span>
-                  </td>
-                  <td>
+                    {#if rule.conditions.length > 1}
+                      <div class="text-muted text-sm">
+                        {t(rule.match_mode === 'any' ? 'WhenAnyOf' : 'WhenAllOf')}
+                      </div>
+                    {/if}
                     <!-- A plus to match, a minus to veto, one size so they pair. The word beside
                        the minus keeps its colour from being the only sign of "except". -->
                     <ul class="rule-conditions">
@@ -454,6 +473,7 @@
                       {/each}
                     </ul>
                   </td>
+                  <td><span class="badge badge-value">{rule.target_category}</span></td>
                   <td>
                     {#if !access.readOnly}
                       <div class="flex gap-2">
@@ -530,6 +550,8 @@
       templates={templates.data}
       title={t('Templates')}
       lead={t('TemplatesLead')}
+      foldable
+      bind:open={templatesOpen}
       onChoose={(template) => (choosing = template)}
     />
   {/if}

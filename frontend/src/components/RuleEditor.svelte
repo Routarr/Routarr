@@ -144,7 +144,9 @@
   /** Hands the focus to the control `field` names, the value of a condition for its row. */
   function focusField(field: string) {
     const element = document.getElementById(field);
-    const control = element?.matches('input, select, textarea')
+    const fold = element?.closest('details');
+    if (fold) fold.open = true;
+    const control = element?.matches('input, select, textarea, button')
       ? element
       : (element?.querySelector<HTMLElement>('.condition-value :is(input, select, textarea)') ??
         element?.querySelector<HTMLElement>('input, select, textarea'));
@@ -171,6 +173,21 @@
   // Checked here: a fraction never reaches the live validation, since the
   // server refuses the draft before reading it, and Save would stay lit.
   const wholePriority = $derived(Number.isInteger(draft.priority));
+
+  /** What is seldom changed, folded. A refusal of one of its fields unfolds it. */
+  let more = $state(false);
+  const moreRefused = $derived(
+    !wholePriority ||
+      errorsOf('rules-description').length > 0 ||
+      errorsOf('rules-priority').length > 0,
+  );
+  $effect(() => {
+    if (moreRefused) more = true;
+  });
+  const MATCH_MODES: { value: MatchMode; key: string }[] = [
+    { value: 'all', key: 'MatchAll' },
+    { value: 'any', key: 'MatchAny' },
+  ];
 
   const specs = $derived(new Map(catalog.conditions.map((spec) => [spec.type, spec])));
 
@@ -324,28 +341,9 @@
       <FieldIssues field="rules-rule-name" issues={errorsOf('rules-rule-name')} />
     </div>
 
-    <div class="form-group">
-      <label class="form-label" for="rules-description">
-        {t('WithNote', { text: t('Description'), note: t('Optional') })}
-      </label>
-      <input
-        id="rules-description"
-        class="form-input"
-        placeholder={t('RuleDescriptionPlaceholder')}
-        value={draft.description ?? ''}
-        aria-invalid={invalid('rules-description')}
-        aria-describedby={describedBy('rules-description')}
-        oninput={(event) => {
-          draft.description = event.currentTarget.value;
-          touched();
-        }}
-      />
-      <FieldIssues field="rules-description" issues={errorsOf('rules-description')} />
-    </div>
-
     <div class="form-row">
       <div class="form-group flex-fill-200">
-        <label class="form-label" for="rules-target-category">{t('TargetCategory')}</label>
+        <label class="form-label" for="rules-target-category">{t('SendsTo')}</label>
         <select
           id="rules-target-category"
           class="form-select"
@@ -384,31 +382,6 @@
         </select>
         <FieldIssues field="rules-applies-to" issues={errorsOf('rules-applies-to')} />
       </div>
-
-      <div class="form-group flex-fixed-120">
-        <label class="form-label" for="rules-priority">{t('Priority')}</label>
-        <input
-          id="rules-priority"
-          type="number"
-          step="1"
-          class="form-input"
-          aria-invalid={wholePriority ? invalid('rules-priority') : 'true'}
-          aria-describedby={wholePriority
-            ? describedBy('rules-priority', 'rules-priority-help')
-            : 'rules-priority-help rules-priority-error'}
-          value={draft.priority}
-          oninput={(event) => {
-            draft.priority = Number(event.currentTarget.value);
-            touched();
-          }}
-        />
-        <p id="rules-priority-help" class="form-hint">{t('PriorityHint')}</p>
-        {#if !wholePriority}
-          <p id="rules-priority-error" class="field-error">{t('EnterWholeNumber')}</p>
-        {:else}
-          <FieldIssues field="rules-priority" issues={errorsOf('rules-priority')} />
-        {/if}
-      </div>
     </div>
 
     {#if instances.length > 0}
@@ -428,33 +401,27 @@
       </fieldset>
     {/if}
 
-    <div class="form-row">
-      <div class="form-group flex-fill-240">
-        <label class="form-label" for="rules-condition-logic">{t('ConditionLogic')}</label>
-        <select
-          id="rules-condition-logic"
-          class="form-select"
-          value={draft.match_mode}
-          onchange={(event) => {
-            draft.match_mode = event.currentTarget.value as MatchMode;
-            touched();
-          }}
-        >
-          <option value="all">{t('MatchAll')}</option>
-          <option value="any">{t('MatchAny')}</option>
-        </select>
+    {#snippet logic()}
+      <div class="segmented" role="group" aria-label={t('ConditionLogic')}>
+        {#each MATCH_MODES as mode (mode.value)}
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            aria-pressed={draft.match_mode === mode.value}
+            onclick={() => {
+              draft.match_mode = mode.value;
+              touched();
+            }}
+          >
+            {t(mode.key)}
+          </button>
+        {/each}
       </div>
-
-      <div class="form-group flex-fill-240">
-        <label class="flex items-center gap-2 text-base">
-          <input type="checkbox" bind:checked={draft.enabled} onchange={touched} />
-          {t('RuleEnabled')}
-        </label>
-      </div>
-    </div>
+    {/snippet}
 
     <ConditionList
-      title={t(draft.match_mode === 'any' ? 'ConditionsAnyOf' : 'ConditionsAllOf')}
+      title={t('Conditions')}
+      control={logic}
       list="conditions"
       conditions={draft.conditions}
       keys={rows.conditions.map((field) => field.key)}
@@ -490,6 +457,71 @@
         updateCondition('exclusions', index, value, unreadableText)}
       onRemove={(index) => removeCondition('exclusions', index)}
     />
+
+    <details class="rule-more" bind:open={more}>
+      <summary>
+        {t('WithNote', {
+          text: t('RuleMore'),
+          note: [
+            t('Description'),
+            t('SideBySide', { first: t('Priority'), second: String(draft.priority) }),
+            t(draft.enabled ? 'RuleEnabled' : 'RuleDisabled'),
+          ].join(t('ListSeparator')),
+        })}
+      </summary>
+      <div class="form-group">
+        <label class="form-label" for="rules-description">
+          {t('WithNote', { text: t('Description'), note: t('Optional') })}
+        </label>
+        <input
+          id="rules-description"
+          class="form-input"
+          placeholder={t('RuleDescriptionPlaceholder')}
+          value={draft.description ?? ''}
+          aria-invalid={invalid('rules-description')}
+          aria-describedby={describedBy('rules-description')}
+          oninput={(event) => {
+            draft.description = event.currentTarget.value;
+            touched();
+          }}
+        />
+        <FieldIssues field="rules-description" issues={errorsOf('rules-description')} />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="rules-priority">{t('Priority')}</label>
+        <div class="field-beside">
+          <input
+            id="rules-priority"
+            type="number"
+            step="1"
+            class="form-input flex-fixed-120"
+            aria-invalid={wholePriority ? invalid('rules-priority') : 'true'}
+            aria-describedby={wholePriority
+              ? describedBy('rules-priority', 'rules-priority-help')
+              : 'rules-priority-help rules-priority-error'}
+            value={draft.priority}
+            oninput={(event) => {
+              draft.priority = Number(event.currentTarget.value);
+              touched();
+            }}
+          />
+          <p id="rules-priority-help" class="form-hint">{t('PriorityHint')}</p>
+        </div>
+        {#if !wholePriority}
+          <p id="rules-priority-error" class="field-error">{t('EnterWholeNumber')}</p>
+        {:else}
+          <FieldIssues field="rules-priority" issues={errorsOf('rules-priority')} />
+        {/if}
+      </div>
+
+      <div class="form-group">
+        <label class="flex items-center gap-2 text-base">
+          <input type="checkbox" bind:checked={draft.enabled} onchange={touched} />
+          {t('RuleEnabled')}
+        </label>
+      </div>
+    </details>
 
     {#if preview}
       <PreviewPanel {preview} />

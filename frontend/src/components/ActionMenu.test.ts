@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import ActionMenu from './ActionMenu.svelte';
@@ -88,6 +88,19 @@ describe('ActionMenu', () => {
     for (const name of ['Sync now', 'Test connection', 'Delete']) {
       expect(item(name).getAttribute('tabindex')).toBe('-1');
     }
+  });
+
+  it('walks the items of every group as one list', async () => {
+    show([
+      { label: 'Genre contains', group: 'From the metadata sources', onSelect: vi.fn() },
+      { label: 'Season count over', group: 'From Radarr and Sonarr', onSelect: vi.fn() },
+    ]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+
+    const arr = screen.getByRole('group', { name: 'From Radarr and Sonarr' });
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' });
+
+    expect(document.activeElement).toBe(within(arr).getByRole('menuitem'));
   });
 
   it('closes when the click lands anywhere else', async () => {

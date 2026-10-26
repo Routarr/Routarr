@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -7,7 +7,7 @@ import type { Condition, ConditionSpec } from '../api/types';
 import ConditionList from './ConditionList.svelte';
 
 /**
- * The picker offers what the rule can use, the list renders what it already has. Conflating the
+ * The add menu offers what the rule can use, the list renders what it already has. Conflating the
  * two sets is how a saved condition disappears the next time somebody opens the rule.
  */
 
@@ -53,7 +53,6 @@ function render(
   onRetype: (index: number, type: string) => void = () => {},
   facets?: unknown,
   language = 'en',
-  onAdd: (type: string) => void = () => {},
 ) {
   renderWithI18n(ConditionList, {
     language,
@@ -65,7 +64,7 @@ function render(
       specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE, LANGUAGE_NOT],
       addable,
       facets,
-      onAdd,
+      onAdd: () => {},
       onRetype,
       onUpdate: () => {},
       onRemove: () => {},
@@ -73,29 +72,65 @@ function render(
   });
 }
 
-describe('ConditionList', () => {
-  it('lists the conditions it offers under their family, in the order of the catalogue', () => {
-    render([], [GENRE, SEASONS, LANGUAGE]);
+/** The list as the editor holds it: each add and each delete comes back as its new props. */
+function renderLive(initial: Condition[], addable: ConditionSpec[] = [GENRE]) {
+  let conditions = initial;
+  let keys = initial.map((_, index) => index);
+  const onAdd = vi.fn((type: string) => {
+    conditions = [...conditions, { type, value: [] }];
+    keys = [...keys, Math.max(-1, ...keys) + 1];
+    void view.rerender({ conditions, keys });
+  });
+  const view = renderWithI18n(ConditionList, {
+    props: {
+      title: 'All of',
+      list: 'conditions',
+      conditions,
+      keys,
+      specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
+      addable,
+      onAdd,
+      onRetype: () => {},
+      onUpdate: () => {},
+      onRemove: (index: number) => {
+        conditions = conditions.filter((_, at) => at !== index);
+        keys = keys.filter((_, at) => at !== index);
+        void view.rerender({ conditions, keys });
+      },
+    },
+  });
+  return onAdd;
+}
 
-    const families = [...document.querySelectorAll('optgroup')].map((group) => ({
-      label: group.label,
-      options: [...group.querySelectorAll('option')].map((option) => option.textContent?.trim()),
-    }));
-    expect(families).toEqual([
-      { label: 'From the metadata sources', options: ['Genre contains', 'Original language is'] },
-      { label: 'From Radarr and Sonarr', options: ['Season count over'] },
+describe('ConditionList', () => {
+  it('offers each condition once under its family, in the order of the catalogue', async () => {
+    render([], [GENRE, GENRE_ALL, SEASONS, LANGUAGE]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a condition – All of' }));
+
+    const menu = within(screen.getByRole('menu'));
+    const offered = (family: string) =>
+      within(menu.getByRole('group', { name: family }))
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent?.trim());
+    expect(menu.getAllByRole('group')).toHaveLength(2);
+    expect(offered('From the metadata sources')).toEqual([
+      'Genre contains',
+      'Original language is',
     ]);
+    expect(offered('From Radarr and Sonarr')).toEqual(['Season count over']);
   });
 
-  it('adds the condition chosen only when Add is pressed', async () => {
-    const onAdd = vi.fn();
-    render([], [GENRE, SEASONS], () => {}, undefined, 'en', onAdd);
+  it('adds the condition chosen in one step, and moves the focus into its value', async () => {
+    const onAdd = renderLive([], [GENRE, SEASONS]);
 
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'All of' }), GENRE.type);
-    expect(onAdd).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Add a condition – All of' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Genre contains' }));
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Add – All of' }));
     expect(onAdd).toHaveBeenCalledWith(GENRE.type);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Genre contains')),
+    );
   });
 
   it('still renders a condition the rule already carries but could not add today', () => {
@@ -103,14 +138,6 @@ describe('ConditionList', () => {
     render([{ type: 'season_count_over', value: 3 } as unknown as Condition], [GENRE]);
 
     expect(screen.getByText('Season count over')).toBeTruthy();
-  });
-
-  it('offers each quantified condition once', () => {
-    render([], [GENRE, GENRE_ALL]);
-
-    const picker = screen.getByRole('combobox', { name: 'All of' });
-    const offered = [...picker.querySelectorAll('option')].map((o) => o.textContent?.trim());
-    expect(offered).toEqual(['+ Add a condition…', 'Genre contains']);
   });
 
   it('offers the two sentences of a pair in its selector, the values left as a gap', () => {
@@ -214,30 +241,9 @@ describe('ConditionList', () => {
 
 /**
  * Delete takes its own row away, and the focus with it. Rows are kept by position, so the next
- * condition moves up under the focus. The last row takes its button, and the picker is left.
+ * condition moves up under the focus. The last row takes its button, and the add button is left.
  */
 describe('deleting a condition', () => {
-  function renderLive(conditions: Condition[]) {
-    const view = renderWithI18n(ConditionList, {
-      props: {
-        title: 'All of',
-        list: 'conditions',
-        conditions,
-        keys: conditions.map((_, index) => index),
-        specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
-        addable: [GENRE],
-        onAdd: () => {},
-        onRetype: () => {},
-        onUpdate: () => {},
-        onRemove: (index: number) =>
-          void view.rerender({
-            conditions: conditions.filter((_, at) => at !== index),
-            keys: conditions.map((_, at) => at).filter((at) => at !== index),
-          }),
-      },
-    });
-  }
-
   it('leaves the focus on the Delete of the condition that took its place', async () => {
     renderLive([
       { type: 'genre_contains', value: ['Anime'] },
@@ -253,13 +259,15 @@ describe('deleting a condition', () => {
     );
   });
 
-  it('hands the focus to the picker once the last condition is deleted', async () => {
+  it('hands the focus to the add button once the last condition is deleted', async () => {
     renderLive([{ type: 'genre_contains', value: ['Anime'] }]);
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete – Genre contains' }));
 
     await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'All of' })),
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Add a condition – All of' }),
+      ),
     );
   });
 });
