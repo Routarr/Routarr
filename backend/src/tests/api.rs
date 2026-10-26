@@ -1585,6 +1585,58 @@ async fn a_title_already_where_its_rule_sends_it_is_classified() {
     assert_eq!(listed("/api/v1/library?unmatched=true").await.0, ["m-2", "m-1"]);
 }
 
+/// Read from the last run against the folder each title is in now: a move applied since reads as
+/// staying, with no run in between.
+#[tokio::test]
+async fn the_library_says_whether_each_title_moves_and_where() {
+    use serde_json::json;
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                            monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', '/movies/standard', 1, 1),
+                ('m-3', 'inst-1', 12, 'movie', 'Paprika', '/movies/standard', 1, 1)",
+        "INSERT INTO categories (id, name) VALUES ('cat-kids', 'kids')",
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-k', 'm-3', 'kids')",
+    ])
+    .await;
+    let outcome = |page: &serde_json::Value, id: &str| {
+        let item = page["data"].as_array().unwrap().iter().find(|item| item["id"] == id).unwrap();
+        (item["action"].clone(), item["target_root_folder"].clone())
+    };
+    let ids = |page: serde_json::Value| -> Vec<String> {
+        page["data"].as_array().unwrap().iter().map(|item| item["id"].to_string()).collect()
+    };
+    let unread = app.get("/api/v1/library").await.assert_ok().clone();
+    assert_eq!(outcome(&unread, "m-1"), (json!(null), json!(null)));
+
+    app.post("/api/v1/simulate", json!({"persist": true})).await.assert_ok();
+
+    let page = app.get("/api/v1/library").await.assert_ok().clone();
+    assert_eq!(outcome(&page, "m-1"), (json!("move"), json!("/movies/anime")));
+    assert_eq!(outcome(&page, "m-2"), (json!("none"), json!("/movies/standard")));
+    assert_eq!(outcome(&page, "m-3"), (json!("skip"), json!(null)));
+    for (filter, expected) in [("move", "m-1"), ("none", "m-2"), ("skip", "m-3")] {
+        let path = format!("/api/v1/library?action={filter}");
+        let listed = app.get(&path).await.assert_ok().clone();
+        assert_eq!(listed["pagination"]["total"], 1, "{filter}");
+        assert_eq!(ids(listed), [format!("\"{expected}\"")], "{filter}");
+    }
+    let bare = app.get("/api/v1/library?without_metadata=true").await.assert_ok().clone();
+    assert_eq!(ids(bare), ["\"m-2\"", "\"m-3\""]);
+    app.get("/api/v1/library?action=teleport").await.assert_status(StatusCode::BAD_REQUEST);
+
+    app.execute(&["UPDATE media SET current_root_folder = '/movies/anime/' WHERE id = 'm-1'"])
+        .await;
+
+    let moved = app.get("/api/v1/library").await.assert_ok().clone();
+    assert_eq!(outcome(&moved, "m-1"), (json!("none"), json!("/movies/anime")));
+    let none_left = app.get("/api/v1/library?action=move").await.assert_ok().clone();
+    assert_eq!(none_left["pagination"]["total"], 0);
+}
+
 /// The category list counts, beside each category, the rules sending titles
 /// to it and the folders it is mapped onto: what the Categories screen shows
 /// before somebody deletes one.

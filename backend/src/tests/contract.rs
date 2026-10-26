@@ -721,7 +721,8 @@ fn each_published_vocabulary_is_the_one_its_type_writes() {
     let actions = written(&[DecisionAction::Move, DecisionAction::None, DecisionAction::Skip]);
     for (schema, field, values) in [
         ("Decision", "action", actions.clone()),
-        ("Explanation", "action", actions),
+        ("Explanation", "action", actions.clone()),
+        ("MediaListItem", "action", actions),
         (
             "Decision",
             "status",

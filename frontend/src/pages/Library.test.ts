@@ -19,6 +19,7 @@ function show(items: MediaListItem[], pages = 1) {
   const getLibrary = vi
     .spyOn(api, 'getLibrary')
     .mockResolvedValue(paginated(items, { total_pages: pages, total: items.length * pages }));
+  vi.spyOn(api, 'countLibrary').mockResolvedValue(0);
   renderWithI18n(Library);
   return getLibrary;
 }
@@ -54,7 +55,7 @@ describe('Library', () => {
 
   /**
    * An exception short-circuits the engine, so a forced category must not read like a computed
-   * one: the lock says a human decided.
+   * one, and says so in a word every reader sees.
    */
   it('distinguishes a category a human forced from one the rules computed', async () => {
     show([
@@ -62,14 +63,48 @@ describe('Library', () => {
       media({ id: 'm2', title: 'Dune', override_category: null, computed_category: 'standard' }),
     ]);
 
+    const forced = within(await screen.findByRole('row', { name: /Akira/ })).getByText('kids');
+    expect(forced.closest('td')).toHaveTextContent(/kids\s*\(exception\)/);
+    expect(within(screen.getByRole('row', { name: /Dune/ })).queryByText(/exception/)).toBeNull();
+  });
+
+  /** Whether "anime" beside a folder means a move is the question the screen answers. */
+  it('says whether each title moves, stays, or has no folder to go to', async () => {
+    show([
+      media({ id: 'm1', title: 'Akira', action: 'move', target_root_folder: '/data/anime' }),
+      media({ id: 'm2', title: 'Dune', action: 'none', target_root_folder: '/data/films' }),
+      media({ id: 'm3', title: 'Heidi', action: 'skip', target_root_folder: null }),
+    ]);
+
+    const cell = async (title: string) =>
+      within(await screen.findByRole('row', { name: new RegExp(title) }))
+        .getByText('anime')
+        .closest('td') as HTMLElement;
+    expect(await cell('Akira')).toHaveTextContent('Moves to /data/anime');
+    expect(within(await cell('Akira')).getByText('/data/anime')).toHaveClass('mono');
+    expect(await cell('Dune')).toHaveTextContent('Stays');
+    expect(await cell('Heidi')).toHaveTextContent('No folder on this instance');
+  });
+
+  it('asks the server for the titles that will move, or have no folder', async () => {
+    const getLibrary = show([media()]);
     await screen.findByText('Akira');
-    const forced = screen.getByTitle('Manual exception');
-    expect(forced.textContent).toContain('kids');
-    // The title reaches a mouse alone: a screen reader and a touch reader read the word.
-    expect(
-      within(screen.getByRole('row', { name: /Akira/ })).getByText('Manual exception'),
-    ).toHaveClass('visually-hidden');
-    expect(screen.getByText('standard').getAttribute('title')).toBeNull();
+
+    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'move');
+    await waitFor(() =>
+      expect(getLibrary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ action: 'move', unmatched: undefined }),
+        expect.any(AbortSignal),
+      ),
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'unclassified');
+    await waitFor(() =>
+      expect(getLibrary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ action: undefined, unmatched: true }),
+        expect.any(AbortSignal),
+      ),
+    );
   });
 
   /**
@@ -82,19 +117,29 @@ describe('Library', () => {
     expect(await screen.findByText('Not evaluated')).toBeTruthy();
   });
 
-  it('warns about missing metadata', async () => {
-    show([media({ has_metadata: false })]);
+  /** Having metadata is not an outcome, so only its absence, which stops genre rules, shows. */
+  it('marks a title without metadata in its title cell, and no other', async () => {
+    show([
+      media({ id: 'm1', title: 'Akira', has_metadata: false }),
+      media({ id: 'm2', title: 'Dune', has_metadata: true }),
+    ]);
 
-    const warning = await screen.findByText('Missing');
-    expect(warning.className).toContain('badge-warning');
+    const missing = within(await screen.findByRole('row', { name: /Akira/ })).getByText(
+      'No metadata',
+    );
+    expect(missing).toHaveClass('badge-warning');
+    expect(missing.closest('td')).toHaveTextContent('Akira');
+    expect(within(screen.getByRole('row', { name: /Dune/ })).queryByText('No metadata')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Metadata' })).toBeNull();
   });
 
-  it('gives cached metadata no colour, because having it is not an outcome', async () => {
-    show([media({ has_metadata: true })]);
+  it('counts the titles without metadata beside the filters', async () => {
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([media()]));
+    const count = vi.spyOn(api, 'countLibrary').mockResolvedValue(3);
+    renderWithI18n(Library);
 
-    const badge = await screen.findByText('Metadata', { selector: '.badge' });
-    expect(badge.className).not.toContain('badge-warning');
-    expect(badge.className).toContain('muted');
+    expect(await screen.findByText('Without metadata: 3')).toHaveClass('badge-warning');
+    expect(count).toHaveBeenCalledWith({ without_metadata: true }, expect.any(AbortSignal));
   });
 
   it('says whether a title is a film or a series in words', async () => {

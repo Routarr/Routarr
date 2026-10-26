@@ -116,14 +116,15 @@
       <table>
         <caption class="visually-hidden">{t('Tasks')}</caption>
         <thead>
+          <!-- The task and how it went first: on a phone the other columns go. -->
           <tr>
             <th>{t('Task')}</th>
-            <th>{t('Trigger')}</th>
             <th>{t('Status')}</th>
-            <th>{t('Progress')}</th>
-            <th>{t('Detail')}</th>
-            <th>{t('Started')}</th>
-            <th>{t('Finished')}</th>
+            <th class="col-secondary">{t('Progress')}</th>
+            <th class="col-secondary">{t('Detail')}</th>
+            <th class="col-secondary">{t('Trigger')}</th>
+            <th class="col-secondary">{t('Started')}</th>
+            <th class="col-secondary">{t('Finished')}</th>
             <th><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
@@ -136,20 +137,18 @@
             </tr>
           {:else}
             {#each jobs as job (job.id)}
+              <!-- A task that fails on its own count, such as every move of an apply refused,
+                   says so in its detail and has no error. -->
+              {@const failure = job.error_message ?? (job.status === 'failed' ? job.detail : null)}
               <tr>
                 <td><strong>{t(jobKindKey(job.kind))}</strong></td>
                 <td>
-                  <span class="badge badge-info">{t(triggerKey(job.trigger))}</span>
-                  {#if job.subject}
-                    <span class="text-xs text-muted" title={t('PerformedBy')}
-                      ><span class="visually-hidden">{t('PerformedBy')}</span>{job.subject}</span
-                    >
+                  <span class="badge {STATUS_BADGE[job.status]}">{t(statusKey(job.status))}</span>
+                  {#if failure}
+                    <span class="status-reason text-danger">{failure}</span>
                   {/if}
                 </td>
-                <td>
-                  <span class="badge {STATUS_BADGE[job.status]}">{t(statusKey(job.status))}</span>
-                </td>
-                <td>
+                <td class="col-secondary">
                   {#if job.progress_total > 0}
                     <ProgressBar
                       current={job.progress_current}
@@ -160,21 +159,25 @@
                     <span class="text-muted"><NoValue /></span>
                   {/if}
                 </td>
-                <td class="max-w-320">
-                  <!-- A task that fails on its own count, such as every move of
-                       an apply refused, says so in its detail and has no error. -->
-                  {#if job.error_message}
-                    <span class="text-danger">{job.error_message}</span>
+                <td class="max-w-320 col-secondary">
+                  {#if job.detail && job.detail !== failure}
+                    <span class="text-muted">{job.detail}</span>
                   {:else}
-                    <span class={job.status === 'failed' ? 'text-danger' : 'text-muted'}>
-                      {#if job.detail}{job.detail}{:else}<NoValue />{/if}
-                    </span>
+                    <span class="text-muted"><NoValue /></span>
                   {/if}
                 </td>
-                <td class="cell-timestamp" title={job.started_at}>
+                <td class="col-secondary">
+                  <span class="badge badge-info">{t(triggerKey(job.trigger))}</span>
+                  {#if job.subject}
+                    <span class="text-xs text-muted" title={t('PerformedBy')}
+                      ><span class="visually-hidden">{t('PerformedBy')}</span>{job.subject}</span
+                    >
+                  {/if}
+                </td>
+                <td class="cell-timestamp col-secondary" title={job.started_at}>
                   {formatTimestamp(job.started_at, i18n.language)}
                 </td>
-                <td class="cell-timestamp" title={job.finished_at ?? undefined}>
+                <td class="cell-timestamp col-secondary" title={job.finished_at ?? undefined}>
                   {#if job.finished_at}
                     {formatTimestamp(job.finished_at, i18n.language)}
                   {:else}

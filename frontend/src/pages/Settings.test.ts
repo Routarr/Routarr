@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { nthCall } from '../test/spy';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { ENGLISH, renderWithI18n } from '../test/render';
@@ -31,6 +31,8 @@ const LIVE_MODE =
   'Global dry-run is OFF: applying a decision will write to Radarr/Sonarr immediately.';
 const AUTO_APPLY_ARMED =
   'Automatic application is armed: a routing decision for a title with no files yet is written to Radarr/Sonarr as soon as it is made, without confirmation.';
+const SAVES_SOURCES =
+  'Saves the source list and its keys, the weekly anime identifier table, and Cache and coverage. The other cards act at once.';
 const API_KEY_HELP =
   'Routarr generates one at first start unless ROUTARR_API_KEY is set. Scripts send it as X-Api-Key. This browser sent it once to open a session, and keeps no copy.';
 
@@ -325,6 +327,45 @@ describe('the save bar', () => {
 });
 
 describe('the metadata sources', () => {
+  const noTable = () =>
+    vi.spyOn(api, 'getAnimeIds').mockResolvedValue({
+      loaded_at: null,
+      entries: null,
+      origin: null,
+      address: 'https://example.org/anime-ids.json',
+    });
+
+  it('schedules the anime identifier table in its own card, saved with the rest', async () => {
+    noTable();
+    mountSources({ metadata_providers: 'arr' });
+
+    const title = await screen.findByRole('heading', { name: 'Anime identifiers' });
+    const card = title.closest('.card') as HTMLElement;
+    const weekly = within(card).getByLabelText('Anime identifiers every week');
+    expect(weekly.closest('.card')).toBe(card);
+    await userEvent.selectOptions(weekly, 'true');
+
+    expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
+    expect(screen.getByText(SAVES_SOURCES)).toBeTruthy();
+    expect(await save()).toEqual({ anime_ids_weekly: 'true' });
+  });
+
+  it('orders its cards from the sources to their credits, the table beside its sources', async () => {
+    noTable();
+    mountSources({ metadata_providers: 'arr' });
+
+    await screen.findByRole('heading', { name: 'Anime identifiers' });
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent?.trim()),
+    ).toEqual([
+      'Metadata sources',
+      'Anime identifiers',
+      'Cache and coverage',
+      'Read the answers again',
+      'Data sources',
+    ]);
+  });
+
   it('offers the credential in the row of the source that needs it', async () => {
     mountSources({ metadata_providers: 'arr' });
 
@@ -565,6 +606,45 @@ it('exports the configuration as a readable file', async () => {
 });
 
 describe('housekeeping', () => {
+  const card = async (title: string) =>
+    (await screen.findByRole('heading', { name: title })).closest('.card') as HTMLElement;
+
+  it('gathers the backups, their schedule and their encryption in one card', async () => {
+    mount({ backup_enabled: 'true', backup_interval_hours: '24', backup_retention_count: '7' });
+    await openSection('Maintenance');
+
+    const backups = await card('Backups');
+    expect(within(backups).getByRole('button', { name: 'Back up now' })).toBeTruthy();
+    for (const label of ['Scheduled backups', 'Backup interval (hours)', 'Backups kept']) {
+      expect(within(backups).getByLabelText(label)).toBeTruthy();
+    }
+    const sealed = within(backups).getByText('Backup encryption', { selector: 'summary *' });
+    expect(sealed.closest('summary')).toHaveTextContent('Not encrypted');
+    expect((sealed.closest('details') as HTMLDetailsElement).open).toBe(false);
+    expect(screen.queryByRole('heading', { name: 'Backup encryption' })).toBeNull();
+
+    await fireEvent.input(within(backups).getByLabelText('Backups kept'), {
+      target: { value: '5' },
+    });
+    expect(await save()).toEqual({ backup_retention_count: '5' });
+  });
+
+  /** Purge deletes what retention lets go, so it sits with retention and reads as a deletion. */
+  it('sets the retention apart with its purge, and the configuration file apart again', async () => {
+    mount({});
+    await openSection('Maintenance');
+
+    const retention = await card('Retention');
+    expect(within(retention).getByLabelText('Decision retention (days)')).toBeTruthy();
+    expect(within(retention).getByLabelText('Log retention (days)')).toBeTruthy();
+    expect(within(retention).getByRole('button', { name: 'Purge now' })).toHaveClass('btn-danger');
+    expect(within(retention).queryByRole('button', { name: 'Export configuration' })).toBeNull();
+    const file = await card('Configuration file');
+    expect(within(file).getByRole('button', { name: 'Export configuration' })).toBeTruthy();
+    expect(within(file).getByRole('button', { name: 'Import configuration' })).toBeTruthy();
+    expect(within(file).getByText(/never contains your Arr API keys/)).toBeTruthy();
+  });
+
   it('asks before purging, and purges nothing when refused', async () => {
     const purge = vi.spyOn(api, 'purge');
     mount({});

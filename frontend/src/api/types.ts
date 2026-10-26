@@ -659,6 +659,10 @@ export interface MediaListItem {
   computed_category: string | null;
   override_category: string | null;
   has_metadata: boolean;
+  /** The folder the last run sends the title to, null when its category has none there. */
+  target_root_folder: string | null;
+  /** Null until a run has evaluated the title. */
+  action: DecisionAction | null;
 }
 
 /** Every enabled source collapsed in priority order, not one provider's answer. */

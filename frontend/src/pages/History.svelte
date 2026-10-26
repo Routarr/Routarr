@@ -379,7 +379,7 @@
 
   <div class="card">
     <TableRegion label={t('History')} id="history-table">
-      <table>
+      <table class="table-stacked stack-history">
         <caption class="visually-hidden">{t('History')}</caption>
         <thead>
           <tr>

@@ -132,6 +132,11 @@ pub struct MediaQuery {
     /// Only the titles no rule matched at the last run, and those no run has
     /// read yet, for the "unclassified" view.
     pub unmatched: Option<bool>,
+    /// Only the titles whose `action` is this one: `move`, `none` or `skip`.
+    #[param(value_type = Option<String>)]
+    pub action: Option<crate::models::DecisionAction>,
+    /// Only the titles no source holds anything about that a rule could read.
+    pub without_metadata: Option<bool>,
     /// From 1. Defaults to 1.
     pub page: Option<u32>,
     /// From 1 to 200. Defaults to 50.

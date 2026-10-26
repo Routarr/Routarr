@@ -90,8 +90,9 @@ test.describe('right to left', () => {
   test('a path typed into a field runs left to right', async ({ page }) => {
     await setLanguage('ar');
     await page.goto('/categories');
+    await page.locator('.declare-fold > summary').first().click();
 
-    await expect(page.locator('#declare-path')).toHaveCSS('direction', 'ltr');
+    await expect(page.locator('.declare-fold input').first()).toHaveCSS('direction', 'ltr');
   });
 
   /** An arrow means "towards", so it turns around when the writing does. */

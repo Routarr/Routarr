@@ -1,5 +1,4 @@
 <script lang="ts">
-  import CardTitle from './CardTitle.svelte';
   import { Lock } from '../lib/icons';
   import { api } from '../api/client';
   import { t } from '../lib/i18n.svelte';
@@ -9,9 +8,9 @@
   import { handFocus } from '../lib/focus';
 
   /**
-   * The passphrase every archive is sealed with. Typed twice, since a typo
-   * seals every archive with words nobody knows, and set, changed or removed
-   * with the proof a key asks for: removing it opens every archive.
+   * The passphrase every archive is sealed with, folded under whether one is set. Typed twice,
+   * since a typo seals every archive with words nobody knows, and set, changed or removed with
+   * the proof a key asks for: removing it opens every archive.
    */
   let { outcome, configured }: { outcome: Outcome; configured: boolean } = $props();
 
@@ -74,22 +73,16 @@
   }
 </script>
 
-<div class="card">
-  <div class="card-header">
-    <div>
-      <!-- The state sits beside the name it qualifies, and below it where both do not fit. -->
-      <div class="flex flex-wrap items-center gap-2">
-        <CardTitle card="BackupEncryption" class="flex items-center gap-2">
-          <Lock size={18} aria-hidden="true" />
-          {t('BackupEncryption')}
-        </CardTitle>
-        <span class="badge {encrypted ? 'badge-success' : 'badge-warning'}">
-          {t(encrypted ? 'BackupEncryptionOn' : 'BackupEncryptionOff')}
-        </span>
-      </div>
-      <p class="card-note">{t('BackupEncryptionHelp')}</p>
-    </div>
-  </div>
+<details class="form-section mt-4">
+  <!-- The state sits beside the name it qualifies, and below it where both do not fit. -->
+  <summary class="flex flex-wrap items-center gap-2 cursor-pointer">
+    <Lock size={14} aria-hidden="true" />
+    <strong class="text-md">{t('BackupEncryption')}</strong>
+    <span class="badge {encrypted ? 'badge-success' : 'badge-warning'}">
+      {t(encrypted ? 'BackupEncryptionOn' : 'BackupEncryptionOff')}
+    </span>
+  </summary>
+  <p class="card-note mt-3">{t('BackupEncryptionHelp')}</p>
 
   <form novalidate onsubmit={save}>
     <div class="form-group">
@@ -136,4 +129,4 @@
       {/if}
     </div>
   </form>
-</div>
+</details>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+  import ActionMenu from './ActionMenu.svelte';
   import CardTitle from './CardTitle.svelte';
   import {
     AlertTriangle,
@@ -10,6 +12,7 @@
     Info,
     Lock,
     Trash2,
+    Undo2,
   } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import type { BackupCopy, BackupFile, RestoreResult } from '../api/types';
@@ -26,10 +29,18 @@
   import { invalidateStatus } from '../lib/status.svelte';
 
   /**
-   * The archives on disk and what can be done with them, apart from the settings form, whose
-   * Save does not apply to them.
+   * Everything about the archives: taking one, its schedule, the list and its encryption. The
+   * schedule's fields are the settings form's, saved by its bar. The rest acts at once.
    */
-  let { outcome }: { outcome: Outcome } = $props();
+  let {
+    outcome,
+    schedule,
+    encryption,
+  }: {
+    outcome: Outcome;
+    schedule?: Snippet;
+    encryption?: Snippet;
+  } = $props();
 
   const backups = createAsync((signal) => api.listBackups(signal));
   let busy = $state(false);
@@ -52,7 +63,9 @@
     }
   }
 
-  const deleteId = (index: number) => `backup-delete-${index}`;
+  const menuId = (index: number) => `backup-menu-${index}`;
+  /** The archive being downloaded, whose row says so in place of its actions. */
+  let downloading = $state<string | null>(null);
 
   /** How the last copy went, when it went well or has not ended. */
   function copyLine(copy: BackupCopy): string {
@@ -70,8 +83,15 @@
   }
 
   async function download(name: string) {
-    const archive = await withProof((proof) => api.downloadBackup(name, proof), 'archive');
-    if (archive) downloadBlob(archive, name);
+    try {
+      const archive = await withProof((proof) => {
+        downloading = name;
+        return api.downloadBackup(name, proof);
+      }, 'archive');
+      if (archive) downloadBlob(archive, name);
+    } finally {
+      downloading = null;
+    }
   }
 
   /** Taking a folder as it is, asked in the words of what the folder holds. */
@@ -99,6 +119,9 @@
   }
 </script>
 
+{#snippet restoreIcon()}<Undo2 size={14} aria-hidden="true" />{/snippet}
+{#snippet trashIcon()}<Trash2 size={14} aria-hidden="true" />{/snippet}
+
 <div class="card">
   <div class="card-header">
     <div>
@@ -108,6 +131,20 @@
       </CardTitle>
       <p class="card-note">{t('BackupsHelp')}</p>
     </div>
+    <button
+      id="backup-now"
+      type="button"
+      class="btn btn-secondary"
+      disabled={busy}
+      onclick={() =>
+        run(async () => {
+          await api.createBackup({ signal: leaving.signal });
+          outcome.clear();
+        })}
+    >
+      <Archive size={16} />
+      {t('BackupNow')}
+    </button>
   </div>
 
   {#if backups.data?.pending_restore}
@@ -141,20 +178,9 @@
     </div>
   {/if}
 
-  <button
-    id="backup-now"
-    type="button"
-    class="btn btn-secondary"
-    disabled={busy}
-    onclick={() =>
-      run(async () => {
-        await api.createBackup({ signal: leaving.signal });
-        outcome.clear();
-      })}
-  >
-    <Archive size={16} />
-    {t('BackupNow')}
-  </button>
+  {#if schedule}
+    <div class="mt-4">{@render schedule()}</div>
+  {/if}
 
   {#if backups.data?.copy}
     {@const copy = backups.data.copy}
@@ -244,64 +270,71 @@
               )}
             </div>
           </div>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            disabled={busy}
-            aria-label="{t('DownloadBackup')} – {file.name}"
-            onclick={() =>
-              run(async () => {
-                await download(file.name);
-                outcome.clear();
-              })}
-          >
-            <Download size={14} />
-          </button>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            disabled={busy}
-            aria-label="{t('RestoreBackup')} – {file.name}"
-            onclick={() =>
-              run(async () => {
-                if (
-                  !(await askConfirmation(
-                    t('ConfirmRestore', { name: file.name }),
-                    'RestoreBackup',
-                  ))
-                )
-                  return;
-                const result = await restore(file.name);
-                if (!result) return;
-                invalidateStatus();
-                // Only the manifest says whether the archive holds the master key: one taken while
-                // ROUTARR_SECRET_KEY held it has none, and every sealed Arr credential is lost.
-                if (result.manifest.includes_master_key) outcome.succeed(t('RestoreStaged'));
-                else outcome.warn(t('RestoreStagedWithoutKey'));
-              })}
-          >
-            {t('RestoreBackup')}
-          </button>
-          <button
-            id={deleteId(index)}
-            type="button"
-            class="btn btn-secondary btn-sm"
-            disabled={busy}
-            aria-label="{t('Delete')} – {file.name}"
-            onclick={async () => {
-              // Asked: deleting destroys the only copy of a snapshot, and nothing undoes it.
-              if (!(await askConfirmation(deleteQuestion(file), 'Delete'))) return;
-              await run(async () => {
-                await api.deleteBackup(file.name);
-                outcome.clear();
-              });
-              // The archive takes its row and the pressed Delete with it: the
-              // one now in its place takes the focus, else the one before.
-              void handFocus(deleteId(index), deleteId(index - 1), 'backup-now');
-            }}
-          >
-            <Trash2 size={14} />
-          </button>
+          {#if downloading === file.name}
+            <span class="text-muted text-sm">{t('Downloading')}</span>
+          {:else}
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              disabled={busy}
+              aria-label="{t('DownloadBackup')} – {file.name}"
+              title={t('DownloadBackup')}
+              onclick={() =>
+                run(async () => {
+                  await download(file.name);
+                  outcome.clear();
+                })}
+            >
+              <Download size={14} aria-hidden="true" />
+            </button>
+            <!-- Rare and weighty, so one press further, the deletion last. -->
+            <ActionMenu
+              id={menuId(index)}
+              label="{t('Actions')} – {file.name}"
+              actions={[
+                {
+                  label: t('RestoreBackup'),
+                  icon: restoreIcon,
+                  disabled: busy,
+                  onSelect: () =>
+                    void run(async () => {
+                      if (
+                        !(await askConfirmation(
+                          t('ConfirmRestore', { name: file.name }),
+                          'RestoreBackup',
+                        ))
+                      )
+                        return;
+                      const result = await restore(file.name);
+                      if (!result) return;
+                      invalidateStatus();
+                      // Only the manifest says whether the archive holds the master key: one
+                      // taken while ROUTARR_SECRET_KEY held it has none, and every sealed Arr
+                      // credential is lost.
+                      if (result.manifest.includes_master_key) outcome.succeed(t('RestoreStaged'));
+                      else outcome.warn(t('RestoreStagedWithoutKey'));
+                    }),
+                },
+                {
+                  label: t('Delete'),
+                  icon: trashIcon,
+                  danger: true,
+                  disabled: busy,
+                  onSelect: async () => {
+                    // Asked: deleting destroys the only copy of a snapshot, and nothing undoes it.
+                    if (!(await askConfirmation(deleteQuestion(file), 'Delete'))) return;
+                    await run(async () => {
+                      await api.deleteBackup(file.name);
+                      outcome.clear();
+                    });
+                    // The archive takes its row and its menu with it: the menu now in its place
+                    // takes the focus, else the one before.
+                    void handFocus(menuId(index), menuId(index - 1), 'backup-now');
+                  },
+                },
+              ]}
+            />
+          {/if}
         </div>
       {/each}
     </div>
@@ -326,7 +359,7 @@
       <button
         id="replaced-database-delete"
         type="button"
-        class="btn btn-secondary btn-sm"
+        class="btn btn-danger btn-sm"
         disabled={busy}
         aria-label="{t('Delete')} – {t('ReplacedDatabase')}"
         onclick={async () => {
@@ -343,4 +376,6 @@
       </button>
     </div>
   {/if}
+
+  {@render encryption?.()}
 </div>

@@ -86,17 +86,29 @@ describe('Tasks', () => {
     expect(within(row).getByText('n8n').closest('td')).toHaveTextContent(/Performed by\s*n8n/);
   });
 
-  it('marks the detail of a task that failed on its own count as a failure', async () => {
+  /** Under its status, which a phone keeps in view with the task's name. */
+  it('says why a task failed under its status, on its own count too', async () => {
     vi.spyOn(api, 'getTasks').mockResolvedValue(
       paginated([
         job({ status: 'failed', detail: 'Applied: 0, failed: 3', error_message: null }),
         job({ id: 'job-2', detail: 'Applied: 2, failed: 0' }),
+        job({ id: 'job-3', status: 'failed', error_message: 'Radarr said 500' }),
       ]),
     );
     show();
 
-    expect((await screen.findByText('Applied: 0, failed: 3')).className).toContain('text-danger');
+    const counted = await screen.findByText('Applied: 0, failed: 3');
+    expect(counted.className).toContain('text-danger');
+    expect(within(counted.closest('td') as HTMLElement).getByText('Failed')).toBeTruthy();
+    const refused = screen.getByText('Radarr said 500');
+    expect(within(refused.closest('td') as HTMLElement).getByText('Failed')).toBeTruthy();
     expect(screen.getByText('Applied: 2, failed: 0').className).toContain('text-muted');
+    expect(
+      screen
+        .getAllByRole('columnheader')
+        .slice(0, 2)
+        .map((header) => header.textContent),
+    ).toEqual(['Task', 'Status']);
   });
 
   it('says so when nothing has ever run, instead of showing an empty table', async () => {

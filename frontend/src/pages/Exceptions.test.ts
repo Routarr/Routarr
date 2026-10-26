@@ -169,8 +169,7 @@ describe('Exceptions', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    await fireEvent.input(search, { target: { value: 'perfect' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'perfect');
 
     const pick = await screen.findByRole('button', { name: 'Select – Perfect Blue' });
     expect(pick).toHaveAttribute('aria-pressed', 'false');
@@ -194,8 +193,7 @@ describe('Exceptions', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     expect(screen.queryByText(said)).toBeNull();
-    await fireEvent.input(search, { target: { value: 'nothing' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'nothing');
 
     expect(await screen.findByText(said)).toBeTruthy();
   });
@@ -208,8 +206,7 @@ describe('Exceptions', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
     const region = within(screen.getByRole('dialog')).getByRole('status');
-    await fireEvent.input(search, { target: { value: 'star' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'star');
 
     await waitFor(() =>
       expect(region).toHaveTextContent(
@@ -234,8 +231,7 @@ describe('Exceptions', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    await fireEvent.input(search, { target: { value: 'perfect' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'perfect');
     await fireEvent.click(await screen.findByText('Perfect Blue'));
     await fireEvent.click(await screen.findByRole('button', { name: 'Create exception' }));
 
@@ -256,8 +252,7 @@ describe('Exceptions', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    await fireEvent.input(search, { target: { value: 'perfect' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'perfect');
     await fireEvent.click(await screen.findByText('Perfect Blue'));
     const pin = await screen.findByRole('button', { name: 'Create exception' });
     await userEvent.click(pin);
@@ -277,8 +272,7 @@ describe('Exceptions', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    await fireEvent.input(search, { target: { value: 'perfect' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'perfect');
     await fireEvent.click(await screen.findByText('Perfect Blue'));
     const pin = await screen.findByRole('button', { name: 'Create exception' });
     await fireEvent.click(pin);
@@ -295,8 +289,7 @@ describe('Exceptions', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
     const search = await screen.findByLabelText('Search the library by title');
-    await fireEvent.input(search, { target: { value: 'perfect' } });
-    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await userEvent.type(search, 'perfect');
 
     await fireEvent.click(await screen.findByText('Perfect Blue'));
     // Not the first category, which is what the dialog would send unasked.
@@ -308,6 +301,41 @@ describe('Exceptions', () => {
 
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(nthCall(create)[0]).toMatchObject({ media_id: 'm7', target_category: 'kids' });
+  });
+
+  it('searches the library as a title is typed, once the typing stops', async () => {
+    const find = vi.spyOn(api, 'getLibrary').mockResolvedValue(paginated([media()]));
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Search the library by title'), 'aki');
+
+    expect(await within(dialog).findByRole('button', { name: 'Select – Akira' })).toBeTruthy();
+    expect(find).toHaveBeenCalledTimes(1);
+    expect(find).toHaveBeenCalledWith({ search: 'aki', per_page: 15 }, expect.any(AbortSignal));
+    expect(within(dialog).queryByRole('button', { name: 'Search' })).toBeNull();
+  });
+
+  it('marks the title picked, and starts its category on the one it goes to now', async () => {
+    vi.spyOn(api, 'getLibrary').mockResolvedValue(
+      paginated([
+        media({ id: 'm7', title: 'Perfect Blue', computed_category: 'kids' }),
+        media({ id: 'm8', title: 'Paprika' }),
+      ]),
+    );
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New exception' }));
+    await userEvent.type(await screen.findByLabelText('Search the library by title'), 'p');
+    const pick = await screen.findByRole('button', { name: 'Select – Perfect Blue' });
+    await fireEvent.click(pick);
+
+    expect(within(pick).getByText('Selected')).toBeTruthy();
+    expect(
+      within(screen.getByRole('button', { name: 'Select – Paprika' })).queryByText('Selected'),
+    ).toBeNull();
+    expect(screen.getByLabelText('Force category for "Perfect Blue"')).toHaveValue('kids');
   });
 
   it('opens the pin dialog on its search field', async () => {

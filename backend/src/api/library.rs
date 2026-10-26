@@ -44,7 +44,22 @@ pub struct MediaListItem {
     pub computed_category: Option<String>,
     pub override_category: Option<String>,
     pub has_metadata: bool,
+    /// The folder of that category on the title's instance the last stored run sends it to,
+    /// null when the category has none there or no run has evaluated the title.
+    pub target_root_folder: Option<String>,
+    /// `move` while the title is elsewhere than `target_root_folder`, `none` once there, `skip`
+    /// when its category has no folder on its instance. Null until a run evaluates the title.
+    #[schema(value_type = Option<String>, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
+    pub action: Option<DecisionAction>,
 }
+
+/// A title's `action` in SQL, from the target its last run stored and the folder it is in now,
+/// so a move applied since that run reads as done.
+const ACTION: &str = "CASE WHEN r.action IS NULL THEN NULL
+                           WHEN r.target_root_folder IS NULL THEN 'skip'
+                           WHEN m.current_root_folder = r.target_root_folder COLLATE path
+                                THEN 'none'
+                           ELSE 'move' END";
 
 /// "Something a rule could read is known about this item", in SQL. It answers as
 /// `MediaMetadata::merge` does over the sources `routing::load_context` reads, or the
@@ -148,24 +163,35 @@ pub async fn list(
                                WHERE r.media_id = m.id AND r.matched_rule_id IS NOT NULL)",
         );
     }
+    if let Some(action) = query.action {
+        filters.push_str(&format!(" AND ({ACTION}) = ?"));
+        binds.push(action.as_str().to_string());
+    }
 
     let has_metadata = metadata_predicate(&state.settings().await);
+    if query.without_metadata.unwrap_or(false) {
+        filters.push_str(&format!(" AND NOT ({has_metadata})"));
+    }
 
     // Correlated sub-selects keep this to two queries, with no lookup per row.
     let list_sql = format!(
         "SELECT m.id, m.instance_id, i.name AS instance_name, m.arr_id, m.media_type, m.title,
                 m.year, m.tmdb_id, m.tvdb_id, m.imdb_id, m.current_root_folder, m.monitored, m.has_files, m.status,
                 m.last_synced_at,
-                (SELECT r.category FROM media_routing r WHERE r.media_id = m.id)
-                  AS computed_category,
+                r.category AS computed_category,
                 (SELECT o.target_category FROM overrides o WHERE o.media_id = m.id) AS override_category,
-                ({has_metadata}) AS has_metadata
+                ({has_metadata}) AS has_metadata,
+                r.target_root_folder, {ACTION} AS action
          FROM media m
          JOIN instances i ON m.instance_id = i.id
+         LEFT JOIN media_routing r ON r.media_id = m.id
          WHERE 1=1{filters}
          ORDER BY m.title ASC, m.id ASC LIMIT ? OFFSET ?"
     );
-    let count_sql = format!("SELECT COUNT(*) FROM media m WHERE 1=1{filters}");
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM media m LEFT JOIN media_routing r ON r.media_id = m.id
+          WHERE 1=1{filters}"
+    );
 
     let mut list_query = sqlx::query_as::<_, MediaListItem>(AssertSqlSafe(list_sql.as_str()));
     let mut count_query = sqlx::query_scalar::<_, i64>(AssertSqlSafe(count_sql.as_str()));

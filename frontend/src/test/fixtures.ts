@@ -209,6 +209,8 @@ export function media(over: Partial<MediaListItem> = {}): MediaListItem {
     computed_category: 'anime',
     override_category: null,
     has_metadata: true,
+    target_root_folder: '/data/films',
+    action: 'none',
     ...over,
   };
 }

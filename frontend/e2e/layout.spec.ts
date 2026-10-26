@@ -202,6 +202,65 @@ test.describe('on a phone', () => {
     }
   }
 
+  for (const [path, answer] of [
+    ['/library', 'td:nth-child(2)'],
+    ['/move-log', 'td:nth-child(2)'],
+    ['/tasks', 'td:nth-child(2)'],
+    ['/simulation', 'td:nth-child(5)'],
+    ['/history', 'td:nth-child(4)'],
+  ] as const) {
+    test(`${path} shows what it answers on a phone with nothing to scroll sideways`, async ({
+      page,
+    }) => {
+      await seedRows();
+      await page.setViewportSize({ width: 375, height: 812 });
+      await openScreen(page, path);
+
+      const cell = page.locator(`main tbody tr ${answer}`).first();
+      await expect(cell).toBeVisible();
+      const measured = await cell.evaluate((node) => {
+        const region = node.closest('.table-container')!;
+        const [box, frame] = [node, region].map((el) => el.getBoundingClientRect());
+        return {
+          scrolls: region.scrollWidth - region.clientWidth,
+          inside: box!.left >= frame!.left - 1 && box!.right <= frame!.right + 1,
+        };
+      });
+      expect(measured.scrolls, `${path} scrolls its table sideways`).toBeLessThanOrEqual(0);
+      expect(measured.inside, `${path} draws its answer out of sight`).toBe(true);
+    });
+  }
+
+  /** The folder table may scroll on a phone, its group controls held in its visible part. */
+  test("an instance's sync and destination form stay in sight on a phone", async ({ page }) => {
+    await api('/instances', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Radarr UHD',
+        instance_type: 'radarr',
+        base_url: 'http://127.0.0.1:1',
+        api_key: 'e2e',
+        enabled: true,
+        sync_interval_minutes: 60,
+      }),
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/categories');
+
+    for (const control of [
+      page.getByRole('button', { name: 'Sync now – Radarr UHD' }),
+      page.getByText('Add a destination folder on Radarr', { exact: true }),
+    ]) {
+      await expect(control).toBeVisible();
+      const inside = await control.evaluate((node) => {
+        const region = node.closest('.table-container')!;
+        const [box, frame] = [node, region].map((el) => el.getBoundingClientRect());
+        return box!.left >= frame!.left - 1 && box!.right <= frame!.right + 1;
+      });
+      expect(inside, `${await control.textContent()} is out of sight`).toBe(true);
+    }
+  });
+
   /**
    * `/settings` opens on its first tab, so only here is the source list drawn narrow. Held in
    * three lanes, the actions squeeze the credential field, which the document does not scroll
@@ -617,7 +676,7 @@ test.describe('the chrome draws one line', () => {
    * kind badge's `::before` dot cannot be measured, so what could still move it is checked.
    */
   test('a dot sits on the middle of the chip that frames it', async ({ page }) => {
-    await openScreen(page, '/instances');
+    await openScreen(page, '/');
 
     const modeOffset = await page.locator('.mode-chip').evaluate((chip) => {
       const frame = chip.getBoundingClientRect();
@@ -882,6 +941,23 @@ test.describe('every screen draws a shared thing the same way', () => {
     const tab = page.getByRole('tab', { name: 'Guardrails: a value is outside its bounds' });
     await expect(tab.locator('svg')).toBeVisible();
   });
+});
+
+test('every card of the metadata sources shares one width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openScreen(page, '/sources');
+  await expect(page.getByRole('heading', { name: 'Data sources' })).toBeVisible();
+
+  const edges = await page
+    .locator('main .card')
+    .evaluateAll((cards) => [
+      ...new Set(
+        cards
+          .filter((card) => !card.parentElement?.closest('.card'))
+          .map((card) => Math.round(card.getBoundingClientRect().right)),
+      ),
+    ]);
+  expect(edges, 'the cards end at more than one edge').toHaveLength(1);
 });
 
 /**

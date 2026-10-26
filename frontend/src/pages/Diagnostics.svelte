@@ -2,10 +2,13 @@
   import CardTitle from '../components/CardTitle.svelte';
   import { CheckCircle2, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
+  import type { Health } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
+  import { poll } from '../lib/poll.svelte';
   import { invalidateWarnings } from '../lib/status.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatCount, formatRelative, formatTimestamp } from '../api/format';
+  import { withProbedVerdicts } from '../api/health';
   import NoValue from '../components/NoValue.svelte';
   import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -23,16 +26,30 @@
   // The shell counts what a probe records without probing. Opening the screen reads a recent
   // probe again, and a recheck asks every Arr and source anew.
   let fresh = false;
-  const report = createAsync(async (signal) => {
-    const found = await api.getHealth({ fresh }, signal);
+  /** A reload of the database alone, which keeps the verdicts the last probe gave. */
+  let stored = false;
+  const report = createAsync(async (signal): Promise<Health> => {
+    const reading = stored;
+    stored = false;
+    const found = await api.getHealth(reading ? { probe: false } : { fresh }, signal);
     fresh = false;
     invalidateWarnings();
-    return found;
+    return reading && report.data ? withProbedVerdicts(found, report.data) : found;
   });
   function recheck() {
     fresh = true;
     void report.reload();
   }
+  // Its relative times follow on their own, read from the database: a probe asks every Arr and
+  // source, OMDb's daily quota included. A probe under way is left to finish.
+  poll(
+    () => {
+      if (report.loading) return;
+      stored = true;
+      void report.reload();
+    },
+    () => 60_000,
+  );
   const health = $derived(report.data);
 
   // Counted as the bar and the navigation count them: a warning an open step of the guide says

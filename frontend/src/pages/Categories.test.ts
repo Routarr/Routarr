@@ -32,7 +32,8 @@ function folder(over: Partial<RootFolder> = {}): RootFolder {
   };
 }
 
-const instance = (id: string, name: string) => fixtureInstance({ id, name });
+const instance = (id: string, name: string) =>
+  fixtureInstance({ id, name, last_sync_at: '2026-08-27 10:00:00' });
 
 function show(
   folders: RootFolder[],
@@ -48,6 +49,13 @@ function show(
   vi.spyOn(api, 'getMappingConflicts').mockResolvedValue(conflicts);
   vi.spyOn(api, 'getInstances').mockResolvedValue(instances);
   return renderWithI18n(Categories);
+}
+
+/** The destination form at the foot of `name`'s folders, opened. */
+async function openDeclare(name = 'Radarr'): Promise<HTMLElement> {
+  const summary = await screen.findByText(`Add a destination folder on ${name}`);
+  await userEvent.click(summary);
+  return summary.closest('details') as HTMLElement;
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -96,12 +104,12 @@ describe('Categories', () => {
     const picker = await screen.findByLabelText('Category for /data/anime2');
 
     await userEvent.selectOptions(picker, 'anime');
-    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime2' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
     expect(await answerConfirmation(null)).toContain('/data/anime');
     expect(update).not.toHaveBeenCalled();
+    expect(picker).toHaveValue('anime');
 
-    await userEvent.selectOptions(picker, 'anime');
-    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime2' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
     await answerConfirmation('confirm');
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf2', 'anime', true));
 
@@ -116,18 +124,54 @@ describe('Categories', () => {
     expect(screen.getByText('Shared with /data/anime')).toBeTruthy();
   });
 
-  it('writes the category chosen only when Save is pressed', async () => {
+  it('saves every pick together from a bar that counts them, each row marked', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
-    show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
+    show(
+      [
+        folder({ id: 'rf1', path: '/data/anime', category: null }),
+        folder({ id: 'rf2', path: '/data/kids', category: null }),
+      ],
+      [category({ name: 'anime' }), category({ id: 'c2', name: 'kids' })],
+    );
 
     await userEvent.selectOptions(
       await screen.findByLabelText('Category for /data/anime'),
       'anime',
     );
+    await userEvent.selectOptions(screen.getByLabelText('Category for /data/kids'), 'kids');
     expect(update).not.toHaveBeenCalled();
+    expect(screen.getByText('Folder mappings changed: 2')).toBeTruthy();
+    expect(
+      within(screen.getByRole('row', { name: /\/data\/kids/ })).getByText('Changed'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Save – / })).toBeNull();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime', false));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
+
+    await waitFor(() =>
+      expect(update.mock.calls).toEqual([
+        ['rf1', 'anime', false],
+        ['rf2', 'kids', false],
+      ]),
+    );
+    expect(await screen.findByText('Folder mappings saved: 2')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(/Folder mappings changed/)).toBeNull());
+  });
+
+  it('puts every pick back from the bar, writing nothing', async () => {
+    const update = vi.spyOn(api, 'updateRootFolderCategory');
+    show(
+      [folder({ path: '/data/anime', category: 'standard' })],
+      [category(), category({ id: 'c2', name: 'anime' })],
+    );
+    const picker = await screen.findByLabelText('Category for /data/anime');
+    await userEvent.selectOptions(picker, 'anime');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(picker).toHaveValue('standard');
+    expect(screen.queryByText(/Folder mappings changed/)).toBeNull();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('asks before the screen changes under a category not saved, and stays on Cancel', async () => {
@@ -155,7 +199,7 @@ describe('Categories', () => {
       await screen.findByLabelText('Category for /data/anime'),
       'anime',
     );
-    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
 
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
@@ -181,7 +225,7 @@ describe('Categories', () => {
       .mockResolvedValue({ id: 'rf-x', path: '/media/movies/anime', verified: true });
     show([folder()], []);
 
-    const path = await screen.findByLabelText('Destination folder');
+    const path = within(await openDeclare()).getByLabelText('Destination folder');
     expect(path).toHaveAccessibleDescription(/checked against that instance/);
     await userEvent.type(path, '/media/movies/anime');
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
@@ -197,7 +241,7 @@ describe('Categories', () => {
     });
     show([folder()], []);
 
-    const path = await screen.findByLabelText('Destination folder');
+    const path = within(await openDeclare()).getByLabelText('Destination folder');
     await userEvent.type(path, '/media/movies/anime');
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
 
@@ -208,7 +252,10 @@ describe('Categories', () => {
     const declare = vi.spyOn(api, 'declareRootFolder').mockReturnValue(new Promise(() => {}));
     show([folder()], []);
 
-    await userEvent.type(await screen.findByLabelText('Destination folder'), '/media/movies/anime');
+    await userEvent.type(
+      within(await openDeclare()).getByLabelText('Destination folder'),
+      '/media/movies/anime',
+    );
     const add = screen.getByRole('button', { name: 'Add' });
     await fireEvent.click(add);
     await fireEvent.submit(add.closest('form') as HTMLFormElement);
@@ -216,19 +263,15 @@ describe('Categories', () => {
     expect(declare).toHaveBeenCalledTimes(1);
   });
 
-  it('declares against the instance the form is showing', async () => {
+  it('declares on the instance whose folders the form is opened under', async () => {
     const declare = vi
       .spyOn(api, 'declareRootFolder')
       .mockResolvedValue({ id: 'rf-x', path: '/data/anime', verified: true });
     show([folder()], [], [], [instance('i1', 'Radarr'), instance('i2', 'Sonarr')]);
 
-    const picker = (await screen.findByLabelText('Instance')) as HTMLSelectElement;
-    // Seeded once the instances load, after the form first renders.
-    await waitFor(() => expect(picker.value).toBe('i1'));
-
-    await userEvent.selectOptions(picker, 'i2');
-    await userEvent.type(screen.getByLabelText('Destination folder'), '/data/anime');
-    await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    const form = await openDeclare('Sonarr');
+    await userEvent.type(within(form).getByLabelText('Destination folder'), '/data/anime');
+    await fireEvent.click(within(form).getByRole('button', { name: 'Add' }));
 
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i2', '/data/anime'));
   });
@@ -252,7 +295,7 @@ describe('Categories', () => {
       .mockRejectedValueOnce(new Error('the instance cannot see it'));
     show([folder()], []);
 
-    const field = await screen.findByLabelText('Destination folder');
+    const field = within(await openDeclare()).getByLabelText('Destination folder');
     await userEvent.type(field, '/ok');
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(await screen.findByText(/added/)).toBeInTheDocument();
@@ -264,7 +307,30 @@ describe('Categories', () => {
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
   });
 
-  it('leaves the select on the stored category when a save is refused', async () => {
+  it('keeps a refused pick pending and names it beside the picks saved', async () => {
+    vi.spyOn(api, 'updateRootFolderCategory').mockImplementation(async (id) => {
+      if (id === 'rf2') throw new ApiError('anime already maps /data/other', 409, 'conflict');
+      return {};
+    });
+    show(
+      [
+        folder({ id: 'rf1', path: '/data/films', category: 'standard' }),
+        folder({ id: 'rf2', path: '/data/anime', category: 'standard' }),
+      ],
+      [category(), category({ id: 'c2', name: 'anime' }), category({ id: 'c3', name: 'kids' })],
+    );
+    await userEvent.selectOptions(await screen.findByLabelText('Category for /data/films'), 'kids');
+    await userEvent.selectOptions(screen.getByLabelText('Category for /data/anime'), 'anime');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
+
+    expect(await screen.findByText('Folder mappings saved: 1. These could not be:')).toBeTruthy();
+    expect(screen.getByText('/data/anime: anime already maps /data/other')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Folder mappings changed: 1')).toBeTruthy());
+    expect(screen.getByLabelText('Category for /data/anime')).toHaveValue('anime');
+  });
+
+  it('says why a single pick was refused, and keeps it', async () => {
     vi.spyOn(api, 'updateRootFolderCategory').mockRejectedValue(
       new ApiError('anime already maps /data/other', 409, 'conflict'),
     );
@@ -275,16 +341,18 @@ describe('Categories', () => {
     const select = (await screen.findByLabelText('Category for /data/anime')) as HTMLSelectElement;
 
     await userEvent.selectOptions(select, 'anime');
-    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
 
     expect(await screen.findByText('anime already maps /data/other')).toBeInTheDocument();
-    await waitFor(() => expect(select.value).toBe('standard'));
+    expect(select.value).toBe('anime');
   });
 
   it('keeps a refused destination in its field', async () => {
     vi.spyOn(api, 'declareRootFolder').mockRejectedValue(new Error('the instance cannot see it'));
     show([folder()], []);
-    const field = (await screen.findByLabelText('Destination folder')) as HTMLInputElement;
+    const field = within(await openDeclare()).getByLabelText(
+      'Destination folder',
+    ) as HTMLInputElement;
 
     await userEvent.type(field, '/mnt/typo');
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
@@ -379,7 +447,7 @@ describe('Categories', () => {
   it('shows a refusal without waiting for the page to reload', async () => {
     vi.spyOn(api, 'declareRootFolder').mockRejectedValue(new Error('the instance cannot see it'));
     show([folder()], []);
-    const field = await screen.findByLabelText('Destination folder');
+    const field = within(await openDeclare()).getByLabelText('Destination folder');
     vi.spyOn(api, 'getRootFolders').mockReturnValue(new Promise(() => {}));
 
     await userEvent.type(field, '/mnt/typo');
@@ -397,7 +465,7 @@ describe('Categories', () => {
     show([folder({ path: '/data/films' })], [category()]);
 
     await userEvent.selectOptions(await screen.findByLabelText('Category for /data/films'), '');
-    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/films' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save mappings' }));
 
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', null, false));
   });
@@ -427,6 +495,102 @@ describe('Categories', () => {
     const errors = container.querySelectorAll('.banner-danger li');
     expect(errors).toHaveLength(1);
     expect(errors[0]?.textContent).toContain('Two folders claim "anime"');
+  });
+
+  /** The screen maps folders per instance, so a warning lands on a group it can be read in. */
+  it('groups the folders under their instance, and an instance with none under its sync', async () => {
+    show(
+      [folder({ path: '/data/films' })],
+      [category()],
+      [],
+      [instance('i1', 'Radarr'), fixtureInstance({ id: 'i2', name: 'Radarr 4K' })],
+    );
+
+    const films = (await screen.findByText('/data/films')).closest('tbody') as HTMLElement;
+    expect(within(films).getAllByRole('row')[0]).toHaveTextContent(/^Radarr\s*Radarr \(Movies\)/);
+    expect(within(films).queryByRole('button', { name: /^Sync now/ })).toBeNull();
+    const unsynced = screen.getByText('Radarr 4K').closest('tbody') as HTMLElement;
+    expect(within(unsynced).getByText('Never synced')).toBeTruthy();
+    expect(
+      within(unsynced).getByText(
+        'No root folder known yet: sync this instance to list its folders.',
+      ),
+    ).toBeTruthy();
+    expect(within(unsynced).getByRole('button', { name: 'Sync now – Radarr 4K' })).toBeTruthy();
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
+    expect(headers).not.toContain('Instance');
+    expect(headers).not.toContain('Type');
+  });
+
+  it('syncs an instance from its group, then reads the folders again', async () => {
+    const sync = vi.spyOn(api, 'syncInstance').mockResolvedValue({
+      instance_id: 'i2',
+      instance_name: 'Radarr 4K',
+      media: 4,
+      root_folders: 2,
+      removed: 0,
+      held: 0,
+      error: null,
+    } as never);
+    show([], [category()], [], [fixtureInstance({ id: 'i2', name: 'Radarr 4K' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Sync now – Radarr 4K' }));
+
+    await waitFor(() => expect(sync).toHaveBeenCalledWith('i2', expect.anything()));
+    expect(await screen.findByText('Radarr 4K is synced. Titles: 4, root folders: 2')).toBeTruthy();
+    expect(api.getRootFolders).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads its folders again every minute, keeping the picks not saved', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
+      const picker = await screen.findByLabelText('Category for /data/anime');
+      await userEvent.selectOptions(picker, 'anime');
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await waitFor(() => expect(api.getRootFolders).toHaveBeenCalledTimes(2));
+      expect(screen.getByLabelText('Category for /data/anime')).toHaveValue('anime');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows only its empty state while no instance is set up', async () => {
+    show([], [category()], [], []);
+
+    expect(
+      await screen.findByText('No root folder discovered yet. Add an instance and sync it.'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/^Add a destination folder on/)).toBeNull();
+  });
+
+  /** "Radarr 4K: No root folder on 'Radarr 4K'..." says the name twice. */
+  it('leaves out the lead of a warning whose sentence names its instance', async () => {
+    const warn = (instance_name: string, message: string): MappingConflict => ({
+      kind: 'unmapped_category',
+      severity: 'warning',
+      instance_name,
+      category: 'anime',
+      message,
+    });
+    const { container } = show(
+      [folder()],
+      [category()],
+      [
+        warn('Radarr 4K', "No root folder on 'Radarr 4K' is mapped to 'anime'"),
+        warn('Radarr', 'A folder is mapped to a category that no longer exists'),
+      ],
+    );
+
+    await screen.findByText(/No root folder on/);
+    expect(
+      [...container.querySelectorAll('.banner-warning li')].map((item) => item.textContent?.trim()),
+    ).toEqual([
+      "No root folder on 'Radarr 4K' is mapped to 'anime'",
+      'Radarr: A folder is mapped to a category that no longer exists',
+    ]);
   });
 
   it('opens each category dialog on its name field', async () => {
@@ -485,21 +649,16 @@ describe('for a reader', () => {
     category({ id: 'c2', name: 'anime' }),
   ];
   const offered = () =>
-    [
-      'New category',
-      'Save – /data/films',
-      'Remove – /data/kept',
-      'Add',
-      'Rename category – anime',
-      'Delete – anime',
-    ].filter((name) => screen.queryByRole('button', { name }));
+    ['New category', 'Remove – /data/kept', 'Rename category – anime', 'Delete – anime'].filter(
+      (name) => screen.queryByRole('button', { name }),
+    );
 
   it('offers the owner every write, and a reader the mappings to read alone', async () => {
     const { unmount } = show(FOLDERS(), CATEGORIES());
     await screen.findByRole('button', { name: 'Delete – anime' });
-    expect(offered()).toHaveLength(6);
+    expect(offered()).toHaveLength(4);
     expect(screen.getByLabelText('Category for /data/films')).toBeInTheDocument();
-    expect(screen.getByLabelText('Destination folder')).toBeInTheDocument();
+    expect(screen.getByText('Add a destination folder on Radarr')).toBeInTheDocument();
     unmount();
 
     publishAccess(true);
@@ -512,7 +671,7 @@ describe('for a reader', () => {
     ).toBeTruthy();
     expect(offered()).toEqual([]);
     expect(screen.queryByRole('combobox')).toBeNull();
-    expect(screen.queryByLabelText('Destination folder')).toBeNull();
+    expect(screen.queryByText(/^Add a destination folder on/)).toBeNull();
   });
 });
 

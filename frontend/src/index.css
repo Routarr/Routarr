@@ -1569,6 +1569,116 @@ tr:hover td {
   --text-muted: var(--text-secondary);
 }
 
+/* An instance's heading over its folders: its name, what it runs and its last sync. */
+th.folder-group {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-primary);
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* Held to the visible part of a table that scrolls on a phone, as an empty table's message is,
+   or Sync now and the destination form start out of view. */
+.folder-group-heading,
+.folder-group-note,
+.declare-fold {
+  position: sticky;
+  inset-inline-start: 0;
+  max-width: calc(100cqi - 28px);
+}
+
+/* A routing outcome's icon keeps its size, and its path wraps. */
+.routing-outcome > svg {
+  flex: none;
+}
+.routing-outcome > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* On a phone a table keeps the columns that answer its screen. One whose every cell matters
+   stacks each row instead (`table-stacked`), a line per cell, its headers kept for a screen
+   reader. */
+@media (max-width: 560px) {
+  .col-secondary {
+    display: none;
+  }
+
+  .table-stacked thead tr {
+    display: block;
+  }
+  /* A header holding a control stays: the box that selects every row. */
+  .table-stacked th:not(:has(input)) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .table-stacked th:has(input) {
+    display: block;
+  }
+  .table-stacked tbody tr {
+    display: grid;
+    gap: var(--space-1) var(--space-2);
+    align-items: center;
+    padding: 12px 14px;
+  }
+  .table-stacked tbody tr + tr {
+    border-top: 1px solid var(--border-subtle);
+  }
+  .table-stacked td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border-bottom: none;
+  }
+
+  /* The box beside the title, the arrow and the target on one line. Placed by position: a
+     column moved in `DecisionRow` moves here too. */
+  .stack-proposals tbody tr {
+    grid-template-columns: minmax(24px, auto) auto minmax(0, 1fr);
+  }
+  .stack-proposals td {
+    grid-column: 2 / -1;
+  }
+  .stack-proposals td:first-child {
+    grid-column: 1;
+  }
+  .stack-proposals td:nth-child(4) {
+    grid-column: 2;
+  }
+  .stack-proposals td:nth-child(5) {
+    grid-column: 3;
+  }
+  /* Revert beside its title, the date last, placed by position as above. */
+  .stack-history tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .stack-history td {
+    grid-column: 1 / -1;
+  }
+  .stack-history td:nth-child(2) {
+    grid-column: 1;
+    order: -2;
+  }
+  .stack-history td:last-child {
+    grid-column: 2;
+    order: -1;
+  }
+  .stack-history td:first-child {
+    order: 1;
+  }
+  /* A message or a loading row is one cell across the block. */
+  .table-stacked tbody td[colspan] {
+    grid-column: 1 / -1;
+  }
+}
+
 .form-group {
   margin-bottom: 20px;
 }
@@ -1868,6 +1978,13 @@ td * {
   color: var(--status-success);
 }
 
+/* A dialog's controls grouped by purpose, each under its name on a rule. */
+.form-section,
+.form-group.form-section {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
 /* The webhook's last delivery and what the Arr's connection lacks, one line each. */
 .webhook-status {
   display: flex;
@@ -1888,6 +2005,11 @@ td * {
 }
 
 /* An address to the Arr's interface, underlined in the border colour so a column stays quiet. */
+/* The instance's name and kind keep one line beside a long status reason. */
+.instance-name {
+  white-space: nowrap;
+}
+
 .instance-link {
   display: inline-flex;
   align-items: center;

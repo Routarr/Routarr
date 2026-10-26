@@ -14,6 +14,7 @@ import {
   formatTimestamp,
   inClearPastHome,
   localName,
+  instanceKindKey,
   mediaTypeKey,
   runsOf,
   swapped,
@@ -24,6 +25,11 @@ describe('mediaTypeKey', () => {
   it('names each kind of title by its dictionary key', () => {
     expect(mediaTypeKey('movie')).toBe('Movies');
     expect(mediaTypeKey('series')).toBe('Series');
+  });
+
+  it('names what an instance holds by the kind of title of its Arr', () => {
+    expect(instanceKindKey('radarr')).toBe('Movies');
+    expect(instanceKindKey('sonarr')).toBe('Series');
   });
 });
 
