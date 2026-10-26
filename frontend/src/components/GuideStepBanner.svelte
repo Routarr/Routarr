@@ -8,13 +8,14 @@
     requiredNumber,
     type StepGuide,
   } from '../api/onboarding';
-  import { onboarding } from '../lib/onboarding.svelte';
+  import { doneThisSession, onboarding } from '../lib/onboarding.svelte';
   import { href } from '../lib/router.svelte';
   import { t } from '../lib/i18n.svelte';
 
   /**
-   * Where the reader stands in the guide, on the screen that does the step. A done step links
-   * to the next one, and an optional step offers a way past it rather than being skipped.
+   * Where the reader stands in the guide, on the screen that does the step. A step just done
+   * links to the next one, and an optional step offers a way past it rather than being skipped.
+   * A step done before this session is history, and its screen is visited for other reasons.
    */
   let { step }: { step: OnboardingStep['id'] } = $props();
 
@@ -54,6 +55,7 @@
       };
     }
 
+    if (!doneThisSession(step)) return null;
     const next = nextAfter(status, step);
     if (!next) return { kind: 'finished', text: t('GuideRequiredDone') };
     const guide = STEP_GUIDES[next.id];

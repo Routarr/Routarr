@@ -95,6 +95,7 @@
   "api.ref.op.list_rule_tests": "The rule tests",
   "api.ref.op.get_rule_test": "One rule test",
   "api.ref.op.create_rule_test": "Pin what the rules decide for a title as a test",
+  "api.ref.op.expect_rule_test": "Change the category a rule test expects",
   "api.ref.op.run_rule_tests": "Run every rule test against the rules as they are",
   "api.ref.op.remove_rule_test": "Remove a rule test",
   "api.ref.op.list_rules": "The rules, in priority order",

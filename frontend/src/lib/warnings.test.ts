@@ -28,14 +28,14 @@ describe('where a warning is settled', () => {
   it('sends every warning to a screen that exists', () => {
     const screens = Object.values(SETTLED_ON).filter((to) => to !== null);
     expect(screens.length).toBeGreaterThan(0);
-    for (const to of screens) expect(SCREENS).toContain(to.split('#')[0]);
+    for (const to of screens) expect(SCREENS).toContain(to.split(/[?#]/)[0]);
   });
 
   it('names the link after its screen, and offers none where no screen settles it', () => {
     seedDictionary(ENGLISH, 'en', SERVER_COUNTS);
 
     expect(fixOf(warning('x', null, 'rule_tests_failing'))).toEqual({
-      to: '/rule-tests',
+      to: '/rule-tests?failing=1',
       label: 'Open Rule tests',
     });
     expect(fixOf(warning('x', null, 'backup_copy_failed'))?.label).toBe('Open Settings');

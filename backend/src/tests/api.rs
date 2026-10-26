@@ -2168,6 +2168,24 @@ async fn superseded_decisions_are_hidden_by_default() {
     assert_eq!(all["pagination"]["total"], 2);
 }
 
+/// The history outlives the titles a sync removes, and a title gone has no explanation to open.
+#[tokio::test]
+async fn a_decision_says_whether_the_library_still_holds_its_title() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+    let held = async || {
+        let listed = app.get("/api/v1/decisions?include_superseded=true").await;
+        listed.assert_ok()["data"][0]["in_library"].clone()
+    };
+    assert_eq!(held().await, true);
+
+    app.execute(&["DELETE FROM media"]).await;
+
+    assert_eq!(held().await, false);
+}
+
 /// Deleting an instance takes its proposals with it: they would move titles
 /// that no longer exist, and the dashboard would go on counting them. What was
 /// applied stays, since the history is the record of a write that happened.
@@ -2890,6 +2908,36 @@ async fn status_counts_pending_decisions() {
 
     let response = app.get("/api/v1/status").await;
     assert_eq!(response.assert_ok()["pending_decisions"], 1);
+}
+
+/// A skip waits for a folder for its category, which no apply can give it.
+#[tokio::test]
+async fn the_moves_to_review_leave_out_the_titles_that_cannot_move() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    let counted = async || {
+        let status = app.get("/api/v1/status").await.assert_ok().clone();
+        let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
+        let stats = &health["stats"];
+        (
+            (status["pending_decisions"].clone(), status["pending_moves"].clone()),
+            (stats["pending_decisions"].clone(), stats["pending_moves"].clone()),
+        )
+    };
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+    assert_eq!(counted().await, ((1.into(), 1.into()), (1.into(), 1.into())));
+
+    app.put("/api/v1/root-folders/rf-2/category", serde_json::json!({ "category": null }))
+        .await
+        .assert_ok();
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+
+    assert_eq!(
+        app.count("SELECT COUNT(*) FROM decisions WHERE action = 'skip' AND superseded = 0").await,
+        1
+    );
+    assert_eq!(counted().await, ((1.into(), 0.into()), (1.into(), 0.into())));
 }
 
 #[tokio::test]

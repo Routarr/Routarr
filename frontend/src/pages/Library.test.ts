@@ -120,6 +120,16 @@ describe('Library', () => {
     await waitFor(() => expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal)));
   });
 
+  /** The "?" glyph opens help everywhere else, so the question is asked in words. */
+  it('asks why beside the title, in words', async () => {
+    show([media({ id: 'm7', title: 'Akira' })]);
+
+    const why = await screen.findByRole('button', { name: 'Why? – Akira' });
+
+    expect(why).toHaveTextContent('Why?');
+    expect(why.closest('td')).toHaveTextContent('Akira');
+  });
+
   it('marks the row being explained as busy until its answer arrives', async () => {
     let answer = () => {};
     vi.spyOn(api, 'explainTitle').mockReturnValue(

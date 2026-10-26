@@ -38,6 +38,9 @@ pub struct StatusResponse {
     pub dry_run: bool,
     pub running_jobs: i64,
     pub pending_decisions: i64,
+    /// The pending decisions that move a title, which an apply can act on: a skip waits for its
+    /// category to be mapped.
+    pub pending_moves: i64,
     /// Failed moves still asking for attention: titles whose latest decision failed and that no
     /// later run has settled.
     pub failed_decisions: i64,
@@ -125,6 +128,9 @@ fn severity_of(code: &str) -> &'static str {
     severity.unwrap_or("warning")
 }
 
+/// A proposal still waiting for its apply, as a condition over `decisions`.
+const PENDING: &str = "status = 'pending' AND superseded = 0";
+
 /// A failed move still asking for attention, as a condition over `decisions d`: the title's
 /// latest standing decision, with no stored run of the title since.
 fn open_failure() -> String {
@@ -139,10 +145,11 @@ pub async fn status(
 ) -> AppResult<Json<StatusResponse>> {
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));
-    let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
+    let row: (i64, i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
             (SELECT COUNT(*) FROM jobs WHERE status = 'running'),
-            (SELECT COUNT(*) FROM decisions WHERE status = 'pending' AND superseded = 0),
+            (SELECT COUNT(*) FROM decisions WHERE {PENDING}),
+            (SELECT COUNT(*) FROM decisions WHERE {PENDING} AND action = 'move'),
             (SELECT COUNT(*) FROM decisions d WHERE {})",
         open_failure()
     )))
@@ -156,7 +163,8 @@ pub async fn status(
         dry_run: settings.bool("global_dry_run"),
         running_jobs: row.0,
         pending_decisions: row.1,
-        failed_decisions: row.2,
+        pending_moves: row.2,
+        failed_decisions: row.3,
         warnings,
     }))
 }
@@ -243,7 +251,7 @@ pub struct MetadataProviderHealth {
     pub reason: Option<&'static str>,
 }
 
-#[derive(Debug, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Default, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct AppStats {
     pub total_instances: i64,
     pub total_media: i64,
@@ -253,6 +261,8 @@ pub struct AppStats {
     pub enabled_rules: i64,
     pub total_overrides: i64,
     pub pending_decisions: i64,
+    /// The pending decisions that move a title, as `/status` counts them.
+    pub pending_moves: i64,
     pub applied_decisions: i64,
     /// Failed moves still asking for attention, as `/status` counts them.
     pub failed_decisions: i64,
@@ -1229,39 +1239,24 @@ async fn counts_for(
 
 async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
     let open = open_failure();
-    let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) =
-        sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT
-            (SELECT COUNT(*) FROM instances),
-            (SELECT COUNT(*) FROM media),
-            (SELECT COUNT(*) FROM media WHERE media_type = 'movie'),
-            (SELECT COUNT(*) FROM media WHERE media_type = 'series'),
-            (SELECT COUNT(*) FROM rules),
-            (SELECT COUNT(*) FROM rules WHERE enabled = 1),
-            (SELECT COUNT(*) FROM overrides),
-            (SELECT COUNT(*) FROM decisions WHERE status = 'pending' AND superseded = 0),
-            (SELECT COUNT(*) FROM decisions WHERE status = 'applied'),
-            (SELECT COUNT(*) FROM decisions d WHERE {open}),
-            (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),
-            (SELECT COUNT(*) FROM jobs WHERE status = 'running')"
-        )))
-        .fetch_one(&state.pool)
-        .await?;
-
-    Ok(AppStats {
-        total_instances: row.0,
-        total_media: row.1,
-        total_movies: row.2,
-        total_series: row.3,
-        total_rules: row.4,
-        enabled_rules: row.5,
-        total_overrides: row.6,
-        pending_decisions: row.7,
-        applied_decisions: row.8,
-        failed_decisions: row.9,
-        unmapped_categories: row.10,
-        running_jobs: row.11,
-    })
+    Ok(sqlx::query_as::<_, AppStats>(AssertSqlSafe(format!(
+        "SELECT
+            (SELECT COUNT(*) FROM instances) AS total_instances,
+            (SELECT COUNT(*) FROM media) AS total_media,
+            (SELECT COUNT(*) FROM media WHERE media_type = 'movie') AS total_movies,
+            (SELECT COUNT(*) FROM media WHERE media_type = 'series') AS total_series,
+            (SELECT COUNT(*) FROM rules) AS total_rules,
+            (SELECT COUNT(*) FROM rules WHERE enabled = 1) AS enabled_rules,
+            (SELECT COUNT(*) FROM overrides) AS total_overrides,
+            (SELECT COUNT(*) FROM decisions WHERE {PENDING}) AS pending_decisions,
+            (SELECT COUNT(*) FROM decisions WHERE {PENDING} AND action = 'move') AS pending_moves,
+            (SELECT COUNT(*) FROM decisions WHERE status = 'applied') AS applied_decisions,
+            (SELECT COUNT(*) FROM decisions d WHERE {open}) AS failed_decisions,
+            (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}) AS unmapped_categories,
+            (SELECT COUNT(*) FROM jobs WHERE status = 'running') AS running_jobs"
+    )))
+    .fetch_one(&state.pool)
+    .await?)
 }
 
 /// What the warnings read off the data folder, gathered off the async workers in one go.

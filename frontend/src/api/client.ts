@@ -537,6 +537,11 @@ export const api = {
       }),
     }),
   deleteRuleTest: (id: string) => request<Deleted>(`/rule-tests/${id}`, { method: 'DELETE' }),
+  setRuleTestExpectation: (id: string, expectedCategory: string) =>
+    request<RuleTest>(`/rule-tests/${id}/expected-category`, {
+      method: 'PUT',
+      body: body({ expected_category: expectedCategory }),
+    }),
   getConditionCatalog: (signal?: AbortSignal) =>
     request<ConditionCatalog>('/rules/conditions', { signal }),
   createRule: (data: RuleDraft) => request<Rule>('/rules', { method: 'POST', body: body(data) }),

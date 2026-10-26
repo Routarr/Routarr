@@ -1,8 +1,8 @@
 <script lang="ts">
   import Count from '../components/Count.svelte';
   import CardTitle from '../components/CardTitle.svelte';
-  import { Layers, Play, ShieldCheck } from '../lib/icons';
-  import { formatBytes, setFields } from '../api/format';
+  import { CheckCircle2, Layers, Play, ShieldCheck } from '../lib/icons';
+  import { formatBytes, formatCount, formatTimestamp, setFields } from '../api/format';
   import { ApiError, api, type Following } from '../api/client';
   import type { Decision, DecisionFilter, SimulationResult } from '../api/types';
   import { FIELDS } from '../lib/settings';
@@ -11,6 +11,7 @@
   import { endedOnFailure, reportMoves } from '../lib/moves';
   import { i18n, t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
+  import { href } from '../lib/router.svelte';
   import DecisionRow from '../components/DecisionRow.svelte';
   import Pager from '../components/Pager.svelte';
   import ProgressBar from '../components/ProgressBar.svelte';
@@ -32,8 +33,12 @@
   import { SvelteSet } from 'svelte/reactivity';
   import { invalidateStatus } from '../lib/status.svelte';
   import { access } from '../lib/access.svelte';
+  import { createExplainer } from '../lib/explain.svelte';
+  import ExplanationModal from '../components/ExplanationModal.svelte';
 
   let result = $state<SimulationResult | null>(null);
+  /** When the run on screen started, which nothing else on the screen says. */
+  let ranAt = $state<string | null>(null);
   const selected = new SvelteSet<string>();
   let moveFiles = $state(false);
   let busy = $state<'run' | 'apply' | null>(null);
@@ -42,22 +47,38 @@
   /** The refresh after an apply, whose failure sits beside the apply's report. */
   let refreshError = $state<string | null>(null);
   const outcome = createOutcome();
+  const explainer = createExplainer();
 
   // The filters narrow the run's proposals, or every pending decision, and an apply of many.
   let titles = $state<TitleFilter>({ ...NO_TITLE_FILTER });
   let searchText = $state('');
-  let action = $state('');
   let page = $state(1);
   const filter = $derived<DecisionFilter>(setFields({ ...titles, search: searchText }));
   // What the panel sets, which the Filters button counts: the search is in sight beside it.
-  const panelSet = $derived(Object.keys(setFields({ ...titles })).length + (action === '' ? 0 : 1));
-  const filtered = $derived(Object.keys(filter).length > 0 || action !== '');
+  const panelSet = $derived(Object.keys(setFields({ ...titles })).length);
+  const filtered = $derived(Object.keys(filter).length > 0);
+
+  /**
+   * The moves to review first: a skip waits for its category's folder, and one unmapped category
+   * can turn hundreds of titles into skips.
+   */
+  const VIEWS = [
+    { action: 'move', key: 'ViewToMove' },
+    { action: 'skip', key: 'ViewSkipped' },
+    { action: '', key: 'ViewAll' },
+  ] as const;
+  type View = (typeof VIEWS)[number]['action'];
+  let action = $state<View>('move');
   const narrowing = () => [result?.simulation_id, JSON.stringify(filter), action];
+
+  function show(view: View) {
+    action = view;
+    page = 1;
+  }
 
   function clearFilters() {
     titles = { ...NO_TITLE_FILTER };
     searchText = '';
-    action = '';
     page = 1;
   }
 
@@ -102,6 +123,20 @@
     () => [...narrowing(), page],
   );
 
+  /** What each view holds under the filters, the run's proposals or every pending decision. */
+  const counts = createAsync(
+    async (signal) => {
+      const scope = result ? { simulation_id: result.simulation_id } : { status: 'pending' };
+      const [move, skip, all] = await Promise.all(
+        VIEWS.map((view) =>
+          api.countDecisions({ ...scope, ...filter, action: view.action }, signal),
+        ),
+      );
+      return { move, skip, '': all } as Record<View, number>;
+    },
+    () => [result?.simulation_id, JSON.stringify(filter)],
+  );
+
   /** How many of the run's moves the filters keep, which Apply all applies. */
   const matching = createAsync(async (signal) => {
     if (!result) return 0;
@@ -118,15 +153,19 @@
     async (signal) => {
       if (!result) return null;
       const jobs = await api.getTasks({ kind: 'simulate', status: 'success', per_page: 1 }, signal);
-      const latest = jobs.data[0]?.result as SimulationResult | null | undefined;
-      return latest && latest.simulation_id !== result.simulation_id ? latest : null;
+      const job = jobs.data[0];
+      const latest = job?.result as SimulationResult | null | undefined;
+      return job && latest && latest.simulation_id !== result.simulation_id
+        ? { result: latest, at: job.started_at }
+        : null;
     },
     () => [...narrowing(), page],
   );
 
   function showNewer() {
     if (!newer.data) return;
-    result = newer.data;
+    result = newer.data.result;
+    ranAt = newer.data.at;
     page = 1;
   }
 
@@ -156,7 +195,7 @@
       .catch(() => null);
     const job = running?.data[0];
     if (!job || busy !== null) return;
-    await follow(() => api.followTask<SimulationResult>(job.id, following));
+    await follow(() => api.followTask<SimulationResult>(job.id, following), job.started_at);
   }
 
   /**
@@ -164,10 +203,11 @@
    * the apply's outcome, never in its place: the moves were made either way.
    */
   async function run({ refresh = false }: { refresh?: boolean } = {}) {
-    await follow(() => api.runSimulation({ persist: true }, following), refresh);
+    const at = new Date().toISOString();
+    await follow(() => api.runSimulation({ persist: true }, following), at, refresh);
   }
 
-  async function follow(started: () => Promise<SimulationResult>, refresh = false) {
+  async function follow(started: () => Promise<SimulationResult>, at: string, refresh = false) {
     const pressed = document.activeElement as HTMLElement | null;
     busy = 'run';
     progress = null;
@@ -177,6 +217,7 @@
       const summary = await started();
       page = 1;
       result = summary;
+      ranAt = at;
     } catch (err) {
       // The screen closed: nothing is left to tell.
       if (leaving.signal.aborted) return;
@@ -192,7 +233,7 @@
   }
 
   /**
-   * The apply button is disabled while it writes, and stays so when the refresh leaves nothing to
+   * The apply button is disabled while it writes, and gone when the refresh leaves nothing to
    * apply, so Run takes the focus the button cannot.
    */
   function settleFocus(pressed: HTMLElement | null) {
@@ -306,11 +347,14 @@
       selected.delete(decision.id);
       outcome.succeed(t('KeptHereOutcome', { category: decision.current_category ?? '' }));
       invalidateStatus();
-      await Promise.all([list.reload(), matching.reload()]);
+      await reloadProposals();
     } catch (err) {
       outcome.fail(err);
     }
   }
+
+  /** After an exception moved a title out of the proposals, from its row or its explanation. */
+  const reloadProposals = () => Promise.all([list.reload(), matching.reload(), counts.reload()]);
 
   const shown = $derived<Decision[]>(list.data?.data ?? []);
   // True until the list on screen answers, the run's page or the pending decisions.
@@ -319,6 +363,26 @@
   const selectable = $derived(movable.slice(0, cap));
   const allSelected = $derived(
     selectable.length > 0 && selectable.every((d) => selected.has(d.id)),
+  );
+
+  // While every destination fits, its table is a press away: it only confirms.
+  let capacityShown = $state(false);
+  const short = $derived(result?.capacity.filter((c) => !c.fits) ?? []);
+  /** Shown while there is something to apply, so no apply is drawn while it cannot act. */
+  const applicable = $derived(
+    !access.readOnly &&
+      (selected.size > 0 || (result !== null && (matching.data ?? 0) > 0) || busy === 'apply'),
+  );
+  const empty = $derived(
+    filtered
+      ? 'NoDecisionMatchesFilters'
+      : action === 'skip'
+        ? 'NoTitleSkipped'
+        : action === 'move' && (result || (counts.data?.[''] ?? 0) > 0)
+          ? 'NoMoveToReview'
+          : result
+            ? 'NoDecisionGenerated'
+            : 'SimulationEmptyState',
   );
 </script>
 
@@ -356,11 +420,13 @@
     onRetry={() => void list.reload()}
   />
   <ErrorBanner message={refreshError} onDismiss={() => (refreshError = null)} />
+  <ErrorBanner message={explainer.failure} onDismiss={explainer.dismiss} />
   <ErrorBanner
-    message={matching.error ?? newer.error}
+    message={matching.error ?? newer.error ?? counts.error}
     onDismiss={() => {
       matching.error = null;
       newer.error = null;
+      counts.error = null;
     }}
   />
   <OutcomeBanner {outcome} />
@@ -373,13 +439,18 @@
     />
   {/if}
 
-  <!-- The counters describe a run, and the decisions are worth showing without one. -->
-  {#if !result && list.data && list.data.pagination.total > 0 && !filtered}
-    <WarningBanner message={t('DecisionsAwaitingReview', { count: list.data.pagination.total })} />
+  <!-- The figures describe a run, and the moves are worth reviewing without one. -->
+  {#if !result && !filtered && (counts.data?.move ?? 0) > 0}
+    <WarningBanner message={t('MovesAwaitingReview', { count: counts.data?.move ?? 0 })} />
   {/if}
 
   {#if result}
-    <div class="metrics">
+    <div class="metrics is-compact">
+      {#if ranAt}
+        <span class="metric metric-label">
+          {t('SimulationOf', { when: formatTimestamp(ranAt, i18n.language) })}
+        </span>
+      {/if}
       <Stat label={t('Evaluated')} value={result.total_media} />
       <Stat label={t('MovesRequired')} value={result.moves_required} tone="warning" />
       <Stat label={t('AlreadyCorrect')} value={result.already_correct} tone="success" />
@@ -394,70 +465,110 @@
           count: result.skipped_unmapped,
           screen: t('CategoriesAndFolders'),
         })}
+        link={{
+          to: '/categories',
+          label: t('HelpFixOn', { screen: t('CategoriesAndFolders') }),
+        }}
       />
     {/if}
 
     <!-- A batch past its destination's free space fails partway, the library half-moved. -->
     {#if result.capacity.length > 0}
-      {#each result.capacity.filter((c) => !c.fits) as short (c_key(short))}
+      {#each short as destination (c_key(destination))}
         <WarningBanner
           message={t('CapacityShortWarning', {
-            path: short.path,
-            needed: formatBytes(short.incoming_bytes, i18n.language),
-            free: formatBytes(short.free_bytes, i18n.language),
+            path: destination.path,
+            needed: formatBytes(destination.incoming_bytes, i18n.language),
+            free: formatBytes(destination.free_bytes, i18n.language),
           })}
         />
       {/each}
 
-      <div class="card">
-        <div class="card-header">
-          <CardTitle card="CapacityTitle">{t('CapacityTitle')}</CardTitle>
-        </div>
-        <TableRegion label={t('CapacityTitle')}>
-          <table>
-            <caption class="visually-hidden">{t('CapacityTitle')}</caption>
-            <thead>
-              <tr>
-                <th>{t('Destination')}</th>
-                <th>{t('Items')}</th>
-                <th>{t('CapacityIncoming')}</th>
-                <th>{t('CapacityFree')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each result.capacity as folder (c_key(folder))}
+      {#if short.length === 0}
+        <p class="page-note flex flex-wrap items-center gap-2">
+          <CheckCircle2 size={16} class="text-success" aria-hidden="true" />
+          <span>{t('CapacityAllFit')}</span>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            aria-expanded={capacityShown}
+            onclick={() => (capacityShown = !capacityShown)}
+          >
+            {t('Details')}
+          </button>
+        </p>
+      {/if}
+
+      {#if short.length > 0 || capacityShown}
+        <div class="card">
+          <div class="card-header">
+            <CardTitle card="CapacityTitle">{t('CapacityTitle')}</CardTitle>
+          </div>
+          <TableRegion label={t('CapacityTitle')}>
+            <table>
+              <caption class="visually-hidden">{t('CapacityTitle')}</caption>
+              <thead>
                 <tr>
-                  <td>
-                    <span class="mono">{folder.path}</span>
-                    {#if folder.instance_name}
-                      <span class="text-muted ms-2">{folder.instance_name}</span>
-                    {/if}
-                  </td>
-                  <td><Count value={folder.items} /></td>
-                  <td>
-                    {formatBytes(folder.incoming_bytes, i18n.language)}
-                    <!-- A same-volume move is a free rename, shown so the figure checks out. -->
-                    {#if folder.same_filesystem_bytes > 0}
-                      <span class="text-muted ms-2">
-                        {t('CapacitySameVolume', {
-                          size: formatBytes(folder.same_filesystem_bytes, i18n.language),
-                        })}
-                      </span>
-                    {/if}
-                  </td>
-                  <td class={folder.fits ? '' : 'text-danger'}>
-                    {formatBytes(folder.free_bytes, i18n.language)}
-                  </td>
+                  <th>{t('Destination')}</th>
+                  <th>{t('Items')}</th>
+                  <th>{t('CapacityIncoming')}</th>
+                  <th>{t('CapacityFree')}</th>
                 </tr>
-              {/each}
-            </tbody>
-          </table>
-        </TableRegion>
-      </div>
+              </thead>
+              <tbody>
+                {#each result.capacity as folder (c_key(folder))}
+                  <tr>
+                    <td>
+                      <span class="mono">{folder.path}</span>
+                      {#if folder.instance_name}
+                        <span class="text-muted ms-2">{folder.instance_name}</span>
+                      {/if}
+                    </td>
+                    <td><Count value={folder.items} /></td>
+                    <td>
+                      {formatBytes(folder.incoming_bytes, i18n.language)}
+                      <!-- A same-volume move is a free rename, shown so the figure checks out. -->
+                      {#if folder.same_filesystem_bytes > 0}
+                        <span class="text-muted ms-2">
+                          {t('CapacitySameVolume', {
+                            size: formatBytes(folder.same_filesystem_bytes, i18n.language),
+                          })}
+                        </span>
+                      {/if}
+                    </td>
+                    <td class={folder.fits ? '' : 'text-danger'}>
+                      {formatBytes(folder.free_bytes, i18n.language)}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </TableRegion>
+        </div>
+      {/if}
     {/if}
   {/if}
 
   <FilterBar active={panelSet} clearable={filtered} onClear={clearFilters}>
+    {#snippet views()}
+      <div class="segmented" role="group" aria-label={t('ProposalsShown')}>
+        {#each VIEWS as view (view.action)}
+          <button
+            type="button"
+            class="btn btn-secondary"
+            aria-pressed={action === view.action}
+            onclick={() => show(view.action)}
+          >
+            {t(view.key)}
+            {#if counts.data}
+              <span class="badge badge-value muted">
+                {formatCount(counts.data[view.action], i18n.language)}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    {/snippet}
     {#snippet search()}
       <SearchField
         bind:value={searchText}
@@ -472,73 +583,17 @@
       fields={['instance', 'type', 'category', 'folder', 'rule']}
       onchange={() => (page = 1)}
     />
-    <div class="form-group filter-field">
-      <label class="form-label" for="simulation-action">{t('Action')}</label>
-      <select
-        id="simulation-action"
-        class="form-select"
-        value={action}
-        onchange={(event) => {
-          page = 1;
-          action = event.currentTarget.value;
-        }}
-      >
-        <option value="">{t('AllActions')}</option>
-        <option value="move">{t('ActionMove')}</option>
-        <option value="skip">{t('ActionSkip')}</option>
-      </select>
-    </div>
   </FilterBar>
 
-  {#if movable.length > 0 && !access.readOnly}
-    <div class="card">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" bind:checked={moveFiles} />
-          <span>{t('MoveFilesLabel')}</span>
-        </label>
-
-        <div class="flex flex-wrap gap-2">
-          <button
-            class="btn btn-primary"
-            onclick={() => void apply()}
-            disabled={selected.size === 0 || busy !== null}
-          >
-            <ShieldCheck size={16} />
-            {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
-          </button>
-
-          <!-- Reaches past the page, so it shows only once a run produced a simulation. -->
-          {#if result}
-            <button
-              class="btn btn-secondary"
-              onclick={() => void applyAll()}
-              disabled={!matching.data || busy !== null}
-              aria-describedby="apply-all-hint"
-            >
-              <Layers size={16} />
-              {t(filtered ? 'ApplyMatching' : 'ApplyAll', { count: matching.data ?? 0 })}
-            </button>
-          {/if}
-          {#if busy === 'apply' && applying}
-            <button class="btn btn-ghost" onclick={() => void cancelApply()}>
-              {t('StopTask')}
-            </button>
-          {/if}
-        </div>
-      </div>
-      {#if movable.length > cap}
-        <p class="form-hint">{t('SelectionCapped', { limit: cap })}</p>
-      {/if}
-      {#if result}
-        <p id="apply-all-hint" class="form-hint">
-          {t(filtered ? 'ApplyMatchingHint' : 'ApplyAllHint')}
-        </p>
-      {/if}
-    </div>
-  {/if}
-
   <div class="card">
+    {#if action === 'skip' && (counts.data?.skip ?? 0) > 0}
+      <p class="card-note">
+        {t('SkippedExplained', { count: counts.data?.skip ?? 0 })}
+        <a class="text-link" href={href('/categories')}
+          >{t('HelpFixOn', { screen: t('CategoriesAndFolders') })}</a
+        >
+      </p>
+    {/if}
     <TableRegion label={t('Simulation')}>
       <table>
         <caption class="visually-hidden">{t('Simulation')}</caption>
@@ -573,15 +628,7 @@
             {#if !list.error}
               <tr>
                 <td colspan="8">
-                  <EmptyState>
-                    {t(
-                      filtered
-                        ? 'NoDecisionMatchesFilters'
-                        : result
-                          ? 'NoDecisionGenerated'
-                          : 'SimulationEmptyState',
-                    )}
-                  </EmptyState>
+                  <EmptyState>{t(empty)}</EmptyState>
                 </td>
               </tr>
             {/if}
@@ -592,6 +639,7 @@
                 selected={selected.has(decision.id)}
                 onToggle={access.readOnly ? undefined : () => toggle(decision.id)}
                 onKeep={access.readOnly ? undefined : () => void keep(decision)}
+                {explainer}
               />
             {/each}
           {/if}
@@ -600,4 +648,61 @@
     </TableRegion>
     <Pager pagination={list.data?.pagination} bind:page countKey="DecisionCount" />
   </div>
+
+  <!-- Sticky at the foot of the window, beside the rows it applies, and in the page's flow, so
+       the last row scrolls clear of it. -->
+  {#if applicable}
+    <div class="save-bar">
+      <div>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" bind:checked={moveFiles} aria-describedby="move-files-hint" />
+          <span>{t('MoveFilesLabel')}</span>
+        </label>
+        <div id="move-files-hint" class="save-bar-scope">{t('MoveFilesHint')}</div>
+        {#if movable.length > cap}
+          <div class="save-bar-scope">{t('SelectionCapped', { limit: cap })}</div>
+        {/if}
+      </div>
+      <div class="flex flex-wrap gap-2">
+        {#if busy === 'apply' && applying}
+          <button class="btn btn-ghost" onclick={() => void cancelApply()}>
+            {t('StopTask')}
+          </button>
+        {/if}
+        <!-- Reaches past the page, so it shows only once a run produced a simulation. -->
+        {#if result && (matching.data ?? 0) > 0}
+          <button
+            class="btn btn-secondary"
+            onclick={() => void applyAll()}
+            disabled={busy !== null}
+            aria-describedby="apply-all-hint"
+          >
+            <Layers size={16} />
+            {t(filtered ? 'ApplyMatching' : 'ApplyAll', { count: matching.data ?? 0 })}
+          </button>
+          <span id="apply-all-hint" class="visually-hidden">
+            {t(filtered ? 'ApplyMatchingHint' : 'ApplyAllHint')}
+          </span>
+        {/if}
+        {#if selected.size > 0 || busy === 'apply'}
+          <button
+            class="btn btn-primary"
+            onclick={() => void apply()}
+            disabled={selected.size === 0 || busy !== null}
+          >
+            <ShieldCheck size={16} />
+            {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
+          </button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if explainer.shown}
+    <ExplanationModal
+      data={explainer.shown}
+      onClose={explainer.close}
+      onChanged={() => void reloadProposals()}
+    />
+  {/if}
 </div>

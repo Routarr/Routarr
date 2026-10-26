@@ -1,9 +1,10 @@
 -- What 0.3.0 adds after 003, kept as one file while no release has run it.
 
--- What the last run of each rule test found, read by the warning and the gauges, and who
--- pinned the test.
+-- What the last run of each rule test found, read by the warning and the gauges, where its title
+-- went on that run, and who pinned the test.
 ALTER TABLE rule_tests ADD COLUMN last_passed INTEGER;
 ALTER TABLE rule_tests ADD COLUMN last_checked_at TEXT;
+ALTER TABLE rule_tests ADD COLUMN last_actual_category TEXT;
 ALTER TABLE rule_tests ADD COLUMN subject TEXT;
 ALTER TABLE rule_tests ADD COLUMN subject_key TEXT;
 

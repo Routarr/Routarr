@@ -36,6 +36,7 @@ describe('App', () => {
       dry_run: true,
       running_jobs: 0,
       pending_decisions: 0,
+      pending_moves: 0,
       failed_decisions: 0,
       warnings: [],
     });

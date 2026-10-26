@@ -32,7 +32,7 @@ export const SETTLED_ON: Record<string, string | null> = {
   arr_below_version: null,
   oidc_open_to_anyone: null,
   backup_passphrase_unreadable: '/settings#maintenance',
-  rule_tests_failing: '/rule-tests',
+  rule_tests_failing: '/rule-tests?failing=1',
   webhook_never_delivered: '/instances',
   webhook_misconfigured: '/instances',
   backup_copy_failed: '/settings#maintenance',
@@ -45,5 +45,5 @@ export const SETTLED_ON: Record<string, string | null> = {
 export function fixOf(warning: Warning): { to: string; label: string } | null {
   const to = SETTLED_ON[warning.code];
   if (!to) return null;
-  return { to, label: t('HelpFixOn', { screen: t(screenKey(to.split('#')[0]!)) }) };
+  return { to, label: t('HelpFixOn', { screen: t(screenKey(to.split(/[?#]/)[0]!)) }) };
 }

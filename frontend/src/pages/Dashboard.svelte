@@ -13,10 +13,10 @@
   import { invalidateStatus } from '../lib/status.svelte';
   import { outsideTheGuide } from '../api/onboarding';
   import { fixOf } from '../lib/warnings';
+  import { screenKey } from '../lib/routes';
   import Count from '../components/Count.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import BannerList from '../components/BannerList.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
   import GettingStarted from '../components/GettingStarted.svelte';
   import InstanceStatus from '../components/InstanceStatus.svelte';
   import Loading from '../components/Loading.svelte';
@@ -39,6 +39,12 @@
   // the diagnostics screen.
   const warnings = $derived(outsideTheGuide(health?.warnings ?? [], onboarding.current));
   const stats = $derived(health?.stats);
+  // Its choices write, which a reader is refused.
+  const guided = $derived(onboarding.current?.state === 'pending' && !access.readOnly);
+  /** The library's titles a source describes, of every title the instances hold. */
+  const described = $derived(
+    stats && health ? stats.total_media - health.metadata.media_missing_metadata : 0,
+  );
 
   async function refresh() {
     await Promise.all([quick.reload(), probed.reload()]);
@@ -84,7 +90,6 @@
       message={onboarding.failure ? t('GuideUnavailable', { error: onboarding.failure }) : null}
       onRetry={invalidateStatus}
     />
-    <!-- Its choices write, which a reader is refused. -->
     {#if onboarding.current && !access.readOnly}
       <GettingStarted status={onboarding.current} {outcome} />
     {/if}
@@ -102,11 +107,25 @@
       {/snippet}
     </BannerList>
 
-    {#if stats && health}
+    {#if stats && health && health.instances.length === 0}
+      <!-- Before the first instance every figure is zero: the guide, or this, says what next. -->
+      {#if !guided}
+        <div class="card">
+          <div class="empty-state">
+            <span>{t('DashboardStartHere')}</span>
+            {#if !access.readOnly}
+              <a href={href('/instances?add=1')} class="btn btn-primary"
+                >{t('GuideInstanceAction')}</a
+              >
+            {/if}
+          </div>
+        </div>
+      {/if}
+    {:else if stats && health}
       <div class="headline">
         <div>
-          <div class="headline-value">{formatCount(stats.pending_decisions, i18n.language)}</div>
-          <div class="headline-label">{t('PendingDecisions')}</div>
+          <div class="headline-value">{formatCount(stats.pending_moves, i18n.language)}</div>
+          <div class="headline-label">{t('MovesToReview')}</div>
         </div>
         <!-- The one primary action of the screen, unless the guide shows:
              its next step is then the one. -->
@@ -131,16 +150,20 @@
         <Stat label={t('FailedMovesLabel')} value={stats.failed_decisions} tone="danger" />
       </div>
 
-      <p class="page-note">
-        {t('MetadataEnrichedCount', { count: health.metadata.cached_items })}
-        {#if health.metadata.media_missing_metadata > 0}
-          <span class="text-muted">
-            {t('MetadataMissingCount', { count: health.metadata.media_missing_metadata })}
-          </span>
-        {:else}
-          <span class="text-success">{t('MetadataComplete')}</span>
-        {/if}
-      </p>
+      <!-- The library's titles both times: the sources' cache counts what they hold, which
+           Diagnostics shows. -->
+      {#if stats.total_media > 0}
+        <p class="page-note">
+          <span class={described < stats.total_media ? 'text-warning' : 'text-muted'}
+            >{t('MetadataCoverage', { described, total: stats.total_media })}</span
+          >
+          {#if described < stats.total_media}
+            <a class="text-link ms-2" href={href('/sources')}
+              >{t('HelpFixOn', { screen: t(screenKey('/sources')) })}</a
+            >
+          {/if}
+        </p>
+      {/if}
 
       <div class="card">
         <div class="card-header">
@@ -188,11 +211,6 @@
                   </td>
                 </tr>
               {/each}
-              {#if health.instances.length === 0}
-                <tr>
-                  <td colspan="5"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td>
-                </tr>
-              {/if}
             </tbody>
           </table>
         </TableRegion>

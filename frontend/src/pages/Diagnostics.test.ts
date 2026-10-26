@@ -120,7 +120,7 @@ describe('Diagnostics', () => {
     const failing = (await screen.findByText('Rule tests failing: 1 of 1.')).closest('li')!;
     expect(within(failing).getByRole('link', { name: 'Open Rule tests' })).toHaveAttribute(
       'href',
-      '/rule-tests',
+      '/rule-tests?failing=1',
     );
     const disk = screen.getByText('The disk is nearly full.').closest('li')!;
     expect(within(disk).queryByRole('link')).toBeNull();

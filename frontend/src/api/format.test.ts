@@ -5,6 +5,7 @@ import {
   expiresWithinAWeek,
   idleFor90Days,
   dayStart,
+  formatDay,
   formatDecimal,
   setFields,
   describeCondition,
@@ -375,6 +376,18 @@ describe('dayStart', () => {
   it('gives nothing for no day', () => {
     expect(dayStart('')).toBeUndefined();
     expect(dayStart('not a day')).toBeUndefined();
+  });
+});
+
+describe('formatDay', () => {
+  it('writes the day a date field holds as the language writes a date', () => {
+    expect(formatDay('2026-10-17', 'en')).toBe('10/17/26');
+    expect(formatDay('2026-10-17', 'de')).toBe('17.10.26');
+  });
+
+  it('gives back what is no day, or a day in no language it knows, as it came', () => {
+    expect(formatDay('not a day', 'en')).toBe('not a day');
+    expect(formatDay('2026-10-17', 'not a language')).toBe('2026-10-17');
   });
 });
 

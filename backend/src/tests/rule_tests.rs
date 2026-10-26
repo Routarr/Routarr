@@ -279,6 +279,97 @@ async fn a_failing_case_is_kept_failing_warned_of_and_counted() {
     assert_eq!(listed.assert_ok()["data"][0]["last_passed"], true);
 }
 
+/// Where the title goes now is the question a failure raises, kept for the next visit.
+#[tokio::test]
+async fn a_case_keeps_where_its_title_went_on_its_last_run() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    pin(&app, "Totoro stays in anime", "m-1", Some("anime")).await;
+    let listed = async || app.get("/api/v1/rule-tests").await.assert_ok()["data"][0].clone();
+    assert_eq!(listed().await["last_actual_category"], "anime");
+
+    sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
+    run(&app).await;
+
+    let case = listed().await;
+    assert_eq!(case["last_passed"], false);
+    assert_eq!(case["last_actual_category"], "standard", "{case}");
+}
+
+/// The warning about failing tests leads to them alone.
+#[tokio::test]
+async fn the_list_narrows_to_the_failing_cases() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    pin(&app, "Totoro stays in anime", "m-1", None).await;
+    pin(&app, "Totoro in standard", "m-1", Some("standard")).await;
+
+    let failing = app.get("/api/v1/rule-tests?failing=true").await;
+    let failing = failing.assert_ok();
+    assert_eq!(failing["pagination"]["total"], 1, "{failing}");
+    assert_eq!(failing["data"][0]["name"], "Totoro in standard");
+    let all = app.get("/api/v1/rule-tests?failing=false").await;
+    assert_eq!(all.assert_ok()["pagination"]["total"], 2);
+}
+
+/// The id opens the title's explanation from its case.
+#[tokio::test]
+async fn a_case_names_its_title_while_the_library_holds_it() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let id = pin(&app, "Totoro stays", "m-1", None).await;
+    assert_eq!(
+        app.get("/api/v1/rule-tests").await.assert_ok()["data"][0]["source_media_id"],
+        "m-1"
+    );
+    let one = app.get(&format!("/api/v1/rule-tests/{id}")).await;
+    assert_eq!(one.assert_ok()["source_media_id"], "m-1");
+
+    sqlx::query("DELETE FROM media").execute(&app.state.pool).await.unwrap();
+
+    let case = app.get("/api/v1/rule-tests").await.assert_ok()["data"][0].clone();
+    assert!(case["source_media_id"].is_null(), "{case}");
+}
+
+/// A test that fails after a deliberate rule change is settled by expecting the new routing.
+#[tokio::test]
+async fn a_case_can_be_told_to_expect_where_its_title_goes_now() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let id = pin(&app, "Totoro in anime", "m-1", Some("anime")).await;
+    let path = format!("/api/v1/rule-tests/{id}/expected-category");
+
+    let changed = app.put(&path, serde_json::json!({ "expected_category": "Standard " })).await;
+
+    let changed = changed.assert_ok();
+    assert_eq!(changed["expected_category"], "standard");
+    assert_eq!(changed["last_passed"], true, "the verdict was not read again: {changed}");
+    let status = app.get("/api/v1/status").await;
+    let codes: Vec<_> = status.assert_ok()["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].clone())
+        .collect();
+    assert!(!codes.contains(&"rule_tests_failing".into()), "{codes:?}");
+}
+
+/// An expectation no category answers could only fail, and a case that is gone has none.
+#[tokio::test]
+async fn a_case_expects_only_a_category_that_exists() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let id = pin(&app, "Totoro stays", "m-1", None).await;
+
+    let nowhere = serde_json::json!({ "expected_category": "nowhere" });
+    let path = format!("/api/v1/rule-tests/{id}/expected-category");
+    app.put(&path, nowhere.clone()).await.assert_status(axum::http::StatusCode::BAD_REQUEST);
+    let missing = app.put("/api/v1/rule-tests/nope/expected-category", nowhere).await;
+    missing.assert_status(axum::http::StatusCode::NOT_FOUND);
+}
+
 /// With every instance kept to proposals, nothing is waiting.
 #[tokio::test]
 async fn a_failing_case_says_it_holds_auto_apply_only_while_an_instance_is_armed() {

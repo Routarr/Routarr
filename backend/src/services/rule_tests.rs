@@ -29,11 +29,18 @@ pub struct RuleTest {
     pub evaluated_at: String,
     pub expected_category: String,
     pub source_media_title: Option<String>,
+    /// The library title the case was pinned from, while the library still holds it. Null once
+    /// a sync removed it: the case runs on from its own copy.
+    #[sqlx(default)]
+    pub source_media_id: Option<String>,
     #[serde(serialize_with = "crate::timestamp::rfc3339")]
     #[schema(format = DateTime)]
     pub created_at: String,
     /// Whether the last run found the case passing. Null until a run reads it.
     pub last_passed: Option<bool>,
+    /// Where the last run sent the title. Null until a run reads the case, or when its copy
+    /// could not be read.
+    pub last_actual_category: Option<String>,
     /// When the case last ran.
     #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     #[schema(format = DateTime)]
@@ -71,6 +78,11 @@ pub struct RuleTestRun {
     pub results: Vec<RuleTestResult>,
 }
 
+/// The cases as the API answers them, each with its library title while the library holds it.
+/// The copy keeps the title's id, and no foreign key ties a case to the title.
+pub const SELECT: &str = "SELECT t.*, (SELECT m.id FROM media m
+     WHERE m.id = json_extract(t.media_json, '$.id')) AS source_media_id FROM rule_tests t";
+
 pub async fn list(pool: &SqlitePool) -> AppResult<Vec<RuleTest>> {
     Ok(sqlx::query_as::<_, RuleTest>("SELECT * FROM rule_tests ORDER BY name, created_at, id")
         .fetch_all(pool)
@@ -102,12 +114,16 @@ pub async fn check(state: &crate::state::AppState) -> AppResult<RuleTestRun> {
     let (was_failing, _) = failing(&mut *tx).await?;
     crate::race::checked("rule_tests::check", "").await;
     for result in &run.results {
-        sqlx::query("UPDATE rule_tests SET last_passed = ?, last_checked_at = ? WHERE id = ?")
-            .bind(result.passed)
-            .bind(&checked_at)
-            .bind(&result.id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE rule_tests SET last_passed = ?, last_actual_category = ?, last_checked_at = ?
+             WHERE id = ?",
+        )
+        .bind(result.passed)
+        .bind(&result.actual_category)
+        .bind(&checked_at)
+        .bind(&result.id)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     if was_failing == 0 && run.failed > 0 {
@@ -206,6 +222,14 @@ pub struct NewRuleTest {
     pub media_id: String,
     /// Defaults to what the engine decides for that item today.
     pub expected_category: Option<String>,
+}
+
+/// The category a case expects from now on.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RuleTestExpectation {
+    /// A category that exists, matched as category names are.
+    pub expected_category: String,
 }
 
 /// Whether a case can be stored. Only the name is typed, so only its refusals are translated.

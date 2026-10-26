@@ -672,6 +672,41 @@ test('selecting rows does not move the rows', async ({ page }) => {
   expect(after.row, `the first row moved from ${before.row} to ${after.row}`).toBe(before.row);
 });
 
+/** Sticky at the window's foot, the apply bar would cover the last proposal it applies. */
+for (const width of [375, 1440]) {
+  test(`the apply bar leaves the last proposal in sight at ${width} pixels`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Everything japanese',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 10,
+        enabled: true,
+        conditions: [{ type: 'title_contains', value: ['akira', 'totoro', 'perfect blue'] }],
+        exclusions: [],
+      } satisfies Partial<RuleDraft>),
+    });
+    await openScreen(page, '/simulation');
+    await page.getByRole('button', { name: /run simulation/i }).click();
+    await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toBeChecked();
+    const bar = page.locator('.save-bar');
+    await expect(bar.getByRole('button', { name: /^Apply selected/ })).toBeVisible();
+
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+    const last = await page.locator('main tbody tr').last().boundingBox();
+    const over = await bar.boundingBox();
+    expect(last && over, 'the last row or the bar has no box').toBeTruthy();
+    expect(
+      last!.y + last!.height,
+      `the last row ends at ${last!.y + last!.height}px, under the bar from ${over!.y}px`,
+    ).toBeLessThanOrEqual(over!.y);
+    expect(over!.y + over!.height).toBeLessThanOrEqual(800);
+  });
+}
+
 /**
  * The scroll shadows hide under covers that must be opaque across a shadow's width, or
  * every table with nothing to scroll carries a dark band down both edges.

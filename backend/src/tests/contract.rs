@@ -250,6 +250,12 @@ async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
             json!({ "category": null }),
         ),
         ("POST", "/rule-tests", "/rule-tests", json!({ "name": "t", "media_id": "m" })),
+        (
+            "PUT",
+            "/rule-tests/{id}/expected-category",
+            "/rule-tests/t-1/expected-category",
+            json!({ "expected_category": "anime" }),
+        ),
         ("POST", "/rules", "/rules", rule.clone()),
         (
             "POST",
@@ -679,6 +685,9 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
         &app.post("/api/v1/rule-tests/run", json!({})).await,
     );
     let case = pinned.json["id"].as_str().unwrap().to_string();
+    let expected = json!({ "expected_category": pinned.json["expected_category"] });
+    let changed = app.put(&format!("/api/v1/rule-tests/{case}/expected-category"), expected).await;
+    checker.check("PUT", "/rule-tests/{id}/expected-category", 200, &changed);
     let removed = app.delete(&format!("/api/v1/rule-tests/{case}")).await;
     checker.check("DELETE", "/rule-tests/{id}", 200, &removed);
     let removed = app.delete(&format!("/api/v1/rules/{rule}")).await;

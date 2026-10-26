@@ -587,6 +587,8 @@ export interface Decision {
   subject: string | null;
   /** Whether a revert may undo this move: only the latest standing move of a title. */
   revertible: boolean;
+  /** Whether the library still holds the title, whose explanation can then be read. */
+  in_library: boolean;
 }
 
 export interface SimulationResult extends SimulationSummary {
@@ -930,6 +932,8 @@ export interface Status {
   dry_run: boolean;
   running_jobs: number;
   pending_decisions: number;
+  /** The pending decisions that move a title: a skip waits for its category's folder. */
+  pending_moves: number;
   failed_decisions: number;
   warnings: Warning[];
 }
@@ -980,6 +984,7 @@ export interface Health {
     enabled_rules: number;
     total_overrides: number;
     pending_decisions: number;
+    pending_moves: number;
     applied_decisions: number;
     failed_decisions: number;
     unmapped_categories: number;
@@ -1087,10 +1092,14 @@ export interface RuleTest {
   media_type: string;
   expected_category: string;
   source_media_title: string | null;
+  /** The library title it was pinned from, while the library holds it. */
+  source_media_id: string | null;
   evaluated_at: string;
   created_at: string;
   /** What the last run found. Null until one reads the case. */
   last_passed: boolean | null;
+  /** Where the last run sent the title. Null until one reads the case. */
+  last_actual_category: string | null;
   last_checked_at: string | null;
   subject: string | null;
 }

@@ -19,6 +19,9 @@
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
   import Pager from '../components/Pager.svelte';
+  import { createExplainer } from '../lib/explain.svelte';
+  import ExplanationModal from '../components/ExplanationModal.svelte';
+  import WhyButton from '../components/WhyButton.svelte';
 
   let page = $state(1);
   const bundle = createAsync(
@@ -33,6 +36,7 @@
   );
 
   const outcome = createOutcome();
+  const explainer = createExplainer();
   let creating = $state(false);
 
   const overrides = $derived(bundle.data?.overrides.data ?? []);
@@ -160,6 +164,7 @@
     onRetry={() => void bundle.reload()}
   />
   <OutcomeBanner {outcome} />
+  <ErrorBanner message={explainer.failure} onDismiss={explainer.dismiss} />
 
   <div class="card">
     <TableRegion label={t('Exceptions')} id="exceptions-table">
@@ -184,9 +189,17 @@
             {#each overrides as override, index (override.id)}
               <tr>
                 <td>
-                  <strong>{override.media_title}</strong>
-                  <span class="badge badge-value muted">{t(mediaTypeKey(override.media_type))}</span
-                  >
+                  <div class="flex flex-wrap items-center gap-2">
+                    <strong class="cell-title">{override.media_title}</strong>
+                    <span class="badge badge-value muted"
+                      >{t(mediaTypeKey(override.media_type))}</span
+                    >
+                    <WhyButton
+                      {explainer}
+                      mediaId={override.media_id}
+                      title={override.media_title}
+                    />
+                  </div>
                 </td>
                 <td>{override.instance_name}</td>
                 <td><span class="badge badge-value">{override.target_category}</span></td>
@@ -223,6 +236,14 @@
     </TableRegion>
     <Pager pagination={bundle.data?.overrides.pagination} bind:page countKey="OverrideCount" />
   </div>
+
+  {#if explainer.shown}
+    <ExplanationModal
+      data={explainer.shown}
+      onClose={explainer.close}
+      onChanged={() => void bundle.reload()}
+    />
+  {/if}
 
   {#if creating}
     <Modal

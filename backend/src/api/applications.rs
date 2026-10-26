@@ -81,6 +81,7 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("POST", "/rules/templates/{id}/import", Scope::Configure),
     ("POST", "/rule-tests", Scope::Configure),
     ("DELETE", "/rule-tests/{id}", Scope::Configure),
+    ("PUT", "/rule-tests/{id}/expected-category", Scope::Configure),
     ("POST", "/categories", Scope::Configure),
     ("PUT", "/categories/{id}", Scope::Configure),
     ("DELETE", "/categories/{id}", Scope::Configure),

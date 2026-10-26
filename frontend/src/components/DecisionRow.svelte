@@ -3,14 +3,17 @@
   import type { Decision } from '../api/types';
   import { mediaTypeKey } from '../api/format';
   import { t } from '../lib/i18n.svelte';
+  import type { Explainer } from '../lib/explain.svelte';
   import NoValue from './NoValue.svelte';
   import Confidence from './Confidence.svelte';
+  import WhyButton from './WhyButton.svelte';
 
   let {
     decision,
     selected,
     onToggle,
     onKeep,
+    explainer,
   }: {
     decision: Decision;
     selected: boolean;
@@ -18,6 +21,8 @@
     onToggle?: () => void;
     /** Keeps the title where it is, offered on a pending proposal whose folder has a category. */
     onKeep?: () => void;
+    /** Opens the explanation of a title the library still holds. */
+    explainer?: Explainer;
   } = $props();
 
   const keepable = $derived(
@@ -64,7 +69,12 @@
     {/if}
   </td>
   <td>
-    <strong class="cell-title">{decision.media_title}</strong>
+    <div class="flex flex-wrap items-center gap-2">
+      <strong class="cell-title">{decision.media_title}</strong>
+      {#if explainer && decision.in_library}
+        <WhyButton {explainer} mediaId={decision.media_id} title={decision.media_title} />
+      {/if}
+    </div>
     <div class="text-muted text-sm">
       {decision.instance_name} · {t(mediaTypeKey(decision.media_type))}
       {#if decision.is_override}

@@ -299,6 +299,7 @@ fn build_router(state: AppState) -> Router {
         .route("/rules/health", get(api::rules::health))
         .route("/library/facets", get(api::library::facets))
         .route("/rule-tests/{id}", get(api::rule_tests::get_one).delete(api::rule_tests::delete))
+        .route("/rule-tests/{id}/expected-category", put(api::rule_tests::set_expected_category))
         .route("/rules/reorder", post(api::rules::reorder))
         .route(
             "/rules/{id}",

@@ -30,17 +30,43 @@ afterEach(() => {
 });
 
 describe('GettingStarted', () => {
-  it('lists every step, marks what is done and names the next one', () => {
+  it('lists the steps left, names the next one and marks the optional ones', () => {
     show(onboardingStatus(['instance']));
 
     expect(screen.getByText('Required steps done: 1 of 4')).toBeTruthy();
     const steps = screen.getAllByRole('listitem');
+    expect(steps).toHaveLength(5);
+    expect(within(steps[0] as HTMLElement).getByText('Next step')).toBeTruthy();
+    // Optional steps say so, and never count toward the total above.
+    expect(within(steps[1] as HTMLElement).getByText('Optional')).toBeTruthy();
+    expect(within(steps[4] as HTMLElement).getByText('Optional')).toBeTruthy();
+  });
+
+  /** A step done is history: its sentence is not needed to do the next. */
+  it('folds the steps done into one line of their names, each shown again on request', async () => {
+    show(onboardingStatus(['instance', 'rule']));
+    const folded = screen.getByRole('button', { name: 'Show the steps done' });
+
+    expect(folded).toHaveAttribute('aria-expanded', 'false');
+    expect(folded.closest('.guide-done')).toHaveTextContent(
+      'Done Connect Radarr or Sonarr, Add your first rule',
+    );
+    expect(screen.queryByText(/Routarr reads your library through/)).toBeNull();
+
+    await fireEvent.click(folded);
+
+    const shown = screen.getByRole('button', { name: 'Hide the steps done' });
+    expect(shown).toHaveAttribute('aria-expanded', 'true');
+    const steps = screen.getAllByRole('listitem');
     expect(steps).toHaveLength(6);
     expect(within(steps[0] as HTMLElement).getByText('Done')).toBeTruthy();
-    expect(within(steps[1] as HTMLElement).getByText('Next step')).toBeTruthy();
-    // Optional steps say so, and never count toward the total above.
-    expect(within(steps[2] as HTMLElement).getByText('Optional')).toBeTruthy();
-    expect(within(steps[5] as HTMLElement).getByText('Optional')).toBeTruthy();
+  });
+
+  it('folds nothing while no step is done', () => {
+    show(onboardingStatus());
+
+    expect(screen.queryByRole('button', { name: 'Show the steps done' })).toBeNull();
+    expect(screen.getAllByRole('listitem')).toHaveLength(6);
   });
 
   /** The banners say "step 3 of 4": the list shows which one that is. */

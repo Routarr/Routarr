@@ -68,7 +68,8 @@ export function guideProgress(status: OnboardingStatus): {
 
 /**
  * The step to offer after `id`: the next one not done, optional ones included so none is
- * skipped in silence. Past the end, a required step left behind, if any.
+ * skipped in silence, unless a required step before that one is still open, which comes first.
+ * Past the end, a required step left behind, if any.
  */
 export function nextAfter(
   status: OnboardingStatus,
@@ -76,7 +77,16 @@ export function nextAfter(
 ): OnboardingStep | null {
   const index = status.steps.findIndex((step) => step.id === id);
   const later = status.steps.slice(index + 1).find((step) => !step.done);
-  return later ?? status.steps.find((step) => !step.done && !step.optional) ?? null;
+  const behind = status.steps.find((step) => !step.done && !step.optional);
+  if (
+    later &&
+    behind &&
+    later.optional &&
+    status.steps.indexOf(behind) < status.steps.indexOf(later)
+  ) {
+    return behind;
+  }
+  return later ?? behind ?? null;
 }
 
 /**
