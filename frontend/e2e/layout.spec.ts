@@ -45,7 +45,8 @@ test.describe('a long title or path is read whole', () => {
     await expect(cell).toBeVisible();
     const shown = await cell.evaluate((node) => {
       const holder = node.querySelector('bdi') ?? node;
-      holder.textContent = '/mnt/storage/media/library/movies-anime/extended';
+      holder.textContent =
+        '/mnt/storage/media/library/movies-anime/extended-editions/the-longest-folder-names-a-library-holds';
       const range = document.createRange();
       range.selectNodeContents(node);
       const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
@@ -946,7 +947,7 @@ test.describe('every screen draws a shared thing the same way', () => {
 test('every card of the metadata sources shares one width', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openScreen(page, '/sources');
-  await expect(page.getByRole('heading', { name: 'Data sources' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Data sources', exact: true })).toBeVisible();
 
   const edges = await page
     .locator('main .card')
