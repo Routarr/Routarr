@@ -444,7 +444,7 @@ test.describe('on a phone', () => {
       'Token for the X-Routarr-Token header',
       'Webhook URL for an older Arr',
     ]) {
-      const copy = dialog.getByRole('button', { name: `Copy – ${name}` });
+      const copy = dialog.getByRole('button', { name: `Copy – ${name}`, exact: true });
       await copy.scrollIntoViewIfNeeded();
       const fits = await copy.evaluate((node) => {
         const frame = node.closest('[role="dialog"]')!.getBoundingClientRect();

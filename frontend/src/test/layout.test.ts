@@ -663,7 +663,13 @@ describe('every screen draws a shared thing the same way', () => {
         .map((button) => ({ file, ...button })),
     );
     const untitled = rowActions
-      .filter(({ body }) => body.replace(/\{[#:/@][^}]*\}|<[^>]*>/g, '').trim() === '')
+      .filter(
+        ({ body }) =>
+          body
+            .split(/\{[#:/@][^}]*\}|<[^>]*>/)
+            .join('')
+            .trim() === '',
+      )
       .filter(({ attributes }) => !attributes.includes('title='))
       .map(({ file, attributes }) => `${file}: ${/aria-label="([^"]*)"/.exec(attributes)?.[1]}`);
 

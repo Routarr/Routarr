@@ -2920,7 +2920,6 @@ td * {
 .flex-fixed-120 {
   flex: 0 0 120px;
 }
-/* As wide as its caption, at least 160px: a fixed width folds every longer caption. */
 /* Status and source colours on an icon or a word, where a badge would be too much. */
 .text-success {
   color: var(--status-success);
