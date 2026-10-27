@@ -54,7 +54,7 @@ paths:
   `container_name` in `docker-compose.yml` and on `ROUTARR_DB_PATH`, set in the `Dockerfile`
   and again in `docker-compose.yml`. `scripts/smoke-image.sh` runs the copy in
   `ApiKeyGate.svelte` against the image and holds it to `docker-compose.yml`, and
-  `site/check.mjs` holds the copies in `README.md`, `site/public/llms.txt` and
+  `site/check.mjs` holds the copies in `README.md`, `site/src/llms.txt` and
   `site/src/components/sections/Start.astro` to it.
 - `docker.yml` runs `scripts/smoke-image.sh` again under gVisor, installed by
   `scripts/install-runtime.sh` at a pinned version and checksum, and `release.yml` runs it on
