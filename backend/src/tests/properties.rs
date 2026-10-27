@@ -102,15 +102,22 @@ proptest! {
     }
 
     /// A folded value folds to itself, and an accent written apart from its
-    /// letter folds as the letter written with it.
+    /// letter folds as the letter written with it, the hard cases of the
+    /// folding table among the values tried.
     #[test]
     fn a_folded_value_is_settled_whatever_its_accents(raw in "\\PC{0,24}") {
         use crate::services::rule_engine::normalise_value;
-        let folded = normalise_value(&raw);
-        prop_assert_eq!(normalise_value(&folded), folded.clone());
-        let composed: String = raw.nfc().collect();
-        let decomposed: String = raw.nfd().collect();
-        prop_assert_eq!(normalise_value(&composed), normalise_value(&decomposed));
+        let cases: Vec<(String, String)> = serde_json::from_str(include_str!(
+            "../services/rule_engine/normalise_value_cases.json"
+        ))
+        .unwrap();
+        for raw in cases.into_iter().map(|(raw, _)| raw).chain([raw]) {
+            let folded = normalise_value(&raw);
+            prop_assert_eq!(normalise_value(&folded), folded.clone(), "{:?}", raw);
+            let composed: String = raw.nfc().collect();
+            let decomposed: String = raw.nfd().collect();
+            prop_assert_eq!(normalise_value(&composed), normalise_value(&decomposed), "{:?}", raw);
+        }
     }
 
     /// A stamp reads back as the second it was written at.
@@ -139,24 +146,28 @@ proptest! {
     }
 
     /// A field of the export reads back whole, on one line, and a spreadsheet
-    /// takes none of it for a formula.
+    /// takes none of it for a formula. Each sign that opens a formula leads a
+    /// value of every run, which a random one seldom starts with.
     #[test]
     fn an_exported_field_reads_back_whole_and_runs_nothing(
         chars in prop::collection::vec(any::<char>(), 0..30),
     ) {
-        let raw: String = chars.into_iter().collect();
-        let field = crate::api::move_log::csv_field(&raw);
-        let inner = field
-            .strip_prefix('"')
-            .and_then(|rest| rest.strip_suffix('"'))
-            .expect("a quoted field");
-        prop_assert!(!inner.contains(['\n', '\r']), "{field:?}");
-        prop_assert!(!inner.replace("\"\"", "").contains('"'), "a lone quote: {field:?}");
-        let read = inner.replace("\"\"", "\"");
-        let one_line = raw.replace(['\n', '\r'], " ");
-        let formula = one_line.starts_with(['=', '+', '-', '@', '\t']);
-        let expected = if formula { format!("'{one_line}") } else { one_line };
-        prop_assert_eq!(read, expected);
+        let tail: String = chars.into_iter().collect();
+        for lead in ["", "=", "+", "-", "@", "\t", "\"", "\n"] {
+            let raw = format!("{lead}{tail}");
+            let field = crate::api::move_log::csv_field(&raw);
+            let inner = field
+                .strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix('"'))
+                .expect("a quoted field");
+            prop_assert!(!inner.contains(['\n', '\r']), "{field:?}");
+            prop_assert!(!inner.replace("\"\"", "").contains('"'), "a lone quote: {field:?}");
+            let read = inner.replace("\"\"", "\"");
+            let one_line = raw.replace(['\n', '\r'], " ");
+            let formula = one_line.starts_with(['=', '+', '-', '@', '\t']);
+            let expected = if formula { format!("'{one_line}") } else { one_line };
+            prop_assert_eq!(read, expected);
+        }
     }
 
     /// A language named once is named the same the second time.

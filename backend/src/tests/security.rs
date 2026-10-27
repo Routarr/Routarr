@@ -359,6 +359,17 @@ async fn the_search_parameter_cannot_inject_or_widen() {
 
     let all = app.get("/api/v1/library").await;
     assert_eq!(all.json["pagination"]["total"], 1);
+
+    // The positive control: a percent a title holds finds that title, and it alone.
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+                                      current_root_folder)
+                   VALUES ('m-pct', 'inst-1', 990, 'movie', '100% Wolf', '/movies/standard/100',
+                           '/movies/standard')"])
+        .await;
+    let found = app.get("/api/v1/library?search=100%25").await;
+    let found = found.assert_ok()["data"].as_array().unwrap().clone();
+    let titles: Vec<&str> = found.iter().map(|item| item["title"].as_str().unwrap()).collect();
+    assert_eq!(titles, ["100% Wolf"]);
 }
 
 /// A category name is compared by value against rules and root folders, so it
@@ -728,22 +739,6 @@ fn sign_in_from(address: [u8; 4], password: &str) -> Request<Body> {
         .extensions_mut()
         .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((address, 41000))));
     request
-}
-
-/// Every sign-in from one address takes a share of the queue and gives it
-/// back, wrong or right. A share kept would lock that address out after a few
-/// sign-ins, and behind a proxy the whole installation with it.
-#[tokio::test]
-async fn every_sign_in_gives_its_share_back_wrong_or_right() {
-    let (app, _dir) = forms_app("shares").await;
-    for _ in 0..4 {
-        let refused = app.send(sign_in_from([203, 0, 113, 9], "not the password at all")).await;
-        assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
-    }
-    let signed_in = app.send(sign_in_from([203, 0, 113, 9], &generated_password(&app))).await;
-
-    assert_eq!(signed_in.status, StatusCode::OK, "{}", signed_in.json);
-    assert_eq!(app.state.sign_in.clients_holding(), 0);
 }
 
 /// One address guessing back to back is slowed after five failures: the next

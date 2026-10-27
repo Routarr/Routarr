@@ -135,7 +135,7 @@ def parse(text: str) -> list[Step]:
         if re.match(r"^    env:\s*$", line):
             in_env = True
             continue
-        env_match = re.match(r"^      ([A-Z_]+): (.*)$", line)
+        env_match = re.match(r"^      ([A-Z][A-Z0-9_]*): (.*)$", line)
         if in_env and env_match:
             env[env_match.group(1)] = env_match.group(2).strip()
             continue

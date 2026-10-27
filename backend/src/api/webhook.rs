@@ -11,7 +11,6 @@ use super::Path;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::api::auth::{Client, refusal, refused};
@@ -38,11 +37,6 @@ pub struct ArrWebhookMedia {
     pub id: Option<i64>,
     pub title: Option<String>,
 }
-
-/// How long a delivery waits for the one before it, on its own task. A
-/// season import arrives one file at a time, each answered before the next is
-/// sent, so it never reaches it.
-pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 
 /// The deliveries, and the automatic moves, that may wait per instance: an Arr sends one at a
 /// time, and four leave room for a retrying proxy. Past it a delivery is acknowledged without
@@ -334,14 +328,14 @@ async fn run(
     // Arr request, a metadata fetch, a simulation and maybe a write. Waited for, not skipped: an
     // Arr never retries, and a dropped delivery leaves its title unsynced until the next sweep.
     let key = format!("webhook:{}", instance.id);
-    let deadline = tokio::time::Instant::now() + DELIVERY_WAIT;
+    let deadline = tokio::time::Instant::now() + state.config.delivery_wait;
 
     // Dropped past the budget, acknowledged all the same: a refusal would only fill the Arr's log.
-    let Some(delivery) = state.jobs.lock_within(&key, DELIVERY_WAIT).await else {
+    let Some(delivery) = state.jobs.lock_within(&key, state.config.delivery_wait).await else {
         warn!(
             instance = %instance.name,
             "A delivery waited {}s for the one before it and was dropped",
-            DELIVERY_WAIT.as_secs()
+            state.config.delivery_wait.as_secs()
         );
         return Ok(
             serde_json::json!({ "ok": true, "ignored": "another delivery held the instance" }),

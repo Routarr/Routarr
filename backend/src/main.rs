@@ -82,6 +82,26 @@ pub(crate) async fn open_storage(
     Ok((api_key, pool, secrets))
 }
 
+/// What a start does once its storage is open and before it serves, each step left as safe by a
+/// stop as by a kill: a step cut short is done again at the next start.
+pub(crate) async fn prepare(state: &AppState) -> error::AppResult<()> {
+    state.jobs.recover_orphans().await?;
+    services::maintenance::converge(state).await?;
+    api::categories::converge_names(state).await?;
+    api::instances::converge_names(&state.pool).await?;
+    // What a conversion interrupted by the last stop left in the clear.
+    services::backup::resume_sealing(state).await;
+    // The single account, generated on first start like the API key, in `forms` mode only.
+    if state.config.auth_mode == AuthMode::Forms {
+        services::accounts::ensure_account(&state.pool, &state.config.password_path()).await?;
+    }
+    // The archive a migration took, and those a share asleep missed, copied away. Last, after
+    // every await: a stop that drops this start closes the database a running copy still reads.
+    let started = jobs::Attribution::unattended(jobs::TRIGGER_SCHEDULE);
+    services::backup::copy_in_background(state, started);
+    Ok(())
+}
+
 /// Refuse a start whose master key opens none of the sealed values tried, one per store, as when
 /// `routarr.db` was copied beside the key a first start made. Some opening is a value damaged
 /// on its own, which `maintenance::reseal_secrets` names, and the start goes on.

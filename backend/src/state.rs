@@ -137,6 +137,38 @@ pub fn parse_switch(value: &str) -> Option<bool> {
 }
 
 impl AppState {
+    /// The state around an opened storage, for a start and for the tests alike, so a field added
+    /// here is set the same way in both.
+    pub fn new(
+        config: Config,
+        pool: SqlitePool,
+        secrets: SecretBox,
+        api_key: Option<String>,
+    ) -> AppResult<Self> {
+        Ok(Self {
+            http: crate::http::build_client(&config)?,
+            audit: Arc::new(crate::services::audit::Log::storing(pool.clone())),
+            deprecated_calls: Arc::new(crate::api::deprecated::Calls::counting(pool.clone())),
+            jobs: JobRegistry::new(pool.clone()),
+            pool,
+            secrets,
+            tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
+            paces: Default::default(),
+            library_passes: Default::default(),
+            api_key: Arc::new(std::sync::RwLock::new(api_key)),
+            sign_in: Arc::new(Default::default()),
+            oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
+            post_sync: Arc::new(tokio::sync::Mutex::new(None)),
+            auto_apply_held: Arc::default(),
+            notifications: Arc::default(),
+            key_rates: Arc::default(),
+            route_misses: Arc::default(),
+            last_probe: Arc::default(),
+            backup_copy_written: Arc::default(),
+            config: Arc::new(config),
+        })
+    }
+
     /// Point this state at a config, keeping the live key in step with it: a test that swaps the
     /// config expects the key it wrote there to be the one the middleware checks.
     #[cfg(test)]
@@ -469,35 +501,16 @@ impl AppState {
     #[cfg(test)]
     pub fn for_tests_on(pool: SqlitePool) -> Self {
         let config = Config::for_tests();
-        Self {
-            http: crate::http::build_client(&config).expect("test http client"),
-            // Salted as a start salts it, so what tests seal is what an installation stores.
-            secrets: SecretBox::load(
-                config.secret_key.as_deref(),
-                None,
-                std::path::Path::new("/nonexistent"),
-                Some(b"routarr-test-salt"),
-            )
-            .unwrap(),
-            tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
-            paces: Default::default(),
-            library_passes: Default::default(),
-            jobs: JobRegistry::new(pool.clone()),
-            api_key: Arc::new(std::sync::RwLock::new(resolve_api_key(&config))),
-            sign_in: Arc::new(Default::default()),
-            oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
-            post_sync: Arc::new(tokio::sync::Mutex::new(None)),
-            auto_apply_held: Arc::default(),
-            notifications: Arc::default(),
-            audit: Arc::new(crate::services::audit::Log::storing(pool.clone())),
-            deprecated_calls: Arc::new(crate::api::deprecated::Calls::counting(pool.clone())),
-            key_rates: Arc::default(),
-            route_misses: Arc::default(),
-            last_probe: Arc::default(),
-            backup_copy_written: Arc::default(),
-            config: Arc::new(config),
-            pool,
-        }
+        // Salted as a start salts it, so what tests seal is what an installation stores.
+        let secrets = SecretBox::load(
+            config.secret_key.as_deref(),
+            None,
+            std::path::Path::new("/nonexistent"),
+            Some(b"routarr-test-salt"),
+        )
+        .unwrap();
+        let api_key = resolve_api_key(&config);
+        Self::new(config, pool, secrets, api_key).expect("test state")
     }
 }
 

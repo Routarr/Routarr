@@ -144,8 +144,8 @@ Components named without a path live in `frontend/src/components/`.
   `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key, every
   other spec by default.
 - A new journey queries by role and label, not by class. The suite runs serially against one
-  server, which the `instanceId` fixture resets before every test, so a spec restores any
-  setting it changes beyond that reset.
+  server, which the `instanceId` fixture resets before every test, so a setting a spec writes is
+  one the reset writes back (`frontend/src/test/e2e-reset.test.ts` names any other).
 - A spec imports `test`, `expect` and `api` from `frontend/e2e/fixtures.ts`, which opens a session
   with the harness's key. Imported from `@playwright/test`, a page lands on the key gate. A screen
   opens with its `openScreen`, which fails on the not-found page a bare `h1` wait accepts.

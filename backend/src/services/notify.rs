@@ -2,6 +2,7 @@
 //! address gets the shape its receiver reads (`Format`), Routarr's JSON (`Notification`) when
 //! unknown, signed as Standard Webhooks specifies when a signing secret is set.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use base64::Engine;
@@ -556,11 +557,25 @@ pub struct Queue {
     /// Deliveries being sent or waiting their turn, bounded so a webhook down for a while
     /// drops and logs the events past it. Lost on restart.
     pending: Semaphore,
+    /// The tasks [`send_later`] started that have not returned, which a test waits out before
+    /// it says nothing was sent.
+    in_flight: AtomicUsize,
 }
 
 impl Default for Queue {
     fn default() -> Self {
-        Self { turn: tokio::sync::Mutex::new(()), pending: Semaphore::new(32) }
+        Self {
+            turn: tokio::sync::Mutex::new(()),
+            pending: Semaphore::new(32),
+            in_flight: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl Queue {
+    #[cfg(test)]
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(Ordering::SeqCst)
     }
 }
 
@@ -628,7 +643,11 @@ pub async fn send_test(state: &AppState, localizer: &Localizer) -> AppResult<()>
 /// end of an apply answers its report without a webhook's latency.
 pub fn send_later(state: &AppState, event: Event) {
     let state = state.clone();
-    tokio::spawn(async move { send(&state, event).await });
+    state.notifications.in_flight.fetch_add(1, Ordering::SeqCst);
+    tokio::spawn(async move {
+        send(&state, event).await;
+        state.notifications.in_flight.fetch_sub(1, Ordering::SeqCst);
+    });
 }
 
 async fn webhook_url(state: &AppState, kind: &str) -> Option<String> {

@@ -3,6 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { readBackend } from '../test/backend';
 import { api } from '../api/client';
 import type { OpenApiDocument } from '../api/openapi';
 import ApiReference from './ApiReference.svelte';
@@ -150,6 +151,45 @@ describe('ApiReference', () => {
     const example = screen.getByRole('region', { name: 'Example – POST /decisions/apply' });
     expect(example).toHaveAttribute('tabindex', '0');
     expect(example).toHaveClass('api-example');
+  });
+});
+
+describe('against the published contract', () => {
+  /**
+   * An operation the screen drops is one an outside application cannot find. An old path is
+   * listed once, in the deprecated paths, beside the one that replaced it.
+   */
+  it('shows every operation the contract holds, and each old path once', async () => {
+    const contract = JSON.parse(readBackend('backend/openapi/v1.json')) as OpenApiDocument;
+    vi.spyOn(api, 'openApi').mockResolvedValue(contract);
+    const { container } = renderWithI18n(ApiReference);
+    const methods = ['get', 'post', 'put', 'patch', 'delete'];
+    const listed = (deprecated: boolean) =>
+      Object.entries(contract.paths)
+        .flatMap(([path, item]) =>
+          Object.entries(item)
+            .filter(([key, op]) => methods.includes(key) && (op.deprecated === true) === deprecated)
+            .map(([method]) => `${method.toUpperCase()} ${path}`),
+        )
+        .sort();
+
+    const table = await screen.findByRole('table', { name: 'Deprecated paths' });
+    // An operation's summary opens on its method badge, a schema's on its name.
+    const shown = [...container.querySelectorAll('details.api-operation > summary')].flatMap(
+      (summary) => {
+        const method = summary.querySelector('.badge')?.textContent?.trim();
+        const path = summary.querySelector('code')?.textContent?.trim();
+        return method ? [`${method} ${path}`] : [];
+      },
+    );
+    const old = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.querySelector('td')?.textContent?.trim());
+
+    expect(listed(false).length).toBeGreaterThan(0);
+    expect(shown.sort()).toEqual(listed(false));
+    expect(old.sort()).toEqual(listed(true));
   });
 });
 

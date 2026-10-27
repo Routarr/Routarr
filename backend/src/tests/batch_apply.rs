@@ -370,6 +370,39 @@ async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 9);
 }
 
+/// Checked before each slice too: a stop that comes as one slice ends starts no other.
+#[tokio::test]
+async fn a_dry_run_turned_on_between_two_slices_starts_no_other() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 10).await;
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+    let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
+    let every = crate::models::DecisionFilter::default();
+    let second = super::races::arm("executor::slice", "1");
+
+    let run = executor::apply_simulation_in_batches(
+        &app.state,
+        &simulation,
+        &every,
+        false,
+        &confirmed,
+        &by,
+    );
+    let switch = async {
+        second.reached().await;
+        app.store_setting("global_dry_run", "true").await;
+        second.release();
+    };
+    let (report, ()) = tokio::join!(run, switch);
+
+    let report = report.unwrap();
+    assert_eq!(report.stopped, Some(executor::StopReason::DryRun), "{report:?}");
+    assert!(report.stopped_early, "{report:?}");
+    assert_eq!((report.batches_run, report.applied), (1, 5), "{report:?}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 5);
+}
+
 /// The Arr refuses a film deleted there since the last sync, say.
 #[tokio::test]
 async fn one_refused_film_does_not_end_the_run() {

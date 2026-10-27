@@ -57,6 +57,8 @@ struct Films {
     held: Vec<i64>,
     /// An update of these is refused.
     refused: Vec<i64>,
+    /// Whether the library listing names the held films beside Totoro.
+    listed: bool,
 }
 
 /// A move the Arr queued as a command of its own, as both Arrs carry files.
@@ -266,6 +268,12 @@ impl FakeArr {
     /// From now on this Radarr holds `Film <id>` in `/movies/standard`.
     pub fn hold_film(&self, id: i64) {
         self.films.lock().expect("lock").held.push(id);
+    }
+
+    /// From now on the library listing names every film held beside Totoro, which otherwise
+    /// only a read of one title by id finds.
+    pub fn list_held_films(&self) {
+        self.films.lock().expect("lock").listed = true;
     }
 
     /// From now on an update is answered `late` after it was made, as an Arr
@@ -614,9 +622,10 @@ async fn filesystem(
     settle_moves(&state);
     let asked =
         query.get("path").filter(|path| !path.trim().is_empty()).map_or("/", String::as_str);
-    // On Windows both Arrs cut at either separator and compare names without case.
-    let separators: &[char] = if state.windows { &['\\', '/'] } else { &['/'] };
-    let Some(cut) = asked.rfind(separators) else {
+    // On Windows both Arrs cut at the backslash alone, and the folder left reads either
+    // separator in any case: `//nas/films` lists nothing.
+    let separator = if state.windows { '\\' } else { '/' };
+    let Some(cut) = asked.rfind(separator) else {
         return Json(serde_json::json!({ "parent": null, "directories": [], "files": [] }));
     };
     let listed = asked[..cut].to_string();
@@ -645,10 +654,9 @@ async fn filesystem(
     let children: Vec<serde_json::Value> = known
         .iter()
         .filter_map(|candidate| {
-            let (parent, name) = candidate.rsplit_once(separators)?;
-            let ends = if state.windows { '\\' } else { '/' };
+            let (parent, name) = candidate.rsplit_once(separator)?;
             same(&listed, parent).then(|| {
-                serde_json::json!({ "type": "folder", "name": name, "path": format!("{candidate}{ends}") })
+                serde_json::json!({ "type": "folder", "name": name, "path": format!("{candidate}{separator}") })
             })
         })
         .collect();
@@ -743,7 +751,13 @@ async fn movies(
         Some(asked) if asked.parse::<i64>().ok() != movie["tmdbId"].as_i64() => {
             Json(serde_json::json!([]))
         }
-        _ => Json(serde_json::json!([movie])),
+        Some(_) => Json(serde_json::json!([movie])),
+        None => {
+            let films = state.films.lock().expect("lock").clone();
+            let listed = if films.listed { films.held } else { Vec::new() };
+            let others = listed.into_iter().filter_map(|id| movie_by_id(&state, id));
+            Json(std::iter::once(movie).chain(others).collect())
+        }
     }
 }
 

@@ -6,17 +6,24 @@ use axum::Router;
 use axum::routing::get;
 use tokio::io::AsyncWriteExt;
 
-/// A server whose one route answers after a minute, stopped by `stop` and hurried by `hurry`.
+/// A server whose one route answers after a minute, stopped by `stop` and hurried by `hurry`,
+/// returned once a request is inside that route.
 async fn serving_a_slow_request(
     stop: tokio::sync::oneshot::Receiver<()>,
     hurry: tokio::sync::oneshot::Receiver<()>,
     drain: Duration,
 ) -> tokio::task::JoinHandle<()> {
+    let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+    let reached = entered.clone();
     let app = Router::new().route(
         "/slow",
-        get(|| async {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            "late"
+        get(move || {
+            let reached = reached.clone();
+            async move {
+                reached.notify_one();
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                "late"
+            }
         }),
     );
     let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -40,8 +47,8 @@ async fn serving_a_slow_request(
         tokio::time::sleep(Duration::from_secs(120)).await;
         drop(client);
     });
-    // The request reaches the route before the stop is asked.
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let entered = tokio::time::timeout(Duration::from_secs(5), entered.notified());
+    entered.await.expect("the request never reached its route");
     server
 }
 

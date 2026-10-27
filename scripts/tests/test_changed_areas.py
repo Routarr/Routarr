@@ -13,6 +13,7 @@ FILES = [
     "backend/src/main.rs",
     "backend/src/api/auth.rs",
     "backend/locales/en.json",
+    "backend/openapi/v1.json",
     "backend/rust-toolchain.toml",
     "frontend/src/App.svelte",
     "site/src/pages/index.astro",
@@ -66,6 +67,11 @@ class ChangedAreas(unittest.TestCase):
     def test_a_bound_the_frontend_repeats_wakes_the_frontend_whose_tests_read_it(self):
         self.assertEqual(self.woken("backend/src/api/auth.rs"), ["backend", "frontend", "image"])
 
+    def test_the_contract_wakes_the_frontend_whose_reference_test_reads_it(self):
+        self.assertEqual(
+            self.woken("backend/openapi/v1.json"), ["backend", "frontend", "image", "site"]
+        )
+
     def test_the_english_dictionary_wakes_every_job_that_reads_it(self):
         self.assertEqual(
             self.woken("backend/locales/en.json"), ["backend", "frontend", "image", "site"]
@@ -86,10 +92,6 @@ class ChangedAreas(unittest.TestCase):
         areas = self.areas("README.md", base="0000000000000000000000000000000000000000")
         self.assertTrue(all(areas.values()), areas)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_the_working_tree_counts_what_is_not_committed_yet(self):
         Path(self.folder, "site/src/pages/index.astro").write_text("edited\n")
         Path(self.folder, "frontend/src/New.svelte").write_text("untracked\n")
@@ -100,3 +102,7 @@ if __name__ == "__main__":
         woken = {key for key, value in (line.split("=") for line in answer.split())
                  if value == "true"}
         self.assertEqual(woken, {"frontend", "image", "site"})
+
+
+if __name__ == "__main__":
+    unittest.main()

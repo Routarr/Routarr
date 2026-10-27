@@ -36,8 +36,10 @@ async fn all_applied(arr: &FakeArr, count: usize) -> TestApp {
     app
 }
 
+/// Each filter of `DecisionQuery` keeps its own titles: one spelled wrong in the list's builder
+/// shows every row, or none.
 #[tokio::test]
-async fn the_list_narrows_by_current_folder_rule_and_time() {
+async fn every_filter_of_the_decisions_list_narrows_it() {
     let arr = FakeArr::start().await;
     let app = TestApp::films_to_move(&arr, 2).await;
     app.execute(&[
@@ -48,17 +50,54 @@ async fn the_list_narrows_by_current_folder_rule_and_time() {
     ])
     .await;
     app.simulate().await;
-    let every = ["Elsewhere", "Film 000", "Film 001"];
+    app.execute(&[
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_category, action, status,
+                                simulation_id, decided_at)
+         VALUES ('d-akira', 'm-akira', 'Akira', 'series', 'inst-2', '/tv/standard', 'standard',
+                 'none', 'skipped', 'sim-old', '2001-01-01 00:00:00')",
+        // Applied from the anime folder to where Film 000 now sits, so a revert may undo it.
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category, action,
+                                status, simulation_id, decided_at, applied_at)
+         VALUES ('d-returned', 'm-0', 'Returned', 'movie', 'inst-1', '/movies/anime',
+                 '/movies/standard', 'standard', 'move', 'applied', 'sim-old',
+                 '2001-01-02 00:00:00', '2001-01-02 00:00:00')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_category, matched_rule_id, action,
+                                status, simulation_id, decided_at, superseded)
+         VALUES ('d-superseded', 'm-1', 'Superseded', 'movie', 'inst-1', '/movies/standard',
+                 'anime', 'rule-anime', 'move', 'pending', 'sim-old', '2001-01-03 00:00:00', 1)",
+    ])
+    .await;
+    let proposed = ["Elsewhere", "Film 000", "Film 001"];
 
-    assert_eq!(titles(&app, "current_root_folder=%2Fmovies%2Fother%2F").await, ["Elsewhere"]);
-    assert_eq!(titles(&app, "rule_id=rule-anime").await, every);
-    assert!(titles(&app, "rule_id=rule-gone").await.is_empty());
-    assert_eq!(titles(&app, &format!("since={}", hour(-1))).await, every);
-    assert!(titles(&app, &format!("since={}", hour(1))).await.is_empty());
-    assert_eq!(titles(&app, &format!("until={}", hour(1))).await, every);
-    assert!(titles(&app, &format!("until={}", hour(-1))).await.is_empty());
-    assert!(titles(&app, "revertible=true").await.is_empty());
-    assert_eq!(titles(&app, "revertible=false").await, every);
+    for (filter, kept) in [
+        (String::new(), &["Akira", "Elsewhere", "Film 000", "Film 001", "Returned"][..]),
+        ("instance_id=inst-2".into(), &["Akira"]),
+        ("media_type=series".into(), &["Akira"]),
+        ("status=applied".into(), &["Returned"]),
+        ("category=standard".into(), &["Akira", "Returned"]),
+        ("current_root_folder=%2Fmovies%2Fother%2F".into(), &["Elsewhere"]),
+        ("rule_id=rule-anime".into(), &proposed),
+        ("rule_id=rule-gone".into(), &[]),
+        ("action=none".into(), &["Akira"]),
+        ("simulation_id=sim-old".into(), &["Akira", "Returned"]),
+        ("search=ELSEW".into(), &["Elsewhere"]),
+        (format!("since={}", hour(-1)), &proposed),
+        (format!("since={}", hour(1)), &[]),
+        (format!("until={}", hour(-1)), &["Akira", "Returned"]),
+        ("revertible=true".into(), &["Returned"]),
+        ("revertible=false".into(), &["Akira", "Elsewhere", "Film 000", "Film 001"]),
+        (
+            "include_superseded=true".into(),
+            &["Akira", "Elsewhere", "Film 000", "Film 001", "Returned", "Superseded"],
+        ),
+    ] {
+        let mut kept = kept.to_vec();
+        kept.sort();
+        assert_eq!(titles(&app, &filter).await, kept, "{filter}");
+    }
 
     let unreadable = app.get("/api/v1/decisions?since=yesterday").await;
     let refused = unreadable.assert_status(StatusCode::BAD_REQUEST);

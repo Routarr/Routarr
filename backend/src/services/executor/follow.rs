@@ -37,7 +37,8 @@ pub(super) enum Followed {
     Stopped(StopReason),
 }
 
-/// An Arr unread for this many times `move_wait` stops the run.
+/// An Arr unread for this many times `move_wait` stops the run, counted on a failed read
+/// alone: one read a moment ago is not unreachable, whatever the wait.
 const UNREAD_ROUNDS: u32 = 5;
 
 /// A move still running past this many times `move_wait` stops the run: the Arr's queue is
@@ -61,19 +62,25 @@ pub(super) async fn follow_one(
     let started = tokio::time::Instant::now();
     let mut read_at = started;
     loop {
-        match adapter.move_commands().await {
+        let read_now = match adapter.move_commands().await {
             Ok(commands) => {
                 read_at = tokio::time::Instant::now();
                 match settle(sending, adapter, arr, sent, &commands, report).await {
                     None => return Followed::Settled,
                     Some(running) => sent = running,
                 }
+                true
             }
-            Err(e) => warn!(arr = %arr, "The Arr's commands could not be read: {e}"),
-        }
+            Err(e) => {
+                warn!(arr = %arr, "The Arr's commands could not be read: {e}");
+                false
+            }
+        };
         let stopped = match super::stop_reason(state, stop).await {
             Some(reason) => Some(reason),
-            None if read_at.elapsed() >= wait * UNREAD_ROUNDS => Some(StopReason::Unreachable),
+            None if !read_now && read_at.elapsed() >= wait * UNREAD_ROUNDS => {
+                Some(StopReason::Unreachable)
+            }
             None if started.elapsed() >= wait * CEILING_ROUNDS => Some(StopReason::Stalled),
             None => None,
         };

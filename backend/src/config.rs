@@ -18,6 +18,15 @@ const MOVE_WAIT: Duration = Duration::from_secs(60);
 /// gives a notification.
 const WEBHOOK_ANSWER_WAIT: Duration = Duration::from_secs(20);
 
+/// How long an unattended apply waits for the one running. A run moving files holds the lock as
+/// long as its copies last, hours for a library: past this wait the decision stays pending for
+/// the sweep after that run.
+const UNATTENDED_WAIT: Duration = Duration::from_secs(300);
+
+/// How long a webhook delivery waits for the one before it, on its own task. A season import
+/// arrives one file at a time, each answered before the next is sent, so it never reaches it.
+const DELIVERY_WAIT: Duration = Duration::from_secs(20);
+
 /// The directory a database file lives in. The parent of `:memory:` is `Some("")`, an empty
 /// path that `unwrap_or` never catches and `join` turns into one relative to the working directory.
 fn data_dir_for(db_path: &Path) -> PathBuf {
@@ -350,6 +359,12 @@ pub struct Config {
     /// How long a webhook delivery is answered within: past it the Arr is told
     /// the delivery was accepted, and the work goes on.
     pub webhook_answer_wait: Duration,
+    /// How long an unattended apply waits for the apply running before it leaves its moves
+    /// pending.
+    pub unattended_wait: Duration,
+    /// How long a webhook delivery waits for the one before it, and a delete then for a sync
+    /// running, before it is dropped.
+    pub delivery_wait: Duration,
     /// Master key sealing the stored secrets (the Arr and metadata source keys).
     /// Generated beside the database if absent.
     pub secret_key: Option<String>,
@@ -419,6 +434,8 @@ impl std::fmt::Debug for Config {
             max_library_bytes,
             move_wait,
             webhook_answer_wait,
+            unattended_wait,
+            delivery_wait,
             secret_key,
             previous_secret_key,
             allow_new_master_key,
@@ -469,6 +486,8 @@ impl std::fmt::Debug for Config {
             .field("max_library_bytes", max_library_bytes)
             .field("move_wait", move_wait)
             .field("webhook_answer_wait", webhook_answer_wait)
+            .field("unattended_wait", unattended_wait)
+            .field("delivery_wait", delivery_wait)
             .field("secret_key", &hidden(secret_key))
             .field("previous_secret_key", &hidden(previous_secret_key))
             .field("allow_new_master_key", allow_new_master_key)
@@ -544,13 +563,17 @@ impl Config {
     /// The configuration the environment sets. A value that cannot be read is an error naming
     /// its variable, never the default: `ROUTARR_PORT=987 6` would run on 9876 unnoticed.
     pub fn from_env() -> AppResult<Self> {
-        let configured =
-            path_or(std::env::var("ROUTARR_DB_PATH").ok(), || PathBuf::from("./data/routarr.db"));
+        Self::from_lookup(&process_env)
+    }
+
+    /// The configuration the variables `env` answers set, as [`Config::from_env`] reads them.
+    fn from_lookup(env: Lookup<'_>) -> AppResult<Self> {
+        let configured = path_or(env("ROUTARR_DB_PATH"), || PathBuf::from("./data/routarr.db"));
         let (db_path, settled) = settled_db_path(configured, Path::exists);
         // Each variable is named apart from its message: the sample-env test reads a quoted
         // `ROUTARR_*` as a variable, the whole literal when a message begins with the name.
         let mut startup_notes: Vec<String> = settled.into_iter().collect();
-        let raw_auth = env_or("ROUTARR_AUTH", "apikey");
+        let raw_auth = env_or(env, "ROUTARR_AUTH", "apikey");
         let (auth_mode, unknown) = AuthMode::parse(&raw_auth);
         if unknown {
             let variable = "ROUTARR_AUTH";
@@ -558,7 +581,7 @@ impl Config {
                 "{variable} is '{raw_auth}', which no mode is called: the API key is required"
             ));
         }
-        let asked = env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?;
+        let asked = env_parse(env, "ROUTARR_METADATA_CONCURRENCY", 4usize)?;
         let (metadata_concurrency, clamped) = concurrency_from(asked);
         if clamped {
             let variable = "ROUTARR_METADATA_CONCURRENCY";
@@ -567,23 +590,23 @@ impl Config {
                  {metadata_concurrency}"
             ));
         }
-        let raw_level = env_or("ROUTARR_LOG_LEVEL", "info");
+        let raw_level = env_or(env, "ROUTARR_LOG_LEVEL", "info");
         let (log_level, unknown) = log_level_from(&raw_level);
         if unknown {
             let variable = "ROUTARR_LOG_LEVEL";
             startup_notes
                 .push(format!("{variable} is '{raw_level}', which no level is called: info"));
         }
-        let raw_format = env_or("ROUTARR_LOG_FORMAT", "text");
+        let raw_format = env_or(env, "ROUTARR_LOG_FORMAT", "text");
         let (log_format, unknown) = log_format_from(&raw_format);
         if unknown {
             let variable = "ROUTARR_LOG_FORMAT";
             startup_notes
                 .push(format!("{variable} is '{raw_format}', neither text nor json: text"));
         }
-        let (log_filter, note) = log_filter_from(non_empty("RUST_LOG"));
+        let (log_filter, note) = log_filter_from(non_empty(env, "RUST_LOG"));
         startup_notes.extend(note);
-        let trusted_proxies = non_empty("ROUTARR_TRUSTED_PROXIES")
+        let trusted_proxies = non_empty(env, "ROUTARR_TRUSTED_PROXIES")
             .map(|v| {
                 v.split(',')
                     .map(str::trim)
@@ -601,91 +624,104 @@ impl Config {
             .transpose()?
             .unwrap_or_default();
         startup_notes.extend(proxy_range_notes(&trusted_proxies));
-        startup_notes.extend(time_zone_note(std::env::var("TZ").ok().as_deref(), zone_known));
+        startup_notes.extend(time_zone_note(env("TZ").as_deref(), zone_known));
         Ok(Self {
-            host: env_or("ROUTARR_HOST", "0.0.0.0"),
-            port: env_parse("ROUTARR_PORT", 9876)?,
+            host: env_or(env, "ROUTARR_HOST", "0.0.0.0"),
+            port: env_parse(env, "ROUTARR_PORT", 9876)?,
             data_dir: data_dir_for(&db_path),
             db_path,
-            backup_copy_dir: non_empty("ROUTARR_BACKUP_COPY_DIR")
+            backup_copy_dir: non_empty(env, "ROUTARR_BACKUP_COPY_DIR")
                 .map(|dir| lexical(Path::new(&dir))),
             log_level,
             log_format,
             log_filter,
             startup_notes,
-            frontend_dir: path_or(std::env::var("ROUTARR_FRONTEND_DIR").ok(), default_frontend_dir),
-            tmdb_api_key: non_empty("TMDB_API_KEY"),
-            api_key: non_empty("ROUTARR_API_KEY"),
+            frontend_dir: path_or(env("ROUTARR_FRONTEND_DIR"), default_frontend_dir),
+            tmdb_api_key: non_empty(env, "TMDB_API_KEY"),
+            api_key: non_empty(env, "ROUTARR_API_KEY"),
             auth_mode,
-            oidc_issuer: non_empty("ROUTARR_OIDC_ISSUER")
+            oidc_issuer: non_empty(env, "ROUTARR_OIDC_ISSUER")
                 .map(|v| v.trim_end_matches('/').to_string()),
-            oidc_client_id: non_empty("ROUTARR_OIDC_CLIENT_ID"),
-            oidc_client_secret: non_empty("ROUTARR_OIDC_CLIENT_SECRET"),
-            oidc_redirect_url: non_empty("ROUTARR_OIDC_REDIRECT_URL"),
-            oidc_allowed_subjects: list("ROUTARR_OIDC_ALLOWED_SUBJECTS"),
-            oidc_allowed_groups: list("ROUTARR_OIDC_ALLOWED_GROUPS"),
-            oidc_read_subjects: list("ROUTARR_OIDC_READ_SUBJECTS"),
-            oidc_read_groups: list("ROUTARR_OIDC_READ_GROUPS"),
-            oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
-            oidc_allow_anyone: env_switch("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
-            cors_origins: origins_from(non_empty("ROUTARR_CORS_ORIGINS")),
+            oidc_client_id: non_empty(env, "ROUTARR_OIDC_CLIENT_ID"),
+            oidc_client_secret: non_empty(env, "ROUTARR_OIDC_CLIENT_SECRET"),
+            oidc_redirect_url: non_empty(env, "ROUTARR_OIDC_REDIRECT_URL"),
+            oidc_allowed_subjects: list(env, "ROUTARR_OIDC_ALLOWED_SUBJECTS"),
+            oidc_allowed_groups: list(env, "ROUTARR_OIDC_ALLOWED_GROUPS"),
+            oidc_read_subjects: list(env, "ROUTARR_OIDC_READ_SUBJECTS"),
+            oidc_read_groups: list(env, "ROUTARR_OIDC_READ_GROUPS"),
+            oidc_groups_claim: env_or(env, "ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
+            oidc_allow_anyone: env_switch(env, "ROUTARR_OIDC_ALLOW_ANYONE", false)?,
+            cors_origins: origins_from(non_empty(env, "ROUTARR_CORS_ORIGINS")),
             trusted_proxies,
-            allowed_hosts: allowed_hosts_from(non_empty("ROUTARR_ALLOWED_HOSTS"))?,
+            allowed_hosts: allowed_hosts_from(non_empty(env, "ROUTARR_ALLOWED_HOSTS"))?,
             http_timeout: Duration::from_secs(env_parse(
+                env,
                 "ROUTARR_HTTP_TIMEOUT_SECS",
                 DEFAULT_HTTP_TIMEOUT_SECS,
             )?),
             library_timeout: Duration::from_secs(env_parse(
+                env,
                 "ROUTARR_LIBRARY_TIMEOUT_SECS",
                 crate::http::LIBRARY_TIMEOUT.as_secs(),
             )?),
-            max_library_bytes: env_parse("ROUTARR_MAX_LIBRARY_MIB", DEFAULT_MAX_LIBRARY_MIB)?
+            max_library_bytes: env_parse(env, "ROUTARR_MAX_LIBRARY_MIB", DEFAULT_MAX_LIBRARY_MIB)?
                 .saturating_mul(1 << 20),
             move_wait: MOVE_WAIT,
             webhook_answer_wait: WEBHOOK_ANSWER_WAIT,
-            secret_key: non_empty("ROUTARR_SECRET_KEY"),
-            previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
-            allow_new_master_key: env_switch("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
+            unattended_wait: UNATTENDED_WAIT,
+            delivery_wait: DELIVERY_WAIT,
+            secret_key: non_empty(env, "ROUTARR_SECRET_KEY"),
+            previous_secret_key: non_empty(env, "ROUTARR_PREVIOUS_SECRET_KEY"),
+            allow_new_master_key: env_switch(env, "ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
             metadata_concurrency,
-            tmdb_base_url: env_or("ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
+            tmdb_base_url: env_or(env, "ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
                 .trim_end_matches('/')
                 .to_string(),
-            omdb_api_key: non_empty("OMDB_API_KEY"),
+            omdb_api_key: non_empty(env, "OMDB_API_KEY"),
             omdb_base_url: env_or(
+                env,
                 "ROUTARR_OMDB_BASE_URL",
                 crate::integrations::omdb::DEFAULT_BASE_URL,
             )
             .trim_end_matches('/')
             .to_string(),
-            tvdb_api_key: non_empty("TVDB_API_KEY"),
-            tvdb_pin: non_empty("TVDB_SUBSCRIBER_PIN"),
+            tvdb_api_key: non_empty(env, "TVDB_API_KEY"),
+            tvdb_pin: non_empty(env, "TVDB_SUBSCRIBER_PIN"),
             tvdb_base_url: env_or(
+                env,
                 "ROUTARR_TVDB_BASE_URL",
                 crate::integrations::tvdb::DEFAULT_BASE_URL,
             )
             .trim_end_matches('/')
             .to_string(),
             anilist_base_url: env_or(
+                env,
                 "ROUTARR_ANILIST_BASE_URL",
                 crate::integrations::anilist::DEFAULT_BASE_URL,
             )
             .trim_end_matches('/')
             .to_string(),
             tenrai_base_url: env_or(
+                env,
                 "ROUTARR_TENRAI_BASE_URL",
                 crate::integrations::tenrai::DEFAULT_BASE_URL,
             )
             .trim_end_matches('/')
             .to_string(),
-            mal_client_id: non_empty("MAL_CLIENT_ID"),
+            mal_client_id: non_empty(env, "MAL_CLIENT_ID"),
             myanimelist_base_url: env_or(
+                env,
                 "ROUTARR_MYANIMELIST_BASE_URL",
                 crate::integrations::myanimelist::DEFAULT_BASE_URL,
             )
             .trim_end_matches('/')
             .to_string(),
-            anime_ids_url: env_or("ROUTARR_ANIME_IDS_URL", crate::services::anime_ids::DEFAULT_URL),
-            base_path: normalise_base_path(&env_or("ROUTARR_BASE_PATH", "")),
+            anime_ids_url: env_or(
+                env,
+                "ROUTARR_ANIME_IDS_URL",
+                crate::services::anime_ids::DEFAULT_URL,
+            ),
+            base_path: normalise_base_path(&env_or(env, "ROUTARR_BASE_PATH", "")),
         })
     }
 
@@ -978,6 +1014,8 @@ impl Config {
             max_library_bytes: 1 << 20,
             move_wait: Duration::from_secs(2),
             webhook_answer_wait: Duration::from_secs(5),
+            unattended_wait: UNATTENDED_WAIT,
+            delivery_wait: DELIVERY_WAIT,
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdCE=".into()),
             previous_secret_key: None,
             allow_new_master_key: false,
@@ -999,8 +1037,15 @@ impl Config {
     }
 }
 
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string())
+/// Where a variable is read: the process's environment, or a test's table.
+type Lookup<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+fn process_env(key: &str) -> Option<String> {
+    std::env::var(key).ok()
+}
+
+fn env_or(env: Lookup<'_>, key: &str, default: &str) -> String {
+    env(key).filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string())
 }
 
 /// A `Host` value without its port, in lower case: `NAS.lan:9876` is
@@ -1075,8 +1120,8 @@ pub(crate) fn lexical(path: &Path) -> PathBuf {
 }
 
 /// A comma separated variable, each entry trimmed, the empty ones dropped.
-fn list(key: &str) -> Vec<String> {
-    non_empty(key)
+fn list(env: Lookup<'_>, key: &str) -> Vec<String> {
+    non_empty(env, key)
         .map(|value| {
             value.split(',').map(str::trim).filter(|v| !v.is_empty()).map(String::from).collect()
         })
@@ -1087,19 +1132,19 @@ fn list(key: &str) -> Vec<String> {
 /// with when the database in place does not hold it. Kept out of `Config`, which the server
 /// holds for as long as it runs.
 pub fn archive_passphrase() -> Option<String> {
-    non_empty("ROUTARR_BACKUP_PASSPHRASE")
+    non_empty(&process_env, "ROUTARR_BACKUP_PASSPHRASE")
 }
 
-fn non_empty(key: &str) -> Option<String> {
-    std::env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+fn non_empty(env: Lookup<'_>, key: &str) -> Option<String> {
+    env(key).map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
 
-fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> AppResult<T> {
-    parse_setting(key, std::env::var(key).ok(), default)
+fn env_parse<T: std::str::FromStr>(env: Lookup<'_>, key: &str, default: T) -> AppResult<T> {
+    parse_setting(key, env(key), default)
 }
 
-fn env_switch(key: &str, default: bool) -> AppResult<bool> {
-    parse_switch(key, std::env::var(key).ok(), default)
+fn env_switch(env: Lookup<'_>, key: &str, default: bool) -> AppResult<bool> {
+    parse_switch(key, env(key), default)
 }
 
 /// A switch variable: `true` or `false` in any case, as a stored setting is read, or its default
@@ -1361,6 +1406,124 @@ mod tests {
         let orphans: Vec<&&str> =
             advertised.iter().filter(|name| !source.contains(&format!("\"{name}\""))).collect();
         assert!(orphans.is_empty(), "advertised but never read: {orphans:?}");
+    }
+
+    /// Each variable holds a value of its own, so one read into another field fails here, and
+    /// one the start reads that the table lacks fails the comparison of the names asked.
+    #[test]
+    fn every_variable_lands_in_its_field() {
+        let set = std::collections::BTreeMap::from([
+            ("ROUTARR_DB_PATH", " /srv/routarr/library.db "),
+            ("ROUTARR_AUTH", "oidc"),
+            ("ROUTARR_METADATA_CONCURRENCY", "7"),
+            ("ROUTARR_LOG_LEVEL", "DEBUG"),
+            ("ROUTARR_LOG_FORMAT", "json"),
+            ("RUST_LOG", "routarr=trace"),
+            ("ROUTARR_TRUSTED_PROXIES", "10.0.0.1, ,172.18.0.0/16"),
+            ("TZ", "Mars/Olympus"),
+            ("ROUTARR_HOST", "10.1.2.3"),
+            ("ROUTARR_PORT", "9123"),
+            ("ROUTARR_BACKUP_COPY_DIR", "/mnt/copies/./routarr/"),
+            ("ROUTARR_FRONTEND_DIR", " /opt/routarr/ui "),
+            ("TMDB_API_KEY", " tmdb-k1 "),
+            ("ROUTARR_API_KEY", "api-k2"),
+            ("ROUTARR_OIDC_ISSUER", "https://auth.example/"),
+            ("ROUTARR_OIDC_CLIENT_ID", "routarr"),
+            ("ROUTARR_OIDC_CLIENT_SECRET", "oidc-k3"),
+            ("ROUTARR_OIDC_REDIRECT_URL", "https://routarr.example/callback"),
+            ("ROUTARR_OIDC_ALLOWED_SUBJECTS", "alice, ,bob"),
+            ("ROUTARR_OIDC_ALLOWED_GROUPS", "admins"),
+            ("ROUTARR_OIDC_READ_SUBJECTS", "carol"),
+            ("ROUTARR_OIDC_READ_GROUPS", "family, guests"),
+            ("ROUTARR_OIDC_GROUPS_CLAIM", "roles"),
+            ("ROUTARR_OIDC_ALLOW_ANYONE", "TRUE"),
+            ("ROUTARR_CORS_ORIGINS", "HTTPS://Pages.Example:443/"),
+            ("ROUTARR_ALLOWED_HOSTS", "https://NAS.lan:9876/"),
+            ("ROUTARR_HTTP_TIMEOUT_SECS", "31"),
+            ("ROUTARR_LIBRARY_TIMEOUT_SECS", "93"),
+            ("ROUTARR_MAX_LIBRARY_MIB", "3"),
+            ("ROUTARR_SECRET_KEY", "master-k4"),
+            ("ROUTARR_PREVIOUS_SECRET_KEY", "former-k5"),
+            ("ROUTARR_ALLOW_NEW_MASTER_KEY", "true"),
+            ("ROUTARR_TMDB_BASE_URL", "http://127.0.0.1:1/tmdb/"),
+            ("OMDB_API_KEY", "omdb-k6"),
+            ("ROUTARR_OMDB_BASE_URL", "http://127.0.0.1:1/omdb/"),
+            ("TVDB_API_KEY", "tvdb-k7"),
+            ("TVDB_SUBSCRIBER_PIN", "pin-8"),
+            ("ROUTARR_TVDB_BASE_URL", "http://127.0.0.1:1/tvdb/"),
+            ("ROUTARR_ANILIST_BASE_URL", "http://127.0.0.1:1/anilist/"),
+            ("ROUTARR_TENRAI_BASE_URL", "http://127.0.0.1:1/tenrai/"),
+            ("MAL_CLIENT_ID", "mal-k9"),
+            ("ROUTARR_MYANIMELIST_BASE_URL", "http://127.0.0.1:1/mal/"),
+            ("ROUTARR_ANIME_IDS_URL", "http://127.0.0.1:1/ids.json"),
+            ("ROUTARR_BASE_PATH", "routarr/"),
+        ]);
+        let asked = std::cell::RefCell::new(std::collections::BTreeSet::new());
+        let lookup = |key: &str| {
+            asked.borrow_mut().insert(key.to_string());
+            set.get(key).map(|value| value.to_string())
+        };
+        let config = Config::from_lookup(&lookup).unwrap();
+        let asked = asked.into_inner();
+        let untested: Vec<&String> =
+            asked.iter().filter(|name| !set.contains_key(name.as_str())).collect();
+        let unread: Vec<&&str> = set.keys().filter(|name| !asked.contains(**name)).collect();
+        assert!(untested.is_empty(), "read and missing from this table: {untested:?}");
+        assert!(unread.is_empty(), "in this table and no longer read: {unread:?}");
+
+        assert_eq!(config.db_path, PathBuf::from("/srv/routarr/library.db"));
+        assert_eq!(config.data_dir, PathBuf::from("/srv/routarr"));
+        assert_eq!(config.auth_mode, AuthMode::Oidc);
+        assert_eq!(config.metadata_concurrency, 7);
+        assert_eq!((config.log_level.as_str(), config.log_format.as_str()), ("debug", "json"));
+        assert_eq!(config.log_filter.as_deref(), Some("routarr=trace"));
+        let proxies = ["10.0.0.1", "172.18.0.0/16"].map(|entry| Network::parse(entry).unwrap());
+        assert_eq!(config.trusted_proxies, proxies);
+        let said = |start: &str| config.startup_notes.iter().any(|note| note.starts_with(start));
+        assert!(said("RUST_LOG") && said("ROUTARR_TRUSTED_PROXIES"), "{:?}", config.startup_notes);
+        let zones_known = Path::new("/usr/share/zoneinfo").is_dir();
+        assert_eq!(said("TZ is 'Mars/Olympus'"), zones_known, "{:?}", config.startup_notes);
+        assert_eq!((config.host.as_str(), config.port), ("10.1.2.3", 9123));
+        assert_eq!(config.backup_copy_dir, Some(PathBuf::from("/mnt/copies/routarr")));
+        assert_eq!(config.frontend_dir, PathBuf::from("/opt/routarr/ui"));
+        assert_eq!(config.tmdb_api_key.as_deref(), Some("tmdb-k1"));
+        assert_eq!(config.api_key.as_deref(), Some("api-k2"));
+        assert_eq!(config.oidc_issuer.as_deref(), Some("https://auth.example"));
+        assert_eq!(config.oidc_client_id.as_deref(), Some("routarr"));
+        assert_eq!(config.oidc_client_secret.as_deref(), Some("oidc-k3"));
+        assert_eq!(config.oidc_redirect_url.as_deref(), Some("https://routarr.example/callback"));
+        assert_eq!(config.oidc_allowed_subjects, ["alice", "bob"]);
+        assert_eq!(config.oidc_allowed_groups, ["admins"]);
+        assert_eq!(config.oidc_read_subjects, ["carol"]);
+        assert_eq!(config.oidc_read_groups, ["family", "guests"]);
+        assert_eq!(config.oidc_groups_claim, "roles");
+        assert!(config.oidc_allow_anyone);
+        assert_eq!(config.cors_origins, ["https://pages.example"]);
+        assert_eq!(config.allowed_hosts, ["nas.lan"]);
+        assert_eq!(config.http_timeout, Duration::from_secs(31));
+        assert_eq!(config.library_timeout, Duration::from_secs(93));
+        assert_eq!(config.max_library_bytes, 3 * 1024 * 1024);
+        assert_eq!(config.secret_key.as_deref(), Some("master-k4"));
+        assert_eq!(config.previous_secret_key.as_deref(), Some("former-k5"));
+        assert!(config.allow_new_master_key);
+        assert_eq!(config.tmdb_base_url, "http://127.0.0.1:1/tmdb");
+        assert_eq!(config.omdb_api_key.as_deref(), Some("omdb-k6"));
+        assert_eq!(config.omdb_base_url, "http://127.0.0.1:1/omdb");
+        assert_eq!(config.tvdb_api_key.as_deref(), Some("tvdb-k7"));
+        assert_eq!(config.tvdb_pin.as_deref(), Some("pin-8"));
+        assert_eq!(config.tvdb_base_url, "http://127.0.0.1:1/tvdb");
+        assert_eq!(config.anilist_base_url, "http://127.0.0.1:1/anilist");
+        assert_eq!(config.tenrai_base_url, "http://127.0.0.1:1/tenrai");
+        assert_eq!(config.mal_client_id.as_deref(), Some("mal-k9"));
+        assert_eq!(config.myanimelist_base_url, "http://127.0.0.1:1/mal");
+        assert_eq!(config.anime_ids_url, "http://127.0.0.1:1/ids.json");
+        assert_eq!(config.base_path, "/routarr");
+
+        let refused = |key: &str| {
+            (key == "ROUTARR_TRUSTED_PROXIES").then(|| "10.0.0.1, the-proxy".to_string())
+        };
+        let err = Config::from_lookup(&refused).unwrap_err().to_string();
+        assert!(err.contains("'the-proxy' in ROUTARR_TRUSTED_PROXIES"), "{err}");
     }
 
     #[test]

@@ -1539,13 +1539,6 @@ mod tests {
     }
 
     #[test]
-    fn title_condition_is_case_insensitive_substring() {
-        assert!(matches(Condition::TitleContains(vec!["totoro".into()])));
-        assert!(matches(Condition::TitleContains(vec!["NEIGHBOR".into()])));
-        assert!(!matches(Condition::TitleContains(vec!["akira".into()])));
-    }
-
-    #[test]
     fn a_title_is_matched_the_way_every_other_value_is() {
         let accented = |needle: &str| {
             let mut media = media();

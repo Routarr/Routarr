@@ -225,9 +225,14 @@ async fn renaming_onto_a_name_already_taken_is_refused() {
 #[tokio::test]
 async fn renaming_a_category_to_its_own_name_changes_nothing() {
     let app = TestApp::new().await;
-    app.put("/api/v1/categories/cat-standard", serde_json::json!({ "name": "standard" }))
-        .await
-        .assert_ok();
+    seed_every_reference(&app).await;
+    let before = rows_holding(&app.state.pool, "anime").await;
+
+    let renamed = app.put("/api/v1/categories/cat-anime", serde_json::json!({ "name": "anime" }));
+    let renamed = renamed.await.assert_ok().clone();
+    let answered = (&renamed["id"], &renamed["name"], &renamed["is_default"]);
+    assert_eq!(answered, (&"cat-anime".into(), &"anime".into(), &false.into()), "{renamed}");
+    assert_eq!(rows_holding(&app.state.pool, "anime").await, before);
 }
 
 #[tokio::test]

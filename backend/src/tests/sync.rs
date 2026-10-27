@@ -527,59 +527,73 @@ async fn a_title_written_after_the_sync_began_reading_survives_it() {
 
 /// An Arr rebuilt, or an instance pointed at another Arr, hands its ids out
 /// again: the title id 10 now names is not the one the row, its exception and
-/// its proposal described, and none of them carries over to it.
+/// its proposal described, and none of them carries over to it. Past `BIND_CHUNK`
+/// titles listed, a full sync reads the instance whole, through another statement.
 #[tokio::test]
 async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
-    let arr = FakeArr::start().await;
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.execute(&[
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
-                            current_root_folder, monitored, has_files)
-         VALUES ('m-inst-1-10', 'inst-1', 10, 'movie', 'Spirited Away', 129,
-                 '/movies/standard', 1, 1)",
-        "INSERT INTO overrides (id, media_id, target_category)
-         VALUES ('o-1', 'm-inst-1-10', 'kids')",
-        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                                current_root_folder, target_root_folder, target_category,
-                                action, status)
-         VALUES ('d-1', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/standard',
-                 '/movies/kids', 'kids', 'move', 'pending')",
-        // A move Routarr made of the old title into the folder the new one sits in.
-        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                                current_root_folder, target_root_folder, target_category,
-                                action, status, applied_at)
-         VALUES ('d-2', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/kids',
-                 '/movies/standard', 'standard', 'move', 'applied', datetime('now'))",
-        "INSERT INTO execution_logs (id, decision_id, action, details, success, instance_id,
-                                     media_id, media_title)
-         VALUES ('l-2', 'd-2', 'move', '/movies/kids → /movies/standard', 1, 'inst-1',
-                 'm-inst-1-10', 'Spirited Away')",
-    ])
-    .await;
+    for listed in [0, crate::services::routing::BIND_CHUNK + 1] {
+        let arr = FakeArr::start().await;
+        arr.list_held_films();
+        for id in 0..listed {
+            arr.hold_film(100 + id as i64);
+        }
+        let app = TestApp::new().await;
+        app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+        app.execute(&[
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
+                                current_root_folder, monitored, has_files)
+             VALUES ('m-inst-1-10', 'inst-1', 10, 'movie', 'Spirited Away', 129,
+                     '/movies/standard', 1, 1)",
+            "INSERT INTO overrides (id, media_id, target_category)
+             VALUES ('o-1', 'm-inst-1-10', 'kids')",
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                    current_root_folder, target_root_folder, target_category,
+                                    action, status)
+             VALUES ('d-1', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/standard',
+                     '/movies/kids', 'kids', 'move', 'pending')",
+            // A move Routarr made of the old title into the folder the new one sits in.
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                    current_root_folder, target_root_folder, target_category,
+                                    action, status, applied_at)
+             VALUES ('d-2', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/kids',
+                     '/movies/standard', 'standard', 'move', 'applied', datetime('now'))",
+            "INSERT INTO execution_logs (id, decision_id, action, details, success, instance_id,
+                                         media_id, media_title)
+             VALUES ('l-2', 'd-2', 'move', '/movies/kids → /movies/standard', 1, 'inst-1',
+                     'm-inst-1-10', 'Spirited Away')",
+        ])
+        .await;
 
-    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
-        .await
-        .unwrap();
+        sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
 
-    let live = "SELECT COUNT(*) FROM overrides WHERE media_id = 'm-inst-1-10'";
-    assert_eq!(app.count(live).await, 0, "the exception carried over");
-    assert_eq!(app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await, 1);
-    assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await, 8392);
+        let live = "SELECT COUNT(*) FROM overrides WHERE media_id = 'm-inst-1-10'";
+        assert_eq!(app.count(live).await, 0, "the exception carried over, {listed} more listed");
+        let superseded = app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await;
+        assert_eq!(superseded, 1, "the proposal carried over, {listed} more listed");
+        let tmdb = app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await;
+        assert_eq!(tmdb, 8392, "the row kept the old title, {listed} more listed");
 
-    let revertible = app.get("/api/v1/decisions?revertible=true").await.assert_ok().clone();
-    assert!(
-        !revertible.to_string().contains("\"d-2\""),
-        "the old move is revertible: {revertible}"
-    );
-    let log = app.get("/api/v1/move-log?media_id=m-inst-1-10").await.assert_ok().clone();
-    assert!(!log.to_string().contains("Spirited Away"), "the old moves show as the new title's");
-    app.store_setting("global_dry_run", "false").await;
-    let reverted = app.post("/api/v1/decisions/revert", json!({ "decision_ids": ["d-2"] })).await;
-    assert_eq!(reverted.assert_ok()["applied"], 0, "{:?}", reverted.json);
-    assert!(arr.recorded().writes.is_empty(), "a revert moved the title that took the id");
-    let kept = app.count("SELECT COUNT(*) FROM decisions WHERE id = 'd-2' AND status = 'applied'");
-    assert_eq!(kept.await, 1, "the history of the old title was lost");
+        let revertible = app.get("/api/v1/decisions?revertible=true").await.assert_ok().clone();
+        assert!(
+            !revertible.to_string().contains("\"d-2\""),
+            "the old move is revertible: {revertible}"
+        );
+        let log = app.get("/api/v1/move-log?media_id=m-inst-1-10").await.assert_ok().clone();
+        assert!(
+            !log.to_string().contains("Spirited Away"),
+            "the old moves show as the new title's"
+        );
+        app.store_setting("global_dry_run", "false").await;
+        let reverted =
+            app.post("/api/v1/decisions/revert", json!({ "decision_ids": ["d-2"] })).await;
+        assert_eq!(reverted.assert_ok()["applied"], 0, "{:?}", reverted.json);
+        assert!(arr.recorded().writes.is_empty(), "a revert moved the title that took the id");
+        let kept =
+            app.count("SELECT COUNT(*) FROM decisions WHERE id = 'd-2' AND status = 'applied'");
+        assert_eq!(kept.await, 1, "the history of the old title was lost");
+    }
 }
 
 /// An Arr that stops reporting a title, then reports it again under another id, gets its

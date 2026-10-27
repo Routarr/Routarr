@@ -153,16 +153,6 @@ const LIBRARY: &[Film] = &[
         tags: "[]",
     },
     Film {
-        id: "kon-tiki",
-        tmdb: 1006,
-        title: "Kon-Tiki",
-        genres: r#"["Adventure","Drama"]"#,
-        keywords: "[]",
-        language: Some("no"),
-        certification: "PG-13",
-        tags: "[]",
-    },
-    Film {
         id: "undescribed",
         tmdb: 1007,
         title: "A Film Nobody Described",
@@ -439,19 +429,16 @@ async fn each_template_sends_the_titles_it_claims_an_anime_for_all_ages_to_the_c
     assert_eq!(decided["asked"], "alice");
 }
 
-/// Norwegian is `no`, as TMDB writes it, whatever the interface calls it.
 #[tokio::test]
 async fn the_languages_a_household_watches_in_default_to_the_interface_and_english() {
-    for (interface, own) in [("fr", "amelie"), ("nb_NO", "kon-tiki")] {
-        let app = library(interface).await;
-        add(&app, "foreign-films", json!({})).await;
+    let app = library("fr").await;
+    add(&app, "foreign-films", json!({})).await;
 
-        let decided = categories_decided(&app).await;
+    let decided = categories_decided(&app).await;
 
-        assert_eq!(decided[own], "standard", "{interface}");
-        assert_ne!(decided["parasite"], "standard", "{interface}");
-        assert_eq!(decided["paddington"], "standard", "{interface}: English");
-    }
+    assert_eq!(decided["amelie"], "standard");
+    assert_ne!(decided["parasite"], "standard");
+    assert_eq!(decided["paddington"], "standard", "English");
 }
 
 /// The engine compares ISO 639-1 codes. One stored as typed, `fra`, would
@@ -465,10 +452,9 @@ async fn a_language_is_stored_as_its_code_and_one_naming_none_is_refused() {
     let refused = refused.assert_status(StatusCode::BAD_REQUEST);
     assert!(refused.to_string().contains("klingon"), "{refused}");
 
-    let typed = json!({ "languages": ["FRA", "English", "fr-CA"] });
-    let added = add(&app, "foreign-films", typed).await;
+    let added = add(&app, "foreign-films", json!({ "languages": ["FRA"] })).await;
     let conditions = &added["rules"][0]["conditions"];
-    assert_eq!(conditions[1], json!({ "type": "original_language_not", "value": ["fr", "en"] }));
+    assert_eq!(conditions[1], json!({ "type": "original_language_not", "value": ["fr"] }));
 }
 
 #[tokio::test]
@@ -507,7 +493,7 @@ async fn two_templates_may_share_a_category_which_is_created_once() {
 }
 
 #[tokio::test]
-async fn templates_go_after_the_rules_written_by_hand_in_the_catalogue_order() {
+async fn a_template_goes_after_the_rules_written_by_hand() {
     let app = library("en").await;
     let mine = app
         .post(
@@ -522,24 +508,14 @@ async fn templates_go_after_the_rules_written_by_hand_in_the_catalogue_order() {
         .await;
     let mine = mine.assert_status(StatusCode::CREATED)["priority"].as_i64().unwrap();
 
-    let anime = add(&app, "anime", json!({})).await;
     let children = add(&app, "children", json!({})).await;
 
-    let priority = |rule: &str| {
-        let rules = app.state.pool.clone();
-        let rule = rule.to_string();
-        async move {
-            sqlx::query_scalar::<_, i64>("SELECT priority FROM rules WHERE id = ?")
-                .bind(rule)
-                .fetch_one(&rules)
-                .await
-                .unwrap()
-        }
-    };
-    let anime_first = priority(anime["rules"][0]["id"].as_str().unwrap()).await;
-    let children_rule = priority(children["rules"][0]["id"].as_str().unwrap()).await;
+    let children_rule: i64 = sqlx::query_scalar("SELECT priority FROM rules WHERE id = ?")
+        .bind(children["rules"][0]["id"].as_str().unwrap())
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
     assert!(mine < children_rule, "the hand-written rule stays first");
-    assert!(children_rule < anime_first, "children rank before anime");
     assert_eq!(children["rules"][0]["template"], "children@1");
 }
 

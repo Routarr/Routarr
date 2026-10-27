@@ -1,7 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { test as base, expect, type Page } from '@playwright/test';
 
-const API = `${process.env.ROUTARR_E2E_URL ?? 'http://127.0.0.1:9877'}/api/v1`;
+/** The server the harness starts, with the mount point it serves under, if any. */
+const APP = process.env.ROUTARR_E2E_URL ?? 'http://127.0.0.1:9877';
+
+const API = `${APP}/api/v1`;
+
+/** How long the first page of an engine may take to draw, apart from any test. */
+const WARM_UP_TIMEOUT = 120_000;
 
 /** The stand-in Radarr the harness starts beside the server. */
 const ARR = process.env.ROUTARR_E2E_ARR ?? 'http://127.0.0.1:7979';
@@ -54,7 +60,7 @@ async function apiWhenFree(path: string, init: RequestInit): Promise<unknown> {
  * Put the instance back the way every test expects to find it: one Radarr, its
  * root folders mapped to `standard` and `anime` and no other category, no
  * rules, no pinned case, no application key, no pending decision, dry-run on,
- * in English.
+ * in English, in the dark theme.
  *
  * Done through the API rather than against the database, so a reset that the
  * API cannot express is a reset the product cannot express either.
@@ -104,6 +110,7 @@ async function resetLibrary(): Promise<string> {
         global_dry_run: 'true',
         auto_apply_enabled: 'false',
         ui_language: 'en',
+        ui_theme: 'dark',
         batch_limit: '50',
         confirmation_threshold: '10',
         // Every journey but the guide's tests an installation already set up.
@@ -182,7 +189,19 @@ async function openScreen(page: Page, path: string): Promise<void> {
  * the language or the mode of the next one. In a sign-in mode the harness
  * holds no key to reset with, and `instanceId` is empty.
  */
-export const test = base.extend<{ instanceId: string }>({
+export const test = base.extend<{ instanceId: string }, { warmedUp: void }>({
+  // The first page an engine draws pays for starting it, and a cold WebKit outlasts a test's
+  // bound on it. Drawn once per worker under a bound of its own, before the first test.
+  warmedUp: [
+    async ({ browser }, use) => {
+      const page = await browser.newPage();
+      if (API_KEY) await page.request.post(`${API}/auth/key-session`, { data: { key: API_KEY } });
+      await page.goto(`${APP}/`, { waitUntil: 'networkidle', timeout: WARM_UP_TIMEOUT });
+      await page.context().close();
+      await use();
+    },
+    { scope: 'worker', auto: true, timeout: WARM_UP_TIMEOUT },
+  ],
   // The session a returning browser holds, opened before the first page loads,
   // through the page's own cookie jar: opened after it, the first requests
   // would land on the key gate.
