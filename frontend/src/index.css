@@ -1005,12 +1005,21 @@ a {
   border-radius: var(--radius-xs);
 }
 
-/* Icon only below 900px: no keyboard for a shortcut, and the mode chip needs the width. */
+/* Icon only below 900px: no keyboard for a shortcut, and the mode chip needs the width. The
+   search label stays readable, since it names its button: a name apart from the visible text
+   fails WCAG 2.5.3 wherever the label shows. */
 @media (max-width: 900px) {
-  .palette-trigger-label,
   .palette-trigger-key,
   .topbar-label {
     display: none;
+  }
+  .palette-trigger-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .palette-trigger,
   .topbar-icon {
