@@ -1,0 +1,58 @@
+name: Advisories
+
+# Apart from ci.yml on purpose: ci.yml audits a lockfile only when a change wakes its area, and an
+# advisory is published whatever the repository does. This reads the three lockfiles every week,
+# changed or not, and gates nothing: `release-runs.py` reads ci.yml and docker.yml alone.
+on:
+  schedule:
+    # Tuesdays at 05:37 UTC, off the hour and away from the other weekly runs.
+    - cron: '37 5 * * 2'
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time: a dispatch during the weekly run waits for it.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  advisories:
+    name: Known advisories in the lockfiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          # The version ci.yml and the dev container run (`check-versions.py`).
+          tool: cargo-deny@0.20.2
+      - name: The crates the binary links
+        working-directory: backend
+        run: cargo deny --locked check advisories
+
+      # `npm audit` reads the lockfile alone: nothing is installed, so no install script runs.
+      # Every package of the interface, development tools included, since this is the one
+      # place an advisory against them is raised between two changes.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: site/.node-version
+      - name: The interface's packages
+        if: ${{ !cancelled() }}
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      # A warning, as in ci.yml: these packages build the site, and an advisory against a build
+      # tool can stand unfixed for weeks.
+      - name: The site's build tools
+        if: ${{ !cancelled() }}
+        working-directory: site
+        run: |
+          if ! npm audit --audit-level=high; then
+            echo "::warning::npm audit reports a high advisory in the site's build tools"
+          fi

@@ -115,10 +115,11 @@ else
     exit 1
   fi
 fi
-# A release build lands beside the debug tree and a coverage tree in the dev
-# container's tmpfs. The sweep is what keeps the next build from ENOSPC.
-# `CARGO_TARGET_DIR` is set only there, so CI never runs this.
-if [[ -n "${CARGO_TARGET_DIR:-}" && -f "$ROOT/.devcontainer/prune.sh" ]]; then
+# A release build lands beside the debug tree and a coverage tree on the dev
+# container's ramdisk, and the sweep is what keeps the next build from ENOSPC.
+# Keyed on the ramdisk, not on `CARGO_TARGET_DIR`, which a laptop may point at a
+# tree other projects share. The path as written: on a small machine it is a link.
+if [[ "$TARGET_DIR" == "${ROUTARR_RAMDISK:-/ramdisk}"/* && -f "$ROOT/.devcontainer/prune.sh" ]]; then
   bash "$ROOT/.devcontainer/prune.sh" >/dev/null 2>&1 || true
 fi
 

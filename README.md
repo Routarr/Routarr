@@ -168,11 +168,11 @@ server stopped, as above.
 The container already runs as uid 1000 with every capability dropped. To put a kernel of its own
 between Routarr and your host as well, run the same image under
 [gVisor](https://gvisor.dev/docs/user_guide/install/), which answers every system call in user
-space and runs on any Linux host, a NAS or a VPS included. Install it as its guide says (its
+space, on an amd64 Linux host, a NAS or a VPS included. Install it as its guide says (its
 installer registers `runsc` with Docker), add `runtime: runsc` under `routarr:` in the compose
 file, and run `docker compose up -d` again. `docker exec routarr uname -r` then prints gVisor's
 kernel, not the host's. CI runs the image's whole start-up check under gVisor on every change to
-the image.
+the image, on amd64 only: the arm64 image is never run under it.
 
 It protects the host from a compromised Routarr: reaching the host no longer takes one flaw in
 your kernel. It does not protect what Routarr holds, the Arr keys and the `config/` folder, which

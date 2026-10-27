@@ -31,6 +31,16 @@ class CheckLicences(unittest.TestCase):
         )
         self.assertEqual(refusals, ["clsx is SSPL-1.0, which deny.toml does not allow"])
 
+    def test_a_package_the_bundle_ships_and_the_lockfile_calls_dev_is_refused(self):
+        lock = copy.deepcopy(LOCK)
+        lock["packages"]["node_modules/svelte"]["dev"] = True
+        notices = "# Licenses\n\n## @lucide/svelte - 1.56.0 (ISC)\n\n## svelte - 5.57.2 (MIT)\n"
+        self.assertEqual(
+            check_licences.bundled_refusals(lock, notices),
+            ["svelte ships in the bundle, and package-lock.json marks it dev: move it to dependencies"],
+        )
+        self.assertEqual(check_licences.bundled_refusals(LOCK, notices), [])
+
     def test_a_bundled_package_declaring_no_licence_is_refused(self):
         lock = copy.deepcopy(LOCK)
         del lock["packages"]["node_modules/svelte"]["license"]

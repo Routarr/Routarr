@@ -132,12 +132,21 @@ drop_idle() {
   drop "$path" "$why"
 }
 
+# A Routarr binary or a cargo fingerprint of the crate, in a profile or under llvm-cov's tree.
+routarr_built() {
+  local built
+  for built in "$1"/{debug,release}/routarr "$1"/*/.fingerprint/routarr-* "$1"/*/*/.fingerprint/routarr-*; do
+    [ -e "$built" ] && return 0
+  done
+  return 1
+}
+
 prune_once() {
   freed=0
 
   # --- Extension download caches ---------------------------------------------
   # Downloaded VSIX files only: the extensions live in their own volume.
-  for cache in /vscode/vscode-server/extensionsCache "$HOME/.vscode-server/extensionsCache"; do
+  for cache in "${ROUTARR_VSCODE_CACHE:-/vscode/vscode-server/extensionsCache}" "$HOME/.vscode-server/extensionsCache"; do
     if [ -d "$cache" ]; then
       kb="$(size_kb "$cache")"
       [ "$kb" -gt 51200 ] || continue   # under 50 MB, not worth the churn
@@ -151,9 +160,13 @@ prune_once() {
   # What outlived its process: the suites write under TMPDIR, the ramdisk, and
   # a run that is killed leaves its directory behind. Twelve hours old is
   # nothing still running: an end-to-end session paused for an afternoon keeps
-  # its database.
+  # its database. Only the suites' own prefixes, and never a checkout: a
+  # worktree's own timestamp does not move while files below it are edited.
   if [ "$(fs_of "$RAMDISK")" = "tmpfs" ]; then
-    find "$RAMDISK" -mindepth 1 -maxdepth 1 -name 'routarr-*' -mmin +720 -exec rm -rf {} + 2>/dev/null || true
+    while IFS= read -r -d '' scratch; do
+      [ -e "$scratch/.git" ] || drop "$scratch" "a test run's scratch, twelve hours old"
+    done < <(find "$RAMDISK" -mindepth 1 -maxdepth 1 -type d \( -name 'routarr-tests-*' \
+      -o -name 'routarr-e2e-*' -o -name 'routarr-shots-*' \) -mmin +720 -print0 2>/dev/null)
   fi
 
   # --- Rust build tree -------------------------------------------------------
@@ -164,7 +177,14 @@ prune_once() {
   # minutes. 75%: enough headroom left for the `--release` build the e2e
   # harness makes, the largest single thing that lands here, before a full
   # tmpfs fails the compile with ENOSPC, which reads as a broken toolchain.
+  #
+  # Only a tree Routarr was built in: `CARGO_TARGET_DIR` may name one every
+  # project on the machine shares, whose caches are not this script's.
   target="${CARGO_TARGET_DIR:-${root:+$root/backend/target}}"
+  if [ -n "$target" ] && [ -d "$target" ] && [ "$(spent_pct "$target")" -ge 75 ] && ! routarr_built "$target"; then
+    note "skipped $target: not Routarr's build tree"
+    target=""
+  fi
   if [ -n "$target" ] && [ -d "$target" ]; then
     if [ "$(spent_pct "$target")" -ge 75 ]; then
       drop_idle "$target/llvm-cov-target" "$target/llvm-cov-target" "build tree over 75% of its budget"

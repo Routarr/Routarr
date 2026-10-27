@@ -1,27 +1,22 @@
-# Build artefacts and dependencies: rebuilt inside the image, and the largest
-# things in the tree.
-**/target/
-**/node_modules/
-**/dist/
-**/coverage/
-**/test-results/
-**/playwright-report/
-.git/
+# The build context is what the two Dockerfiles copy and nothing else. It is sent to the builder
+# whole, so anything let in travels with it: a `.env`, a development database, a key, a backup or
+# a restore's leftovers, under whatever name Routarr writes next. A file a Dockerfile starts
+# copying needs its line here (`scripts/tests/test_ignored.py`).
+*
+!LICENSE
+!backend/Cargo.toml
+!backend/Cargo.lock
+!backend/about.toml
+!backend/about.hbs
+!backend/migrations/
+!backend/locales/
+!backend/src/
+!backend/rust-toolchain.toml
+!frontend/
 
-# Anything that could hold a secret or a library, wherever it sits: the context
-# is sent to BuildKit whole, and a `backend/.env` or a development database at
-# `backend/data/` would otherwise travel with it.
+# Inside what is copied: rebuilt in the image, or a secret.
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/test-results/
 **/.env
-**/*.db
-**/*.db-*
-**/routarr.key
-**/routarr.api_key
-**/routarr.password
-**/backups/
-data/
-
-# Not part of the image: the showcase site is deployed separately (Cloudflare),
-# the docs and the dev container are for people.
-site/
-docs/
-.devcontainer/

@@ -64,7 +64,10 @@ python3 "$ROOT/scripts/contract-breaks.py" --routes "$routes" "$base" "$ROOT/$CO
   "${accepting[@]}" || extras=1
 # oasdiff grades a removed optional field as information, since a client may
 # not read it. The contract promises no documented field disappears, so
-# `oasdiff-levels.txt` raises that one to an error. A type whose fields another
+# `oasdiff-levels.txt` raises that one to an error. It raises a removed request
+# field or query parameter too, a warning to oasdiff: every request type refuses
+# an unknown field (`deny_unknown_fields`), so a client still sending one is
+# answered 400. A type whose fields another
 # one adds to (`#[serde(flatten)]`) is published as `allOf`, and compared
 # branch by branch, every field of it reads as removed.
 operations=0

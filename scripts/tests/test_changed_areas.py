@@ -15,8 +15,13 @@ FILES = [
     "backend/locales/en.json",
     "backend/openapi/v1.json",
     "backend/rust-toolchain.toml",
+    "backend/src/api/conditions.rs",
+    "backend/src/services/notify.rs",
+    "backend/src/services/executor/mod.rs",
     "frontend/src/App.svelte",
     "site/src/pages/index.astro",
+    "site/src/pages/é.astro",
+    "site/public/tab\tname.txt",
     ".devcontainer/Dockerfile",
     "contrib/monitoring/prometheus-alerts.yml",
     "README.md",
@@ -76,6 +81,19 @@ class ChangedAreas(unittest.TestCase):
         self.assertEqual(
             self.woken("backend/locales/en.json"), ["backend", "frontend", "image", "site"]
         )
+
+    def test_the_backend_sources_the_site_check_counts_wake_the_site(self):
+        for source in ["backend/src/api/conditions.rs", "backend/src/services/notify.rs",
+                       "backend/src/services/executor/mod.rs"]:
+            with self.subTest(source):
+                self.assertEqual(self.woken(source), ["backend", "image", "site"])
+
+    def test_a_path_git_would_quote_is_read_as_written(self):
+        self.assertEqual(self.woken("site/src/pages/é.astro"), ["site"])
+
+    def test_a_path_git_still_quotes_wakes_everything(self):
+        areas = self.areas("site/public/tab\tname.txt")
+        self.assertTrue(all(areas.values()), areas)
 
     def test_a_site_change_costs_neither_the_rust_jobs_nor_the_image(self):
         self.assertEqual(self.woken("site/src/pages/index.astro"), ["site"])

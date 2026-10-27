@@ -25,7 +25,7 @@ concurrency:
 jobs:
   release:
     name: Find the latest release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A prerelease is never the latest release, so publishing one deploys
     # nothing new.
     if: github.event_name != 'release' || !github.event.release.prerelease
@@ -43,11 +43,14 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "The latest release is $tag."
 
-  deploy:
-    name: Deploy the released site
+  # The released site built and checked, holding no secret: both trees' packages and the
+  # site's install scripts run here, apart from the token that publishes. No cache is restored,
+  # since anything that runs on main can write one.
+  build:
+    name: Build the released site
     needs: release
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -59,10 +62,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: site/.node-version
-          cache: npm
-          cache-dependency-path: |
-            site/package-lock.json
-            frontend/package-lock.json
 
       - run: npm ci
         working-directory: site
@@ -83,6 +82,40 @@ jobs:
       - name: Browser checks
         run: node site/verify.mjs
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-dist
+          path: site/dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  # What `build` checked, deployed from the `production` environment, which holds the Cloudflare
+  # secrets for release tags and main alone. Only wrangler runs beside the token, from the
+  # site's lockfile installed without its install scripts.
+  deploy:
+    name: Deploy the released site
+    needs: [release, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: site/.node-version
+      - run: npm ci --ignore-scripts
+        working-directory: site
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site-dist
+          path: site/dist
+
       # The token is scoped to Workers, and `wrangler` is the site's own pinned
       # devDependency.
       - name: Deploy
@@ -99,9 +132,9 @@ jobs:
 
   live:
     name: Production serves the release
-    needs: [release, deploy]
-    if: ${{ !cancelled() && needs.release.result == 'success' && needs.deploy.result != 'failure' }}
-    runs-on: ubuntu-latest
+    needs: [release, build, deploy]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.build.result != 'failure' && needs.deploy.result != 'failure' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -113,21 +146,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: site/.node-version
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - run: npm ci --ignore-scripts
         working-directory: frontend
       - run: npx playwright install chromium --with-deps
         working-directory: frontend
 
-      # The release states what its own production looks like. One cut before
-      # the check existed says so instead of failing.
       - name: Compare production with the release
-        env:
-          TAG: ${{ needs.release.outputs.tag }}
-        run: |
-          if [ ! -f site/live.mjs ]; then
-            echo "::notice::$TAG carries no site/live.mjs, so production is not compared."
-            exit 0
-          fi
-          node site/live.mjs
+        run: node site/live.mjs

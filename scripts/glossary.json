@@ -147,6 +147,7 @@
       "TermTextRuleScope"
     ],
     "homonym": "\\bArr\\b",
+    "homonym_case": true,
     "words": {
       "ar": "ط[ً-ْـ]*ب[ً-ْـ]*ي?[ً-ْـ]*ق",
       "ca": "\\baplic|\\bapliqu",

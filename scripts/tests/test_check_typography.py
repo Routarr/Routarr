@@ -3,9 +3,10 @@
 The signs are written as escapes: this file is read by the check too.
 """
 
+import subprocess
 import unittest
 
-from _scripts import load
+from _scripts import ROOT, load
 
 check_typography = load("check-typography")
 
@@ -43,6 +44,20 @@ class Dictionaries(unittest.TestCase):
 
     def test_catalan_writes_a_middle_dot_inside_a_word(self):
         self.assertEqual(check_typography.value_problems("ca", f"col{MIDDLE_DOT}lecció"), [])
+
+
+class Coverage(unittest.TestCase):
+    def test_every_tracked_script_and_configuration_file_is_read(self):
+        tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
+                                 check=True).stdout.split("\n")
+        wanted = {
+            ROOT / path for path in tracked
+            if not path.startswith("docs/")
+            and (path.endswith((".yml", ".yaml", ".sh", ".py", ".toml", ".txt"))
+                 or path in {".gitignore", ".dockerignore"})
+        }
+        missed = sorted(str(path.relative_to(ROOT)) for path in wanted - check_typography.read_paths())
+        self.assertEqual(missed, [])
 
 
 if __name__ == "__main__":

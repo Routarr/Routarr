@@ -105,6 +105,8 @@ PAIRS: dict[str, str] = {
     "RuleBundle": "RuleBundle",
     "BundledRule": "BundledRule",
     "SigningSecret": "SigningSecret",
+    "Page": "Paginated",
+    "Pagination": "Pagination",
 }
 
 
@@ -178,9 +180,9 @@ def rust_structs(root: Path) -> tuple[dict[str, set[str]], dict[str, list[str]]]
     files: dict[str, list[str]] = {}
     for path in sorted(root.rglob("*.rs")):
         source = strip_comments(path.read_text())
-        # `derive(...)` on the line(s) before `pub struct X {`.
+        # `derive(...)` on the line(s) before `pub struct X {` or `pub struct X<T> {`.
         for match in re.finditer(
-            r"#\[derive\(([^)]*)\)\]((?:\s*#\[[^\]]*\])*)\s*pub struct (\w+)\s*\{([^}]*)\}",
+            r"#\[derive\(([^)]*)\)\]((?:\s*#\[[^\]]*\])*)\s*pub struct (\w+)(?:<[^>{]*>)?\s*\{([^}]*)\}",
             source,
             re.DOTALL,
         ):
@@ -259,7 +261,9 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     bases: dict[str, list[str]] = {}
     for match in re.finditer(
-        r"export interface (\w+)(?:\s+extends\s+([\w\s,]+?))?\s*\{(.*?)\n\}", source, re.DOTALL
+        r"export interface (\w+)(?:<[^>{]*>)?(?:\s+extends\s+([\w\s,]+?))?\s*\{(.*?)\n\}",
+        source,
+        re.DOTALL,
     ):
         name, extends, body = match.groups()
         found[name] = top_level_fields(body)

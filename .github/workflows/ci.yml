@@ -1,10 +1,11 @@
 name: CI
 
 # No `paths-ignore`: `changes` filters and always runs. A skipped workflow never reports, so a
-# required check blocks the pull request and the release guard refuses the commit.
+# required check blocks the pull request and the release guard refuses the commit. A release
+# branch is tested as main is: a patch of an older minor is tagged there.
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
 
 # Read only: a job that needs more states it on the job. No checkout keeps the token in its
@@ -13,7 +14,7 @@ permissions:
   contents: read
 
 # A pull request keeps its newest run, keyed by number since two forks can name a branch
-# alike. A push to main runs to the end: the next one is compared with the last that succeeded.
+# alike. A push runs to the end: the next one is compared with the last that succeeded.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -26,7 +27,7 @@ jobs:
   # `scripts/changed-areas.sh`, which a dry run can call from a clone.
   changes:
     name: What changed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # To read which commit of main last passed.
     permissions:
@@ -43,8 +44,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # A push to main is compared with the last commit of main whose run succeeded: a failed
-      # run tested nothing, so its areas are tested in this one.
+      # A push is compared with the last commit of its branch whose run succeeded: a failed run
+      # tested nothing, so its areas are tested in this one.
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,7 +57,7 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             base="$PR_BASE"
           else
-            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=$GITHUB_REF_NAME&event=push&status=success&per_page=1" \
               --jq '.workflow_runs[0].head_sha // empty' || true)
           fi
           areas=$(bash scripts/changed-areas.sh "$base" "$HEAD")
@@ -80,7 +81,7 @@ jobs:
   # check runs whatever the one before answered.
   repository:
     name: Repository lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,10 +111,6 @@ jobs:
       - name: Check the licences of what the image ships
         if: ${{ !cancelled() }}
         run: python3 scripts/check-licences.py
-
-      - name: Test the scripts CI relies on
-        if: ${{ !cancelled() }}
-        run: python3 -m unittest discover -s scripts/tests -v
 
       - name: Install the pinned linters
         id: tools
@@ -154,6 +151,20 @@ jobs:
           tar -xJf /tmp/shellcheck.txz -C "$HOME/bin" --strip-components=1 shellcheck-v0.11.0/shellcheck
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
+      # After the install: the case of the API break levels runs oasdiff, and skips without it.
+      - name: Test the scripts CI relies on
+        if: ${{ !cancelled() }}
+        run: python3 -m unittest discover -s scripts/tests -v
+
+      # The title becomes the body of the merge commit on main.
+      - name: Check the commit subjects and the pull request title
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/check-commits.py --title "$TITLE" --author "$AUTHOR" "$BASE"
+
       # Here, unfiltered: a new release tag changes what the contract is compared with, and wakes
       # no area.
       - name: Check the API contract breaks no client of the last release
@@ -187,7 +198,7 @@ jobs:
 
   backend:
     name: Backend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     # Every job carries a ceiling because GitHub's own is six hours. Sized to
@@ -203,9 +214,12 @@ jobs:
 
       # No toolchain step: rustup reads rust-toolchain.toml, the version the image ships.
 
+      # Saved from main alone, which every branch reads: the repository holds 10 GB of caches,
+      # and one a pull request writes serves only that pull request while it evicts main's.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: backend
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -243,9 +257,19 @@ jobs:
           tool: cargo-deny@0.20.2
       - run: cargo deny --locked check
 
+      # A crate whose licence text `cargo about` cannot find fails the image build. Here it fails
+      # beside the licence gate. `cargo fetch` brings every platform's crates for `--frozen`.
+      - name: Install cargo about
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          # The version the image writes the notices with (`check-versions.py`).
+          tool: cargo-about@0.9.2
+      - name: Check the crates' notices generate
+        run: cargo fetch --locked && cargo about generate --frozen about.hbs -o /dev/null
+
   coverage:
     name: Backend coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     # The one run of the backend suite, instrumented: a test that fails fails it as the floor
@@ -261,6 +285,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: backend
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           # The version the dev container installs (`check-versions.py`), so
@@ -277,7 +302,7 @@ jobs:
 
   frontend:
     name: Frontend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     timeout-minutes: 15
@@ -352,9 +377,16 @@ jobs:
         working-directory: .
         run: node scripts/check-bundle-size.mjs
 
+      # The audit and the licence gate above read the lockfile's `dev` flag. The build's notices
+      # say what the bundle really ships, and a package among them marked `dev` escapes both.
+      - name: Check the bundle ships no development dependency
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: .
+        run: python3 scripts/check-licences.py --bundle frontend/dist/third-party-notices.txt
+
   e2e:
     name: End-to-end in ${{ matrix.browser }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # WebKit runs the suite the slowest, after system packages from a mirror that can stall.
     timeout-minutes: 60
     needs: changes
@@ -377,6 +409,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: backend
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -385,8 +418,27 @@ jobs:
 
       - run: npm ci --ignore-scripts
         working-directory: frontend
-      - run: npx playwright install ${{ matrix.browser }} --with-deps
-        working-directory: frontend
+      # The browser and the system packages it runs on, from main's cache when Playwright's version
+      # is unchanged (`scripts/install-browser.sh`).
+      - id: browser
+        run: bash scripts/install-browser.sh key "$ROUTARR_E2E_BROWSER" >> "$GITHUB_OUTPUT"
+      - id: browser-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-debs
+          key: ${{ steps.browser.outputs.key }}
+          restore-keys: ${{ steps.browser.outputs.prefix }}
+      - run: bash scripts/install-browser.sh install "$ROUTARR_E2E_BROWSER"
+      # Written from main only, as the Rust caches are, and read by every branch.
+      - if: github.ref == 'refs/heads/main' && steps.browser-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-debs
+          key: ${{ steps.browser.outputs.key }}
 
       - name: Build the server
         run: cargo build --release --locked
@@ -415,10 +467,11 @@ jobs:
         run: npm run test:e2e:auth
         working-directory: frontend
 
+      # The trace and the screenshot of each failed spec, which `npx playwright show-trace` opens.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: playwright-report-${{ matrix.browser }}
+          name: e2e-traces-${{ matrix.browser }}
           path: frontend/test-results/
           retention-days: 7
 
@@ -426,9 +479,10 @@ jobs:
   # passed in each, or not needed by the commit.
   e2e-done:
     name: End-to-end
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: e2e
     if: always()
+    timeout-minutes: 5
     steps:
       - name: Every engine passed
         env:
@@ -437,7 +491,7 @@ jobs:
 
   site:
     name: Showcase site
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.site == 'true'
     timeout-minutes: 15
@@ -482,8 +536,27 @@ jobs:
       # Playwright for `verify.mjs`, loaded from frontend/node_modules (`site/playwright.mjs`).
       - run: npm ci --ignore-scripts
         working-directory: frontend
-      - run: npx playwright install chromium --with-deps
-        working-directory: frontend
+      # The browser and the system packages it runs on, from main's cache when Playwright's version
+      # is unchanged (`scripts/install-browser.sh`).
+      - id: browser
+        run: bash scripts/install-browser.sh key chromium >> "$GITHUB_OUTPUT"
+      - id: browser-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-debs
+          key: ${{ steps.browser.outputs.key }}
+          restore-keys: ${{ steps.browser.outputs.prefix }}
+      - run: bash scripts/install-browser.sh install chromium
+      # Written from main only, as the Rust caches are, and read by every branch.
+      - if: github.ref == 'refs/heads/main' && steps.browser-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-debs
+          key: ${{ steps.browser.outputs.key }}
 
       - name: Static checks
         run: node site/check.mjs

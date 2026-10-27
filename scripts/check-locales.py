@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Guard the translation dictionaries.
 
-1. Every key the code references exists in `locales/en.json`.
+1. Every key the code references exists in `locales/en.json`. A quoted literal of two
+   PascalCase words or more is a key unless `NOT_KEYS` says otherwise.
 2. Placeholders match across languages.
 3. No language carries a key English does not have.
 4. No key outlives its last use.
@@ -12,6 +13,7 @@
 9. Every placeholder is a count (`COUNTS` in `backend/src/localization.rs`) or in `NOT_COUNTS`.
 10. French puts a no-break space before `? ! : ; % »` and after `«`.
 11. A server call passes its key every placeholder its English says, and nothing else.
+12. No dictionary writes a key twice, which JSON reads as its last value.
 
 Run from the repository root: `python3 scripts/check-locales.py`
 """
@@ -135,6 +137,22 @@ UNREAD = {
     },
 }
 
+# The quoted literals of two words or more that name no sentence.
+NOT_KEYS = {
+    # Error classes, and the clients' Debug names.
+    "AbortError", "ApiError", "ErrorResponse", "TimeoutError",
+    "MyAnimeListClient", "OmdbClient", "RadarrClient", "SonarrClient", "TmdbClient", "TvdbClient",
+    # The sources' own names, the Arrs' commands and the keyboard's keys.
+    "AniList", "MyAnimeList", "TheTVDB",
+    "BulkMoveMovie", "BulkMoveSeries", "MoveMovie", "MoveSeries",
+    "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp",
+    # A rule's issue code, whose message stays English since the interface sent the id.
+    "UnknownInstance",
+}
+
+# The ids of the help's terms and cards, which name an entry rather than a sentence.
+HELP_IDS = ("frontend/src/lib/help-content.ts", r"^  ([A-Z][A-Za-z0-9]*): \{")
+
 # Below this a language is more English than its own: a broken file.
 MIN_COMPLETION = 0.50
 
@@ -178,13 +196,12 @@ def strip_rust_tests(text: str) -> str:
 
 
 def referenced_keys(text: str) -> set[str]:
-    """Keys the code asks for by literal name."""
+    """Keys the code asks for in a shape a pattern reads: the only way to tell a key of one
+    word, `Cancel`, from any other word. The server's calls are read by `calls`."""
     patterns = [
-        r'translate\(\s*"([A-Z][A-Za-z0-9]*)"',          # Rust: localizer.translate("Key")
         r"\bt\(\s*'([A-Z][A-Za-z0-9]*)'",                 # frontend: t('Key')
         # The section comes first, as a literal or as a variable.
         r'ValidationIssue::(?:error|warning)\(\s*[^,()]+,\s*"([A-Z][A-Za-z0-9]*)"',
-        r'"(Condition[A-Z][A-Za-z0-9]*)"',                # rule engine outcome keys
         r'\(\s*"([A-Z][A-Za-z0-9]*)",\s*vec!\[',          # Rust: ("Key", vec![params])
         # Keys held in config objects: `key`, every `…Key`, and a route's `hint`.
         r"\b(?:key|[a-z]+Key|hint):\s*'([A-Z][A-Za-z0-9]*)'",
@@ -200,6 +217,41 @@ def referenced_keys(text: str) -> set[str]:
             else:
                 found.add(match)
     return found
+
+
+def quoted_names(text: str) -> set[str]:
+    """Every quoted literal of two PascalCase words or more, whatever call or field holds it."""
+    return {name for _, name in re.findall(r'(["\'])([A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*)\1', text)}
+
+
+def help_ids() -> set[str]:
+    relative, pattern = HELP_IDS
+    return set(re.findall(pattern, (ROOT / relative).read_text(encoding="utf-8"), re.MULTILINE))
+
+
+def missing_keys(
+    text: str,
+    english: dict[str, str],
+    called: set[str],
+    ids: set[str],
+    not_keys: set[str] = NOT_KEYS,
+) -> list[str]:
+    """Check 1: a key the code uses that en.json lacks, `called` holding the keys of the
+    server's calls and `ids` the help's. Also a `NOT_KEYS` entry that is a key or unused."""
+    quoted = quoted_names(text)
+    problems = []
+    for key in sorted((referenced_keys(text) | called | (quoted - not_keys - ids)) - set(english)):
+        if key in {"POST", "PUT", "GET", "DELETE"} or len(key) < 3:
+            continue
+        # A pattern may stop inside a longer literal, `t('Moved: {count}')`.
+        if f'"{key}"' in text or f"'{key}'" in text:
+            aside = " (a literal naming no sentence goes in NOT_KEYS)" if key in quoted else ""
+            problems.append(f"referenced but missing from en.json: {key}{aside}")
+    for name in sorted(not_keys & set(english)):
+        problems.append(f"NOT_KEYS names {name}, which en.json has as a key")
+    for name in sorted(not_keys - quoted):
+        problems.append(f"NOT_KEYS names {name}, which no source quotes")
+    return problems
 
 
 def arguments(text: str, opening: int) -> list[str]:
@@ -421,14 +473,17 @@ def not_text(dictionaries: dict) -> list[str]:
     return problems
 
 
-def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str, str]]) -> list[str]:
+def glossary_problems(
+    english: dict[str, str], dictionaries: dict[str, dict[str, str]], glossary: dict
+) -> list[str]:
     """A key whose English says a concept's word, `except` aside, says the
-    language's word. A `homonym` translates without it, and the word may not
-    stand `beside` the placeholder naming that thing, `beside_skip` aside."""
+    language's word. A `homonym` translates without it, read without case unless
+    `homonym_case` holds, and the word may not stand `beside` the placeholder
+    naming that thing, `beside_skip` aside."""
     problems: list[str] = []
     # A placeholder names a value, not the concept: `{skipped}` is a count.
     said = {key: re.sub(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}", "", value) for key, value in english.items()}
-    for concept, spec in json.loads(GLOSSARY.read_text(encoding="utf-8")).items():
+    for concept, spec in glossary.items():
         carriers = [
             key
             for key in english
@@ -455,13 +510,12 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
                         f"{language}.json: '{key}' says '{concept}' in another word than /{word}/"
                     )
             homonym = spec.get("homonym")
-            if homonym is None:
-                continue
-            for key, value in english.items():
+            case = 0 if spec.get("homonym_case") else re.IGNORECASE
+            for key, value in english.items() if homonym else ():
                 translated = dictionary.get(key)
                 if key in carriers or translated is None or translated == value:
                     continue
-                if re.search(homonym, value) and re.search(word, translated, re.IGNORECASE):
+                if re.search(homonym, value, case) and re.search(word, translated, re.IGNORECASE):
                     problems.append(
                         f"{language}.json: '{key}' uses the '{concept}' word /{word}/ "
                         f"for what its English says as /{homonym}/"
@@ -483,48 +537,46 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
     return problems
 
 
-def main() -> int:
-    dictionaries = {
-        path.stem: json.loads(path.read_text(encoding="utf-8"))
-        for path in sorted(LOCALES.glob("*.json"))
-    }
-    if "en" not in dictionaries:
-        print("locales/en.json is missing", file=sys.stderr)
-        return 1
+def load_dictionary(path: pathlib.Path, problems: list[str]) -> object:
+    """A dictionary as JSON reads it, each key written twice named: JSON keeps the last value
+    without a word, and so does the server."""
 
-    problems: list[str] = not_text(dictionaries)
-    english = dictionaries["en"]
-    text = source_text()
-    referenced = referenced_keys(text)
-    families = built_keys()
-    built = set().union(*families.values())
+    def pairs(items: list[tuple[str, object]]) -> dict:
+        seen = set()
+        for key, _ in items:
+            if key in seen:
+                problems.append(f"{path.stem}.json: '{key}' is written twice")
+            seen.add(key)
+        return dict(items)
 
-    # A pattern that stops matching would exempt nothing and check nothing.
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=pairs)
+
+
+def built_problems(families: dict[str, set[str]], english: dict[str, str]) -> list[str]:
+    """A family of `BUILT` that reads nothing, and a key one builds that en.json lacks."""
+    problems = []
     for prefix, keys in sorted(families.items()):
+        # A pattern that stops matching would exempt nothing and check nothing.
         if not keys:
             problems.append(f"read no {prefix} value from {BUILT[prefix][0]}")
         for key in sorted(keys - set(english)):
             problems.append(f"built at run time but missing from en.json: {key}")
+    return problems
 
-    # 1. Referenced but not defined, among the identifiers that look like keys.
-    for key in sorted(referenced - set(english)):
-        if key in {"POST", "PUT", "GET", "DELETE"} or len(key) < 3:
-            continue
-        if f'"{key}"' in text or f"'{key}'" in text:
-            problems.append(f"referenced but missing from en.json: {key}")
 
-    # 2, 3 & 5. Placeholders, stray keys and completion.
+def translation_problems(
+    english: dict[str, str], dictionaries: dict[str, dict[str, str]]
+) -> tuple[list[str], dict[str, float]]:
+    """Checks 2, 3 and 5, and the share of English each language translates."""
+    problems = []
     completion = {}
     for language, dictionary in sorted(dictionaries.items()):
         if language == "en":
             continue
-
         missing = sorted(set(english) - set(dictionary))
         completion[language] = 1 - len(missing) / len(english)
-
         for key in sorted(set(dictionary) - set(english)):
             problems.append(f"{language}.json has a key English does not: {key}")
-
         for key, template in english.items():
             translated = dictionary.get(key)
             if translated is None:
@@ -536,22 +588,27 @@ def main() -> int:
                 )
             if not translated.strip():
                 problems.append(f"{language}.json: '{key}' is empty")
-
         if completion[language] < MIN_COMPLETION:
             problems.append(
                 f"{language}.json is only {completion[language]:.0%} translated "
                 f"({len(missing)} keys missing, minimum {MIN_COMPLETION:.0%}). "
                 f"A partial translation is fine, but this looks like a broken file."
             )
+    return problems, completion
 
-    # 4. Defined but never used.
-    for key in sorted(english):
-        if key in built:
-            continue
-        if f'"{key}"' not in text and f"'{key}'" not in text:
-            problems.append(f"defined but never referenced: {key}")
 
-    # 6. In the English order, the first key out of place named.
+def orphan_problems(english: dict[str, str], text: str, built: set[str]) -> list[str]:
+    """Check 4: a key no source quotes and no family of `BUILT` makes."""
+    return [
+        f"defined but never referenced: {key}"
+        for key in sorted(english)
+        if key not in built and f'"{key}"' not in text and f"'{key}'" not in text
+    ]
+
+
+def order_problems(dictionaries: dict[str, dict[str, str]], english: dict[str, str]) -> list[str]:
+    """Check 6: the first key a dictionary holds out of the English order."""
+    problems = []
     for language, dictionary in sorted(dictionaries.items()):
         found = [key for key in dictionary if key in english]
         expected = [key for key in english if key in dictionary]
@@ -562,49 +619,85 @@ def main() -> int:
                 f"(expected '{expected[at]}'): "
                 f"echo '{{}}' | python3 scripts/add-locale.py {language}"
             )
+    return problems
 
-    # 7. One word per core term.
-    problems.extend(glossary_problems(english, dictionaries))
 
-    # 8. A confirmation's button against its Cancel, an untranslated label read as English.
-    labels = sorted(confirmation_labels(text))
+def cancel_problems(
+    dictionaries: dict[str, dict[str, str]], english: dict[str, str], labels: set[str]
+) -> list[str]:
+    """Check 8: a confirmation's button that starts with its language's Cancel word, an
+    untranslated label read as English."""
+    problems = []
     for language, dictionary in sorted(dictionaries.items()):
         cancel = dictionary.get("Cancel", english["Cancel"]).split()[0].casefold()
-        for key in labels:
+        for key in sorted(labels):
             label = dictionary.get(key, english.get(key, ""))
             if label.casefold().startswith(cancel):
                 problems.append(
                     f"{language}.json: '{key}' ({label!r}) starts with the Cancel word "
                     f"'{cancel}', and the two sit side by side in a confirmation"
                 )
+    return problems
 
-    # 9. Each placeholder a count or not, and each listed name in use.
-    counts = server_counts()
-    if not counts:
-        problems.append(f"read no COUNTS from {COUNTS_SOURCE.relative_to(ROOT)}")
+
+def count_problems(
+    english: dict[str, str], counts: set[str], not_counts: set[str] = NOT_COUNTS
+) -> list[str]:
+    """Check 9: each placeholder a count or not, never both, and each listed name in use."""
+    where = COUNTS_SOURCE.relative_to(ROOT)
+    problems = [] if counts else [f"read no COUNTS from {where}"]
     used = set().union(*(placeholders(template) for template in english.values()))
-    for name in sorted(used - counts - NOT_COUNTS):
+    for name in sorted(used - counts - not_counts):
         problems.append(
-            f"placeholder {{{name}}} is neither in COUNTS ({COUNTS_SOURCE.relative_to(ROOT)}) "
+            f"placeholder {{{name}}} is neither in COUNTS ({where}) "
             "nor in NOT_COUNTS (scripts/check-locales.py)"
         )
-    for name in sorted(counts & NOT_COUNTS):
+    for name in sorted(counts & not_counts):
         problems.append(f"placeholder {{{name}}} is both a count and not one")
-    for name in sorted((counts | NOT_COUNTS) - used):
+    for name in sorted((counts | not_counts) - used):
         problems.append(f"placeholder {{{name}}} is classed but no sentence uses it")
+    return problems
 
-    # 10. French spacing.
-    for key, value in dictionaries.get("fr", {}).items():
+
+def spacing_problems(french: dict[str, str]) -> list[str]:
+    """Check 10: a plain space where French puts a no-break one."""
+    problems = []
+    for key, value in french.items():
         stranded = re.search(r" [?!:;%»]|« ", value)
         if stranded:
             problems.append(
                 f"fr.json: '{key}' has a plain space in {stranded.group(0)!r}, "
                 "where French puts a no-break space (U+00A0)"
             )
+    return problems
 
-    # 11. The parameters of each server call against its English.
+
+def main() -> int:
+    problems: list[str] = []
+    dictionaries = {
+        path.stem: load_dictionary(path, problems) for path in sorted(LOCALES.glob("*.json"))
+    }
+    if "en" not in dictionaries:
+        print("locales/en.json is missing", file=sys.stderr)
+        return 1
+
+    problems += not_text(dictionaries)
+    english = dictionaries["en"]
+    text = source_text()
     found = [call for path, code in rust_sources() for call in calls(path, code)]
-    problems.extend(parameter_problems(found, english))
+    families = built_keys()
+
+    problems += built_problems(families, english)
+    problems += missing_keys(text, english, {call.key for call in found if call.key}, help_ids())
+    translated, completion = translation_problems(english, dictionaries)
+    problems += translated
+    problems += orphan_problems(english, text, set().union(*families.values()))
+    problems += order_problems(dictionaries, english)
+    problems += glossary_problems(english, dictionaries, json.loads(GLOSSARY.read_text(encoding="utf-8")))
+    problems += cancel_problems(dictionaries, english, confirmation_labels(text))
+    problems += count_problems(english, server_counts())
+    problems += spacing_problems(dictionaries.get("fr", {}))
+    problems += parameter_problems(found, english)
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)
@@ -617,7 +710,6 @@ def main() -> int:
         bar = "█" * round(ratio * 20)
         print(f"  {language:6s} {ratio:6.1%} {bar}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -4,8 +4,8 @@
     python3 scripts/add-locale.py de < translations.json
 
 Refuses to write when a translation drops or invents a `{placeholder}`, carries a
-key English does not have, or is empty or not text: the ways a locale silently
-degrades the interface.
+key English does not have, or is empty or not text, and to rewrite a file that holds
+a key twice: the ways a locale silently degrades the interface.
 
 The Radarr and Sonarr menu paths a string cites ("Settings → General → Security
 → API Key", "System → Logs") stay in English in every language: they are exact
@@ -23,11 +23,14 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "backend" / "locales"
 
-# One reading of a placeholder, the one the check holds every dictionary to.
+# One reading of a placeholder and of a file, the ones the check holds every dictionary to.
 _spec = importlib.util.spec_from_file_location("check_locales", ROOT / "scripts" / "check-locales.py")
 _check = importlib.util.module_from_spec(_spec)
+# Registered first, as an import does: a dataclass looks its module up while it is built.
+sys.modules[_spec.name] = _check
 _spec.loader.exec_module(_check)
 placeholders = _check.placeholders
+load_dictionary = _check.load_dictionary
 
 
 def batch_problems(incoming: object, english: dict[str, str]) -> list[str]:
@@ -75,7 +78,14 @@ def main() -> int:
 
     # Merge over anything already translated, so a batch can extend a language.
     target = LOCALES / f"{code}.json"
-    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
+    # Rewritten, a file holding a key twice would lose one of its values unseen.
+    twice: list[str] = []
+    existing = load_dictionary(target, twice) if target.exists() else {}
+    if twice:
+        print(f"{len(twice)} problem(s), nothing written:", file=sys.stderr)
+        for p in twice:
+            print(f"  - {p}", file=sys.stderr)
+        return 1
     merged = {**existing, **incoming}
     # In the English file's order, which every dictionary follows: written
     # sorted instead, a batch of ten keys would move every line of the file.

@@ -101,7 +101,7 @@ def habits(translated: dict[str, str]) -> list[str]:
     text = "\n".join(translated.values())
     notes = []
     if "«" in text:
-        spaced = " " in text and re.search("« ", text)
+        spaced = re.search("«\u00a0", text)
         notes.append(
             "Quotes are « », with a no-break space inside each." if spaced else "Quotes are « »."
         )
@@ -109,7 +109,7 @@ def habits(translated: dict[str, str]) -> list[str]:
         notes.append("Quotes are 「 」.")
     elif '"' in text:
         notes.append('Quotes are straight " ".')
-    if re.search(" [:?!]", text):
+    if re.search("\u00a0[:?!]", text):
         notes.append("A no-break space (U+00A0) goes before : ? and !.")
     return notes
 
@@ -168,6 +168,9 @@ def main() -> int:
 
     english = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
     batch = json.loads(arguments.batch.read_text(encoding="utf-8"))
+    if not isinstance(batch, dict):
+        print("the batch is not a JSON object of keys and their English", file=sys.stderr)
+        return 2
     unknown = [key for key in batch if key not in english]
     if unknown:
         print(f"keys en.json does not have: {', '.join(unknown)}", file=sys.stderr)

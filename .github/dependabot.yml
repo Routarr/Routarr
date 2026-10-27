@@ -67,7 +67,6 @@ updates:
     cooldown:
       default-days: 7
 
-  # The channel rustup reads, which CI compiles with.
   # The Radarr and Sonarr the weekly live job drives, pinned by digest in their
   # compose file: a new release of either is read against Routarr once merged.
   - package-ecosystem: docker-compose
@@ -81,6 +80,7 @@ updates:
       arrs:
         patterns: ['*']
 
+  # The channel rustup reads, which CI compiles with.
   - package-ecosystem: rust-toolchain
     directory: /backend
     multi-ecosystem-group: toolchain

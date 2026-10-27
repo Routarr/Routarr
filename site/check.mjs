@@ -24,6 +24,25 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const DIST = join(ROOT, 'dist');
 const read = (file) => readFileSync(join(DIST, file), 'utf-8');
 
+/**
+ * A path of another deliverable, from the repository root. Only those `SITE_READS` in
+ * `scripts/changed-areas.sh` names wake the site job when they change: a file it misses breaks
+ * this check on the next pull request that touches the site, not on the one that changed it.
+ */
+const SITE_READS = (() => {
+  const script = readFileSync(join(ROOT, '../scripts/changed-areas.sh'), 'utf-8');
+  const reads = /^SITE_READS='([^']+)'$/m.exec(script)?.[1];
+  if (reads === undefined) throw new Error('scripts/changed-areas.sh sets no SITE_READS');
+  return new RegExp(`^(${reads})`);
+})();
+const outside = (path) => {
+  if (!SITE_READS.test(path)) {
+    throw new Error(`site/check.mjs reads ${path}, and SITE_READS in scripts/changed-areas.sh does not wake the site job when it changes`);
+  }
+  return join(ROOT, '..', path);
+};
+const readOutside = (path) => readFileSync(outside(path), 'utf-8');
+
 if (!existsSync(DIST)) {
   console.error('site/dist is missing: run `npm run build` in site/ first.');
   process.exit(1);
@@ -112,6 +131,11 @@ for (const { code, path } of LANGUAGES) {
     continue;
   }
   const dictionary = catalogue(code);
+  // `JSON.parse` keeps the last of two equal keys without a word, and the other translation is lost.
+  const written = [...readFileSync(join(ROOT, `src/i18n/${code}.json`), 'utf-8').matchAll(/^\s*"((?:[^"\\]|\\.)*)"\s*:/gm)]
+    .map((m) => m[1]);
+  const twice = [...new Set(written.filter((key, at) => written.indexOf(key) !== at))];
+  if (twice.length) fail(`src/i18n/${code}.json writes ${twice.slice(0, 3).join(', ')} twice`);
 
   const missing = Object.keys(english).filter((key) => !(key in dictionary));
   const unknown = Object.keys(dictionary).filter((key) => !(key in english));
@@ -315,7 +339,7 @@ const TERMS = [
   ['api.ref.scope', 'Scope', 'within'],
 ];
 for (const { code } of LANGUAGES) {
-  const app = JSON.parse(readFileSync(join(ROOT, `../backend/locales/${code}.json`), 'utf-8'));
+  const app = JSON.parse(readOutside(`backend/locales/${code}.json`));
   const site = JSON.parse(readFileSync(join(ROOT, `src/i18n/${code}.json`), 'utf-8'));
   for (const [siteKey, appKey, within] of TERMS) {
     const said = (site[siteKey] ?? '').toLowerCase();
@@ -332,15 +356,14 @@ for (const { code } of LANGUAGES) {
 // would otherwise leave the site wrong with every check green. A count is
 // written in digits or in words, as its sentence reads best.
 {
-  const source = (file) => readFileSync(join(ROOT, '..', file), 'utf-8');
   const block = (text, opening) => {
     const from = text.indexOf(opening);
     return from < 0 ? '' : text.slice(from, text.indexOf('\n}', from));
   };
-  const conditions = (source('backend/src/api/conditions.rs').match(/const CONDITIONS: &\[Spec\] = &\[[\s\S]*?\n *\];/)?.[0]
+  const conditions = (readOutside('backend/src/api/conditions.rs').match(/const CONDITIONS: &\[Spec\] = &\[[\s\S]*?\n *\];/)?.[0]
     .match(/^\s+kind: "/gm) ?? []).length;
-  const languages = readdirSync(join(ROOT, '../backend/locales')).filter((file) => file.endsWith('.json')).length;
-  const formats = [...block(source('backend/src/services/notify.rs'), 'pub enum Format {').matchAll(/^\s+([A-Z]\w*),$/gm)].map((m) => m[1]);
+  const languages = readdirSync(outside('backend/locales/')).filter((file) => file.endsWith('.json')).length;
+  const formats = [...block(readOutside('backend/src/services/notify.rs'), 'pub enum Format {').matchAll(/^\s+([A-Z]\w*),$/gm)].map((m) => m[1]);
 
   // The executor's gates, in the order it runs them, each with the key of its
   // name on the site. Revalidation runs last, title by title as each move is
@@ -352,7 +375,7 @@ for (const { code } of LANGUAGES) {
     guard_capacity: 'safety.capacity',
     guard_confirmation: 'safety.b.3',
   };
-  const executed = [...block(source('backend/src/services/executor/mod.rs'), 'pub async fn apply_decisions(')
+  const executed = [...block(readOutside('backend/src/services/executor/mod.rs'), 'pub async fn apply_decisions(')
     .matchAll(/\b(guard_\w+)\(/g)].map((m) => m[1]);
   for (const guard of executed) if (!(guard in GUARDS)) fail(`the executor runs ${guard}, which the safety section does not show`);
   const order = [...executed.map((guard) => GUARDS[guard]), 'safety.b.4'];
@@ -399,7 +422,7 @@ for (const { code } of LANGUAGES) {
     if (!new RegExp(`\\b${format}\\b`, 'i').test(llms ?? '')) fail(`llms.txt names no ${format} among the notification formats`);
   }
   // The README a visitor reads first states two of the same counts.
-  const readme = source('README.md');
+  const readme = readOutside('README.md');
   for (const [phrase, count] of [['conditions', conditions], ['languages', languages]]) {
     if (!new RegExp(`\\b${count} ${phrase}\\b`).test(readme)) fail(`README.md does not state the ${count} ${phrase} the code has`);
   }
@@ -449,13 +472,13 @@ if (templatesRead < 10) fail(`read ${templatesRead} template(s), so the written-
 // The command that prints the generated key is the first-run screen's, which
 // the image smoke test runs, restated in the README, llms.txt and the install
 // section. A copy that drifts sends a new user to a file that is not there.
-const readKey = readFileSync(join(ROOT, '../frontend/src/components/ApiKeyGate.svelte'), 'utf-8')
+const readKey = readOutside('frontend/src/components/ApiKeyGate.svelte')
   .match(/const READ_KEY_COMMAND = '([^']+)'/)?.[1];
 if (!readKey) {
   fail('READ_KEY_COMMAND cannot be read out of frontend/src/components/ApiKeyGate.svelte');
 } else {
   for (const [file, text] of [
-    ['README.md', readFileSync(join(ROOT, '../README.md'), 'utf-8')],
+    ['README.md', readOutside('README.md')],
     ['public/llms.txt', llms ?? ''],
     ['src/components/sections/Start.astro', readFileSync(join(ROOT, 'src/components/sections/Start.astro'), 'utf-8')],
   ]) {
@@ -482,7 +505,7 @@ if (!readKey) {
   // each operation and group of it has a sentence, and a key naming none is
   // left behind. A release's contract is part of this one, since an
   // operation is never removed.
-  const contract = JSON.parse(readFileSync(join(ROOT, '../backend/openapi/v1.json'), 'utf-8'));
+  const contract = JSON.parse(readOutside('backend/openapi/v1.json'));
   // An old path still answered is listed apart, under `#deprecated`, with no
   // sentence of its own.
   const current = Object.values(contract.paths).flatMap((methods) =>
@@ -597,7 +620,7 @@ if (!stylesheets.length || printed < 3) {
 // is built at a release's tag, which `site.yml` names in
 // `ROUTARR_SITE_RELEASE`: a checkout whose crate names another version would
 // deploy a page describing a version nobody can pull.
-const cargo = readFileSync(join(ROOT, '../backend/Cargo.toml'), 'utf-8');
+const cargo = readOutside('backend/Cargo.toml');
 const version = cargo.match(/^version = "([^"]+)"/m)?.[1];
 if (!version) fail('could not read the version from Cargo.toml');
 else {

@@ -920,6 +920,11 @@ mod receivers {
                 reason: crate::jobs::Detail::new("JobDetailBackupCopyMissing")
                     .with("folder", "/mnt/nas"),
             },
+            Event::ApplicationKeyExpiring {
+                id: "app-1".into(),
+                name: "Requests".into(),
+                expires_at: "2026-10-11 12:00:00".into(),
+            },
             Event::Test,
         ]
     }
@@ -954,6 +959,7 @@ mod receivers {
         serde_json::from_str(&payload(event, AT, format, &english()).body).unwrap()
     }
 
+    /// One sample per event the contract names, since its schema types `data` as a bare object.
     #[test]
     fn each_event_carries_its_name_its_severity_and_its_data() {
         use serde_json::json;
@@ -1009,9 +1015,26 @@ mod receivers {
             ),
             ("backup_failed", "error", json!({})),
             ("backup_copy_failed", "error", json!({ "folder": "/mnt/nas" })),
+            (
+                "application_key_expiring",
+                "warning",
+                json!({ "id": "app-1", "name": "Requests", "expires_at": "2026-10-11T12:00:00Z" }),
+            ),
             ("test", "info", json!({})),
         ];
-        for (event, (name, severity, data)) in every_event().iter().zip(expected) {
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../openapi/v1.json")).unwrap();
+        let named = &contract["components"]["schemas"]["Notification"]["properties"]["event"];
+        let mut promised: Vec<&str> =
+            named["description"].as_str().unwrap().split('`').skip(1).step_by(2).collect();
+        let mut sampled: Vec<&str> = expected.iter().map(|(name, ..)| *name).collect();
+        promised.sort_unstable();
+        sampled.sort_unstable();
+        assert_eq!(sampled, promised, "the events the contract names and those sampled here");
+
+        let events = every_event();
+        assert_eq!(events.len(), expected.len(), "an event without its sample");
+        for (event, (name, severity, data)) in events.iter().zip(expected) {
             let sent = sent(event);
             assert_eq!(sent["event"], name, "{sent}");
             assert_eq!(sent["severity"], severity, "{sent}");
@@ -1025,7 +1048,7 @@ mod receivers {
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
         let outcomes = [
             "failure", "success", "failure", "warning", "warning", "failure", "info", "warning",
-            "success", "success", "failure", "failure", "info",
+            "success", "success", "failure", "failure", "warning", "info",
         ];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
@@ -1197,7 +1220,7 @@ mod receivers {
             .iter()
             .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
             .collect();
-        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 2, 8, 8, 2]);
+        assert_eq!(priorities, [8, 2, 8, 5, 5, 8, 2, 5, 2, 2, 8, 8, 5, 2]);
         for event in every_event() {
             let sent = posted(&event, Format::Gotify);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");

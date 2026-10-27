@@ -34,12 +34,6 @@ check gitleaks GITLEAKS gitleaks version
 check oasdiff OASDIFF oasdiff --version
 check ruff RUFF ruff --version
 check gh GH gh --version
-# `cargo auditable --version` answers with cargo's own version, so only its
-# presence can be read.
-if [ -n "$(pinned CARGO_AUDITABLE)" ] && ! command -v cargo-auditable >/dev/null 2>&1; then
-  echo "tools: cargo-auditable is missing (the Dockerfile pins $(pinned CARGO_AUDITABLE)): rebuild the container"
-  stale=1
-fi
 
 if [ "$stale" = 1 ]; then
   echo "tools: VS Code, Dev Containers: Rebuild Container brings every tool to the version CI runs"

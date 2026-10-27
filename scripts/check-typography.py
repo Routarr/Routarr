@@ -4,8 +4,10 @@
 No em dash, no semicolon in running text and no curly quotes: in the
 interface's dictionaries, the showcase site's catalogues, the Markdown
 documents a contributor, a crawler or Claude Code reads, and every source and
-configuration file, comments and messages included. The en dash, the ellipsis, arrows, check marks, the middle dot,
-angle quotes and corner brackets are all fine.
+configuration file, comments and messages included. The en dash, the ellipsis, arrows, check
+marks, the middle dot, angle quotes and corner brackets are all fine. The JSON tables of cases
+and `backend/openapi/v1.json` are not read: the contract is written from the Rust doc comments,
+which are.
 
 Two exceptions belong to the text itself. Greek writes its question mark as
 `;`, so that dictionary is read for the Arabic and full-width semicolons alone,
@@ -43,7 +45,7 @@ unmatched: list[str] = []
 def matching(base: Path, patterns: tuple[str, ...]) -> list[Path]:
     files = set()
     for pattern in patterns:
-        found_here = {path for path in base.glob(pattern) if path.is_file()}
+        found_here = {path for path in base.glob(pattern) if path.is_file() and "__pycache__" not in path.parts}
         if not found_here:
             unmatched.append(str((base / pattern).relative_to(ROOT)))
         files |= found_here
@@ -112,46 +114,56 @@ def sources(folder: str, patterns: tuple[str, ...], problems: list[str]) -> int:
     return len(files)
 
 
+# `llms.txt` is Markdown the site serves to language models.
+DOCUMENTS = ("README.md", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
+             ".github/pull_request_template.md", "site/public/llms.txt")
+MEMORY_FILES = ("CLAUDE.md", ".claude/rules/**/*.md")
+# Each group of source and configuration files, with the folder its patterns resolve from.
+SOURCES = {
+    "backend files": (
+        "backend",
+        ("src/**/*.rs", "migrations/*.sql", "*.toml", "*.hbs", ".env.example",
+         "proptest-regressions/**/*.txt"),
+    ),
+    # `index.html` holds the title a tab shows before the shell names the screen.
+    "frontend files": (
+        "frontend",
+        ("index.html", "*.config.ts", "*.config.js", "src/**/*.svelte", "src/**/*.ts",
+         "src/**/*.css", "e2e/*.ts", "e2e/*.py", "e2e/*.sh"),
+    ),
+    "site files": (
+        "site",
+        ("*.mjs", "og.html", "wrangler.jsonc", "public/_headers", "public/robots.txt",
+         "public/.well-known/*.txt", "public/assets/*.js", "screenshots/*.*",
+         "src/**/*.astro", "src/**/*.ts", "src/**/*.css"),
+    ),
+    "repository files": (
+        ".",
+        ("scripts/**/*.*", ".github/**/*.yml", ".devcontainer/*.*", ".devcontainer/Dockerfile",
+         "Dockerfile", "docker-compose.yml", ".hadolint.yaml", ".gitignore", ".dockerignore",
+         "ruff.toml", "contrib/**/*.*"),
+    ),
+}
+
+
+def read_paths() -> set[Path]:
+    """Every file the check reads besides the two sets of catalogues."""
+    paths = set(matching(ROOT, DOCUMENTS + MEMORY_FILES))
+    for folder, patterns in SOURCES.values():
+        paths |= set(matching(ROOT / folder, patterns))
+    return paths
+
+
 def main() -> int:
     problems: list[str] = []
     counts = {
         "dictionaries": catalogues(ROOT / "backend" / "locales", problems),
         "site catalogues": catalogues(ROOT / "site" / "src" / "i18n", problems),
-        # `llms.txt` is Markdown the site serves to language models.
-        "documents": markdown(
-            ("README.md", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
-             ".github/pull_request_template.md", "site/public/llms.txt"),
-            problems,
-        ),
-        "memory files": markdown(("CLAUDE.md", ".claude/rules/**/*.md"), problems),
-        "backend files": sources(
-            "backend",
-            ("src/**/*.rs", "migrations/*.sql", "*.toml", "*.hbs", ".env.example"),
-            problems,
-        ),
-        # `index.html` holds the title a tab shows before the shell names the
-        # screen.
-        "frontend files": sources(
-            "frontend",
-            ("index.html", "*.config.ts", "*.config.js", "src/**/*.svelte", "src/**/*.ts",
-             "src/**/*.css", "e2e/*.ts", "e2e/*.py", "e2e/*.sh"),
-            problems,
-        ),
-        "site files": sources(
-            "site",
-            ("*.mjs", "og.html", "wrangler.jsonc", "public/_headers", "public/robots.txt",
-             "public/.well-known/*.txt", "public/assets/*.js", "screenshots/*.*",
-             "src/**/*.astro", "src/**/*.ts", "src/**/*.css"),
-            problems,
-        ),
-        "repository files": sources(
-            ".",
-            ("scripts/*.*", "scripts/tests/*.py", ".github/**/*.yml", ".devcontainer/*.*",
-             ".devcontainer/Dockerfile",
-             "Dockerfile", "docker-compose.yml", ".hadolint.yaml", "contrib/**/*.*"),
-            problems,
-        ),
+        "documents": markdown(DOCUMENTS, problems),
+        "memory files": markdown(MEMORY_FILES, problems),
     }
+    for name, (folder, patterns) in SOURCES.items():
+        counts[name] = sources(folder, patterns, problems)
     empty = [name for name, count in counts.items() if count == 0]
     if empty:
         problems.append(f"read no {', no '.join(empty)}: a path no longer matches")

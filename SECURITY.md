@@ -45,9 +45,11 @@ policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions)).
 
 ## Verifying an image
 
-Every image a release publishes carries a signed attestation of how it was
-built: by which workflow, at which tag, from which commit. GitHub's CLI checks
-it against the image's digest, without trusting this repository's word for it:
+Every image a release publishes has a signed attestation of how it was built:
+by which workflow, at which tag, from which commit. It is kept in GitHub's
+attestation store, not pushed to the registry beside the image, so a verifier
+reading the registry alone finds none. GitHub's CLI checks it against the
+image's digest, without trusting this repository's word for it:
 
 ```bash
 gh attestation verify oci://ghcr.io/routarr/routarr:<version> \
@@ -56,9 +58,10 @@ gh attestation verify oci://ghcr.io/routarr/routarr:<version> \
 ```
 
 It passes only for an image the release workflow of this repository built,
-and `--format json` names the tag and the commit. The image also carries the
-list of its packages, the Rust crates of the binary included, which an image
-scanner reads from the registry. The licences of those packages are in
+and `--format json` names the tag and the commit. The registry does hold the
+list of the image's packages, the Rust crates of the binary and the Alpine
+packages, which an image scanner reads. Their licences, and those of the
+packages the interface bundles, are in
 `/app/frontend/dist/third-party-notices.txt`, which the About dialog links.
 
 ## What is already in place

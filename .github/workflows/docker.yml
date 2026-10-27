@@ -25,9 +25,12 @@ name: Docker image
 # The dev container's image is built here too, for the same reason: nothing
 # else builds it, and a Dependabot bump of its base or a wrong sum among the
 # tools it downloads would merge green and break the next person's rebuild.
+#
+# A release branch is built as main is: the release guard asks for this
+# workflow's run on a push of the tagged commit.
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
 
 # The job runs a pull request's Dockerfile, so the token it holds reads and
@@ -44,11 +47,11 @@ concurrency:
 
 jobs:
   # Whether the commit reaches the image, by `scripts/changed-areas.sh`, as in
-  # `ci.yml`. A push to main is compared with the last commit of main whose run
+  # `ci.yml`. A push is compared with the last commit of its branch whose run
   # of this workflow succeeded, so a failed build leaves the image to the next.
   changes:
     name: What reaches the image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -73,7 +76,7 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             base="$PR_BASE"
           else
-            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/docker.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/docker.yml/runs?branch=$GITHUB_REF_NAME&event=push&status=success&per_page=1" \
               --jq '.workflow_runs[0].head_sha // empty' || true)
           fi
           areas=$(bash scripts/changed-areas.sh "$base" "$HEAD")
@@ -98,7 +101,7 @@ jobs:
     name: Docker image (amd64)
     needs: changes
     if: needs.changes.outputs.image == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Native, no emulation. The ceiling catches a stuck build, not a slow one.
     timeout-minutes: 30
     steps:
@@ -130,12 +133,11 @@ jobs:
           load: true
           tags: routarr:smoke
           cache-from: type=gha
-          # Written from `main` only, and read by pull requests and by the
-          # amd64 leg of `release.yml`, which a tag can reach and which writes
-          # nothing. The cache holds 10 GB for the whole repository and evicts
-          # the oldest first, so a pull request writing its own layers would
-          # push out main's.
-          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
+          # Written from `main` only and read by pull requests. No release build
+          # reads it (`release.yml`). The cache holds 10 GB for the whole
+          # repository and evicts the oldest first, so a pull request writing its
+          # own layers would push out main's.
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max' || '' }}
 
       # A build that succeeds says the Dockerfile compiles, not that the image
       # runs: the script starts it as the README does and says what it checked.
@@ -160,7 +162,7 @@ jobs:
   isolation:
     name: Isolated under gVisor
     needs: image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -197,7 +199,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
     steps:
@@ -207,3 +209,18 @@ jobs:
 
       - name: Build the dev container
         run: docker build --file .devcontainer/Dockerfile .
+
+  # The one name the branch rules can require for the two architectures' builds:
+  # a matrix that did not run reports its name unexpanded, which a required check
+  # would wait on forever.
+  devcontainer-done:
+    name: Dev container
+    needs: devcontainer
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Both architectures built
+        env:
+          RESULT: ${{ needs.devcontainer.result }}
+        run: test "$RESULT" = success || test "$RESULT" = skipped
