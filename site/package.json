@@ -13,9 +13,9 @@
     "verify": "node verify.mjs"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.5",
+    "@astrojs/check": "^0.9.11",
     "@astrojs/sitemap": "^3.7.4",
-    "astro": "^7.3.8",
+    "astro": "^7.4.1",
     "typescript": "^6.0.3",
     "wrangler": "^4.154.0"
   }
