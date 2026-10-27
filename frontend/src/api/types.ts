@@ -2,7 +2,14 @@
 
 export interface Paginated<T> {
   data: T[];
-  pagination: { page: number; per_page: number; total: number; total_pages: number };
+  pagination: Pagination;
+}
+
+export interface Pagination {
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
 }
 
 export type MediaType = 'movie' | 'series';

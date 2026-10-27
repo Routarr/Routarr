@@ -21,9 +21,9 @@ building one of those rather than after.
 
 The dev container ([`.devcontainer/`](.devcontainer/)) ships everything the
 checks below run except Docker: the pinned Rust toolchain, Node, Python,
-cargo-llvm-cov, cargo-deny, cargo-about, cargo-auditable, actionlint,
-shellcheck, hadolint, gitleaks, oasdiff, ruff, `gh`, and Playwright with its
-browsers, each at the version CI pins. Open the repository in it and
+cargo-llvm-cov, cargo-deny, cargo-about, actionlint, shellcheck, hadolint,
+gitleaks, oasdiff, ruff, `gh`, and Playwright with its browsers, each at the
+version CI pins. Open the repository in it and
 `postCreateCommand` does the rest. At every start it names a tool it lacks or
 holds at another version than its Dockerfile pins, which a rebuild settles.
 
@@ -39,7 +39,7 @@ Without the container, development is supported on Linux, where CI runs. On
 macOS or Windows, use the dev container. On Linux you need:
 
 - rustup, which reads [`backend/rust-toolchain.toml`](backend/rust-toolchain.toml)
-- Node 24, the major [`site/.node-version`](site/.node-version) names
+- Node at the major [`site/.node-version`](site/.node-version) names
 - Python 3.11 or later
 - curl, and `fuser` (psmisc) or `lsof`, which the end-to-end harness frees its
   ports with
@@ -248,22 +248,24 @@ version is published because somebody decided to publish it.
    `NNN_release_X_Y_Z.sql` listed in `MIGRATIONS` (`backend/src/db.rs`), before
    any pre-release tag: `python3 scripts/check-migrations.py --release X.Y.Z`
    names what is left.
-2. Commit, merge to `main`, and let CI finish. The release refuses a commit that
-   is not on `main`, a tag naming another version than `backend/Cargo.toml`, a
-   commit CI or the image build did not pass on a push, migrations not folded,
-   and a version the registry already holds (`scripts/release-guard.sh`, which a
-   dry run can call), so tagging ahead of them only wastes a tag.
+2. Commit, merge to `main`, and let CI finish. The release refuses a lightweight
+   tag, a commit that is not on `main`, a tag naming another version than
+   `backend/Cargo.toml`, a commit CI or the image build did not pass on a push,
+   migrations not folded, and a version the registry already holds
+   (`scripts/release-guard.sh`, which a dry run can call), so tagging ahead of
+   them only wastes a tag.
 3. `git tag -a vX.Y.Z -m "Routarr X.Y.Z" && git push origin vX.Y.Z`. Annotated:
    the tag records who made it and when, which a lightweight one does not.
 
 The tag builds the image for both architectures, starts each one through
-`scripts/smoke-image.sh`, pushes it to GHCR with the list of its packages
-(an SBOM), attests its provenance in GitHub's signed store (SECURITY.md says
-how to check it), and opens a **draft** release carrying the generated list of
-commits. The image is published under four tags derived from the git tag:
-`X.Y.Z`, `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across minors)
-and `latest`. A tag with a hyphen in it (`v1.2.0-rc.1`) publishes its exact
-version only.
+`scripts/smoke-image.sh`, pushes it to GHCR as `X.Y.Z` with the list of its
+packages (an SBOM), attests its provenance in GitHub's signed store
+(SECURITY.md says how to check it), and opens a **draft** release carrying the
+generated list of commits. The tags people follow move when the release is
+published: `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across minors)
+and `latest`, each onto the newest release it names, so an installation
+following one upgrades once the notes are there to read. A tag with a hyphen in
+it (`v1.2.0-rc.1`) publishes its exact version only.
 
 4. Write, at the top of that draft, what changed for someone running Routarr,
    under the same two headings every release:
@@ -280,22 +282,24 @@ version only.
    ```
 
    The generated list stays underneath for whoever wants the detail, without
-   Dependabot's updates (`.github/release.yml`). Then publish it, which also
+   Dependabot's updates (`.github/release.yml`). Then publish it, which moves
+   the tags people follow onto the image (`.github/workflows/release.yml`) and
    deploys the showcase site from the tag (`.github/workflows/site.yml`), and
    delete the `scripts/api-breaks/` list: CI refuses one kept past its release.
 
 The draft is the step that is easy to forget and the only one a person has to
-do: the image is on GHCR from step 3, so nothing is blocked while it waits, but
-until it is published there is no release to point anyone at.
+do: the image is on GHCR as `X.Y.Z` from step 3, so whoever pins it is not
+blocked, but `latest` and `X.Y` wait for it, and until it is published there is
+no release to point anyone at.
 
 To undo before publishing, delete the draft and the tag: the repository's tag
 rules let an administrator alone delete or move a `v*` tag. The image and its
-tags stay on GHCR, and the release refuses that version again until it is
+tag stay on GHCR, and the release refuses that version again until it is
 deleted from the package's page on GitHub. A published release cannot be
 undone: GitHub locks it and its tag (immutable releases). A version already
 published is corrected by tagging the next patch, never by moving a tag:
-`latest` follows the newest stable tag, and an image somebody has already
-pulled cannot be recalled.
+`latest` follows the newest published release, and an image somebody has
+already pulled cannot be recalled.
 
 The provenance attestation needs the repository to be **public**: GitHub does
 not issue one for a private repository outside Enterprise, and the release job

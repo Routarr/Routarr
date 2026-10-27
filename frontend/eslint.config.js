@@ -5,7 +5,7 @@ import svelteConfig from './svelte.config.js';
 
 // Only what `svelte-check` misses: it already reports types, unused symbols and accessibility.
 export default tseslint.config(
-  { ignores: ['dist/', 'coverage/', 'node_modules/', 'playwright-report/', 'test-results/'] },
+  { ignores: ['dist/', 'coverage/', 'node_modules/', 'test-results/'] },
 
   ...svelte.configs.recommended,
 

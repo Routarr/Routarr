@@ -80,7 +80,7 @@ export default defineConfig({
       // a test imported, reporting a high figure over a small fraction.
       include: ['src/**/*.{ts,svelte}'],
       exclude: [
-        'src/**/*.test.{ts,svelte.ts}',
+        'src/**/*.test.ts',
         'src/test/**',
         'src/main.ts',
         // Type declarations, mirroring the backend payloads. There is nothing

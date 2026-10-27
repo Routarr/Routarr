@@ -67,6 +67,10 @@ class RustSide(unittest.TestCase):
         found, _ = structs("#[derive(Debug)]\npub struct Internal {\n    pub id: i64,\n}\n")
         self.assertNotIn("Internal", found)
 
+    def test_a_generic_struct_is_read(self):
+        found, _ = structs("#[derive(Serialize)]\npub struct Page<T> {\n    pub data: Vec<T>,\n}\n")
+        self.assertEqual(found["Page"], {"data"})
+
     def test_two_structs_of_one_name_are_both_reported(self):
         payload = "#[derive(Serialize)]\npub struct Category {\n    pub name: String,\n}\n"
         _, duplicates = structs(payload, payload.replace("name", "label"))
@@ -92,6 +96,10 @@ class TypeScriptSide(unittest.TestCase):
             "export interface Child extends Base {\n  name?: string;\n}\n"
         )
         self.assertEqual(found["Child"], {"id", "name"})
+
+    def test_a_generic_interface_is_read(self):
+        found = interfaces("export interface Paginated<T> {\n  data: T[];\n}\n")
+        self.assertEqual(found["Paginated"], {"data"})
 
     def test_an_object_alias_is_read_as_an_interface(self):
         found = interfaces("export type Summary = {\n  moved: number;\n  failed: number;\n};\n")

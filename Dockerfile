@@ -116,6 +116,18 @@ COPY LICENSE /app/LICENSE
 # every copy. In place of the interface's own list, served beside it, which
 # its About dialog links.
 COPY --from=notices /app/third-party-notices.txt /app/frontend/dist/third-party-notices.txt
+# Then the packages of the Alpine base, from this layer's own package database
+# so the list is what ships, the GPL-2.0 ones among them, with where their
+# sources are.
+RUN release="$(cut -d. -f1,2 /etc/alpine-release)" \
+  && { printf '\n# Packages of the Alpine base\n\n'; \
+       printf 'The image runs on Alpine Linux %s. The source of each package below is in the\n' "$release"; \
+       printf 'aports repository, https://gitlab.alpinelinux.org/alpine/aports, on its %s-stable\n' "$release"; \
+       printf 'branch, and the upstream archives it builds from are at\n'; \
+       printf 'https://distfiles.alpinelinux.org/.\n\n'; \
+       awk -F: '/^P:/ { name = $2 } /^V:/ { version = $2 } /^L:/ { print "## " name " - " version " (" substr($0, 3) ")" }' \
+         /lib/apk/db/installed; } \
+     >> /app/frontend/dist/third-party-notices.txt
 
 # Only /config is the process's own: `/app` stays root's, so code execution cannot rewrite
 # the binary or the `index.html` it serves.

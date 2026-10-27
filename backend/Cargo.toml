@@ -20,8 +20,7 @@ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio",
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # No root-store feature: `rustls` verifies against the **platform's** trust
-# store. That is a deliberate choice, not a default we inherited. It means a
-# homelab CA signing an internal Arr's certificate is accepted, which a
+# store. It means a homelab CA signing an internal Arr's certificate is accepted, which a
 # compiled-in Mozilla set would refuse. The price is that the roots come from
 # the base image rather than from a Routarr release, so `Dockerfile` installing
 # `ca-certificates` is load-bearing: an image without it fails every metadata
@@ -29,7 +28,7 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
 # Already built for axum and reqwest. Named here for one question reqwest does
 # not answer: whether what came back was HTTP at all (`hyper::Error::is_parse`).
-# And the server `listener.rs` builds, HTTP/1 only as axum::serve was here.
+# And the server `listener.rs` builds, HTTP/1 only.
 hyper = { version = "1", features = ["http1", "server"] }
 # The listener axum::serve would be, with the header deadline and the bound on
 # open connections it does not expose (`listener.rs`). Already built for axum.

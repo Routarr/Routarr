@@ -43,9 +43,12 @@ CI_ONLY_JOBS = {"e2e-done"}
 # Steps only CI takes, by the start of their command, each with why.
 CI_ONLY_STEPS = {
     "npm ci": "installs the packages: the dev container's post-create does it",
-    "npx playwright install": "installs a browser: the dev container's post-create does it",
+    "bash scripts/install-browser.sh": "installs a browser: the dev container's image and post-create do it",
     "set -euo pipefail\nmkdir -p": "downloads the pinned linters: the dev container has them",
 }
+
+# GitHub's shell for a `run:` that names none: a multi-line step stops at its first failure.
+SHELL = ["bash", "-e", "-c"]
 
 # Docker builds the image and the dev container, which the dev container cannot run.
 DOCKER_AREAS = {"image": "docker.yml builds and smoke-tests the image", "devcontainer": "docker.yml builds the dev container"}
@@ -84,18 +87,26 @@ class Step:
         return None if shutil.which(tool) else tool
 
 
+def unquoted(value: str) -> str:
+    value = value.strip()
+    return value[1:-1] if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"" else value
+
+
 def parse(text: str) -> list[Step]:
-    """Every `run:` step of every job, with its working directory and condition. Reads the
-    subset of YAML ci.yml writes: two-space indents, `run: |` blocks, `working-directory`."""
+    """Every `run:` step of every job, with its working directory, condition and environment.
+    Reads the subset of YAML ci.yml writes: two-space indents, `run: |` blocks,
+    `working-directory`, and `env:` on a job or a step."""
     steps: list[Step] = []
     lines = text.split("\n")
     job = None
     default_dir = "."
     env: dict[str, str] = {}
+    step_env: dict[str, str] = {}
     current: dict[str, str] | None = None
     block_key = None
     block_indent = 0
     in_env = False
+    in_step_env = False
 
     def close() -> None:
         if job and current and "run" in current:
@@ -106,7 +117,7 @@ def parse(text: str) -> list[Step]:
                     run=current["run"].rstrip("\n"),
                     directory=current.get("working-directory", default_dir),
                     condition=current.get("if", ""),
-                    env=dict(env),
+                    env={**env, **step_env},
                 )
             )
 
@@ -137,8 +148,13 @@ def parse(text: str) -> list[Step]:
             continue
         env_match = re.match(r"^      ([A-Z][A-Z0-9_]*): (.*)$", line)
         if in_env and env_match:
-            env[env_match.group(1)] = env_match.group(2).strip()
+            env[env_match.group(1)] = unquoted(env_match.group(2))
             continue
+        step_env_match = re.match(r"^          ([A-Z][A-Z0-9_]*): (.*)$", line)
+        if in_step_env and step_env_match:
+            step_env[step_env_match.group(1)] = unquoted(step_env_match.group(2))
+            continue
+        in_step_env = False
         if re.match(r"^    \S", line):
             in_env = False
         dir_match = re.match(r"^\s{8}working-directory: (.+)$", line)
@@ -149,6 +165,7 @@ def parse(text: str) -> list[Step]:
         if item:
             close()
             current = {}
+            step_env = {}
             if item.group(1):
                 key, value = item.group(1), item.group(2)
                 if value in ("|", ">"):
@@ -160,11 +177,13 @@ def parse(text: str) -> list[Step]:
         key_match = re.match(r"^        ([a-z-]+): ?(.*)$", line)
         if key_match and current is not None:
             key, value = key_match.group(1), key_match.group(2)
-            if value in ("|", ">"):
+            if key == "env" and not value:
+                in_step_env = True
+            elif value in ("|", ">"):
                 current[key] = ""
                 block_key, block_indent = key, 10
             else:
-                current[key] = value.strip().strip("'\"") if key != "if" else value.strip()
+                current[key] = unquoted(value) if key != "if" else value.strip()
     close()
     return [step for step in steps if step.job not in CI_ONLY_JOBS]
 
@@ -179,7 +198,9 @@ def changed_areas(base: str | None) -> set[str]:
             text=True,
             check=False,
         )
-        base = found.stdout.strip() or "HEAD"
+        base = found.stdout.strip()
+        if not base:
+            print("check: no origin/main to compare with, so every area runs (or pass --changed BASE)", file=sys.stderr)
     answer = subprocess.run(
         ["bash", "scripts/changed-areas.sh", base, "WORKTREE"],
         cwd=ROOT,
@@ -252,9 +273,7 @@ def main() -> int:
                     env["ROUTARR_E2E_BROWSER"] = engine
                 print(f"\n==> {named}\n    {step.run.replace(chr(10), chr(10) + '    ')}", flush=True)
                 started = time.monotonic()
-                ran = subprocess.run(
-                    ["bash", "-c", step.run], cwd=ROOT / step.directory, env=env, check=False
-                )
+                ran = subprocess.run([*SHELL, step.run], cwd=ROOT / step.directory, env=env, check=False)
                 spent = f"{time.monotonic() - started:.0f} s"
                 (passed if ran.returncode == 0 else failed).append(f"{named} ({spent})")
                 if ran.returncode != 0 and args.fail_fast:

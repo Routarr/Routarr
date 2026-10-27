@@ -30,7 +30,7 @@ install_if_stale site
 
 # Cargo looks in $CARGO_HOME/bin first, and an old `cargo install` left on the
 # /cargo volume would shadow the image's pinned build.
-for tool in cargo-llvm-cov cargo-deny cargo-about cargo-auditable; do
+for tool in cargo-llvm-cov cargo-deny cargo-about; do
   if [ -x "/usr/local/bin/$tool" ] && [ -e "${CARGO_HOME:-/cargo}/bin/$tool" ]; then
     rm -f "${CARGO_HOME:-/cargo}/bin/$tool"
     echo "removed a stale $tool from ${CARGO_HOME:-/cargo}/bin: the image's pinned build is the one that runs"

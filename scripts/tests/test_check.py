@@ -1,8 +1,12 @@
 """`scripts/check.py`, which runs locally what `ci.yml` runs, read from the workflow itself."""
 
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from _scripts import ROOT, SCRIPTS, load
 
@@ -32,6 +36,44 @@ class Check(unittest.TestCase):
     def test_a_job_environment_reaches_its_steps(self):
         steps = {s.run: s.env for s in check.parse(WORKFLOW)}
         self.assertEqual(steps["npm run test:e2e"].get("ROUTARR_E2E_BUILT"), "1")
+
+    def test_a_step_keeps_its_own_environment(self):
+        steps = {s.run: s.env for s in check.parse(WORKFLOW)}
+        self.assertEqual(steps["cargo doc --no-deps --locked"].get("RUSTDOCFLAGS"), "-D warnings")
+
+    def test_a_command_keeps_the_quotes_it_ends_with(self):
+        runs = [s.run for s in check.parse(WORKFLOW)]
+        self.assertTrue(any(run.startswith("python3 scripts/check-commits.py") and run.endswith('"$BASE"')
+                            for run in runs), "the commit check lost its closing quote")
+
+    def test_a_step_stops_at_its_first_failure(self):
+        ran = subprocess.run([*check.SHELL, "false\ntrue"], check=False)
+        self.assertNotEqual(ran.returncode, 0)
+
+    def test_a_branch_with_no_origin_main_checks_every_area(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        environment = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                       "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*arguments):
+            subprocess.run(["git", *arguments], cwd=folder, env=environment,
+                           capture_output=True, check=True)
+
+        Path(folder, "scripts").mkdir()
+        shutil.copy(SCRIPTS / "changed-areas.sh", Path(folder, "scripts"))
+        Path(folder, "backend/src").mkdir(parents=True)
+        Path(folder, "backend/src/main.rs").write_text("one\n")
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-qm", "base")
+        git("checkout", "-qb", "feature")
+        Path(folder, "backend/src/main.rs").write_text("two\n")
+        git("commit", "-qam", "change")
+        original = check.ROOT
+        check.ROOT = Path(folder)
+        self.addCleanup(setattr, check, "ROOT", original)
+        self.assertIn("backend", check.changed_areas(None))
 
     def test_every_step_kept_for_ci_names_a_step_the_workflow_has(self):
         runs = [s.run for s in check.parse(WORKFLOW)]

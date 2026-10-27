@@ -157,7 +157,7 @@ Each of these questions has one function. Call it, never spell the question agai
 - A new key needs `en.json` alone, since every language falls back to English key by key.
   `scripts/check-locales.py` fails on a key the code uses and `en.json` lacks, a key another
   language has and English lacks, a changed `{placeholder}`, an empty value, a key no source
-  file quotes, and a language below 50%.
+  file quotes, a key written twice, and a language below 50%.
 - A translation says each core term (apply, move, exception, root folder...) in the one word
   `scripts/glossary.json` gives its language. The check picks the keys from their English, so
   an English sentence using the word in another sense goes in that concept's `except`.

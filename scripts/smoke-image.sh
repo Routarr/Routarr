@@ -30,11 +30,16 @@ VOLUME=routarr-smoke-data
 SUBPATH_NAME=routarr-smoke-subpath
 BASE="http://127.0.0.1:$PORT"
 
-fail() {
+# With the log of the container the failure is about, which is the one a person
+# needs to find the cause.
+fail_in() {
+  local container=$1
+  shift
   echo "::error::$*" >&2
-  docker logs "$NAME" 2>&1 | tail -40 >&2 || true
+  docker logs "$container" 2>&1 | tail -40 >&2 || true
   exit 1
 }
+fail() { fail_in "$NAME" "$@"; }
 ok() { echo "ok   $*"; }
 
 # The name is the one a real installation uses, so an existing container may be
@@ -58,13 +63,13 @@ http_status() { curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$@"; }
 # Gives up as soon as the container has exited: otherwise a crash on start
 # reads as a slow start for the whole timeout.
 wait_for() {
-  local seconds=$1 what=$2
-  shift 2
+  local container=$1 seconds=$2 what=$3
+  shift 3
   local deadline=$((SECONDS + seconds))
   until "$@"; do
-    [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ] ||
-      fail "the container exited while waiting for $what"
-    [ "$SECONDS" -lt "$deadline" ] || fail "no $what after ${seconds}s"
+    [ "$(docker inspect -f '{{.State.Running}}' "$container")" = true ] ||
+      fail_in "$container" "$container exited while waiting for $what"
+    [ "$SECONDS" -lt "$deadline" ] || fail_in "$container" "no $what after ${seconds}s"
     sleep 1
   done
 }
@@ -73,7 +78,7 @@ pings() { [ "$(http_status "$BASE/api/v1/ping")" = 200 ]; }
 # match, `docker logs` takes a SIGPIPE, and under pipefail a line that is there
 # reads as a line that is not.
 logs() { docker logs "$NAME" 2>&1; }
-healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$NAME")" = healthy ]; }
+healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1")" = healthy ]; }
 
 expect_status() {
   local want=$1 what=$2
@@ -112,7 +117,7 @@ docker run -d --name "$NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
   --tmpfs /tmp:size=64m,noexec,nosuid \
   "$IMAGE" >/dev/null
 
-wait_for 30 "answer on /api/v1/ping" pings
+wait_for "$NAME" 30 "answer on /api/v1/ping" pings
 ok "starts and answers /api/v1/ping without a key"
 
 # The point of an isolating runtime is that the container no longer runs on
@@ -156,13 +161,14 @@ docker exec "$NAME" test -s /app/LICENSE || fail "no LICENSE in the image"
 ok "carries the licence"
 
 # The notices the crates' and the packages' licences ask to travel with every
-# copy, as the About dialog links them: the crates the build stage lists, then
-# the packages the interface bundles, under Routarr's own copyright line.
+# copy, as the About dialog links them: the crates the build stage lists, the
+# packages the interface bundles and those of the Alpine base, under Routarr's
+# own copyright line.
 notices=$(curl -fsS --max-time 10 "$BASE/third-party-notices.txt") || fail "no third-party notices served"
-for expected in 'Copyright (C) 2026 the Routarr contributors' '- tokio ' '## svelte '; do
+for expected in 'Copyright (C) 2026 the Routarr contributors' '- tokio ' '## svelte ' '## busybox '; do
   grep -qF -- "$expected" <<<"$notices" || fail "the third-party notices do not name '$expected'"
 done
-ok "serves the third-party notices of the crates and of the interface"
+ok "serves the third-party notices of the crates, the interface and the Alpine base"
 
 # reqwest verifies TLS against the platform's store: without the bundle, every
 # metadata source and every Arr reached over HTTPS fails certificate checks.
@@ -198,7 +204,7 @@ expect_status 200 "stages a restore on a read-only root" \
 ok "takes a backup and stages a restore with the root filesystem read-only"
 
 # Docker's first probe runs one interval (30s) after start.
-wait_for 60 "healthy status from the HEALTHCHECK" healthy
+wait_for "$NAME" 60 "healthy status from the HEALTHCHECK" healthy "$NAME"
 ok "the HEALTHCHECK reports healthy"
 
 # The mount point as people often write it, with no slash. The probe reads it
@@ -206,11 +212,7 @@ ok "the HEALTHCHECK reports healthy"
 # interface falls back to.
 docker run -d --name "$SUBPATH_NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} -e ROUTARR_BASE_PATH=routarr \
   --health-interval=2s --health-start-period=1s "$IMAGE" >/dev/null
-deadline=$((SECONDS + 60))
-until [ "$(docker inspect -f '{{.State.Health.Status}}' "$SUBPATH_NAME")" = healthy ]; do
-  [ "$SECONDS" -lt "$deadline" ] || fail "ROUTARR_BASE_PATH=routarr never became healthy"
-  sleep 1
-done
+wait_for "$SUBPATH_NAME" 60 "healthy status under ROUTARR_BASE_PATH=routarr" healthy "$SUBPATH_NAME"
 docker rm -fv "$SUBPATH_NAME" >/dev/null
 ok "the HEALTHCHECK follows ROUTARR_BASE_PATH=routarr"
 
@@ -224,7 +226,7 @@ grep -qF 'Routarr stopped cleanly' <<<"$(logs)" || fail "no clean-shutdown line 
 ok "stops cleanly on SIGTERM"
 
 docker start "$NAME" >/dev/null
-wait_for 30 "answer on /api/v1/ping after a restart" pings
+wait_for "$NAME" 30 "answer on /api/v1/ping after a restart" pings
 expect_status 200 "still accepts the same key after a restart" -H "X-Api-Key: $key" "$BASE/api/v1/status"
 generated=$(grep -cF 'Generated an API key' <<<"$(logs)" || true)
 [ "$generated" = 1 ] || fail "a key was generated $generated times across two starts"
@@ -242,7 +244,7 @@ docker run -d --name "$NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
   --read-only \
   --tmpfs /tmp:size=64m,noexec,nosuid \
   "$IMAGE" >/dev/null
-wait_for 30 "answer on /api/v1/ping with the volume at /data" pings
+wait_for "$NAME" 30 "answer on /api/v1/ping with the volume at /data" pings
 expect_status 200 "accepts the same key with the volume at /data" -H "X-Api-Key: $key" "$BASE/api/v1/status"
 grep -qF 'The database is read from /data/routarr.db' <<<"$(logs)" ||
   fail "no note saying the database is read from /data"

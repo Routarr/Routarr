@@ -186,14 +186,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"ok": True})
         if path == "/__edits":
             return self._send(EDITS)
-        # A disk that stopped answering, as Radarr reports one: listed, and
-        # not accessible.
-        if path == "/__asleep":
-            asleep = self.path.split("path=", 1)[-1]
-            for folder in ROOT_FOLDERS:
-                if folder["path"] == asleep:
-                    folder["accessible"] = False
-            return self._send({"ok": True})
         self._unknown("GET", path)
 
     def do_PUT(self):

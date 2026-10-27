@@ -22,7 +22,6 @@
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
-        "rust-analyzer.cargo.features": "all",
         "rust-analyzer.check.command": "clippy",
         // Named explicitly: there is no Cargo.toml at the repository root, and
         // a rust-analyzer that finds no project reports nothing.
@@ -95,9 +94,6 @@
     },
     "4173": {
       "label": "Vite preview of frontend/dist"
-    },
-    "9323": {
-      "label": "Playwright report and trace viewer"
     }
   },
   // Unlisted ports are the tests' own (`frontend/e2e/run.sh` binds 9877 and 7979).

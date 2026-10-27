@@ -57,32 +57,24 @@ RUN arch="$(dpkg --print-architecture)" \
   && rm /tmp/cargo-llvm-cov.tar.gz \
   && cargo llvm-cov --version
 
-# cargo about and cargo auditable at the root Dockerfile's versions and sums
-# (check-versions.py), so a new crate's licence is met before the image build.
+# cargo about at the root Dockerfile's version and sums (check-versions.py), for
+# the notices step of ci.yml's backend job, which check.sh runs here too.
 ARG CARGO_ABOUT_VERSION=0.9.2
 ARG CARGO_ABOUT_SHA256_X64=9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
 ARG CARGO_ABOUT_SHA256_ARM64=af5169282fb6f84e13471493f405437e43ac517744c9ae12fbe2cdf0a6f0e5a8
-ARG CARGO_AUDITABLE_VERSION=0.7.7
-ARG CARGO_AUDITABLE_SHA256_X64=7676443367c5e33d9fb22acef63cccb5e9202de12dae1b0579995eb3e2bc7a18
-ARG CARGO_AUDITABLE_SHA256_ARM64=c324af56990601354bbf40080f582ba46f8ec8b807a1388e25bb7e429d285c18
 RUN arch="$(dpkg --print-architecture)" \
   && case "$arch" in \
-       amd64) target=x86_64-unknown-linux-musl; about="$CARGO_ABOUT_SHA256_X64"; auditable="$CARGO_AUDITABLE_SHA256_X64" ;; \
-       arm64) target=aarch64-unknown-linux-musl; about="$CARGO_ABOUT_SHA256_ARM64"; auditable="$CARGO_AUDITABLE_SHA256_ARM64" ;; \
+       amd64) target=x86_64-unknown-linux-musl; sum="$CARGO_ABOUT_SHA256_X64" ;; \
+       arm64) target=aarch64-unknown-linux-musl; sum="$CARGO_ABOUT_SHA256_ARM64" ;; \
        *) echo "unsupported arch: $arch" && exit 1 ;; \
      esac \
   && curl -fsSL -o /tmp/cargo-about.tgz \
      "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/cargo-about-${CARGO_ABOUT_VERSION}-${target}.tar.gz" \
-  && echo "$about  /tmp/cargo-about.tgz" | sha256sum -c - \
+  && echo "$sum  /tmp/cargo-about.tgz" | sha256sum -c - \
   && tar -xzf /tmp/cargo-about.tgz -C /usr/local/bin --strip-components=1 \
      "cargo-about-${CARGO_ABOUT_VERSION}-${target}/cargo-about" \
-  && curl -fsSL -o /tmp/cargo-auditable.txz \
-     "https://github.com/rust-secure-code/cargo-auditable/releases/download/v${CARGO_AUDITABLE_VERSION}/cargo-auditable-${target}.tar.xz" \
-  && echo "$auditable  /tmp/cargo-auditable.txz" | sha256sum -c - \
-  && tar -xJf /tmp/cargo-auditable.txz -C /usr/local/bin --strip-components=1 \
-     "cargo-auditable-${target}/cargo-auditable" \
-  && rm /tmp/cargo-about.tgz /tmp/cargo-auditable.txz \
-  && cargo about --version && cargo auditable --version
+  && rm /tmp/cargo-about.tgz \
+  && cargo about --version
 
 # The components rust-toolchain.toml names, so the first `cargo fmt` or
 # rust-analyzer start does not stall on a download. Before CARGO_HOME moves:

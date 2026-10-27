@@ -4,18 +4,22 @@
 #
 #   GH_TOKEN=... scripts/release-guard.sh OWNER/REPOSITORY SHA TAG
 #   GH_TOKEN=... scripts/release-guard.sh --publishing OWNER/REPOSITORY SHA TAG
+#   GH_TOKEN=... scripts/release-guard.sh --promoting OWNER/REPOSITORY SHA TAG
 #
 # The second form is asked again just before the manifest names the version,
-# since the images take long enough to build for the tag to move meanwhile.
+# since the images take long enough to build for the tag to move meanwhile. The
+# third, when the release is published, before `latest` and `X.Y` move onto it.
 #
 # It only reads, so a dry run from a clone gets the answer the release would.
 set -euo pipefail
 
-publishing=false
-if [ "${1:-}" = --publishing ]; then
-  publishing=true
-  shift
-fi
+mode=release
+case "${1:-}" in
+  --publishing | --promoting)
+    mode="${1#--}"
+    shift
+    ;;
+esac
 REPOSITORY=$1
 SHA=$2
 TAG=$3
@@ -55,7 +59,7 @@ unpublished() {
 
 # A later step of the manifest job failing, the attestation say, leaves the
 # version published by this run, and re-running the failed job finishes it.
-if [ "$publishing" = true ]; then
+if [ "$mode" = publishing ]; then
   still_tagged
   if [ "${GITHUB_RUN_ATTEMPT:-1}" = 1 ]; then
     unpublished
@@ -63,14 +67,32 @@ if [ "$publishing" = true ]; then
   echo "$TAG still names $SHA, and this run may publish $VERSION."
   exit 0
 fi
+if [ "$mode" = promoting ]; then
+  still_tagged
+  echo "$TAG still names $SHA, and the tags people follow may move onto $VERSION."
+  exit 0
+fi
 
-# On main. A tag pushed on a branch head whose pull request ran green would
-# otherwise publish `latest` from a tree main never held.
-where=$(gh api "repos/$REPOSITORY/compare/main...$SHA" --jq .status)
-case "$where" in
-  identical | behind) ;;
-  *) refuse "$SHA is not on main (it is $where of it). Tag a commit of main." ;;
-esac
+# Annotated, as CONTRIBUTING.md asks: the tag records who made it and when. A
+# published release locks its tag, so a lightweight one could never be mended.
+kind=$(gh api "repos/$REPOSITORY/git/ref/tags/$TAG" --jq .object.type) ||
+  refuse "$TAG cannot be read. Nothing published."
+[ "$kind" = tag ] ||
+  refuse "$TAG is a lightweight tag. Delete it and push an annotated one: git tag -a $TAG -m \"Routarr $VERSION\" $SHA."
+
+# On main, or on the release branch of its minor for a patch while main holds
+# the next minor's breaks. A tag pushed on a branch head whose pull request ran
+# green would otherwise publish from a tree neither branch ever held.
+on() {
+  local where
+  where=$(gh api "repos/$REPOSITORY/compare/$1...$SHA" --jq .status 2>/dev/null) || return 1
+  [ "$where" = identical ] || [ "$where" = behind ]
+}
+minor=""
+[[ "$VERSION" =~ ^([0-9]+\.[0-9]+)\. ]] && minor="release/${BASH_REMATCH[1]}"
+if ! on main && ! { [ -n "$minor" ] && on "$minor"; }; then
+  refuse "$SHA is on neither main nor ${minor:-a release branch}. Tag a commit of one of them."
+fi
 
 # The version the binary reports, the image's label and the site all read
 # `backend/Cargo.toml`. A tag naming another one would publish under that name

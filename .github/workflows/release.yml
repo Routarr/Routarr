@@ -1,31 +1,41 @@
 name: Release
 
-# Tags only: the one place an image leaves the runner, on a tag and never on a merge
-# (`docker.yml` builds with `push: false`).
+# The one place an image leaves the runner, never on a merge (`docker.yml` builds with
+# `push: false`). A `v*` tag publishes its exact version `X.Y.Z`, and the release's publication
+# moves `latest` and `X.Y` onto it, so whoever follows them upgrades once the notes are there.
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
 
 # A tag deleted and pushed again starts a second run, which cancels the first:
 # two runs finishing in either order would each name the version.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 # No permission unless a job names it: a job added without its own block holds
 # nothing, whatever the repository's default token.
 permissions: {}
 
+# `bash -eo pipefail` for every step: a pipe whose left side fails, as a registry read can, fails
+# the step rather than hand an empty value to the next.
+defaults:
+  run:
+    shell: bash
+
 # Every `uses:` is pinned to a commit, its tag in the comment beside it: a tag can be moved,
 # and this workflow pushes to GHCR. Dependabot updates both.
 
 jobs:
-  # A tag publishes whatever commit it sits on: `scripts/release-guard.sh` first refuses one
-  # not on main, not green, not at the tag's version, with migrations not folded, or already in
-  # the registry.
+  # A tag publishes whatever commit it sits on: `scripts/release-guard.sh` first refuses a
+  # lightweight tag, a commit on neither main nor its minor's release branch, not green, not at
+  # the tag's version, with migrations not folded, or already in the registry.
   guard:
     name: The commit may be published
-    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -71,7 +81,7 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
@@ -168,7 +178,7 @@ jobs:
   manifest:
     name: Publish the image
     needs: image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -214,18 +224,16 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      # `v1.2.3` publishes 1.2.3, 1.2, 1 and latest, a pre-release its own version alone. No major
-      # tag before 1.0.0: semver promises no compatibility across 0.x.
+      # `v1.2.3` publishes 1.2.3 alone. The tags people follow move when the release is
+      # published (the `promote` job).
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
           flavor: |
-            latest=auto
+            latest=false
 
       - name: Create the manifest list
         working-directory: ${{ runner.temp }}/digests
@@ -258,6 +266,7 @@ jobs:
         run: |
           value=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
             --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$value" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for ${IMAGE}:${VERSION}"; exit 1; }
           echo "value=$value" >> "$GITHUB_OUTPUT"
 
       # Signed evidence of which workflow built this digest on which commit, for
@@ -277,7 +286,7 @@ jobs:
   release:
     name: Publish the release
     needs: manifest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -295,10 +304,67 @@ jobs:
         run: |
           set -euo pipefail
           # A draft: the notes a person writes for users go above the generated list
-          # (CONTRIBUTING.md, "Releasing"). A hyphen marks a pre-release, the rule metadata-action
-          # applies to `latest`, so the page and the image agree on v1.0.0-rc1.
+          # (CONTRIBUTING.md, "Releasing"). A hyphen marks a pre-release, which moves no tag
+          # people follow (`scripts/release-tags.py`), so the page and the image agree on v1.0.0-rc1.
           case "$TAG" in
             *-*) prerelease=--prerelease ;;
             *) prerelease= ;;
           esac
           gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag --draft $prerelease
+
+  # On publication: `X.Y`, `X` from 1.0 on and `latest` move onto the version the tag
+  # published, each when it is the newest of its line (`scripts/release-tags.py`), so a patch
+  # of an older minor leaves `latest` on the newest. The tag's image is copied as it is, under
+  # the digest its attestation names.
+  promote:
+    name: Move the tags people follow
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tag still names its commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/release-guard.sh --promoting "$REPOSITORY" "$SHA" "$TAG"
+
+      - name: Sign in to the registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}"
+          # An assignment, so a failed read fails the step: a process substitution would not.
+          moving=$(gh api --paginate "repos/$REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft or .prerelease | not) | .tag_name' |
+            python3 scripts/release-tags.py "$TAG")
+          if [ -z "$moving" ]; then
+            echo "A newer release holds every tag $TAG could take: nothing moves."
+            exit 0
+          fi
+          digest=$(docker buildx imagetools inspect "$image:${TAG#v}" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest for $image:${TAG#v}"; exit 1; }
+          targets=()
+          while read -r tag; do
+            targets+=(-t "$image:$tag")
+          done <<<"$moving"
+          # One source, an index: buildx copies it as it is, under the digest attested.
+          docker buildx imagetools create "${targets[@]}" "$image@$digest"
+          echo "$(tr '\n' ' ' <<<"$moving")now name $image@$digest (${TAG#v})."

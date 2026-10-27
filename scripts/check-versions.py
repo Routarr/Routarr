@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Check that a version written in several files is the same in all of them.
 
-Three of them, in fact: the toolchain versions, the tools CI runs, and
-Routarr's own.
+It holds the toolchains (Rust, Node and Playwright), the linters CI runs and the dev
+container installs, `cargo about`, BuildKit, the Ubuntu release the runners start, the
+coverage floors, and Routarr's own version.
 
 rustup reads `rust-toolchain.toml`, but the two Dockerfiles have to name a base
 image tag, and `Cargo.toml` states the MSRV. Each version is written in several
@@ -220,24 +221,26 @@ def main() -> int:
             [
                 find(".github/workflows/ci.yml", rf"^\s*tool:\s*{name}@([\d.]+)$"),
                 find(".devcontainer/Dockerfile", rf"^ARG {arg}_VERSION=([\d.]+)$"),
-            ],
+            ]
+            # The weekly audit of advisories runs cargo-deny too.
+            + ([find(".github/workflows/advisories.yml", rf"^\s*tool:\s*{name}@([\d.]+)$")] if name == "cargo-deny" else []),
         )
 
-    # --- The tools the image build runs ---------------------------------------
-    # The release image's builder and the dev container install the same two
-    # cargo subcommands, so the notices and the embedded crate list come out
-    # alike in both. Both architectures are built, so both sums are compared.
-    for name, arg in (("cargo-about", "CARGO_ABOUT"), ("cargo-auditable", "CARGO_AUDITABLE")):
-        for label, suffix in (("version", r"VERSION=([\d.]+)"),
-                              ("amd64 checksum", r"SHA256_X64=([0-9a-f]{64})"),
-                              ("arm64 checksum", r"SHA256_ARM64=([0-9a-f]{64})")):
-            failures += agree(
-                f"The {name} {label}",
-                [
-                    find("Dockerfile", rf"^ARG {arg}_{suffix}$"),
-                    find(".devcontainer/Dockerfile", rf"^ARG {arg}_{suffix}$"),
-                ],
-            )
+    # --- The notices ----------------------------------------------------------
+    # The image writes the crates' notices with `cargo about`, and the backend job
+    # and the dev container check they still generate with the same release. Both
+    # architectures are built, so both sums are compared.
+    for label, suffix in (("version", r"VERSION=([\d.]+)"),
+                          ("amd64 checksum", r"SHA256_X64=([0-9a-f]{64})"),
+                          ("arm64 checksum", r"SHA256_ARM64=([0-9a-f]{64})")):
+        failures += agree(
+            f"The cargo-about {label}",
+            [
+                find("Dockerfile", rf"^ARG CARGO_ABOUT_{suffix}$"),
+                find(".devcontainer/Dockerfile", rf"^ARG CARGO_ABOUT_{suffix}$"),
+            ]
+            + ([find(".github/workflows/ci.yml", r"^\s*tool:\s*cargo-about@([\d.]+)$")] if label == "version" else []),
+        )
 
     # BuildKit runs every image build. Each `setup-buildx-action` names it by
     # digest, and Dependabot reads none of them.
@@ -259,6 +262,20 @@ def main() -> int:
             f"{buildkit_steps} setup-buildx-action steps name {buildkit_pins} pinned BuildKit "
             "images: each one needs `driver-opts: image=moby/buildkit:vX@sha256:...`"
         )
+
+    # --- The runners -----------------------------------------------------------
+    # GitHub moves `ubuntu-latest` on a day nobody chose, and has no such label for arm64, so
+    # every job names its Ubuntu release, the same on both architectures.
+    labels = []
+    for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        relative = str(workflow.relative_to(ROOT))
+        for label in re.findall(r"^\s*(?:runs-on|runner):\s*([^\s$][^\s]*)\s*$", workflow.read_text(), re.MULTILINE):
+            release = re.fullmatch(r"ubuntu-(\d+\.\d+)(?:-arm)?", label)
+            if release:
+                labels.append((relative, release.group(1)))
+            else:
+                failures.append(f"{relative} runs a job on {label}: name its Ubuntu release, as ubuntu-24.04")
+    failures += agree("The Ubuntu release of the runners", labels or [None])
 
     # --- Coverage floors ------------------------------------------------------
     # CI enforces the backend floor and Vitest the frontend ones. The commands

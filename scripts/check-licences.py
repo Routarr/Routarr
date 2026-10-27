@@ -8,11 +8,14 @@
   `frontend/package-lock.json` not marked `dev`, whose licence is read as an
   SPDX expression (`MIT OR Apache-2.0` needs one of the two allowed);
 - the `accepted` list of `backend/about.toml`, which writes the crates'
-  notices into the image and has to accept exactly what deny.toml allows.
+  notices into the image and has to accept exactly what deny.toml allows;
+- with `--bundle`, the notices Vite writes for what the build bundled: a package
+  named there and marked `dev` would escape this gate and `npm audit --omit=dev`.
 
-Run from the repository root: `python3 scripts/check-licences.py`.
+Run from the repository root: `python3 scripts/check-licences.py [--bundle FILE]`.
 """
 
+import argparse
 import json
 import pathlib
 import re
@@ -94,6 +97,17 @@ def npm_refusals(lock: dict, allowed: set[str]) -> list[str]:
     return refusals
 
 
+def bundled_refusals(lock: dict, notices: str) -> list[str]:
+    """The packages Vite's notices name as bundled that the lockfile marks for development."""
+    packages = lock.get("packages", {})
+    refusals = []
+    for name in re.findall(r"^## (\S+) - \S+ \(", notices, re.MULTILINE):
+        entry = packages.get(f"node_modules/{name}", {})
+        if entry.get("dev") or entry.get("devOptional"):
+            refusals.append(f"{name} ships in the bundle, and package-lock.json marks it dev: move it to dependencies")
+    return refusals
+
+
 def about_refusals(about: dict, allowed: list[str]) -> list[str]:
     """How about.toml's accepted list differs from deny.toml's allow-list."""
     accepted = about.get("accepted", [])
@@ -106,12 +120,20 @@ def about_refusals(about: dict, allowed: list[str]) -> list[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--bundle", type=pathlib.Path, help="the third-party notices of a frontend build")
+    args = parser.parse_args()
     deny = tomllib.loads((ROOT / "backend/deny.toml").read_text())
     allowed = deny["licenses"]["allow"]
     lock = json.loads((ROOT / "frontend/package-lock.json").read_text())
     about = tomllib.loads((ROOT / "backend/about.toml").read_text())
 
     refusals = npm_refusals(lock, set(allowed)) + about_refusals(about, allowed)
+    if args.bundle:
+        bundled = bundled_refusals(lock, args.bundle.read_text())
+        if not re.search(r"^## ", args.bundle.read_text(), re.MULTILINE):
+            bundled.append(f"{args.bundle} names no package: the notices' shape changed")
+        refusals += bundled
     for refusal in refusals:
         print(f"::error::{refusal}")
     if refusals:
