@@ -11,7 +11,9 @@ import { useTranslations, type Key, type Locale } from '../../i18n';
  * the top level of what it answers, with no script: a `<details>` folds
  * itself. Each entry's id is its `operationId`, or `schema-` and the type's
  * name, so a link can name one. The old paths still answered come last but
- * the types, under `#deprecated`, which their `Link` header names.
+ * the types, under `#deprecated`, which their `Link` header names: an
+ * installation of an earlier release still sends its callers there, so the
+ * section stays when a release answers none.
  */
 interface Props {
   locale: Locale;
@@ -84,31 +86,35 @@ const does = (id: string) => t(`api.ref.op.${id}` as Key);
       ))
     }
 
-    {
-      renamed.length > 0 && (
-        <div class="ref-group" id="deprecated">
-          <h3>{t('api.ref.deprecated')}</h3>
-          <p class="ref-note">{t('api.ref.deprecated.note')}</p>
-          <dl class="ref-fields">
-            {renamed.map((path) => (
-              <>
-                <dt>
-                  <code>
-                    {path.method} {path.old}
-                  </code>
-                </dt>
-                <dd>
-                  <span class="sr-only">{t('api.ref.deprecated.by')} </span>
-                  <code>
-                    {path.method} {path.current}
-                  </code>
-                </dd>
-              </>
-            ))}
-          </dl>
-        </div>
-      )
-    }
+    <div class="ref-group" id="deprecated">
+      <h3>{t('api.ref.deprecated')}</h3>
+      {
+        renamed.length > 0 ? (
+          <>
+            <p class="ref-note">{t('api.ref.deprecated.note')}</p>
+            <dl class="ref-fields">
+              {renamed.map((path) => (
+                <>
+                  <dt>
+                    <code>
+                      {path.method} {path.old}
+                    </code>
+                  </dt>
+                  <dd>
+                    <span class="sr-only">{t('api.ref.deprecated.by')} </span>
+                    <code>
+                      {path.method} {path.current}
+                    </code>
+                  </dd>
+                </>
+              ))}
+            </dl>
+          </>
+        ) : (
+          <p class="ref-note">{t('api.ref.deprecated.none')}</p>
+        )
+      }
+    </div>
 
     <div class="ref-group">
       <h3>{t('api.ref.types')}</h3>

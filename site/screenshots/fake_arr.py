@@ -9,6 +9,7 @@ environment so one file serves both instances.
 
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -42,6 +43,13 @@ TREE = sorted(
 )
 
 TAGS = [{"id": 1, "label": "4k"}, {"id": 2, "label": "rewatch"}, {"id": 3, "label": "imported"}]
+
+QUALITY_PROFILES = [{"id": 1, "name": "HD-1080p"}, {"id": 4, "name": "Ultra-HD"}]
+
+# Each request this stand-in does not serve. A real Arr answers it, and a 404
+# here sends Routarr down its failure path, which the screenshot then shows.
+# `run.sh` reads the list before it captures.
+UNKNOWN = []
 
 
 # What a real Radarr or Sonarr carries in its payload and Routarr's `arr`
@@ -171,6 +179,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"version": "5.0.0", "appName": MODE.capitalize()})
         if path == "/api/v3/rootfolder":
             return self._send(MOVIE_ROOTS if MODE == "radarr" else SERIES_ROOTS)
+        if path == "/api/v3/diskspace":
+            return self._send(
+                [
+                    {"path": root["path"], "label": "", "freeSpace": root["freeSpace"],
+                     "totalSpace": 4 * root["freeSpace"]}
+                    for root in (MOVIE_ROOTS if MODE == "radarr" else SERIES_ROOTS)
+                ]
+            )
         if path == "/api/v3/filesystem":
             # Answered the way Radarr's and Sonarr's LookupContents answers:
             # the query is cut after its last separator and what remains is
@@ -193,11 +209,19 @@ class Handler(BaseHTTPRequestHandler):
             )
         if path == "/api/v3/tag":
             return self._send(TAGS)
+        if path == "/api/v3/qualityprofile":
+            return self._send(QUALITY_PROFILES)
+        if path == "/api/v3/notification":
+            return self._send([])
+        if path == "/api/v3/config/metadata":
+            return self._send({"certificationCountry": "us"})
         if path == "/api/v3/movie":
             return self._send(MOVIES)
         if path == "/api/v3/series":
             return self._send(SERIES)
-        return self._send({"error": "not found"}, 404)
+        if path == "/__unknown":
+            return self._send(UNKNOWN)
+        return self._unknown("GET", path)
 
     def do_PUT(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -208,6 +232,13 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         self.rfile.read(length)
         return self._send({"id": 1, "status": "queued"})
+
+    def _unknown(self, method, path):
+        asked = f"{method} {path}"
+        if asked not in UNKNOWN:
+            UNKNOWN.append(asked)
+            print(f"fake {MODE.capitalize()}: nothing serves {asked}", file=sys.stderr, flush=True)
+        return self._send({"error": "not found"}, 404)
 
 
 if __name__ == "__main__":
