@@ -17,6 +17,6 @@
     "@astrojs/sitemap": "^3.7.4",
     "astro": "^7.3.8",
     "typescript": "^6.0.3",
-    "wrangler": "^4.149.0"
+    "wrangler": "^4.154.0"
   }
 }
