@@ -1,11 +1,11 @@
 name: Site
 
 # Production serves the site of the latest published release, built from its
-# tag: main describes features no image carries yet. Cloudflare builds main as
-# an uploaded version it never deploys, so this workflow is the only way to
-# production. A published release deploys, a manual run deploys the latest
-# release again, and a weekly run compares production with that tag, since
-# the Cloudflare zone can add to a response what the repository never declared.
+# tag: main describes features no image carries yet. Cloudflare builds nothing
+# itself, so this workflow is the only way to production. A published release
+# deploys, a manual run deploys the latest release again, and a weekly run
+# compares production with that tag, since the Cloudflare zone can add to a
+# response what the repository never declared.
 # Apart from `ci.yml`: a release event is neither a push nor a pull request.
 on:
   release:

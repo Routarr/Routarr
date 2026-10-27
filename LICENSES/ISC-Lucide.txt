@@ -1,0 +1,31 @@
+Routarr's logo is Lucide's git-branch icon (https://lucide.dev/icons/git-branch),
+drawn in these files and in the images rendered from them:
+
+- .github/assets/logo.svg, the README's
+- frontend/public/favicon.svg and frontend/src/components/Sidebar.svelte, the
+  interface's
+- site/public/assets/favicon.svg, from which site/icons.mjs renders
+  site/public/favicon.ico, site/public/assets/favicon-32.png and
+  site/public/assets/apple-touch-icon.png
+- site/src/components/icons/Brand.astro, the showcase site's header
+- site/og.html, from which site/og.mjs renders the link preview cards,
+  site/public/assets/og-<language>.png
+
+The icon is distributed under the following licence, and the showcase site
+credits it in its footer.
+
+ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

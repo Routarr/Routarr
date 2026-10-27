@@ -35,10 +35,12 @@ rule can be previewed before it is saved. An exception forces a title's category
 every rule. For every title, the explanation shows what each condition expected and what it
 observed, for the winning rule and for every rule that did not win.
 
-The user names the categories and attaches root folders to them. A root folder is either one
-that Radarr or Sonarr reports or one declared in Routarr, and a declared folder takes its free
-space and reachability from the synced folder it sits under. Routarr never creates a library
-layout.
+The user names the categories and attaches root folders to them. A category may lead to several
+folders of an instance, the second and any after it added once the user confirms: a title already
+in one of them stays, and a title moving in goes to the one with the most room. A root folder is
+either one that Radarr or Sonarr reports or one declared in Routarr, and a declared folder takes
+its free space and reachability from the synced folder it sits under. Routarr never creates a
+library layout.
 
 Six gates run in this order before anything is written, and the first to object stops the rest:
 global dry-run, batch limit, reachability, capacity, confirmation threshold, and revalidation at
@@ -66,13 +68,15 @@ Routarr also provides:
 - A secret webhook token per instance, sent in a header by Radarr 5.16 and Sonarr 4.0.11 or in
   the URL by older releases. A title added in Radarr or Sonarr is synced, enriched and evaluated
   at once rather than at the next poll, and can be routed before it downloads.
-- Authentication on by default: an API key, a single account, or OpenID Connect.
+- Authentication on by default: an API key, a single account, or OpenID Connect, which can let
+  named people or groups in to read only.
 - Prometheus metrics at /api/v1/metrics, behind the same API key.
 - Notifications written the way Discord, ntfy, Gotify or Apprise reads them, or as JSON for any
   other receiver, signed as Standard Webhooks specifies when a receiver checks where they come
   from, and a test message to check the address. An Arr that stops answering is reported once,
   and again when it is back, and failed syncs and finished runs can be switched on too.
-- A backup into data/backups/ every day, unless the interval is changed.
+- A backup into config/backups/ (the data directory's backups/) every day, unless the interval is
+  changed.
 - Export of rules, categories, mappings and exceptions as JSON. Arr API keys are encrypted at rest
   with AES-256-GCM and are left out of the export.
 - Translations into 26 languages, decision justifications included.
@@ -80,11 +84,12 @@ Routarr also provides:
   Applications screen. Every key reads, and changes only what its scopes grant. Its OpenAPI
   contract is served at /api/v1/openapi.json. From 1.0 nothing documented in it is removed,
   renamed or retyped, and a path renamed before it keeps answering under its old name, marked
-  deprecated, for at least two minor releases.
+  deprecated, for at least two minor releases and six months.
 
 It has no telemetry, no analytics and no update check. Its only outbound calls go to the
 configured Radarr and Sonarr instances, to the metadata sources the user enables, to an OpenID
-Connect provider if one is used, and to a notification webhook if one is set.
+Connect provider if one is used, to a notification webhook if one is set, and, when the user asks
+for it, to the address of the anime identifier table, GitHub by default.
 
 To install, save the compose file from the README (image ghcr.io/routarr/routarr:latest, port
 9876, ./config mounted at /config) and run:
@@ -116,7 +121,9 @@ and preview their impact), Simulation (run it, read the justifications, apply wh
 with), and optionally Settings (turn off the global dry-run once the result is trusted).
 
 ROUTARR_AUTH selects authentication: apikey (the default), forms (one account with a password),
-oidc (OpenID Connect), external (a reverse proxy in front authenticates) or none (open).
+oidc (OpenID Connect), external (a reverse proxy in front authenticates) or none (open). Under
+oidc, ROUTARR_OIDC_READ_SUBJECTS and ROUTARR_OIDC_READ_GROUPS name people who sign in to read
+only: the library, the proposals, the history and the tasks, never a move or a setting.
 ROUTARR_BASE_PATH serves Routarr under a sub-path such as /routarr behind a reverse proxy. The
 API, the interface and the webhook URLs all move with it, and no image rebuild is needed.
 ROUTARR_API_KEY sets the API key instead of generating one, and ROUTARR_SECRET_KEY sets the key
@@ -125,14 +132,15 @@ everything else is set in the interface, under Settings and Metadata sources.
 
 Security issues are reported privately through GitHub, as SECURITY.md describes, never in a
 public issue. Only the most recent release is supported. Out of scope by design: a permission
-model for people (whoever signs in has the one level of access, and only the keys made for other
-applications are scoped), telemetry of any kind (opt-in included), a second database engine,
-signal weighting, nested condition groups, temporary exceptions and a persistent task queue.
+model beyond full and read-only access, telemetry of any kind (opt-in included), a second database
+engine, signal weighting, nested condition groups, temporary exceptions and a persistent task
+queue.
 
 The Site links below are Markdown copies of the three English pages of the showcase site, each
 at its page's address with index.html.md appended, and the French, German and Spanish copies are
-under Optional. Under Docs, repository files are linked as raw text, and
-the README is the reference for installation and configuration.
+under Optional. Under Docs, repository files are linked as raw text at the release this site
+describes, the security policy as it stands on main, and the README is the reference for
+installation and configuration.
 
 ## Site
 
@@ -146,23 +154,23 @@ the README is the reference for installation and configuration.
 
 ## Docs
 
-- [README](https://raw.githubusercontent.com/Routarr/Routarr/main/README.md): features, quick
+- [README](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/README.md): features, quick
   start, image tags, configuration and backups.
-- [Environment variables](https://raw.githubusercontent.com/Routarr/Routarr/main/backend/.env.example):
+- [Environment variables](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/backend/.env.example):
   every variable, listed and commented, OpenID Connect and the metadata source keys included.
 - [Security policy](https://raw.githubusercontent.com/Routarr/Routarr/main/SECURITY.md): how to
   report a vulnerability, which versions are supported, what is already in place, and the known
   limits.
-- [Contributing guide](https://raw.githubusercontent.com/Routarr/Routarr/main/CONTRIBUTING.md):
+- [Contributing guide](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/CONTRIBUTING.md):
   the development setup, the checks CI runs, commit conventions, the release process, and what
   will be turned down.
 - [Source repository](https://github.com/Routarr/Routarr): code, issues and releases.
 
 ## Optional
 
-- [Licence](https://raw.githubusercontent.com/Routarr/Routarr/main/LICENSE): the full text of the
+- [Licence](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/LICENSE): the full text of the
   GNU General Public License, version 3.
-- [Compose file](https://raw.githubusercontent.com/Routarr/Routarr/main/docker-compose.yml): the
+- [Compose file](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/docker-compose.yml): the
   repository's own, which builds the image from source, with comments on the volume,
   authentication and the container hardening.
 - [Landing page (French)](https://routarr.app/fr/index.html.md)

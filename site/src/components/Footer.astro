@@ -1,5 +1,6 @@
 ---
 import { useTranslations, type Locale } from '../i18n';
+import { version } from '../version';
 
 interface Props { locale: Locale }
 const t = useTranslations(Astro.props.locale);
@@ -8,10 +9,11 @@ const t = useTranslations(Astro.props.locale);
 <footer class="site-footer">
   <div class="wrap">
     <span>{t('footer.p')}</span>
-    <small class="footer-data">{t('footer.data')}</small>
+    <small class="footer-credit">{t('footer.data')}</small>
+    <small class="footer-credit"><a href="https://lucide.dev/license">{t('footer.logo')}</a></small>
     <nav aria-label={t('footer.nav')}>
       <a href="https://github.com/Routarr/Routarr">{t('footer.a.source')}</a>
-      <a href="https://github.com/Routarr/Routarr/blob/main/README.md">{t('footer.a.docs')}</a>
+      <a href={`https://github.com/Routarr/Routarr/blob/v${version}/README.md`}>{t('footer.a.docs')}</a>
       <a href="https://github.com/Routarr/Routarr/issues">{t('footer.a.issues')}</a>
     </nav>
   </div>
