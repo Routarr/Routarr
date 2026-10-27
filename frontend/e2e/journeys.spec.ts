@@ -56,6 +56,21 @@ test.describe('navigation', () => {
    * The server answers 200 for any path, so a mistyped one is the client's to report. The
    * dashboard in its place would be a screen nobody asked for.
    */
+  /** Back leaves the screen: a filter changes what the list shows, not where the reader is. */
+  test('a list keeps its filter through a reload, and Back leaves it', async ({ page }) => {
+    await openScreen(page, '/library');
+    await openScreen(page, '/move-log');
+    const outcome = page.getByLabel('Filter by outcome');
+    await outcome.selectOption('failure');
+    await expect(page).toHaveURL(/\/move-log\?outcome=failure$/);
+
+    await page.reload();
+    await expect(outcome).toHaveValue('failure');
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/library$/);
+  });
+
   test('a path that does not exist says so, and keeps the address', async ({ page }) => {
     await page.goto('/typo');
 

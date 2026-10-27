@@ -177,6 +177,19 @@ describe('Dashboard', () => {
     expect(alerting.at(0)?.textContent).toContain('3');
   });
 
+  it('opens the list each figure counts, narrowed to what it counts', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(connected());
+    show();
+
+    const link = async (name: string) =>
+      (await screen.findByRole('link', { name: new RegExp(name) })).getAttribute('href');
+    expect(await link('Movies managed')).toBe('/library?type=movie');
+    expect(await link('Series managed')).toBe('/library?type=series');
+    expect(await link('Active rules')).toBe('/rules');
+    expect(await link('Moves applied')).toBe('/history?status=applied');
+    expect(await link('Failed moves')).toBe('/move-log?outcome=failure');
+  });
+
   it('leaves the row unmarked when nothing has failed', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(connected());
     const { container } = show();

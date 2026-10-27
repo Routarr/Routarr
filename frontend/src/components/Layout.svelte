@@ -10,6 +10,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { focusHeadingOf } from '../lib/focus';
+  import { onMac } from '../lib/keys';
   import { screenKey } from '../lib/routes';
   import { invalidateStatus, statusRevision, warningsRevision } from '../lib/status.svelte';
   import { proofRequest, settleProof } from '../lib/proof.svelte';
@@ -20,7 +21,6 @@
     publishOnboarding,
     publishOnboardingFailure,
   } from '../lib/onboarding.svelte';
-  import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
   import Sidebar from './Sidebar.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -140,10 +140,8 @@
    * The shortcut, and the label that teaches it. Firefox binds Ctrl+K to its search bar, so the
    * combination is `preventDefault`ed.
    */
-  const mac =
-    typeof navigator !== 'undefined' &&
-    /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
-  const shortcut = $derived(mac ? '⌘K' : 'Ctrl K');
+  const mac = onMac();
+  const shortcut = mac ? '⌘K' : 'Ctrl K';
 
   function onShortcut(event: KeyboardEvent) {
     // The palette lives in the authenticated branch: on the sign-in and key screens this would
@@ -281,7 +279,12 @@
 {#if unauthorized && sessionMode}
   <LoginGate mode={sessionMode} />
 {:else if unauthorized}
-  <ApiKeyGate />
+  <!-- Fetched when shown: a browser holding a session never sees it. -->
+  {#await import('./ApiKeyGate.svelte') then { default: ApiKeyGate }}
+    <ApiKeyGate />
+  {:catch error}
+    <PageFailure {error} />
+  {/await}
 {:else}
   <!-- First in the tab order, so a keyboard user is not walked through every
        navigation link on every page before reaching the content. Focus is moved
@@ -379,7 +382,7 @@
           {#if attention}
             <!-- Failures first, which the move log lists and Diagnostics does not. -->
             <a
-              href={href(attention.critical ? '/move-log' : '/diagnostics')}
+              href={href(attention.critical ? '/move-log?outcome=failure' : '/diagnostics')}
               class="attention {attention.critical ? 'is-critical' : ''}"
               title={attention.label}
             >

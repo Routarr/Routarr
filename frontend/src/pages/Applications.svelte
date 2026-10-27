@@ -17,6 +17,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
+  import CopyField from '../components/CopyField.svelte';
 
   const applications = createAsync((signal) => api.getApplications(signal));
   const outcome = createOutcome();
@@ -140,12 +141,11 @@
   <OutcomeBanner {outcome} />
 
   {#if minted}
-    <!-- The one moment the token is readable. `mono` carries the
-         `direction: ltr` a token needs in a right-to-left page. -->
+    <!-- The one moment the token is readable. -->
     <div class="card">
       <p><strong>{t('ApplicationTokenFor', { name: minted.name })}</strong></p>
       <WarningBanner message={t('ApiKeyMintedOnce')} />
-      <code class="mono secret-once">{minted.token}</code>
+      <CopyField value={minted.token} label={t('ApplicationTokenFor', { name: minted.name })} />
     </div>
   {/if}
 

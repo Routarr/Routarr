@@ -21,7 +21,7 @@ export const SETTLED_ON: Record<string, string | null> = {
   no_enabled_instance: '/instances',
   missing_metadata: '/sources',
   scheduler_panicked: null,
-  backup_failed: '/tasks',
+  backup_failed: '/tasks?status=failed',
   backup_overdue: '/tasks',
   data_disk_low: null,
   setting_above_maximum: '/settings#maintenance',

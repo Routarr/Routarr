@@ -218,7 +218,7 @@ describe('Layout', () => {
     show();
 
     const attention = await screen.findByRole('link', { name: /Needs attention/ });
-    expect(attention.getAttribute('href')).toBe('/routarr/move-log');
+    expect(attention.getAttribute('href')).toBe('/routarr/move-log?outcome=failure');
   });
 
   it('says when signing out failed instead of pretending it worked', async () => {
@@ -270,7 +270,7 @@ describe('Layout', () => {
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
   });
 
-  it('totals what needs acting on into one control, and names both parts', async () => {
+  it('totals what needs acting on into one control, names both parts, and opens the failures', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(
       status({
         running_jobs: 1,
@@ -287,7 +287,7 @@ describe('Layout', () => {
       name: /Needs attention: Failed moves: 2, Warnings: 2$/,
     });
     expect(attention).toHaveTextContent('4');
-    expect(attention.getAttribute('href')).toBe('/move-log');
+    expect(attention.getAttribute('href')).toBe('/move-log?outcome=failure');
   });
 
   /** Grouped as the language groups digits, as every other count of the interface. */

@@ -5,6 +5,7 @@
   import { t } from '../lib/i18n.svelte';
   import type { Outcome } from '../lib/outcome.svelte';
   import WarningBanner from './WarningBanner.svelte';
+  import CopyField from './CopyField.svelte';
   import { handFocus } from '../lib/focus';
 
   /**
@@ -65,7 +66,7 @@
   {#if replaced}
     <div class="mb-3">
       <WarningBanner message={t('ApiKeyMintedOnce')} />
-      <code class="mono secret-once">{replaced}</code>
+      <CopyField value={replaced} label={t('ApiKey')} />
     </div>
   {/if}
 

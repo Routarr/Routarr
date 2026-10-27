@@ -28,6 +28,7 @@
   import { cut, i18n, t } from '../lib/i18n.svelte';
   import { handFocus, type FocusTarget } from '../lib/focus';
   import ActionMenu from '../components/ActionMenu.svelte';
+  import CopyField from '../components/CopyField.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import InstanceStatus from '../components/InstanceStatus.svelte';
@@ -873,20 +874,27 @@
               </p>
             </div>
           </div>
-          <div class="form-group flex-fit mt-4">
+          <div class="form-group mt-4">
             <label class="form-label" for="instances-sync-every-minutes">
               {t('SyncEveryMinutes')}
             </label>
-            <input
-              id="instances-sync-every-minutes"
-              type="number"
-              min="1"
-              max={MAX_INTERVAL_MINUTES}
-              class="form-input"
-              aria-invalid={intervalOk ? undefined : 'true'}
-              aria-describedby={intervalOk ? undefined : 'instances-sync-every-minutes-range'}
-              bind:value={form.sync_interval_minutes}
-            />
+            <div class="flex items-center gap-2">
+              <input
+                id="instances-sync-every-minutes"
+                type="number"
+                min="1"
+                max={MAX_INTERVAL_MINUTES}
+                class="form-input max-w-12ch"
+                aria-invalid={intervalOk ? undefined : 'true'}
+                aria-describedby="instances-sync-every-minutes-unit{intervalOk
+                  ? ''
+                  : ' instances-sync-every-minutes-range'}"
+                bind:value={form.sync_interval_minutes}
+              />
+              <span id="instances-sync-every-minutes-unit" class="text-muted text-sm">
+                {t('UnitMinutes')}
+              </span>
+            </div>
             {#if !intervalOk}
               <p id="instances-sync-every-minutes-range" class="field-error">
                 {t('RangeBetween', { min: 1, max: MAX_INTERVAL_MINUTES })}
@@ -947,33 +955,18 @@
                 <p class="text-muted">{note}</p>
               {/each}
             </div>
-            <!-- Each value in a field and not only behind Copy: on a plain http origin the
-                 clipboard is closed. -->
             <ol class="term-list flex flex-col gap-2 text-md mb-3">
               <li>{t('WebhookStepOpen', { service })}</li>
               <li>
                 <div>{t('WebhookStepUrl')}</div>
-                <label class="visually-hidden" for="instances-webhook-path">
-                  {t('WebhookUrl')}
-                </label>
-                <input
-                  id="instances-webhook-path"
-                  class="form-input mono mt-1"
+                <CopyField
                   value={webhookAddress(heard.webhook_path ?? '')}
-                  readonly
+                  label={t('WebhookUrl')}
                 />
               </li>
               <li>
                 <div>{t('WebhookStepToken')}</div>
-                <label class="visually-hidden" for="instances-webhook-token">
-                  {t('WebhookToken')}
-                </label>
-                <input
-                  id="instances-webhook-token"
-                  class="form-input mono mt-1"
-                  value={heard.webhook_token ?? ''}
-                  readonly
-                />
+                <CopyField value={heard.webhook_token ?? ''} label={t('WebhookToken')} />
               </li>
               <li>
                 {t('WebhookTriggers', {
@@ -983,19 +976,12 @@
               <li>{t('WebhookStepTest', { service })}</li>
             </ol>
             <div class="form-group text-sm">
-              <label class="form-label" for="instances-webhook-url">
-                {t('WebhookUrlWithToken')}
-              </label>
-              <input
-                id="instances-webhook-url"
-                class="form-input mono"
+              <div class="form-label">{t('WebhookUrlWithToken')}</div>
+              <CopyField
                 value={webhookAddress(heard.webhook_url ?? '')}
-                readonly
-                aria-describedby="instances-webhook-url-help"
+                label={t('WebhookUrlWithToken')}
               />
-              <p id="instances-webhook-url-help" class="text-muted text-sm mt-1">
-                {t('WebhookUrlWithTokenHelp')}
-              </p>
+              <p class="text-muted text-sm">{t('WebhookUrlWithTokenHelp')}</p>
             </div>
           </details>
         {/if}

@@ -87,7 +87,9 @@ test.describe('form fields carry a programmatic label', () => {
         expect(control.labels, `${name}: ${control.id} is not labelled`).toBe(1);
         // Only a setting carries its paragraph: the account and backup forms explain in a note.
         if (control.id.startsWith('setting-')) {
-          expect(control.describedBy, `${name}: ${control.id}`).toBe(`${control.id}-help`);
+          expect((control.describedBy ?? '').split(' '), `${name}: ${control.id}`).toContain(
+            `${control.id}-help`,
+          );
           checked += 1;
         }
       }

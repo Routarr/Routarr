@@ -332,6 +332,26 @@ describe('the moves apart from the skips', () => {
     expect(screen.getByText('Heat')).toBeInTheDocument();
   });
 
+  /** A link may name what was deleted since: that filter falls back to every value. */
+  it('opens on the view and the filters its address names, and keeps each change there', async () => {
+    window.history.replaceState({}, '', '/simulation?view=skip&instance=gone&rule=r9&type=series');
+    vi.spyOn(api, 'getRules').mockResolvedValue([rule({ id: 'r9' })]);
+    await show([decision({ media_title: 'Dune', action: 'skip', target_root_folder: null })]);
+
+    expect(await screen.findByRole('button', { name: /^Skipped/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await waitFor(() => expect(window.location.search).toBe('?view=skip&type=series&rule=r9'));
+    expect(api.getDecisions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: 'skip', rule_id: 'r9', media_type: 'series' }),
+      expect.any(AbortSignal),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /^All/ }));
+    expect(window.location.search).toBe('?view=all&type=series&rule=r9');
+  });
+
   it('counts each view under the filters set', async () => {
     await show([decision({ media_title: 'Akira' })]);
     await screen.findByRole('button', { name: 'To move 1' });

@@ -4,3 +4,8 @@
  */
 export const composing = (event: KeyboardEvent): boolean =>
   event.isComposing || event.keyCode === 229;
+
+/** Whether the keyboard's shortcuts take ⌘ where others take Ctrl. */
+export const onMac = (): boolean =>
+  typeof navigator !== 'undefined' &&
+  /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);

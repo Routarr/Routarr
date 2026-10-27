@@ -41,9 +41,10 @@ interface Reading {
 async function read(page: Page): Promise<Reading> {
   return page.evaluate(
     ({ selectors, sameLine }) => {
+      // A closed disclosure's content keeps a box in Chromium: only what is rendered counts.
       const shown = (el: Element) => {
         const box = el.getBoundingClientRect();
-        return box.width > 0 && box.height > 0;
+        return box.width > 0 && box.height > 0 && (el.checkVisibility?.() ?? true);
       };
       const wrapped: Record<string, string> = {};
       for (const selector of selectors) {

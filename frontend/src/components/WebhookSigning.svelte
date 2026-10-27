@@ -9,6 +9,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import WarningBanner from './WarningBanner.svelte';
+  import CopyField from './CopyField.svelte';
   import { handFocus } from '../lib/focus';
 
   /**
@@ -65,13 +66,12 @@
   </div>
 
   {#if minted}
-    <!-- The one moment the secret is readable. `mono` carries the
-         `direction: ltr` it needs in a right-to-left page. -->
+    <!-- The one moment the secret is readable. -->
     <div class="mb-3">
       <!-- Its own sentence, not the key's: most languages agree the pronoun
            with the noun, and the secret and the key differ in gender. -->
       <WarningBanner message={t('SigningSecretMintedOnce')} />
-      <code class="mono secret-once">{minted}</code>
+      <CopyField value={minted} label={t('SecurityKindSigningSecret')} />
     </div>
   {/if}
 

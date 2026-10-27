@@ -1,6 +1,6 @@
 <script lang="ts">
   import CardTitle from './CardTitle.svelte';
-  import { ShieldCheck } from '../lib/icons';
+  import { LogOut, ShieldCheck } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
@@ -96,7 +96,6 @@
   {:else if sessions.data}
     <div class="flex-col gap-2">
       {#each shown as session, index (session.handle)}
-        <!-- Wraps, so a long word on the button goes below the session rather than off a phone. -->
         <div class="flex flex-wrap gap-2 items-center">
           <div class="flex-1">
             <!-- A key names nobody: its source says all there is. -->
@@ -121,15 +120,16 @@
           <button
             id={endId(index)}
             type="button"
-            class="btn btn-secondary btn-sm"
+            class="btn btn-danger btn-sm"
             disabled={busy}
+            title={t('EndSession')}
             aria-label="{t('EndSession')} – {session.subject}, {formatTimestamp(
               session.created_at,
               i18n.language,
             )}"
             onclick={() => void end(session.handle, index, session.current)}
           >
-            {t('EndSession')}
+            <LogOut size={14} aria-hidden="true" />
           </button>
         </div>
       {/each}

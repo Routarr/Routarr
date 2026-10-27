@@ -415,10 +415,10 @@ test.describe('on a phone', () => {
     await dialog.getByRole('button', { name: 'Create a key' }).click();
     await proveWithKey(page);
 
-    const token = page.locator('.secret-once');
-    await expect(token).toBeVisible();
-    const fits = await token.evaluate((node) => {
-      const box = node.getBoundingClientRect();
+    const copy = page.getByRole('button', { name: 'Copy – Key for phone' });
+    await expect(copy).toBeInViewport();
+    const fits = await copy.evaluate((node) => {
+      const box = node.previousElementSibling!.getBoundingClientRect();
       return {
         page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         inside: box.right <= document.documentElement.clientWidth,
@@ -427,6 +427,36 @@ test.describe('on a phone', () => {
     expect(fits).toEqual({ page: 0, inside: true });
     const keys = (await api('/applications')) as { id: string }[];
     for (const key of keys) await api(`/applications/${key.id}`, { method: 'DELETE' });
+  });
+
+  /** Each webhook value is pasted into the Arr whole, so none may end at the dialog's edge. */
+  test("the instance dialog's webhook values wrap inside it, each beside its Copy", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/instances');
+    await page.getByRole('button', { name: 'Edit – Radarr' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit instance' });
+    await unfold(page);
+
+    for (const name of [
+      'Webhook URL',
+      'Token for the X-Routarr-Token header',
+      'Webhook URL for an older Arr',
+    ]) {
+      const copy = dialog.getByRole('button', { name: `Copy – ${name}`, exact: true });
+      await copy.scrollIntoViewIfNeeded();
+      const fits = await copy.evaluate((node) => {
+        const frame = node.closest('dialog, [role="dialog"]')!.getBoundingClientRect();
+        const value = node.previousElementSibling!;
+        const box = value.getBoundingClientRect();
+        return {
+          cut: value.scrollWidth - value.clientWidth,
+          inside: box.left >= frame.left && node.getBoundingClientRect().right <= frame.right,
+        };
+      });
+      expect(fits, `${name} runs past the dialog`).toEqual({ cut: 0, inside: true });
+    }
   });
 
   /** An empty table spans past the screen, so a message centred across it starts out of view. */
@@ -916,6 +946,18 @@ test.describe('every screen draws a shared thing the same way', () => {
     const [footerBox, addBox] = [await footer.boundingBox(), await add.boundingBox()];
     const gap = footerBox!.x + footerBox!.width - (addBox!.x + addBox!.width);
     expect(Math.abs(gap), `the action ends ${gap}px before the footer`).toBeLessThanOrEqual(1);
+  });
+
+  test('a number setting is a short field, its unit beside it', async ({ page }) => {
+    await page.goto('/settings#maintenance');
+    const field = page.getByLabel('Backup interval', { exact: true });
+    const unit = page.locator('#setting-backup_interval_hours-unit');
+    await expect(unit).toHaveText('hours');
+
+    const [box, after] = [await field.boundingBox(), await unit.boundingBox()];
+    expect(box!.width, 'the field spans the column').toBeLessThan(160);
+    expect(after!.x).toBeGreaterThan(box!.x + box!.width);
+    expect(Math.abs(after!.y + after!.height / 2 - (box!.y + box!.height / 2))).toBeLessThan(4);
   });
 
   /** A value Save waits on is marked on its field and on its tab, for a reader on another tab. */

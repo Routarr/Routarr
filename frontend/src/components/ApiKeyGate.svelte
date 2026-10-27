@@ -4,6 +4,7 @@
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
+  import CopyField from './CopyField.svelte';
 
   /**
    * Shown in place of the application when the server wants a key this browser lacks, the
@@ -64,7 +65,9 @@
       {t('ApiKeyGeneratedFile', { file: 'routarr.api_key' })}
     </p>
     <p class="text-muted text-base">{t('ApiKeyDockerCommand')}</p>
-    <code class="mono gate-command">{READ_KEY_COMMAND}</code>
+    <div class="mb-3">
+      <CopyField value={READ_KEY_COMMAND} label={READ_KEY_COMMAND} />
+    </div>
 
     <div class="form-group">
       <label class="form-label" for="gate-api-key">{t('RoutarrApiKey')}</label>

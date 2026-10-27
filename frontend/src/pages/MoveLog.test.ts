@@ -202,6 +202,24 @@ describe('Move log', () => {
     ]);
   });
 
+  /** The top bar's count of failures links here with `?outcome=failure`. */
+  it('opens on the filters its address names, and keeps each change there', async () => {
+    window.history.replaceState({}, '', '/move-log?outcome=failure&search=heat');
+    const getMoveLog = vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
+    show();
+
+    await waitFor(() =>
+      expect(getMoveLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'heat', success: false }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByLabelText('Filter by outcome')).toHaveValue('failure');
+
+    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
+    expect(window.location.search).toBe('?search=heat&outcome=success');
+  });
+
   it('asks for everything when the filter is cleared, rather than for failures', async () => {
     const getMoveLog = vi.spyOn(api, 'getMoveLog').mockResolvedValue(paginated([entry()]));
     show();

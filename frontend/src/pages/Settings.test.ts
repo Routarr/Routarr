@@ -184,7 +184,7 @@ describe('the save bar', () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
 
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
 
     expect(await screen.findByText('Unsaved changes: 1')).toBeTruthy();
     expect(screen.getByText('Every section is saved together')).toBeTruthy();
@@ -195,14 +195,14 @@ describe('the save bar', () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
 
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     expect(await save()).toEqual({ global_dry_run: 'false' });
   });
 
   it('saves the sources alone, from a screen with no section strip', async () => {
     mountSources({ metadata_providers: 'arr' });
 
-    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
+    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL'), {
       target: { value: '14' },
     });
     expect(screen.queryByRole('tab')).toBeNull();
@@ -213,7 +213,7 @@ describe('the save bar', () => {
   it('tells the shell its counters are out of date', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
 
     const before = statusRevision();
     await save();
@@ -224,7 +224,7 @@ describe('the save bar', () => {
   it('asks before leaving with unsaved changes, and stays on Cancel', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     await screen.findByText('Unsaved changes: 1');
 
     navigate('/rules');
@@ -239,7 +239,7 @@ describe('the save bar', () => {
   it('leaves once the reader agrees to drop the changes', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     await screen.findByText('Unsaved changes: 1');
 
     navigate('/rules');
@@ -263,7 +263,7 @@ describe('the save bar', () => {
     await openSection('Guardrails');
     expect(unloading()).toBe(false);
 
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     await screen.findByText('Unsaved changes: 1');
 
     expect(unloading()).toBe(true);
@@ -273,7 +273,7 @@ describe('the save bar', () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
 
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     await screen.findByText('Unsaved changes: 1');
     await fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
@@ -283,7 +283,7 @@ describe('the save bar', () => {
   it('hands the focus to the open section once a save takes the bar away', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     (await screen.findByRole('button', { name: 'Save' })).focus();
 
     await save();
@@ -294,7 +294,7 @@ describe('the save bar', () => {
   it('hands the focus to the open section once a discard takes the bar away', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     const discard = await screen.findByRole('button', { name: 'Discard' });
     discard.focus();
 
@@ -343,7 +343,7 @@ describe('the metadata sources', () => {
     const card = title.closest('.card') as HTMLElement;
     const weekly = within(card).getByLabelText('Anime identifiers every week');
     expect(weekly.closest('.card')).toBe(card);
-    await userEvent.selectOptions(weekly, 'true');
+    await userEvent.click(weekly);
 
     expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
     expect(screen.getByText(SAVES_SOURCES)).toBeTruthy();
@@ -397,7 +397,7 @@ describe('the metadata sources', () => {
       { configured: true, order: ['arr', 'tmdb'] },
     );
 
-    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
+    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL'), {
       target: { value: '14' },
     });
     const payload = await save();
@@ -433,7 +433,7 @@ describe('the metadata sources', () => {
   it('leaves the order the server resolved unstored when none is stored', async () => {
     mountSources({ metadata_cache_ttl_days: '30' }, { configured: true, order: ['tmdb', 'arr'] });
 
-    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL (days)'), {
+    await fireEvent.input(await screen.findByLabelText('Metadata cache TTL'), {
       target: { value: '14' },
     });
     expect(await save()).toEqual({ metadata_cache_ttl_days: '14' });
@@ -447,7 +447,7 @@ describe('the metadata sources', () => {
     );
     expect(await screen.findAllByRole('button', { name: 'Disable – TMDB' })).toHaveLength(1);
 
-    await fireEvent.input(screen.getByLabelText('Metadata cache TTL (days)'), {
+    await fireEvent.input(screen.getByLabelText('Metadata cache TTL'), {
       target: { value: '14' },
     });
     expect(await save()).toEqual({ metadata_cache_ttl_days: '14' });
@@ -519,16 +519,6 @@ describe('the notification webhook', () => {
     await screen.findByLabelText('Notification webhook');
     expect(screen.queryByRole('button', { name: 'Remove – Notification webhook' })).toBeNull();
   });
-});
-
-it('offers a switch in words of its own', async () => {
-  mount({ auto_apply_enabled: 'false' });
-  await openSection('Automation');
-
-  const options = [
-    ...(screen.getByLabelText('Automatic application') as HTMLSelectElement).options,
-  ];
-  expect(options.map((option) => option.textContent?.trim())).toEqual(['Enabled', 'Disabled']);
 });
 
 describe("a source's stored key", () => {
@@ -615,7 +605,7 @@ describe('housekeeping', () => {
 
     const backups = await card('Backups');
     expect(within(backups).getByRole('button', { name: 'Back up now' })).toBeTruthy();
-    for (const label of ['Scheduled backups', 'Backup interval (hours)', 'Backups kept']) {
+    for (const label of ['Scheduled backups', 'Backup interval', 'Backups kept']) {
       expect(within(backups).getByLabelText(label)).toBeTruthy();
     }
     const sealed = within(backups).getByText('Backup encryption', { selector: 'summary *' });
@@ -635,8 +625,8 @@ describe('housekeeping', () => {
     await openSection('Maintenance');
 
     const retention = await card('Retention');
-    expect(within(retention).getByLabelText('Decision retention (days)')).toBeTruthy();
-    expect(within(retention).getByLabelText('Log retention (days)')).toBeTruthy();
+    expect(within(retention).getByLabelText('Decision retention')).toBeTruthy();
+    expect(within(retention).getByLabelText('Log retention')).toBeTruthy();
     expect(within(retention).getByRole('button', { name: 'Purge now' })).toHaveClass('btn-danger');
     expect(within(retention).queryByRole('button', { name: 'Export configuration' })).toBeNull();
     const file = await card('Configuration file');
@@ -896,7 +886,7 @@ describe('importing a configuration', () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ global_dry_run: 'true', batch_limit: '50' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     await openSection('Maintenance');
     vi.mocked(api.getSettings).mockResolvedValue({ global_dry_run: 'true', batch_limit: '25' });
 
@@ -907,7 +897,7 @@ describe('importing a configuration', () => {
     await waitFor(() =>
       expect((screen.getByLabelText('Batch limit') as HTMLInputElement).value).toBe('25'),
     );
-    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('true');
+    expect(screen.getByLabelText('Global dry-run')).toBeChecked();
     expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
   });
 
@@ -915,7 +905,7 @@ describe('importing a configuration', () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     await openSection('Maintenance');
     vi.mocked(api.getSettings)
       .mockRejectedValueOnce(new ApiError('The settings could not be read', 409, 'conflict'))
@@ -927,7 +917,7 @@ describe('importing a configuration', () => {
 
     await waitFor(() => expect(screen.queryByText('The settings could not be read')).toBeNull());
     await openSection('Guardrails');
-    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('true');
+    expect(screen.getByLabelText('Global dry-run')).toBeChecked();
     expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
   });
 
@@ -1087,6 +1077,7 @@ describe('the API key card', () => {
 
     await waitFor(() => expect(rotate).toHaveBeenCalledWith({ current_key: 'the-key-proven' }));
     expect(await screen.findByText('the-new-one')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy – API key' })).toBeInTheDocument();
     expect(localStorage.getItem('routarr.apiKey')).toBeNull();
   });
 
@@ -1142,6 +1133,34 @@ describe('the API key card', () => {
     // Its button goes with the key, and the one that makes a key takes the focus.
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Create a key' })),
+    );
+  });
+});
+
+describe('the shape of a field', () => {
+  it('draws an on/off setting as a box to tick, its help under its name', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Guardrails');
+
+    const box = await screen.findByRole('checkbox', { name: 'Global dry-run' });
+    expect(box).toBeChecked();
+    expect(box).toHaveAccessibleDescription(expect.stringMatching(/^While on, Routarr/));
+
+    await userEvent.click(box);
+    expect(box).not.toBeChecked();
+    expect(await save()).toEqual({ global_dry_run: 'false' });
+  });
+
+  /** The width hints at the length of the value, and the unit leaves the label for it. */
+  it('draws a number as a short field, its unit after it', async () => {
+    mount({ backup_interval_hours: '24' });
+    await openSection('Maintenance');
+
+    const field = await screen.findByLabelText('Backup interval');
+    expect(field).toHaveClass('max-w-12ch');
+    expect(field).toHaveAccessibleDescription(expect.stringMatching(/^hours /));
+    expect(screen.getByLabelText('Backups kept')).toHaveAccessibleDescription(
+      expect.stringMatching(/^Past this count/),
     );
   });
 });
@@ -1207,7 +1226,7 @@ describe('a refused save', () => {
   it('offers no retry, and keeps every edit', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     vi.spyOn(api, 'updateSettings').mockRejectedValue(
       new ApiError('The batch limit is out of range', 400, 'bad_request'),
     );
@@ -1216,14 +1235,14 @@ describe('a refused save', () => {
 
     expect(await screen.findByText('The batch limit is out of range')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
-    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('false');
+    expect(screen.getByLabelText('Global dry-run')).not.toBeChecked();
     expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
   });
 
   it('sends the next save once the refused one is answered', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
     const update = vi
       .spyOn(api, 'updateSettings')
       .mockRejectedValueOnce(new ApiError('The batch limit is out of range', 400, 'bad_request'))
@@ -1248,7 +1267,7 @@ describe('a refused save', () => {
     renderWithI18n(Settings);
     await screen.findByText('The settings could not be read');
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
 
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
@@ -1272,12 +1291,12 @@ describe('a refused save', () => {
     renderWithI18n(Settings);
     await screen.findByText('The settings could not be read');
     await openSection('Guardrails');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Global dry-run' }));
 
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.queryByText('The settings could not be read')).toBeNull());
 
-    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('false');
+    expect(screen.getByLabelText('Global dry-run')).not.toBeChecked();
     expect(await save()).toEqual({ global_dry_run: 'false' });
   });
 });

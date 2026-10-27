@@ -14,10 +14,19 @@
   import Pager from '../components/Pager.svelte';
   import SearchField from '../components/SearchField.svelte';
   import { downloadBlob } from '../lib/download';
+  import { keepInAddress } from '../lib/address.svelte';
 
   let search = $state('');
   let outcome = $state('');
   let page = $state(1);
+  keepInAddress(
+    () => ({ search, outcome }),
+    (read) => {
+      search = read('search');
+      outcome = read('outcome', ['success', 'failure']);
+      page = 1;
+    },
+  );
 
   const filters = $derived({
     search: search || undefined,

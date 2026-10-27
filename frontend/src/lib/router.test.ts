@@ -223,6 +223,24 @@ describe('intercepting links', () => {
     expect(router.path).toBe('/move-log');
   });
 
+  /** The screen stays mounted, so it learns of a new query from the count alone. */
+  it('counts an arrival that changes the query of the screen on display, by a link or Back', () => {
+    listening();
+    navigate('/move-log');
+    const before = router.visit;
+
+    navigate('/move-log?outcome=failure');
+    expect(router.visit).toBe(before + 1);
+    navigate('/move-log?outcome=failure#top');
+    navigate('/library?type=movie');
+    expect(router.visit).toBe(before + 1);
+
+    navigate('/move-log?outcome=failure');
+    window.history.pushState({}, '', '/move-log');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(router.visit).toBe(before + 2);
+  });
+
   it('stops listening once it is told to', () => {
     const stop = interceptLinks();
     stop();

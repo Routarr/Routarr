@@ -39,6 +39,10 @@ describe('where a warning is settled', () => {
       label: 'Open Rule tests',
     });
     expect(fixOf(warning('x', null, 'backup_copy_failed'))?.label).toBe('Open Settings');
+    expect(fixOf(warning('x', null, 'backup_failed'))).toEqual({
+      to: '/tasks?status=failed',
+      label: 'Open Tasks',
+    });
     expect(fixOf(warning('x', null, 'data_disk_low'))).toBeNull();
     expect(fixOf(warning('x', null, 'a_code_of_a_later_release'))).toBeNull();
   });

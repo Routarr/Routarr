@@ -105,6 +105,9 @@ Components named without a path live in `frontend/src/components/`.
   entry and a new term its `TERMS` one. `help.test.ts` and `layout.test.ts` refuse each missing.
 - A table sits in `TableRegion` with the same `label` as its `<caption>`. A search box is
   `SearchField`. Icons come from `frontend/src/lib/icons.ts`, never straight from `@lucide/svelte`.
+- A list keeps its filters in the address through `keepInAddress`
+  (`frontend/src/lib/address.svelte.ts`), so a link opens it narrowed. Two filters or fewer sit
+  beside the search, more in `FilterBar`'s panel.
 - Pure logic goes in `frontend/src/api/format.ts` or `frontend/src/api/conditions.ts`, where a test
   needs no rendering.
 - `frontend/src/test/layout.test.ts` reads every `.svelte` file in `pages/` and `components/` as
@@ -114,6 +117,9 @@ Components named without a path live in `frontend/src/components/`.
   skipped, a `<caption>` on every table, axe at WCAG 2.2 A and AA. A row action's `aria-label` is
   the action, a spaced en dash, then the subject (see `frontend/src/pages/Rules.svelte`), so no
   two rows answer to one name.
+- A row shows two actions at most, Edit as the pencil, an icon alone named in `title` too. A
+  third and more go in the ⋯ `ActionMenu`, a deletion last and as danger, `.btn-danger` or a
+  `danger` item. The arrows that reorder rows do not count (`frontend/src/pages/Rules.svelte`).
 
 ## Tests and tooling
 

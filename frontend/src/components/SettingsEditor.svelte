@@ -36,6 +36,7 @@
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
+  import CopyField from '../components/CopyField.svelte';
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
@@ -472,117 +473,137 @@
 
 {#snippet fieldRow(field: Field)}
   <div class="form-group">
-    <label class="form-label" for="setting-{field.key}">{t(field.labelKey)}</label>
-
     {#if field.kind === 'bool'}
-      <select
-        id="setting-{field.key}"
-        aria-describedby="setting-{field.key}-help"
-        class="form-select"
-        value={draft[field.key] ?? field.fallback}
-        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-      >
-        <!-- Keys of their own: a setting's state agrees otherwise than a rule's or an
-               instance's badge, in French and Italian among others. -->
-        <option value="true">{t('SettingOn')}</option>
-        <option value="false">{t('SettingOff')}</option>
-      </select>
-    {:else if field.kind === 'language'}
-      <select
-        id="setting-{field.key}"
-        aria-describedby="setting-{field.key}-help"
-        class="form-select"
-        value={draft[field.key] ?? field.fallback}
-        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-      >
-        {#each languages as language (language.code)}
-          <!-- Each name is its language's own, read in it. -->
-          <option value={language.code} lang={bcp47(language.code)}>
-            {language.completion >= 100
-              ? language.name
-              : t('WithNote', {
-                  text: language.name,
-                  note: formatPercent(language.completion / 100, i18n.language),
-                })}
-          </option>
-        {/each}
-      </select>
-    {:else if field.kind === 'choice'}
-      <select
-        id="setting-{field.key}"
-        aria-describedby="setting-{field.key}-help"
-        class="form-select"
-        value={draft[field.key] ?? field.fallback}
-        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-      >
-        {#each field.choices ?? [] as choice (choice.value)}
-          <option value={choice.value}>
-            {'name' in choice ? choice.name : t(choice.labelKey)}
-          </option>
-        {/each}
-      </select>
-    {:else if field.kind === 'category'}
-      <select
-        id="setting-{field.key}"
-        aria-describedby="setting-{field.key}-help"
-        class="form-select"
-        value={draft[field.key] ?? field.fallback}
-        onchange={(event) => (draft[field.key] = event.currentTarget.value)}
-      >
-        {#each categories as category (category.id)}
-          <option value={category.name}>{category.name}</option>
-        {/each}
-      </select>
-    {:else if field.kind === 'secret'}
-      <!-- Empty on every load, as the server never returns it: the placeholder says
-             whether a value is stored, and only Remove clears one. -->
-      <div class="flex gap-2">
+      <div class="check-option">
+        <input
+          id="setting-{field.key}"
+          type="checkbox"
+          aria-describedby="setting-{field.key}-help"
+          checked={(draft[field.key] ?? field.fallback) === 'true'}
+          onchange={(event) => (draft[field.key] = String(event.currentTarget.checked))}
+        />
+        <div>
+          <label for="setting-{field.key}">{t(field.labelKey)}</label>
+          <span id="setting-{field.key}-help" class="form-hint">{t(field.helpKey)}</span>
+        </div>
+      </div>
+    {:else}
+      <label class="form-label" for="setting-{field.key}">{t(field.labelKey)}</label>
+
+      {#if field.kind === 'language'}
+        <select
+          id="setting-{field.key}"
+          aria-describedby="setting-{field.key}-help"
+          class="form-select"
+          value={draft[field.key] ?? field.fallback}
+          onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+        >
+          {#each languages as language (language.code)}
+            <!-- Each name is its language's own, read in it. -->
+            <option value={language.code} lang={bcp47(language.code)}>
+              {language.completion >= 100
+                ? language.name
+                : t('WithNote', {
+                    text: language.name,
+                    note: formatPercent(language.completion / 100, i18n.language),
+                  })}
+            </option>
+          {/each}
+        </select>
+      {:else if field.kind === 'choice'}
+        <select
+          id="setting-{field.key}"
+          aria-describedby="setting-{field.key}-help"
+          class="form-select"
+          value={draft[field.key] ?? field.fallback}
+          onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+        >
+          {#each field.choices ?? [] as choice (choice.value)}
+            <option value={choice.value}>
+              {'name' in choice ? choice.name : t(choice.labelKey)}
+            </option>
+          {/each}
+        </select>
+      {:else if field.kind === 'category'}
+        <select
+          id="setting-{field.key}"
+          aria-describedby="setting-{field.key}-help"
+          class="form-select"
+          value={draft[field.key] ?? field.fallback}
+          onchange={(event) => (draft[field.key] = event.currentTarget.value)}
+        >
+          {#each categories as category (category.id)}
+            <option value={category.name}>{category.name}</option>
+          {/each}
+        </select>
+      {:else if field.kind === 'secret'}
+        <!-- Empty on every load, as the server never returns it: the placeholder says
+                 whether a value is stored, and only Remove clears one. -->
+        <div class="flex gap-2">
+          <input
+            id="setting-{field.key}"
+            aria-describedby="setting-{field.key}-help"
+            type="password"
+            autocomplete="off"
+            class="form-input"
+            placeholder={removing.has(field.key)
+              ? t('SecretRemovedOnSave')
+              : stored.has(field.key)
+                ? t('SecretStoredPlaceholder')
+                : undefined}
+            value={draft[field.key] ?? ''}
+            oninput={(event) => (draft[field.key] = event.currentTarget.value)}
+          />
+          {#if stored.has(field.key) && !removing.has(field.key)}
+            <button
+              type="button"
+              class="btn btn-secondary"
+              aria-label="{t('Remove')} – {t(field.labelKey)}"
+              onclick={() => remove(field)}
+            >
+              {t('Remove')}
+            </button>
+          {/if}
+        </div>
+      {:else if field.kind === 'number'}
+        {@const outside = outOfRange(field)}
+        {@const unit = field.unitKey ? `setting-${field.key}-unit ` : ''}
+        <div class="flex items-center gap-2">
+          <input
+            id="setting-{field.key}"
+            aria-describedby="{unit}setting-{field.key}-help{outside
+              ? ` setting-${field.key}-range`
+              : ''}"
+            type="number"
+            min={field.range?.[0]}
+            max={field.range?.[1]}
+            aria-invalid={outside ? 'true' : undefined}
+            class="form-input max-w-12ch"
+            value={draft[field.key] ?? field.fallback}
+            oninput={(event) => (draft[field.key] = event.currentTarget.value)}
+          />
+          {#if field.unitKey}
+            <span id="setting-{field.key}-unit" class="text-muted text-sm">{t(field.unitKey)}</span>
+          {/if}
+        </div>
+        {#if outside && field.range}
+          <p id="setting-{field.key}-range" class="field-error">{bounds(field.range)}</p>
+        {/if}
+      {:else}
         <input
           id="setting-{field.key}"
           aria-describedby="setting-{field.key}-help"
-          type="password"
-          autocomplete="off"
+          type="text"
           class="form-input"
-          placeholder={removing.has(field.key)
-            ? t('SecretRemovedOnSave')
-            : stored.has(field.key)
-              ? t('SecretStoredPlaceholder')
-              : undefined}
-          value={draft[field.key] ?? ''}
+          value={draft[field.key] ?? field.fallback}
           oninput={(event) => (draft[field.key] = event.currentTarget.value)}
         />
-        {#if stored.has(field.key) && !removing.has(field.key)}
-          <button
-            type="button"
-            class="btn btn-secondary"
-            aria-label="{t('Remove')} – {t(field.labelKey)}"
-            onclick={() => remove(field)}
-          >
-            {t('Remove')}
-          </button>
-        {/if}
-      </div>
-    {:else}
-      {@const outside = outOfRange(field)}
-      <input
-        id="setting-{field.key}"
-        aria-describedby="setting-{field.key}-help{outside ? ` setting-${field.key}-range` : ''}"
-        type={field.kind === 'number' ? 'number' : 'text'}
-        min={field.range?.[0]}
-        max={field.range?.[1]}
-        aria-invalid={outside ? 'true' : undefined}
-        class="form-input"
-        value={draft[field.key] ?? field.fallback}
-        oninput={(event) => (draft[field.key] = event.currentTarget.value)}
-      />
-      {#if outside && field.range}
-        <p id="setting-{field.key}-range" class="field-error">{bounds(field.range)}</p>
       {/if}
-    {/if}
 
-    <p id="setting-{field.key}-help" class="text-muted text-sm mt-1">
-      {t(field.helpKey)}
-    </p>
+      <p id="setting-{field.key}-help" class="text-muted text-sm mt-1">
+        {t(field.helpKey)}
+      </p>
+    {/if}
   </div>
 {/snippet}
 
@@ -663,11 +684,10 @@
           </div>
 
           {#if minted}
-            <!-- The one moment it is readable. `mono` sets the `direction: ltr` a hex string
-                   needs: with no strong character, it would take the page's. -->
+            <!-- The one moment it is readable. -->
             <div class="mb-3">
               <WarningBanner message={t('ApiKeyMintedOnce')} />
-              <code class="mono secret-once">{minted}</code>
+              <CopyField value={minted} label={t('ApiKey')} />
             </div>
           {/if}
 
