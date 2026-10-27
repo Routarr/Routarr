@@ -13,6 +13,8 @@ import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { headersFor, parseHeaders } from './headers.mjs';
+
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 
 /**
@@ -106,7 +108,7 @@ for (const source of [index, notFound, headers, read('robots.txt'), read('sitema
 // `localhost` appears in the install instructions as prose, not as a host the
 // site talks to, and `_headers` names the Web Analytics beacon's host. The rest
 // are well-known vocabulary and outbound links.
-const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|localhost|127\.0\.0\.1|cloudflareinsights\.com)/;
+const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|lucide\.dev|localhost|127\.0\.0\.1|cloudflareinsights\.com)/;
 const own = [...origins].filter((o) => !EXTERNAL.test(o));
 if (own.length > 1) fail(`several site origins in use, pick one: ${own.join(', ')}`);
 const ORIGIN = own[0];
@@ -349,6 +351,20 @@ for (const { code } of LANGUAGES) {
     }
   }
 }
+// One form per word, the application's: French leaves "Arr" invariable and
+// German makes it masculine.
+const FORMS = {
+  fr: [[/\bArrs\b/, 'Arr']],
+  de: [[/\b(?:das|jedes) (?:\p{L}+e )?Arr\b(?!-)|\bArr, das\b/iu, 'der Arr']],
+};
+for (const [code, forms] of Object.entries(FORMS)) {
+  for (const [key, value] of Object.entries(catalogue(code))) {
+    for (const [wrong, right] of forms) {
+      const found = String(value).match(wrong)?.[0];
+      if (found) fail(`src/i18n/${code}.json: ${key} writes "${found}", the application "${right}"`);
+    }
+  }
+}
 
 // ---------------------------------------------------- facts from the code
 // A count the site states is read from the code that makes it true: one more
@@ -479,12 +495,32 @@ if (!readKey) {
 } else {
   for (const [file, text] of [
     ['README.md', readOutside('README.md')],
-    ['public/llms.txt', llms ?? ''],
+    ['src/llms.txt', llms ?? ''],
     ['src/components/sections/Start.astro', readFileSync(join(ROOT, 'src/components/sections/Start.astro'), 'utf-8')],
   ]) {
     const stated = [...text.matchAll(/docker exec [^\s'"`,]+ cat [^\s'"`,]+/g)].map((m) => m[0]);
     if (!stated.length || stated.some((command) => command !== readKey)) {
       fail(`${file} states the first-run command as ${stated.join(', ') || 'nothing'}, the application as ${readKey}`);
+    }
+  }
+}
+
+// The compose file the install section offers is the README's, key for key:
+// whichever a reader copies, the container is hardened the same way.
+{
+  const readme = readOutside('README.md').match(/^```yaml\n(services:\n[\s\S]*?)^```/m)?.[1];
+  if (!readme) fail('README.md holds no compose file opening on services:');
+  for (const { path } of LANGUAGES) {
+    const file = builtAs(path, 'index.html');
+    const offered = (pages[file] ?? '').match(/<span class="name">docker-compose\.yml<\/span>[\s\S]*?<code>([\s\S]*?)<\/code>/)?.[1]
+      ?.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    if (!offered) {
+      fail(`${file} offers no docker-compose.yml`);
+    } else if (readme && offered.trimEnd() !== readme.trimEnd()) {
+      const [ours, theirs] = [offered, readme].map((text) => text.trimEnd().split('\n'));
+      const at = ours.findIndex((line, i) => line !== theirs[i]);
+      const line = at < 0 ? ours.length : at;
+      fail(`${file}: the compose file reads "${ours[line] ?? '(its end)'}" on line ${line + 1}, the README's "${theirs[line] ?? '(its end)'}"`);
     }
   }
 }
@@ -549,13 +585,30 @@ if (!readKey) {
     if (!entries || ids.length !== entries) fail(`${file}: ${entries - ids.length} of ${entries} reference entries carry no id`);
     if (new Set(ids).size !== ids.length) fail(`${file}: two reference entries share an id`);
     for (const id of ids) if (!anchors.has(id)) fail(`${file}: the reference entry #${id} names no operation or type`);
-    // The `Link` header of every answer to an old path names this section.
-    const listed = page.match(/<div class="ref-group" id="deprecated">[\s\S]*?<\/dl>/)?.[0] ?? '';
-    const pairs = (listed.match(/<dt>/g) ?? []).length;
+    // The page says it lists every operation, and one filed under a tag the
+    // contract does not declare would drop out of it without a word.
+    const shownOperations = new Set(ids.filter((id) => !id.startsWith('schema-')));
+    for (const id of operations) if (!shownOperations.has(id)) fail(`${file}: the reference leaves out the operation ${id}`);
+    // The `Link` header of every answer to an old path names this section, and
+    // an installation of an earlier release sends its callers there.
+    const section = page.match(/<div class="ref-group" id="deprecated">([\s\S]*?)(?=<div class="ref-group"|<\/section>)/)?.[1];
+    if (section === undefined) fail(`${file}: no #deprecated section, which the Link header of an old path names`);
+    const pairs = (section?.match(/<dt>/g) ?? []).length;
     if (pairs !== deprecated.length) fail(`${file}: #deprecated lists ${pairs} old paths, the contract ${deprecated.length}`);
     for (const [, shown] of page.matchAll(/<span class="ref-method[^"]*">[A-Z]+<\/span><code class="ref-path">([^<]+)</g)) {
       if (!shown.startsWith(`${server}/`)) fail(`${file}: the operation ${shown} is shown without ${server}`);
     }
+  }
+  // On a desktop every path keeps one line, so the path column is a character
+  // wider than the longest one, read from the stylesheet's widest `.ref-path`.
+  const longest = Object.entries(contract.paths)
+    .filter(([, methods]) => Object.values(methods).some((operation) => !operation.deprecated))
+    .map(([path]) => `${server}${path}`)
+    .reduce((a, b) => (b.length > a.length ? b : a), '');
+  const column = Math.max(...[...readFileSync(join(ROOT, 'src/styles/site.css'), 'utf-8')
+    .matchAll(/\.ref-path \{[^}]*\bwidth: (\d+)ch/g)].map((m) => Number(m[1])));
+  if (!(column > longest.length)) {
+    fail(`site.css gives .ref-path ${column}ch, and ${longest} takes ${longest.length}: it breaks onto a second line`);
   }
   const unused = Object.keys(english).filter((key) => {
     if (built.has(key)) return false;
@@ -634,6 +687,20 @@ else {
   if (release !== undefined && release !== `v${version}`) {
     fail(`the build is for the release ${release || '(none named)'}, and this checkout declares ${version}`);
   }
+
+  // A document the site links describes the release the page names, so it is
+  // read at that release's tag. The security policy is the one in force.
+  let documents = 0;
+  for (const [file, text] of [...Object.entries(pages), ['llms.txt', llms ?? '']]) {
+    const linked = /(?:github\.com\/Routarr\/Routarr\/(?:blob|tree|raw)|raw\.githubusercontent\.com\/Routarr\/Routarr)\/([^/\s"')]+)\/([^\s"')#]+)/g;
+    for (const [, ref, document] of text.matchAll(linked)) {
+      documents += 1;
+      const at = document === 'SECURITY.md' ? 'main' : `v${version}`;
+      if (ref !== at) fail(`${file} links ${document} at ${ref}, not at ${at}`);
+    }
+  }
+  const footers = Object.keys(pages).filter((file) => !file.endsWith('404.html')).length;
+  if (documents < footers) fail(`read ${documents} link(s) to a document of the repository, fewer than the ${footers} footers hold`);
 }
 
 // ------------------------------------------------------- language offer
@@ -803,7 +870,7 @@ for (const [name, source] of Object.entries(pages)) {
 // then a blockquote summing it up. A page is linked by its trailing slash,
 // since the bare directory answers with a redirect.
 if (llms === null) {
-  fail('dist/llms.txt is missing: the build copies it from site/public/llms.txt');
+  fail('dist/llms.txt is missing: src/pages/llms.txt.ts writes it from src/llms.txt');
 } else {
   const [first = '', second = ''] = llms.split('\n').filter((line) => line.trim());
   if (!first.startsWith('# ')) fail(`llms.txt opens with "${first}" instead of an H1 naming the project`);
@@ -828,14 +895,31 @@ if (llms === null) {
   if (!linked) fail(`llms.txt links to no page on ${ORIGIN}, so the link check read nothing`);
 }
 
+// A text file the host types with no charset is read as Latin-1, so every
+// accented letter of a copy reaches a client garbled.
+const RULES = parseHeaders(headers);
+const typedAs = (path, type) => {
+  const stated = headersFor(RULES, path)['Content-Type'];
+  if (stated !== type) fail(`_headers serves ${path} as ${stated ?? 'the host types it'}, not ${type}`);
+};
+typedAs('/llms.txt', 'text/plain; charset=utf-8');
+
 // ------------------------------------------------- copies for language models
 // Every page has its Markdown copy beside it (`markdown.mjs`), which llms.txt
-// links: its one top heading is the page's, and no tag of the page is left in.
+// links: its one top heading is the page's, no tag of the page is left in, and
+// every term the page lists is there.
 let copies = 0;
+const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<')
+  .replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 for (const [file, page] of Object.entries(pages)) {
   if (file.endsWith('404.html')) continue;
+  typedAs(`/${file}.md`, 'text/markdown; charset=utf-8');
   const copy = existsSync(join(DIST, `${file}.md`)) ? read(`${file}.md`) : '';
-  const heading = page.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1].replace(/<[^>]+>/g, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim();
+  const unmarked = copy.replace(/`/g, '');
+  for (const [, term] of page.matchAll(/<dt\b[^>]*>([\s\S]*?)<\/dt>/g)) {
+    if (copy && !unmarked.includes(`**${plain(term)}**`)) fail(`${file}.md leaves out "${plain(term)}", which the page lists`);
+  }
+  const heading = plain(page.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1] ?? '');
   const top = copy.match(/^# (.+)$/gm) ?? [];
   if (!copy) fail(`${file} has no Markdown copy at ${file}.md`);
   else if (top.length !== 1 || top[0].replace(/[*_]/g, '').slice(2).trim() !== heading) {
@@ -1063,9 +1147,9 @@ for (const [what, tint, grounds, texts] of TINTED) {
 // "ReadsRadarr". A space in the markup separates them for both.
 let bandsRead = 0;
 for (const [file, html] of Object.entries(pages)) {
-  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head|plan-legend|gates-legend)">[\s\S]*?<\/p>/g)) {
+  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head|plan-legend|gates-legend|spec-fact)">[\s\S]*?<\/p>/g)) {
     bandsRead++;
-    if (/<\/(?:i|span)>(?:<span|[^\s<])/.test(block)) fail(`${file}: a label runs into what follows it: ${block.slice(0, 90)}`);
+    if (/<\/(?:i|span)>(?:<span|[^\s<])|[^\s>]<span\b/.test(block)) fail(`${file}: a label runs into what follows it: ${block.slice(0, 90)}`);
   }
 }
 if (bandsRead < 8) fail(`read ${bandsRead} label band(s), so the run-together check is reading almost nothing`);

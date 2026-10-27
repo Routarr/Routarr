@@ -116,7 +116,7 @@ def sources(folder: str, patterns: tuple[str, ...], problems: list[str]) -> int:
 
 # `llms.txt` is Markdown the site serves to language models.
 DOCUMENTS = ("README.md", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
-             ".github/pull_request_template.md", "site/public/llms.txt")
+             ".github/pull_request_template.md", "site/src/llms.txt")
 MEMORY_FILES = ("CLAUDE.md", ".claude/rules/**/*.md")
 # Each group of source and configuration files, with the folder its patterns resolve from.
 SOURCES = {
@@ -141,7 +141,7 @@ SOURCES = {
         ".",
         ("scripts/**/*.*", ".github/**/*.yml", ".devcontainer/*.*", ".devcontainer/Dockerfile",
          "Dockerfile", "docker-compose.yml", ".hadolint.yaml", ".gitignore", ".dockerignore",
-         "ruff.toml", "contrib/**/*.*"),
+         "ruff.toml", "contrib/**/*.*", "LICENSES/*.txt"),
     ),
 }
 
