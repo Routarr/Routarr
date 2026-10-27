@@ -513,7 +513,7 @@ if (!readKey) {
   for (const { path } of LANGUAGES) {
     const file = builtAs(path, 'index.html');
     const offered = (pages[file] ?? '').match(/<span class="name">docker-compose\.yml<\/span>[\s\S]*?<code>([\s\S]*?)<\/code>/)?.[1]
-      ?.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      ?.split(/<[^>]*>/).join('').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
     if (!offered) {
       fail(`${file} offers no docker-compose.yml`);
     } else if (readme && offered.trimEnd() !== readme.trimEnd()) {
@@ -909,7 +909,7 @@ typedAs('/llms.txt', 'text/plain; charset=utf-8');
 // links: its one top heading is the page's, no tag of the page is left in, and
 // every term the page lists is there.
 let copies = 0;
-const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<')
+const plain = (html) => html.split(/<[^>]*>/).join('').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<')
   .replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 for (const [file, page] of Object.entries(pages)) {
   if (file.endsWith('404.html')) continue;
