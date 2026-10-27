@@ -6,7 +6,7 @@
 #     docker compose -f scripts/live-arrs/compose.yml up -d
 services:
   radarr:
-    image: ghcr.io/hotio/radarr:release-6.4.4.10685@sha256:c0791b850e5f60ab898777972471b178a70d5875a1ad014263a3a42ab1bbaa5e
+    image: ghcr.io/hotio/radarr:release-6.4.4.10685@sha256:c85e3a435039ab24ea668e8b6dd8b02484a3969e89c1a3093fc3e85eac10f15c
     network_mode: host
     environment:
       PUID: ${PUID:?}
@@ -17,7 +17,7 @@ services:
     volumes:
       - ${LIVE_ARRS_MEDIA:?}:/media
   sonarr:
-    image: ghcr.io/hotio/sonarr:release-4.0.20.3014@sha256:fd07fa323a3b2ea32acf4f2b457915e5cb96a9911e46a7e2bdd68adeef47c4c6
+    image: ghcr.io/hotio/sonarr:release-4.0.20.3014@sha256:37181160b3d2de46557622564d8a6f5e1ed3ce97d4724194be69a9a5341a97d1
     network_mode: host
     environment:
       PUID: ${PUID:?}
