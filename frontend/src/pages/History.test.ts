@@ -4,8 +4,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { decision, explanation, instance, job, paginated, rule } from '../test/fixtures';
-import { api, ApiError } from '../api/client';
+import { category, decision, explanation, instance, job, paginated, rule } from '../test/fixtures';
+import { api, ApiError, type Following } from '../api/client';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 import History from './History.svelte';
@@ -520,6 +520,50 @@ describe('narrowing and reverting many', () => {
     expect(window.location.search).toBe('?status=applied&rule=r1&from=2026-10-01&superseded=1');
   });
 
+  it('clears every filter at once, from the address to the request', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/history?status=failed&search=aki&instance=i1&category=anime&rule=r1&run=s9' +
+        '&from=2026-10-01&to=2026-10-02&superseded=1',
+    );
+    vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
+    vi.spyOn(api, 'getCategories').mockResolvedValue([category({ name: 'anime' })]);
+    vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
+    vi.spyOn(api, 'getTasks').mockResolvedValue(
+      paginated([job({ kind: 'simulate', result: { simulation_id: 's9' } })]),
+    );
+    const getDecisions = vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
+    show();
+    filterField('Rule');
+    await screen.findByRole('option', { name: 'Japanese animation' });
+    await waitFor(() =>
+      expect(getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: 'failed',
+          search: 'aki',
+          instance_id: 'i1',
+          category: 'anime',
+          rule_id: 'r1',
+          simulation_id: 's9',
+          since: expect.any(String),
+          until: expect.any(String),
+          include_superseded: true,
+        }),
+        expect.anything(),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(getDecisions).toHaveBeenLastCalledWith(
+      { page: 1, per_page: 50, include_superseded: false },
+      expect.anything(),
+    );
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull();
+  });
+
   it('asks the server for the instance, rule, simulation and days chosen', async () => {
     vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
     vi.spyOn(api, 'getRules').mockResolvedValue([rule()]);
@@ -683,6 +727,30 @@ describe('narrowing and reverting many', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText('Akira: refused')).toBeTruthy();
+  });
+
+  it('stops a revert of many while it runs, by its task', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
+    vi.spyOn(api, 'countDecisions').mockResolvedValue(3);
+    let finish = () => {};
+    vi.spyOn(api, 'revertAllDecisions').mockImplementation(
+      (_scope, _files, _confirm, following?: Following) => {
+        following?.onProgress?.(job({ id: 'j-revert', kind: 'revert', status: 'running' }));
+        return new Promise((resolve) => {
+          finish = () => resolve({ ...report, applied: 1, stopped: 'cancelled' });
+        });
+      },
+    );
+    const cancelTask = vi.spyOn(api, 'cancelTask').mockResolvedValue(undefined);
+    show();
+
+    const dialog = await revertMany(3);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    finish();
+
+    expect(cancelTask).toHaveBeenCalledWith('j-revert');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull());
   });
 });
 

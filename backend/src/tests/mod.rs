@@ -812,6 +812,20 @@ impl TestApp {
         Self::around(self.state.with_config(config))
     }
 
+    /// A harness whose unattended applies wait `wait` for the apply running.
+    pub fn with_unattended_wait(self, wait: std::time::Duration) -> Self {
+        let mut config = (*self.state.config).clone();
+        config.unattended_wait = wait;
+        Self::around(self.state.with_config(config))
+    }
+
+    /// A harness whose webhook deliveries wait `wait` for what holds their instance.
+    pub fn with_delivery_wait(self, wait: std::time::Duration) -> Self {
+        let mut config = (*self.state.config).clone();
+        config.delivery_wait = wait;
+        Self::around(self.state.with_config(config))
+    }
+
     /// A harness whose client resolves no name.
     pub async fn resolving_nothing() -> Self {
         let mut state = AppState::for_tests().await;

@@ -147,14 +147,20 @@ async fn the_task_counts_each_title_and_names_the_one_moving() {
     let run = apply_with_files(&app);
     let watched = async {
         arr.written(2).await;
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let seen: (i64, i64, String) = sqlx::query_as(
-            "SELECT progress_current, progress_total, detail FROM jobs WHERE kind = 'apply'",
-        )
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-        seen
+        let read = || async {
+            sqlx::query_as::<_, (i64, i64, String)>(
+                "SELECT progress_current, progress_total, detail FROM jobs WHERE kind = 'apply'",
+            )
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap()
+        };
+        super::until(|| async {
+            let (done, _, detail) = read().await;
+            done == 1 && detail.contains("Film 001")
+        })
+        .await;
+        read().await
     };
     let (_, (done, total, detail)) = tokio::join!(run, watched);
 

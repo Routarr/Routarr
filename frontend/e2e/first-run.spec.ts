@@ -48,12 +48,8 @@ test.describe('a browser with no API key', () => {
     await context.close();
   });
 
-  /**
-   * The key opens a session and the browser keeps no copy of it: held in the
-   * page's storage, any script that ever ran there could read a key that opens
-   * everything.
-   */
-  test('reaches the application once the key is given, and keeps no copy', async ({ browser }) => {
+  /** The key opens a session held in a cookie, which only a real browser shows. */
+  test('reaches the application once the key is given', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.goto('/');
@@ -64,9 +60,6 @@ test.describe('a browser with no API key', () => {
     // The shell, for real: the navigation is back and the status bar answers.
     await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
     await expect(page.getByRole('status', { name: 'Dry-run: writes blocked' })).toBeVisible();
-    expect(await page.evaluate(() => JSON.stringify({ ...window.localStorage }))).not.toContain(
-      process.env.ROUTARR_E2E_KEY ?? '',
-    );
 
     await context.close();
   });

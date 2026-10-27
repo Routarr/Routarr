@@ -57,30 +57,12 @@ test.describe('theme', () => {
 
     await page.goto('/settings#general');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-
-    /**
-     * The save bar only exists while the draft differs from what is stored, so
-     * saving a value that is already the stored one is not possible, and does
-     * not need to be. `save` handles both: it presses the button when there is
-     * something to press, and otherwise leaves the settings as they already
-     * are, which is what was wanted anyway.
-     */
-    const save = async () => {
-      const button = page.getByRole('button', { name: 'Save', exact: true });
-      if (await button.isVisible()) {
-        await button.click();
-        await expect(page.locator('.banner-success')).toBeVisible();
-      }
-    };
-
-    // Set explicitly rather than assumed: `auto` resolves to whatever the
-    // browser running the suite prefers, which is not a fixed starting point.
-    await page.getByLabel('Theme').selectOption('dark');
-    await save();
     const dark = await read();
+    expect(dark.marker).toBe('dark');
 
     await page.getByLabel('Theme').selectOption('light');
-    await save();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.locator('.banner-success')).toBeVisible();
 
     await page.reload();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -92,10 +74,5 @@ test.describe('theme', () => {
     // The fill is shared between the two themes, and only the text form darkens.
     expect(light.accentFill).toBe(dark.accentFill);
     expect(light.accentText).not.toBe(dark.accentText);
-
-    // Put the shipped theme back, so the ordering of the suite does not matter.
-    await page.getByLabel('Theme').selectOption('dark');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.locator('.banner-success')).toBeVisible();
   });
 });

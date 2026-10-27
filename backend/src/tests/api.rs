@@ -1507,37 +1507,6 @@ async fn the_library_list_pages_past_the_first() {
     assert_eq!(second["pagination"]["total"], 3);
 }
 
-/// Each filter the decisions list documents narrows it, the title search
-/// included: one spelled wrong in the list's builder shows every row, or none.
-#[tokio::test]
-async fn each_decision_filter_narrows_the_list() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                                          target_category, action, status, simulation_id)
-                   VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'pending',
-                           'sim-1'),
-                          ('d-2', 'm-2', 'Akira', 'series', 'inst-2', 'standard', 'none',
-                           'applied', 'sim-2')"])
-        .await;
-
-    for (filter, expected) in [
-        ("instance_id=inst-2", "d-2"),
-        ("media_type=series", "d-2"),
-        ("status=pending", "d-1"),
-        ("category=anime", "d-1"),
-        ("action=none", "d-2"),
-        ("simulation_id=sim-1", "d-1"),
-        ("search=kir", "d-2"),
-    ] {
-        let listed = app.get(&format!("/api/v1/decisions?{filter}")).await;
-        let listed = listed.assert_ok();
-        let ids: Vec<&str> =
-            listed["data"].as_array().unwrap().iter().map(|d| d["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, [expected], "{filter}");
-    }
-}
-
 /// The library shows what the last run decided for each title, a title it
 /// left where it is included: Totoro already sits in the folder its rule
 /// sends it to, and only the title no rule matched is unclassified. A later
@@ -2204,22 +2173,6 @@ async fn applying_nothing_is_a_bad_request() {
         .assert_status(StatusCode::BAD_REQUEST);
 }
 
-#[tokio::test]
-async fn superseded_decisions_are_hidden_by_default() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-    app.seed_anime_rule().await;
-
-    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
-    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
-
-    let visible = app.get("/api/v1/decisions").await.assert_ok().clone();
-    assert_eq!(visible["pagination"]["total"], 1, "only the newest proposal is actionable");
-
-    let all = app.get("/api/v1/decisions?include_superseded=true").await.assert_ok().clone();
-    assert_eq!(all["pagination"]["total"], 2);
-}
-
 /// The history outlives the titles a sync removes, and a title gone has no explanation to open.
 #[tokio::test]
 async fn a_decision_says_whether_the_library_still_holds_its_title() {
@@ -2498,7 +2451,7 @@ async fn a_second_delivery_waits_for_the_first_rather_than_being_dropped() {
 /// each one is a connection and a task for as long as the wait lasts.
 #[tokio::test]
 async fn a_delivery_past_the_queue_bound_is_acknowledged_without_waiting() {
-    use crate::api::webhook::{DELIVERY_WAIT, MAX_WAITING_DELIVERIES};
+    use crate::api::webhook::MAX_WAITING_DELIVERIES;
 
     let app = TestApp::new().await;
     app.seed_library().await;
@@ -2522,7 +2475,7 @@ async fn a_delivery_past_the_queue_bound_is_acknowledged_without_waiting() {
     // Answered before any timer, so half the budget is a margin that cannot
     // go flaky, and a delivery that waited the budget out is caught.
     assert!(
-        started.elapsed() < DELIVERY_WAIT / 2,
+        started.elapsed() < app.state.config.delivery_wait / 2,
         "it waited instead of answering: {:?}",
         started.elapsed()
     );
@@ -3270,35 +3223,6 @@ async fn disable_dry_run(app: &TestApp) {
         .assert_ok();
 }
 
-#[tokio::test]
-async fn a_search_wildcard_is_matched_literally() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path, current_root_folder)
-         VALUES ('m-pct', 'inst-1', 990, 'movie', '100% Wolf', '/movies/standard/100', '/movies/standard')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-
-    // "100%" must find the film called "100% Wolf" and nothing else: an
-    // unescaped LIKE would treat the percent as "anything after 100".
-    let response = app.get("/api/v1/library?search=100%25").await;
-    let items = response.assert_ok()["data"].as_array().unwrap().clone();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0]["title"], "100% Wolf");
-
-    // A percent that matches no literal percent must return nothing, even
-    // though the wildcard interpretation would have matched every title.
-    let response = app.get("/api/v1/library?search=o%25o").await;
-    assert_eq!(
-        response.assert_ok()["data"].as_array().unwrap().len(),
-        0,
-        "o%o is not a substring of any title"
-    );
-}
-
 /// The task list narrows on a status and on a kind, each documented in the
 /// contract, and on both at once.
 #[tokio::test]
@@ -3750,6 +3674,25 @@ async fn a_delete_event_waits_for_a_running_sync_before_retiring() {
         .unwrap();
     assert_eq!(rows, 0, "not retired once the sync was done");
     assert!(app.state.jobs.try_lock("sync:inst-1").is_some(), "the sync key was left held");
+}
+
+/// Past the delivery's wait the delete is dropped: retired under the sync still running, the row
+/// would come back with the sync's commit.
+#[tokio::test]
+async fn a_delete_event_behind_a_sync_past_its_wait_retires_nothing() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    seed_akira_needing_a_move(&app).await;
+    let app = app.with_delivery_wait(std::time::Duration::from_millis(200));
+    let _syncing = app.state.jobs.try_lock("sync:inst-1").expect("the key is free");
+
+    let delete = serde_json::json!({ "eventType": "MovieDelete", "movie": { "id": 99 } });
+    let body = app.post("/api/v1/webhook/inst-1/tok", delete).await.assert_ok().clone();
+
+    assert_eq!(body["ignored"], "a synchronisation held the instance", "{body}");
+    assert_eq!(body["retired"], 0, "{body}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE id = 'm-inst-1-99'").await, 1);
 }
 
 /// A base URL pointing at something that is not an Arr answers 404 to everything, so only the

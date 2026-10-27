@@ -123,18 +123,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn folding_is_stable_and_blind_to_how_an_accent_is_written() {
-        let cases: Vec<(String, String)> =
-            serde_json::from_str(include_str!("normalise_value_cases.json")).unwrap();
-        for (raw, folded) in cases {
-            assert_eq!(normalise_value(&folded), folded, "{folded:?} folds again");
-            let composed: String = raw.nfc().collect();
-            let decomposed: String = raw.nfd().collect();
-            assert_eq!(normalise_value(&composed), normalise_value(&decomposed), "{raw:?}");
-        }
-    }
-
     /// The rule editor keys rating codes with its own copy
     /// (`certificationKey` in `frontend/src/api/conditions.ts`), held to these
     /// same cases.

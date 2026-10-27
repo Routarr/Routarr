@@ -1,4 +1,5 @@
-//! What a start tells the operator: why it cannot go on, and that its mode opens the API.
+//! What a start settles before it serves, and what it tells the operator: why it cannot go on,
+//! and that its mode opens the API.
 
 use crate::config::{AuthMode, Config};
 
@@ -67,4 +68,71 @@ async fn a_start_that_opens_the_api_says_so() {
             None => assert!(logged.is_empty(), "{mode:?}: {logged}"),
         }
     }
+}
+
+/// Each step a start takes between opening its storage and serving, run on the storage a start
+/// opens: a step dropped from `prepare` fails here. A second start resumes a sealing pass.
+#[tokio::test]
+async fn a_start_settles_what_it_finds_before_it_serves() {
+    let dir = super::TempDir::new("prepare");
+    let copies = super::TempDir::new("prepare-copies");
+    let mut config = first_start_at(dir.join("routarr.db"));
+    config.auth_mode = AuthMode::Forms;
+    config.tmdb_api_key = Some("tmdb-k1".into());
+    let (api_key, pool, secrets) = crate::open_storage(&config).await.unwrap();
+    let state = crate::state::AppState::new(config.clone(), pool, secrets, api_key).unwrap();
+    let by = crate::jobs::Attribution::manual(None);
+    let archive = crate::services::backup::create(&state, &by).await.unwrap();
+    for seeded in [
+        super::AN_INSTANCE,
+        "INSERT INTO jobs (id, kind, status) VALUES ('j-left', 'sync', 'running')",
+        "INSERT INTO categories (id, name) VALUES ('c-docs', ' Documentaries')",
+    ] {
+        sqlx::query(seeded).execute(&state.pool).await.unwrap();
+    }
+    config.backup_copy_dir = Some(copies.0.clone());
+    let state = state.with_config(config);
+
+    crate::prepare(&state).await.unwrap();
+
+    let read = |sql: &'static str| text(&state.pool, sql);
+    assert_eq!(
+        read("SELECT status FROM jobs WHERE id = 'j-left'").await.as_deref(),
+        Some("failed")
+    );
+    let sealed = read("SELECT api_key FROM instances WHERE id = 'inst-1'").await.unwrap();
+    assert_eq!(state.secrets.open(&sealed).ok().as_deref(), Some("secret"));
+    assert_ne!(sealed, "secret", "the key stayed in the clear");
+    let sources = read("SELECT value FROM settings WHERE key = 'metadata_providers'").await;
+    assert_eq!(sources.as_deref(), Some("arr,tmdb"));
+    let category = read("SELECT name FROM categories WHERE id = 'c-docs'").await;
+    assert_eq!(category.as_deref(), Some("documentaries"));
+    assert!(read("SELECT name_key FROM instances WHERE id = 'inst-1'").await.is_some());
+    let accounts = read("SELECT CAST(COUNT(*) AS TEXT) FROM users").await;
+    assert_eq!(accounts.as_deref(), Some("1"));
+    assert!(state.config.password_path().exists(), "no password written");
+    let copied = "SELECT CAST(COUNT(*) AS TEXT) FROM jobs
+                   WHERE kind = 'backup_copy' AND status != 'running'";
+    super::until(|| async { read(copied).await.as_deref() == Some("1") }).await;
+    assert_eq!(read(copied).await.as_deref(), Some("1"), "the archives were not copied");
+
+    // A stop between the passphrase saved and the pass that seals the archives.
+    let passphrase = state.secrets.seal("a passphrase long enough").unwrap();
+    sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+        .bind(crate::services::backup::PASSPHRASE_SETTING)
+        .bind(&passphrase)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    let sealed = dir.join("backups").join(format!("{}.enc", archive.name));
+
+    crate::prepare(&state).await.unwrap();
+
+    super::until(|| async { sealed.exists() }).await;
+    assert!(sealed.exists(), "the archive in the clear stayed so");
+}
+
+/// The one value `sql` reads, as text.
+async fn text(pool: &sqlx::SqlitePool, sql: &'static str) -> Option<String> {
+    sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }

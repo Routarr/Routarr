@@ -24,10 +24,14 @@ class Check(unittest.TestCase):
 
     def test_the_steps_keep_their_working_directory(self):
         steps = {s.run: s.directory for s in check.parse(WORKFLOW)}
-        self.assertEqual(steps["cargo test --locked"], "backend")
+        self.assertEqual(steps["cargo clippy --locked --all-targets -- -D warnings"], "backend")
         self.assertEqual(steps["python3 scripts/check-locales.py"], ".")
         self.assertEqual(steps["npm run test:e2e"], "frontend")
         self.assertEqual(steps["npx astro check"], "site")
+
+    def test_a_job_environment_reaches_its_steps(self):
+        steps = {s.run: s.env for s in check.parse(WORKFLOW)}
+        self.assertEqual(steps["npm run test:e2e"].get("ROUTARR_E2E_BUILT"), "1")
 
     def test_every_step_kept_for_ci_names_a_step_the_workflow_has(self):
         runs = [s.run for s in check.parse(WORKFLOW)]
@@ -52,7 +56,7 @@ class Check(unittest.TestCase):
             ["python3", str(SCRIPTS / "check.py"), "--list"],
             cwd=ROOT, capture_output=True, text=True, check=True,
         ).stdout
-        self.assertIn("backend\tbackend\tcargo test --locked", listed)
+        self.assertIn("backend\tbackend\tcargo clippy --locked --all-targets -- -D warnings", listed)
         self.assertIn("(CI only:", listed)
 
 

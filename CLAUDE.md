@@ -33,7 +33,7 @@ cargo test live_arrs -- --ignored --test-threads=1   # a real Radarr and Sonarr,
 cargo fmt
 cargo clippy --locked --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo llvm-cov --locked --summary-only --fail-under-lines 96 \
+cargo llvm-cov --locked --summary-only --fail-under-lines 97 \
   --ignore-filename-regex 'src/(tests/|process\.rs)'
 python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts

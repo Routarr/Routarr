@@ -21,7 +21,7 @@ pub(crate) struct Gate {
 impl Gate {
     /// Five seconds at most: a request refused before its gate fails its test instead of
     /// hanging it.
-    async fn reached(&self) {
+    pub(crate) async fn reached(&self) {
         tokio::time::timeout(Duration::from_secs(5), self.reached.notified())
             .await
             .expect("the request never reached its gate");
@@ -44,7 +44,8 @@ fn checked_here(point: &'static str, subject: &str) -> Checked {
     (point, subject.to_string(), std::thread::current().id())
 }
 
-fn arm(point: &'static str, subject: &str) -> Arc<Gate> {
+/// Hold the next request of this test that reaches `point` about `subject`, until released.
+pub(crate) fn arm(point: &'static str, subject: &str) -> Arc<Gate> {
     let gate = Arc::new(Gate { reached: Notify::new(), released: Notify::new() });
     GATES.lock().expect("gates").insert(checked_here(point, subject), Arc::clone(&gate));
     gate

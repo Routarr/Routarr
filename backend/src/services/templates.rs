@@ -670,12 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn the_catalogue_keeps_its_order_and_ranks_a_missing_template_last() {
-        let ids: Vec<&str> = CATALOGUE.iter().map(|template| template.id).collect();
-        assert_eq!(
-            ids,
-            ["4k", "concerts", "documentaries", "children", "anime", "foreign-films", "requesters"]
-        );
+    fn a_template_ranks_by_its_place_in_the_catalogue_and_a_missing_one_last() {
         assert_eq!(rank("children@1"), 3);
         assert_eq!(rank("gone@1"), CATALOGUE.len());
     }

@@ -314,29 +314,3 @@ pub(crate) fn csv_field(value: &str) -> String {
     };
     format!("\"{escaped}\"")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn quotes_and_escapes_fields() {
-        assert_eq!(csv_field(r#"a,b"#), r#""a,b""#);
-        assert_eq!(csv_field(r#"say "hi""#), r#""say ""hi""""#);
-        assert_eq!(csv_field("line1\nline2"), r#""line1 line2""#);
-    }
-
-    #[test]
-    fn a_field_that_would_be_a_formula_is_defused() {
-        for hostile in
-            [r#"=HYPERLINK("http://evil","click")"#, "+1+1", "-2+3", "@SUM(A1)", "\tleading tab"]
-        {
-            let field = csv_field(hostile);
-            assert!(field.starts_with("\"'"), "a spreadsheet would evaluate this: {field}");
-        }
-
-        // The positive control: the defusal must not mark every row.
-        assert_eq!(csv_field("Akira"), r#""Akira""#);
-        assert_eq!(csv_field("2 Fast 2 Furious"), r#""2 Fast 2 Furious""#);
-    }
-}

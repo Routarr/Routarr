@@ -1,8 +1,9 @@
 //! The process: its command line, its start, its signals and its stop.
 //!
 //! Only a running process reaches this file, so the coverage measure sets it
-//! apart. What a test can drive lives elsewhere: the route table and the
-//! storage in `main.rs`, the subcommands in `commands`, the stop in `listener`.
+//! apart. What a test can drive lives elsewhere: the route table, the storage
+//! and what a start settles before it serves in `main.rs`, the state in `state`,
+//! the subcommands in `commands`, the stop in `listener`.
 
 use std::sync::Arc;
 
@@ -10,10 +11,10 @@ use tracing::error as log_error;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::config::{AuthMode, Config};
+use crate::config::Config;
 use crate::listener::{fired, stop_on, until_stopped};
 use crate::state::AppState;
-use crate::{api, commands, db, error, http, jobs, listener, services};
+use crate::{commands, db, error, jobs, listener};
 
 pub fn main() -> std::process::ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
@@ -109,47 +110,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     };
     let (api_key, pool, secrets) = storage?;
-    let job_registry = jobs::JobRegistry::new(pool.clone());
-    job_registry.recover_orphans().await?;
+    let state = AppState::new(config, pool, secrets, api_key)?;
 
-    let state = AppState {
-        http: http::build_client(&config)?,
-        audit: Arc::new(services::audit::Log::storing(pool.clone())),
-        deprecated_calls: Arc::new(api::deprecated::Calls::counting(pool.clone())),
-        pool,
-        secrets,
-        tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
-        paces: Default::default(),
-        library_passes: Default::default(),
-        jobs: job_registry,
-        api_key: Arc::new(std::sync::RwLock::new(api_key)),
-        sign_in: Arc::new(Default::default()),
-        oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
-        post_sync: Arc::new(tokio::sync::Mutex::new(None)),
-        auto_apply_held: Arc::default(),
-        notifications: Arc::default(),
-        key_rates: Arc::default(),
-        route_misses: Arc::default(),
-        last_probe: Arc::default(),
-        backup_copy_written: Arc::default(),
-        config: Arc::new(config),
-    };
-
-    match until_stopped(converge(&state), stopping.clone()).await {
-        Some(converged) => converged?,
+    match until_stopped(crate::prepare(&state), stopping.clone()).await {
+        Some(prepared) => prepared?,
         None => {
             db::checkpoint_and_close(&state.pool).await;
             info!("Routarr stopped before it served");
             return Ok(());
         }
-    }
-    // The archive a migration took, and those a share asleep missed, copied away.
-    let started = jobs::Attribution::unattended(jobs::TRIGGER_SCHEDULE);
-    services::backup::copy_in_background(&state, started);
-
-    // The single account, generated on first start like the API key, in `forms` mode only.
-    if state.config.auth_mode == AuthMode::Forms {
-        services::accounts::ensure_account(&state.pool, &state.config.password_path()).await?;
     }
 
     crate::warn_on_insecure_defaults(&state);
@@ -214,17 +183,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
     info!("Routarr stopped cleanly");
-    Ok(())
-}
-
-/// What a start does once the database is open and before it serves, each step left as safe
-/// by a stop as by a kill: a step cut short is done again at the next start.
-async fn converge(state: &AppState) -> error::AppResult<()> {
-    services::maintenance::converge(state).await?;
-    api::categories::converge_names(state).await?;
-    api::instances::converge_names(&state.pool).await?;
-    // What a conversion interrupted by the last stop left in the clear.
-    services::backup::resume_sealing(state).await;
     Ok(())
 }
 

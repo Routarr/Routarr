@@ -11,6 +11,7 @@
 8. No confirmation button starts with the language's Cancel word.
 9. Every placeholder is a count (`COUNTS` in `backend/src/localization.rs`) or in `NOT_COUNTS`.
 10. French puts a no-break space before `? ! : ; % »` and after `«`.
+11. A server call passes its key every placeholder its English says, and nothing else.
 
 Run from the repository root: `python3 scripts/check-locales.py`
 """
@@ -21,6 +22,7 @@ import json
 import pathlib
 import re
 import sys
+from dataclasses import dataclass
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "backend" / "locales"
@@ -58,6 +60,79 @@ BUILT = {
         "backend/src/integrations/language/mod.rs",
         r"pub const RETIRED: &\[&str\] = &\[([^\]]+)\];",
     ),
+}
+
+# The server's calls whose key or parameters the parameter check cannot read in the call, by
+# file under `backend/src` and by the key as the call writes it. A call missing here fails the
+# check, and so does an entry no such call needs.
+UNREAD = {
+    # The key the function or the closure around the call is handed.
+    "forwarded": {
+        ("api/config.rs", "key"),
+        ("api/exceptions.rs", "key"),
+        ("api/instances.rs", "refusal"),
+        ("api/rules.rs", "key"),
+        ("api/security_log.rs", "&event.message"),
+        ("error.rs", "key"),
+        ("jobs/registry.rs", "key"),
+        ("jobs/registry.rs", "self.key"),
+        ("localization.rs", "&outcome.key"),
+        ("localization.rs", "&self.key"),
+        ("localization.rs", "key"),
+        ("models/instance.rs", "key"),
+        ("services/audit.rs", "event.message"),
+        ("services/backup/mod.rs", "key"),
+        ("services/backup/sealed.rs", "key"),
+        ("services/connection.rs", "key"),
+        ("services/enrichment.rs", "key"),
+        ("services/executor/follow.rs", "elsewhere"),
+        ("services/executor/guards.rs", "never"),
+        ("services/executor/guards.rs", "unreachable"),
+        ("services/executor/matching.rs", "label"),
+        ("services/executor/mod.rs", "question.asked"),
+        ("services/rule_tests.rs", "key"),
+        ("services/settings.rs", "refusal"),
+    },
+    # A key a `match` or an `if` picks among literals.
+    "picked": {
+        ("api/account.rs", "key"),
+        ("api/health.rs", "key"),
+        ("api/rules.rs", "reference"),
+        ("services/backup/copy.rs", "key"),
+        ("services/backup/mod.rs", "refusal"),
+        ("services/executor/mod.rs", "key"),
+        ("services/executor/mod.rs", "started.1"),
+        ("services/notify.rs", "key"),
+    },
+    # A key a table holds, a template's or a setting's, or one `BUILT` builds.
+    "tabled": {
+        ("api/conditions.rs", "&key"),
+        ("api/conditions.rs", '&format!("ConditionLabel{}", pascal_case(kind))'),
+        ("api/health.rs", "label"),
+        ("api/library.rs", '&format!("CountryRetired{code}")'),
+        ("api/library.rs", "key"),
+        ("api/root_folders.rs", "template.name"),
+        ("api/templates.rs", "template.description"),
+        ("api/templates.rs", "template.name"),
+        ("services/folder_suggestions.rs", "family.template.category"),
+        ("services/folder_suggestions.rs", "key"),
+        ("services/folder_suggestions.rs", "template.category"),
+        ("services/settings.rs", "label(key)"),
+    },
+    # A literal key given a list built before the call.
+    "listed before": {
+        ("api/health.rs", "WarnDeprecatedApiCalled"),
+        ("api/health.rs", "WarnDeprecatedApiCalledPerson"),
+        ("api/health.rs", "WarnInstanceSyncFailing"),
+        ("api/health.rs", "WarnRemovalHeld"),
+    },
+    # A chain one branch extends after the call.
+    "extended": {("services/executor/follow.rs", "ErrorMoveCommandEnded")},
+    # The rule engine's reasons, which `every_condition_is_worded_whole_in_english_and_french`
+    # (`backend/src/services/rule_engine/mod.rs`) holds to their placeholders.
+    "reasons": {
+        ("localization.rs", 'if outcome.matched { "ReasonMatched" } else { "ReasonNotMatched" }'),
+    },
 }
 
 # Below this a language is more English than its own: a broken file.
@@ -129,20 +204,160 @@ def referenced_keys(text: str) -> set[str]:
 
 def arguments(text: str, opening: int) -> list[str]:
     """The top-level arguments of the call whose `(` is at `opening`."""
-    found, depth, start = [], 0, opening + 1
-    for index in range(opening, len(text)):
+    return split(text, opening)[0]
+
+
+def split(text: str, opening: int, quotes: str = "") -> tuple[list[str], int]:
+    """The top-level items of the bracket opening at `opening`, and where it closes. A bracket
+    or a comma inside one of `quotes` is text."""
+    found, depth, start, quoted = [], 0, opening + 1, ""
+    index = opening
+    while index < len(text):
         char = text[index]
-        if char in "([{":
+        if quoted:
+            if char == "\\":
+                index += 1
+            elif char == quoted:
+                quoted = ""
+        elif char in quotes:
+            quoted = char
+        elif char in "([{":
             depth += 1
         elif char in ")]}":
             depth -= 1
             if depth == 0:
                 found.append(text[start:index])
-                return found
+                return found, index
         elif char == "," and depth == 1:
             found.append(text[start:index])
             start = index + 1
+        index += 1
+    return found, len(text)
+
+
+@dataclass(frozen=True)
+class Call:
+    """A sentence the server says by key, and the parameters the call passes it."""
+
+    # Under `backend/src`.
+    path: str
+    line: int
+    # None when an expression picks the key.
+    key: str | None
+    # The key as the call writes it, as `UNREAD` names it.
+    written: str
+    # None when the call does not write each name as a literal.
+    params: frozenset[str] | None
+
+
+RUST_CALL = re.compile(r"(?<!fn )\b(translate|translate_map|Detail::new|Told::new)\(")
+LITERAL_KEY = re.compile(r'\s*"([A-Z][A-Za-z0-9]*)"\s*')
+LITERAL_NAME = re.compile(r'\s*"([a-zA-Z_][a-zA-Z0-9_]*)"\s*')
+NAMED_PAIR = re.compile(r'\s*\(\s*"([a-zA-Z_][a-zA-Z0-9_]*)"\s*,.*\)\s*', re.DOTALL)
+WITH = re.compile(r"\s*\.with\(")
+
+
+def rust_sources() -> list[tuple[str, str]]:
+    """Each server source outside the tests, by its path under `backend/src`."""
+    base = ROOT / "backend" / "src"
+    return [
+        (path.relative_to(base).as_posix(), strip_rust_tests(path.read_text(encoding="utf-8")))
+        for path in sorted(base.rglob("*.rs"))
+        if not {"test", "tests"} & set(path.relative_to(base).parts[:-1])
+    ]
+
+
+def listed_names(argument: str) -> frozenset[str] | None:
+    """The names of a literal `&[("name", value), ...]`, or None for any other argument."""
+    opening = re.match(r"\s*&\s*\[", argument)
+    if opening is None:
+        return None
+    items, end = split(argument, opening.end() - 1, '"')
+    if argument[end + 1 :].strip():
+        return None
+    names = set()
+    for item in filter(str.strip, items):
+        pair = NAMED_PAIR.fullmatch(item)
+        if pair is None:
+            return None
+        names.add(pair.group(1))
+    return frozenset(names)
+
+
+def chained_names(text: str, end: int) -> frozenset[str] | None:
+    """The names of the `.with("name", value)` links after the `)` at `end`, or None when one
+    names its parameter with an expression."""
+    names: set[str] | None = set()
+    while link := WITH.match(text, end + 1):
+        items, end = split(text, link.end() - 1, '"')
+        name = LITERAL_NAME.fullmatch(items[0]) if items else None
+        if name is None:
+            names = None
+        elif names is not None:
+            names.add(name.group(1))
+    return None if names is None else frozenset(names)
+
+
+def calls(path: str, text: str) -> list[Call]:
+    """Every `translate`, `translate_map`, `Detail::new` and `Told::new` of a server source."""
+    # A comment line is blanked rather than dropped, so a line number still points at the code.
+    text = "\n".join("" if line.lstrip().startswith("//") else line for line in text.split("\n"))
+    found = []
+    for match in RUST_CALL.finditer(text):
+        items, end = split(text, match.end() - 1, '"')
+        if not items:
+            continue
+        if match.group(1) == "translate":
+            params = listed_names(items[1]) if len(items) > 1 else None
+        elif match.group(1) == "translate_map":
+            params = None
+        else:
+            params = chained_names(text, end)
+        literal = LITERAL_KEY.fullmatch(items[0])
+        found.append(
+            Call(
+                path=path,
+                line=text.count("\n", 0, match.start()) + 1,
+                key=literal.group(1) if literal else None,
+                written=literal.group(1) if literal else " ".join(items[0].split()),
+                params=params,
+            )
+        )
     return found
+
+
+def parameter_problems(
+    found: list[Call], english: dict[str, str], unread: set[tuple[str, str]] | None = None
+) -> list[str]:
+    """A call passing a parameter its English does not say or leaving out one it says, a call
+    the check cannot read that `UNREAD` does not name, and an entry no such call needs."""
+    unread = set().union(*UNREAD.values()) if unread is None else unread
+    problems: list[str] = []
+    needed = set()
+    for call in found:
+        said = placeholders(english[call.key]) if call.key in english else None
+        readable = call.key is not None and call.params is not None
+        if (call.path, call.written) in unread:
+            if not readable or call.params != said:
+                needed.add((call.path, call.written))
+            continue
+        where = f"backend/src/{call.path}:{call.line}"
+        if not readable:
+            problems.append(
+                f"{where}: the key or the parameters of {call.written} are settled at run time, "
+                "which the check cannot read: name the call in UNREAD (scripts/check-locales.py)"
+            )
+            continue
+        # A key en.json lacks has no sentence to compare with.
+        if said is None:
+            continue
+        for name in sorted(said - call.params):
+            problems.append(f"{where}: '{call.key}' says {{{name}}}, which the call does not pass")
+        for name in sorted(call.params - said):
+            problems.append(f"{where}: '{call.key}' is passed '{name}', which its English does not say")
+    for path, written in sorted(unread - needed):
+        problems.append(f"UNREAD names {written} in backend/src/{path}, which no call there needs")
+    return problems
 
 
 def confirmation_labels(text: str) -> set[str]:
@@ -386,6 +601,10 @@ def main() -> int:
                 f"fr.json: '{key}' has a plain space in {stranded.group(0)!r}, "
                 "where French puts a no-break space (U+00A0)"
             )
+
+    # 11. The parameters of each server call against its English.
+    found = [call for path, code in rust_sources() for call in calls(path, code)]
+    problems.extend(parameter_problems(found, english))
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)

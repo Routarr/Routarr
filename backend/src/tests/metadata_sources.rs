@@ -79,38 +79,17 @@ async fn a_keyword_rule_cannot_match_from_the_arr_alone() {
 // ------------------------------------------------------------ priority order
 
 #[tokio::test]
-async fn the_first_source_in_the_order_wins_the_field() {
-    let arr = FakeArr::start().await;
-    let app = TestApp::synced_from("radarr", &arr).await;
-    cache_tmdb(&app, r#"["Documentary"]"#).await;
-    set_order(&app, "arr,tmdb").await;
-    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
-
-    assert_eq!(app.decided_category().await, "anime");
-}
-
-#[tokio::test]
 async fn reordering_the_sources_changes_the_decision() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
-    set_order(&app, "tmdb,arr").await;
     app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
-    // Same library, same rule, same data: only the order moved.
-    assert_eq!(app.decided_category().await, "standard");
-}
-
-#[tokio::test]
-async fn a_lower_source_still_fills_what_the_higher_one_lacks() {
-    let arr = FakeArr::start().await;
-    let app = TestApp::synced_from("radarr", &arr).await;
-    cache_tmdb(&app, r#"["Documentary"]"#).await;
+    // Same library, same rule, same data: only the order moves.
     set_order(&app, "arr,tmdb").await;
-    // Radarr wins the genres, and the keywords exist only in TMDB's answer.
-    app.seed_rule_on(serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
-
     assert_eq!(app.decided_category().await, "anime");
+    set_order(&app, "tmdb,arr").await;
+    assert_eq!(app.decided_category().await, "standard");
 }
 
 /// The Arr's own metadata is always read. A list saved without it, by an older

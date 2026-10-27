@@ -267,6 +267,29 @@ async fn an_unattended_apply_waits_for_the_apply_already_running() {
     );
 }
 
+/// Past its wait the pass leaves its moves pending for the sweep after the apply that held it.
+#[tokio::test]
+async fn an_unattended_apply_whose_turn_never_comes_leaves_its_moves_pending() {
+    let wait = std::time::Duration::from_millis(200);
+    let arr = FakeArr::with_unimported_movie().await;
+    let app = TestApp::one_film_to_move(&arr, false).await.with_unattended_wait(wait);
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
+    let _running = app.state.jobs.try_lock("apply").expect("the lock is free");
+
+    let started = std::time::Instant::now();
+    let by = crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK);
+    let outcome = auto_apply::apply_simulation(&app.state, &simulation, &by).await;
+
+    let held = matches!(outcome, Ok(AutoApplyOutcome::Held(auto_apply::Hold::TurnNotReached)));
+    assert!(held, "{outcome:?}");
+    assert!(started.elapsed() >= wait, "dropped without waiting: {:?}", started.elapsed());
+    assert!(arr.recorded().writes.is_empty(), "moved while another apply ran");
+    let pending = "SELECT COUNT(*) FROM decisions WHERE media_id = 'm-1' AND status = 'pending'";
+    assert_eq!(app.count(pending).await, 1);
+}
+
 /// A person who turns automatic application off while a pass waits for its turn has the pass
 /// move nothing, whether the global switch or the instance's.
 #[tokio::test]

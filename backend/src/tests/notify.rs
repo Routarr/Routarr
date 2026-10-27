@@ -214,6 +214,7 @@ async fn an_instance_going_down_notifies_once_not_on_every_tick() {
         .await;
     }
 
+    settled(&app).await;
     let messages = receiver.messages();
     assert_eq!(messages.len(), 1, "only the transition is worth a message, got {messages:?}");
     assert_eq!(messages[0]["event"], "instance_unreachable");
@@ -277,6 +278,7 @@ async fn a_healthy_instance_is_never_worth_a_message() {
         .unwrap();
     }
 
+    settled(&app).await;
     assert!(receiver.messages().is_empty(), "success is not an event");
 }
 
@@ -311,6 +313,7 @@ async fn nothing_is_sent_once_the_webhook_is_cleared() {
     .await
     .unwrap();
 
+    settled(&app).await;
     assert_eq!(receiver.messages().len(), 1, "the recovery went to a cleared webhook");
 }
 
@@ -364,14 +367,25 @@ async fn a_failing_webhook_does_not_break_the_sync() {
     assert_eq!(receiver.arrived(1).await[0]["event"], "instance_recovered");
 }
 
-/// Nothing answering at the address at all is a failure like any other.
+/// An address that closes every connection unanswered is a failure like any other: tried
+/// four times, and the caller is not held past the retries.
 #[tokio::test]
-async fn an_unreachable_webhook_does_not_fail_the_send() {
+async fn a_webhook_answering_nothing_is_tried_as_a_failure_is() {
+    let (closing, address) = super::listen().await;
+    let tried = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = Arc::clone(&tried);
+    tokio::spawn(async move {
+        while let Ok((connection, _)) = closing.accept().await {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            drop(connection);
+        }
+    });
     let app = TestApp::new().await;
-    app.save_setting("notification_webhook_url", "http://127.0.0.1:1/hook").await.assert_ok();
+    app.save_setting("notification_webhook_url", &format!("{address}/hook")).await.assert_ok();
     tokio::time::timeout(std::time::Duration::from_secs(5), notify::send(&app.state, recovered()))
         .await
-        .expect("an unreachable webhook held the caller");
+        .expect("a webhook answering nothing held the caller");
+    assert_eq!(tried.load(std::sync::atomic::Ordering::SeqCst), 4, "tried as often as a failure");
 }
 
 /// A film not yet downloaded on `arr`, routed to `anime`, with automatic application armed.
@@ -404,7 +418,8 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
         matches!(&outcome, Ok(AutoApplyOutcome::Applied { report, .. }) if report.failed == 1),
         "{outcome:?}"
     );
-    let messages = receiver.arrived(1).await;
+    settled(&app).await;
+    let messages = receiver.messages();
     assert_eq!(messages.len(), 1, "{messages:?}");
     assert_eq!(messages[0]["event"], "auto_apply_failed");
     assert_eq!(messages[0]["severity"], "error");
@@ -461,7 +476,7 @@ async fn a_sweep_held_over_the_cap_is_announced_once_and_warned_of() {
     let cleared = app.get("/api/v1/status").await;
     assert!(!warned(cleared.assert_ok()), "{}", cleared.json);
     let messages = receiver.arrived(1).await;
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    settled(&app).await;
     let held: Vec<_> = receiver
         .messages()
         .into_iter()
@@ -501,7 +516,8 @@ async fn an_unattended_apply_that_moved_everything_raises_no_alarm() {
     let by = crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE);
     let _ = sync::sync_instance(&app.state, "inst-1", &by).await;
 
-    let messages = receiver.arrived(1).await;
+    settled(&app).await;
+    let messages = receiver.messages();
     let events: Vec<&str> = messages.iter().filter_map(|m| m["event"].as_str()).collect();
     assert_eq!(events, ["instance_unreachable"]);
 }
@@ -576,6 +592,13 @@ async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
 
 async fn listening(app: &TestApp, receiver: &Receiver) {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+}
+
+/// Wait for every delivery `notify::send_later` started to return, retries included, so what
+/// the receiver holds is all that was sent.
+async fn settled(app: &TestApp) {
+    super::until(|| async { app.state.notifications.in_flight() == 0 }).await;
+    assert_eq!(app.state.notifications.in_flight(), 0, "a delivery still running");
 }
 
 /// The Standard Webhooks libraries' own case: secret, message id, timestamp, body and the
@@ -667,21 +690,13 @@ async fn a_replaced_secret_keeps_signing_for_a_day() {
     assert!(!signed_with(&old, &delivery), "a secret replaced two days ago still signs");
 }
 
-/// A receiver that fails is tried again under the same id. One that refuses
-/// the message is not: it will refuse it again.
+/// A receiver that refuses the message is not tried again: it will refuse it again.
 #[tokio::test]
-async fn a_failed_delivery_is_tried_again_and_a_refused_one_is_not() {
+async fn a_refused_delivery_is_not_tried_again() {
     let app = TestApp::new().await;
-    let failing = Receiver::answering(&[503, 500]).await;
-    listening(&app, &failing).await;
-    notify::send(&app.state, recovered()).await;
-    let deliveries = failing.awaiting(3).await;
-    assert!(deliveries.iter().all(|d| d.id == deliveries[0].id), "{deliveries:?}");
-
     let refusing = Receiver::answering(&[400]).await;
     listening(&app, &refusing).await;
     notify::send(&app.state, recovered()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     assert_eq!(refusing.deliveries().len(), 1, "a refused message was sent again");
 }
 
@@ -757,7 +772,7 @@ async fn a_retry_follows_the_secret_and_the_address_of_its_own_time() {
     notify::send_later(&app.state, recovered());
     cleared.awaiting(1).await;
     app.save_setting("notification_webhook_url", "").await.assert_ok();
-    tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+    settled(&app).await;
     assert_eq!(cleared.deliveries().len(), 1, "a cleared address was tried again");
 }
 
@@ -769,7 +784,7 @@ async fn a_completion_is_sent_only_to_a_webhook_that_asked_for_it() {
     listening(&app, &receiver).await;
 
     app.post("/api/v1/simulate", serde_json::json!({ "persist": true })).await.assert_ok();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    settled(&app).await;
     assert!(receiver.deliveries().is_empty(), "a completion nobody asked for was sent");
 
     app.save_setting("notify_simulation_completed", "true").await.assert_ok();
@@ -802,7 +817,7 @@ async fn an_apply_and_a_revert_are_announced_apart_once_asked_for() {
 
     let quiet = pending().await;
     executor::apply_decisions(&app.state, &quiet, false, &Confirmed::all(), &by).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    settled(&app).await;
     assert!(receiver.deliveries().is_empty(), "a completion nobody asked for was sent");
 
     app.save_setting("notify_moves_completed", "true").await.assert_ok();
@@ -912,7 +927,7 @@ async fn a_failed_sync_is_told_every_time_once_asked_for() {
 
     let _ = sync::sync_instance(&app.state, "inst-1", &by).await;
     assert_eq!(receiver.arrived(1).await[0]["event"], "instance_unreachable");
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    settled(&app).await;
     assert_eq!(receiver.deliveries().len(), 1, "a failed sync nobody asked for was sent");
 
     app.save_setting("notify_sync_failed", "true").await.assert_ok();
@@ -967,11 +982,11 @@ async fn a_retried_notification_never_lands_after_a_newer_one() {
     assert_eq!(events, ["instance_unreachable", "instance_unreachable", "instance_recovered"]);
 }
 
-/// A delivery refused for good is tried four times, once and then after each
-/// of the three waits, and no more. A 429 is retried after the quiet its
-/// `Retry-After` asks for. Every attempt is signed over its own timestamp.
+/// A delivery failing every time is tried four times under one id, once and then after each
+/// of the three waits, and no more. A 429 is retried after the quiet its `Retry-After` asks
+/// for. Every attempt is signed over its own timestamp.
 #[tokio::test]
-async fn a_refused_delivery_is_tried_four_times_each_signed_for_itself() {
+async fn a_failing_delivery_is_tried_four_times_each_signed_for_itself() {
     let app = TestApp::new().await;
     let refusing = Receiver::answering(&[500, 500, 500, 500, 500]).await;
     listening(&app, &refusing).await;
@@ -982,6 +997,7 @@ async fn a_refused_delivery_is_tried_four_times_each_signed_for_itself() {
 
     let tried = refusing.deliveries();
     assert_eq!(tried.len(), 4, "{tried:?}");
+    assert!(tried.iter().all(|delivery| delivery.id == tried[0].id), "{tried:?}");
     assert!(tried.iter().all(|delivery| signed_with(&secret, delivery)), "{tried:?}");
 
     let throttling = Receiver::answering(&[429]).await;
@@ -1007,7 +1023,7 @@ async fn deliveries_queue_up_to_a_bound_and_give_their_places_back() {
         notify::send_later(&app.state, recovered());
     }
     receiver.awaiting(32).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    settled(&app).await;
     assert_eq!(receiver.deliveries().len(), 32, "the queue was not bounded at 32");
 
     notify::send(&app.state, recovered()).await;
@@ -1027,7 +1043,7 @@ async fn a_scheduled_simulation_is_announced_and_a_preview_is_not() {
     app.save_setting("notify_simulation_completed", "true").await.assert_ok();
 
     app.post("/api/v1/simulate", serde_json::json!({ "persist": false })).await.assert_ok();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    settled(&app).await;
     assert!(receiver.deliveries().is_empty(), "a preview was announced");
 
     crate::jobs::scheduler::tick(
@@ -1217,6 +1233,6 @@ async fn a_key_about_to_expire_is_announced_once_a_week_before() {
     let day =
         crate::localization::human_date(chrono::Utc::now() + chrono::Duration::days(5), &english);
     assert!(body["message"].as_str().unwrap().contains(&format!("on {day}")), "{body}");
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    settled(&app).await;
     assert_eq!(receiver.deliveries().len(), 1, "announced twice, or another key announced");
 }

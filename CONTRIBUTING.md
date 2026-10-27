@@ -110,7 +110,7 @@ bash scripts/check.sh --list             # each step, its directory and its comm
 
 It exits 0 when every step passed, 1 when one failed, and 3 when the rest passed but a step was
 skipped: a linter the machine lacks, or the image, which needs Docker. The backend's coverage
-gate is `--fail-under-lines 96` (`cargo llvm-cov`), and the image is checked, with Docker, by:
+gate is `--fail-under-lines 97` (`cargo llvm-cov`), and the image is checked, with Docker, by:
 
 ```bash
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
@@ -120,7 +120,7 @@ gitleaks reads the whole history: a secret-shaped literal, a realistic fake key
 in a test included, keeps failing it after a later commit deletes it. Write a
 fake key that no scanner takes for a real one (`test-key`, `x` repeated).
 
-Coverage has floors on both sides: 96 % of backend lines, and 95 / 85 / 93 / 95 for frontend
+Coverage has floors on both sides: 97 % of backend lines, and 96 / 86 / 95 / 96 for frontend
 statements, branches, functions and lines, with 30 % of each of the four in every frontend file,
 so a screen with no test fails the run. **Raise one when the real figure moves up, never
 lower one to make a build pass.**

@@ -15,7 +15,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { ApiError, api, type Following } from '../api/client';
 import type { CapacityForecast, Decision, SimulationResult } from '../api/types';
-import { formatTimestamp } from '../api/format';
+import { formatBytes, formatTimestamp } from '../api/format';
 import Simulation from './Simulation.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
@@ -230,18 +230,41 @@ describe('what the screen shows', () => {
     expect(screen.getByRole('table', { name: 'Destination capacity' })).toBeInTheDocument();
   });
 
-  it('keeps the capacity table in sight beside the warning for a destination short of room', async () => {
+  it('warns of the destination short of room alone, with its sizes, beside every destination', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue({
       ...simulation([decision()]),
-      capacity: [destination({ incoming_bytes: 2_000_000, fits: false })],
+      capacity: [
+        destination({
+          path: '/films',
+          incoming_bytes: 5_000_000,
+          same_filesystem_bytes: 3_000_000,
+          free_bytes: 9_000_000_000,
+        }),
+        destination({ incoming_bytes: 2_000_000, free_bytes: 1_000_000, fits: false }),
+      ],
     });
 
     await userEvent.click(screen.getByRole('button', { name: /run simulation/i }));
 
-    expect(await screen.findByRole('table', { name: 'Destination capacity' })).toBeInTheDocument();
-    expect(screen.getByText(/^\/anime would receive/)).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: 'Destination capacity' });
+    const size = (bytes: number) => formatBytes(bytes, 'en');
+    expect(screen.getAllByText(/would receive/)).toHaveLength(1);
+    expect(
+      screen.getByText(
+        `/anime would receive ${size(2_000_000)} but reports only ${size(1_000_000)} free.`,
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Every destination has room.')).toBeNull();
+
+    const [roomy, short] = within(table).getAllByRole('row').slice(1);
+    expect(roomy).toHaveTextContent('/films');
+    expect(
+      within(roomy!).getByText(`(+${size(3_000_000)} within the same volume)`),
+    ).toBeInTheDocument();
+    expect(within(roomy!).getByText(size(9_000_000_000))).not.toHaveClass('text-danger');
+    expect(short).toHaveTextContent('/anime');
+    expect(within(short!).getByText(size(1_000_000))).toHaveClass('text-danger');
   });
 
   /** The screen does not otherwise say which run the proposals come from. */

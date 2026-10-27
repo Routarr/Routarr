@@ -425,7 +425,8 @@ async fn run_in_slices(
             ..Default::default()
         };
 
-        for batch in ids.chunks(size) {
+        for (slice, batch) in ids.chunks(size).enumerate() {
+            crate::race::checked("executor::slice", &slice.to_string()).await;
             if let Some(reason) = stop_reason(&state, &stop).await {
                 report.stopped = Some(reason);
                 report.stopped_early = true;
@@ -533,15 +534,10 @@ pub async fn apply_unattended(
     run_locked(state, decision_ids, false, by, turn, 0).await
 }
 
-/// How long an unattended apply waits for the one running. A run moving files holds the lock as
-/// long as its copies last, hours for a library: past this wait the decision stays pending for
-/// the sweep after that run.
-const UNATTENDED_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
-
 /// The apply lock for an unattended apply, waited for rather than refused: dropped, the fix for
 /// a film just added waits for a sweep that may never come, in a folder the rules do not want.
 pub async fn unattended_turn(state: &AppState) -> Option<JobLock> {
-    state.jobs.lock_within("apply", UNATTENDED_WAIT).await
+    state.jobs.lock_within("apply", state.config.unattended_wait).await
 }
 
 /// Take the apply lock, refused while another run holds it, then apply under it.
