@@ -542,8 +542,8 @@ pub async fn live_session(
 ) -> AppResult<Option<Session>> {
     let lifetime = format!("-{} hours", lifetime_hours(source));
     // Renewal is due once less than `SESSION_DAYS - 1` days are left, never past the lifetime.
-    let live: Option<(String, i64, String, bool)> = sqlx::query_as(
-        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER), reach,
+    let live: Option<(String, i64, String, String, bool)> = sqlx::query_as(
+        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER), reach, expires_at,
                 expires_at < MIN(datetime('now', ?), datetime(created_at, ?, '-1 hour'))
            FROM sessions
           WHERE id = ? AND source = ? AND opened_under = ? AND expires_at > datetime('now')
@@ -557,7 +557,7 @@ pub async fn live_session(
     .bind(&lifetime)
     .fetch_optional(pool)
     .await?;
-    let Some((subject, opened_at, reach, due_now)) = live else {
+    let Some((subject, opened_at, reach, expires_at, due_now)) = live else {
         return Ok(None);
     };
     let session = |renewed| Session { subject, reach: Reach::stored(&reach), opened_at, renewed };
@@ -565,19 +565,18 @@ pub async fn live_session(
     if !due_now {
         return Ok(Some(session(None)));
     }
+    // Of two requests finding the renewal due, the one that still reads its expiry writes it.
     let renewed: Option<i64> = sqlx::query_scalar(
         "UPDATE sessions SET last_used_at = datetime('now'),
                 expires_at = MIN(datetime('now', ?), datetime(created_at, ?))
-          WHERE id = ?
-            AND expires_at < MIN(datetime('now', ?), datetime(created_at, ?, '-1 hour'))
+          WHERE id = ? AND expires_at = ?
          RETURNING CAST(strftime('%s', expires_at) AS INTEGER)
                  - CAST(strftime('%s', 'now') AS INTEGER)",
     )
     .bind(format!("+{SESSION_DAYS} days"))
     .bind(format!("+{} hours", lifetime_hours(source)))
     .bind(stored(id))
-    .bind(format!("+{} days", SESSION_DAYS - 1))
-    .bind(format!("+{} hours", lifetime_hours(source)))
+    .bind(&expires_at)
     .fetch_optional(pool)
     .await
     .ok()

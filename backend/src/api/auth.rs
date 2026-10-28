@@ -474,11 +474,10 @@ pub(crate) fn opened_under(state: &AppState) -> Option<OpenedUnder> {
     }
 }
 
-/// The session a request carries, when the mode in force opened it under what is in force now.
-async fn live_session(state: &AppState, headers: &HeaderMap) -> Option<accounts::Session> {
-    let id = cookie(headers, session_cookie_name(state, headers))?;
+/// The session `id` names, when the mode in force opened it under what is in force now.
+async fn live_session(state: &AppState, id: &str) -> Option<accounts::Session> {
     let (mode, under) = (state.config.auth_mode.as_str(), opened_under(state)?);
-    accounts::live_session(&state.pool, &id, mode, &under).await.ok().flatten()
+    accounts::live_session(&state.pool, id, mode, &under).await.ok().flatten()
 }
 
 /// The identity a live session cookie names, when the mode in force opened it,
@@ -490,7 +489,7 @@ async fn session_identity(
 ) -> Option<(Identity, Option<axum::http::HeaderValue>)> {
     let id = cookie(headers, session_cookie_name(state, headers))?;
     let mode = state.config.auth_mode;
-    let session = live_session(state, headers).await?;
+    let session = live_session(state, &id).await?;
     let renewal = session
         .renewed
         .map(|seconds| session_cookie(state, headers, &id, seconds))
@@ -856,7 +855,7 @@ pub async fn logout(
         return foreign_origin();
     }
     if let Some(id) = cookie(&headers, session_cookie_name(&state, &headers)) {
-        if let Some(session) = live_session(&state, &headers).await {
+        if let Some(session) = live_session(&state, &id).await {
             let person = Identity::person(session.subject, state.config.auth_mode);
             audited(&state, &person, client, allowed(audit::Kind::SignOut, "AuditSignedOut"));
         }

@@ -773,9 +773,9 @@ async fn a_second_backup_in_the_same_second_is_refused_before_any_copy() {
 
 /// A restore sets the database it replaces aside as `routarr.db.pre-restore`, so picking the
 /// wrong archive loses nothing written since, and lists it until the owner deletes it. The master
-/// key it replaces goes at once: a key withdrawn on purpose must not survive on disk.
+/// key that opens it stays beside it as long, and goes with it.
 #[tokio::test]
-async fn a_restore_keeps_the_database_it_replaces() {
+async fn a_restore_keeps_the_database_it_replaces_and_the_key_that_opens_it() {
     let (app, dir) = app_with_files("pre-restore").await;
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-since', 'written-since')"]).await;
@@ -796,7 +796,9 @@ async fn a_restore_keeps_the_database_it_replaces() {
             .unwrap();
     assert_eq!(since, 1, "the copy lost what was written since the archive");
     pool.close().await;
-    assert!(!dir.join("routarr.key.pre-restore").exists(), "the replaced master key was kept");
+    let kept_key = dir.join("routarr.key.pre-restore");
+    let opening = std::fs::read_to_string(&kept_key).expect("the key that opens it went");
+    assert_eq!(opening, "the-key-withdrawn-since");
     assert_eq!(std::fs::read_to_string(dir.join("routarr.key")).unwrap(), "a-master-key");
 
     let (_, pool, secrets) = crate::open_storage(&config).await.unwrap();
@@ -811,7 +813,47 @@ async fn a_restore_keeps_the_database_it_replaces() {
     let deleted = app.delete("/api/v1/backups/replaced-database").await;
     assert_eq!(deleted.assert_ok(), &json!({ "deleted": true }));
     assert!(!kept.exists(), "the replaced database is still on disk");
+    assert!(!kept_key.exists(), "the key outlived the database it opens");
     assert!(app.get("/api/v1/backups").await.assert_ok()["replaced_database"].is_null());
+}
+
+/// The next restore replaces the database set aside, and the key kept for it goes with it when
+/// the restored key opens the database set aside now: a key withdrawn on purpose survives on
+/// disk only beside a database it opens.
+#[tokio::test]
+async fn the_next_restore_takes_the_kept_key_away_with_its_database() {
+    let (app, dir) = app_with_files("pre-restore-next").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    std::fs::write(dir.join("routarr.key"), "the-key-withdrawn-since").unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
+    let config = (*app.state.config).clone();
+    app.state.pool.close().await;
+    backup::apply_pending_restore(&config).await.unwrap();
+    let kept_key = dir.join("routarr.key.pre-restore");
+    assert!(kept_key.exists(), "the first restore kept no key beside the database it replaced");
+
+    let (_, pool, secrets) = crate::open_storage(&config).await.unwrap();
+    let state = AppState { secrets, ..AppState::for_tests_on(pool).with_config(config.clone()) };
+    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-next', 'restored-once')")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    backup::stage_restore(&state, &file.name, None).await.unwrap();
+    state.pool.close().await;
+    assert!(backup::apply_pending_restore(&config).await.unwrap(), "nothing was applied");
+
+    assert!(!kept_key.exists(), "a key outlived the database it opens");
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(dir.join("routarr.db.pre-restore"))
+        .read_only(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    let replaced: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM categories WHERE name = 'restored-once'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(replaced, 1, "the database set aside is not the one the second restore replaced");
+    pool.close().await;
 }
 
 /// A start stopped between setting the database aside and its log leaves the log alone beside
@@ -1637,11 +1679,8 @@ async fn a_refused_start_names_the_archive_to_restore() {
     assert!(message.contains("no archive in"), "{message}");
 }
 
-/// A start whose migration fails leaves the database as it was, and a restart that tries again
-/// takes no second archive of it: Docker restarts a refused start until the disk is full.
-#[tokio::test]
-async fn a_start_refused_by_its_migration_archives_the_database_once() {
-    let dir = TempDir::new("migration-fails");
+/// A database whose last migration fails on every start, as `dir` holds it.
+async fn refused_by_its_migration(dir: &TempDir) -> crate::config::Config {
     let mut config = crate::config::Config::for_tests();
     config.set_db_path(dir.join("routarr.db"));
     let pool = crate::db::init_pool(&config).await.unwrap();
@@ -1651,30 +1690,106 @@ async fn a_start_refused_by_its_migration_archives_the_database_once() {
         .await
         .unwrap();
     pool.close().await;
-    let archives = || -> Vec<String> {
-        std::fs::read_dir(dir.join("backups"))
-            .map(|entries| {
-                entries
-                    .filter_map(Result::ok)
-                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
+    config
+}
 
-    let first = crate::db::init_pool(&config).await.expect_err("a failed migration started");
-    // Older, so the attempt after it may take a name of its own.
-    let taken = archives();
+/// The archives of `dir`, newest first.
+fn archives_of(dir: &TempDir) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir.join("backups"))
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort_by(|a, b| b.cmp(a));
+    names
+}
+
+/// The one archive of `dir` dated back to 2020, its name and its manifest, so the attempt after
+/// it may take a name of its own.
+fn dated_back(dir: &TempDir) -> String {
+    let taken = archives_of(dir);
     assert_eq!(taken.len(), 1, "{taken:?}");
     let older = taken[0].replacen(&taken[0][15..30], "20200101-000000", 1);
-    std::fs::rename(dir.join("backups").join(&taken[0]), dir.join("backups").join(&older)).unwrap();
+    let (archive, dated) = (dir.join("backups").join(&taken[0]), dir.join("backups").join(&older));
+    let mut manifest = backup::read_manifest(&archive, &Localizer::new("en")).unwrap();
+    manifest.created_at = "2020-01-01 00:00:00".into();
+    forge(&archive, &dated, "manifest.json", serde_json::to_string(&manifest).unwrap().as_bytes());
+    std::fs::remove_file(&archive).unwrap();
+    older
+}
+
+/// A start whose migration fails leaves the database as it was, and a restart that tries again
+/// takes no second archive of it: Docker restarts a refused start until the disk is full.
+#[tokio::test]
+async fn a_start_refused_by_its_migration_archives_the_database_once() {
+    let dir = TempDir::new("migration-fails");
+    let config = refused_by_its_migration(&dir).await;
+
+    let first = crate::db::init_pool(&config).await.expect_err("a failed migration started");
+    let taken = archives_of(&dir);
+    let older = dated_back(&dir);
     let second = crate::db::init_pool(&config).await.expect_err("a failed migration started");
 
     for refused in [first.to_string(), second.to_string()] {
         assert!(refused.contains("003_release_0_3_0"), "the migration is not named: {refused}");
         assert!(refused.contains(&older) || refused.contains(&taken[0]), "{refused}");
     }
-    assert_eq!(archives(), [older], "a second archive was taken of the same database");
+    assert_eq!(archives_of(&dir), [older], "a second archive was taken of the same database");
+}
+
+/// A job stamped ahead of the clock, as one a clock set back since leaves, says nothing of what
+/// changed when: a start retried in a loop still takes one archive.
+#[tokio::test]
+async fn a_job_stamped_ahead_of_the_clock_takes_no_archive_at_each_retry() {
+    let dir = TempDir::new("migration-fails-clock");
+    let config = refused_by_its_migration(&dir).await;
+    let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&config.db_path);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    sqlx::query(
+        "INSERT INTO jobs (id, kind, status, started_at)
+         VALUES ('ahead', 'maintenance', 'success', datetime('now', '+1 day'))",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    crate::db::init_pool(&config).await.expect_err("a failed migration started");
+    let older = dated_back(&dir);
+    crate::db::init_pool(&config).await.expect_err("a failed migration started");
+
+    assert_eq!(archives_of(&dir), [older], "a second archive was taken of the same database");
+}
+
+/// A start retried once the release before ran on the database again takes a new archive: the
+/// one kept from the failed attempt lacks everything that release wrote since.
+#[tokio::test]
+async fn a_start_retried_after_the_database_changed_archives_it_again() {
+    let dir = TempDir::new("migration-fails-changed");
+    let config = refused_by_its_migration(&dir).await;
+    crate::db::init_pool(&config).await.expect_err("a failed migration started");
+    let older = dated_back(&dir);
+    // The release before, started again since, records its hourly maintenance.
+    let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&config.db_path);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    sqlx::query(
+        "INSERT INTO jobs (id, kind, status, finished_at)
+         VALUES ('maintenance-since', 'maintenance', 'success', datetime('now'))",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let refused = crate::db::init_pool(&config).await.expect_err("a failed migration started");
+
+    let archives = archives_of(&dir);
+    assert_eq!(archives.len(), 2, "the database changed and no archive was taken: {archives:?}");
+    assert_eq!(archives[1], older);
+    assert!(refused.to_string().contains(&archives[0]), "the way back is not the new archive");
 }
 
 /// A start that migrates a database backs it up first, at the schema it had. A first start
