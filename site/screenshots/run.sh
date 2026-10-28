@@ -55,6 +55,7 @@ wait_for() {
 }
 
 start_routarr() {
+  ROUTARR_HOST=127.0.0.1 \
   ROUTARR_DB_PATH="$WORK/routarr.db" \
   ROUTARR_PORT="$PORT" \
   ROUTARR_FRONTEND_DIR="$ROOT/frontend/dist" \
@@ -109,6 +110,13 @@ echo "    ${total:-0} decision(s)"
 # Captured without a decision, the screen would show its empty state and the
 # README a picture of an application that does nothing.
 [[ "${total:-0}" -gt 0 ]] || { echo "no decision after 40 s; not capturing" >&2; exit 1; }
+
+# A request a stand-in did not serve took Routarr down a path a real Arr never
+# sends it, and the screen would show what that path leaves behind.
+for arr_port in "$RADARR_PORT" "$SONARR_PORT"; do
+  unknown="$(curl -sf "http://127.0.0.1:$arr_port/__unknown")"
+  [[ "$unknown" == "[]" ]] || { echo "a fake Arr was asked what it does not serve: $unknown; not capturing" >&2; exit 1; }
+done
 
 echo "==> capturing"
 FRONTEND_DIR="$ROOT/frontend" ROUTARR_URL="http://127.0.0.1:$PORT" \

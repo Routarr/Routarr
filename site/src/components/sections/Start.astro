@@ -35,7 +35,10 @@ const COMPOSE = `<span class="k">services</span>:
     <span class="k">cap_drop</span>:
       - <span class="s">ALL</span>
     <span class="k">security_opt</span>:
-      - <span class="s">no-new-privileges:true</span>`;
+      - <span class="s">no-new-privileges:true</span>
+    <span class="k">read_only</span>: <span class="s">true</span>
+    <span class="k">tmpfs</span>:
+      - <span class="s">/tmp:size=64m,noexec,nosuid</span>`;
 ---
 
 <section id="start">

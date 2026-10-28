@@ -279,6 +279,8 @@ Copyright (C) 2026 the Routarr contributors.
 
 [GPL-3.0-only](LICENSE), like Radarr and Sonarr. Routarr is not affiliated with the Servarr project.
 The licences of the components it is built with ship in the image, and the About dialog links them.
+The logo is Lucide's `git-branch` icon, under the ISC licence in
+[`LICENSES/ISC-Lucide.txt`](LICENSES/ISC-Lucide.txt).
 
 ## Data sources
 

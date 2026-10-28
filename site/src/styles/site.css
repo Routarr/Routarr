@@ -223,7 +223,7 @@ img { max-width: 100%; height: auto; }
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 9px 0;
+  padding-block: 9px;
 }
 .lang-hint a { color: var(--accent-text); font-weight: 600; }
 .lang-hint button {
@@ -868,9 +868,9 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 /* The name is what the feature is called. It is the smaller of the two here
    because it is the one you can guess from the fact and not the other way
-   round. */
+   round. The space before it in the markup draws most of the gap. */
 .spec-fact span {
-  margin-inline-start: 11px;
+  margin-inline-start: 2px;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -1433,7 +1433,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
    a glance, and what each takes stays a click away. The method is the only
    colour, and it means one thing: green reads, amber changes, red removes. */
 .ref-group { margin-top: 36px; }
-.ref-group:first-of-type { margin-top: 0; }
 .ref-group h3 { margin-bottom: 0.2em; }
 .ref-note { font-size: 0.95rem; margin-bottom: 12px; }
 
@@ -1480,8 +1479,13 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .ref-post, .ref-put { color: var(--accent-text); }
 .ref-delete { color: var(--mark-unmet); }
 
-/* The longest path of the contract is 27 characters, so 28 hold every one. */
+/* Narrower than a desktop, a long path breaks after a slash and leaves the
+   sentence beside it its room. On a desktop the column is one character wider
+   than the contract's longest path, which `check.mjs` holds it to. */
 .ref-path { grid-area: path; width: 28ch; color: var(--text); overflow-wrap: anywhere; }
+@media (min-width: 900px) {
+  .ref-path { width: 42ch; }
+}
 .ref-does { grid-area: does; color: var(--text-soft); font-size: 0.95rem; }
 .ref-scope {
   grid-area: scope;
@@ -1529,8 +1533,9 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .site-footer .wrap { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
 .site-footer nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
-/* The credit the metadata sources ask for, on a line of its own. */
-.site-footer .footer-data { order: 1; flex-basis: 100%; }
+/* The credits the metadata sources and the logo's licence ask for, each on a
+   line of its own. */
+.site-footer .footer-credit { order: 1; flex-basis: 100%; }
 .site-footer a { color: var(--text-soft); text-decoration: none; }
 .site-footer a:hover { color: var(--accent-text); }
 

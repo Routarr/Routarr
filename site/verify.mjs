@@ -61,6 +61,12 @@ async function waitForServer() {
 await waitForServer();
 
 const browser = await chromium.launch();
+// A Playwright call that throws ends the run, and the failures found before it
+// are printed all the same, the reason it stopped last.
+process.on('uncaughtException', (error) => {
+  fail(`the run stopped: ${String(error?.message ?? error).split('\n')[0]}`);
+  browser.close().catch(() => {}).finally(finish);
+});
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 
@@ -766,6 +772,22 @@ for (const [path, locale] of [['/', 'fr-FR'], ['/', 'de'], ['/how/', 'es-MX']]) 
   }
 }
 
+// On a phone the offer keeps the page's side margin, in Spanish, its longest
+// wording, too.
+{
+  const ctx = await browser.newContext({ locale: 'es-ES', viewport: { width: 320, height: 640 } });
+  const tab = await ctx.newPage();
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const edges = await tab.evaluate(() => {
+    const link = document.querySelector('#lang-hint a')?.getBoundingClientRect();
+    const button = document.querySelector('#lang-hint button')?.getBoundingClientRect();
+    return link && button ? { left: link.left, right: innerWidth - button.right } : null;
+  });
+  if (!edges) fail('the language offer showed nothing to a Spanish browser at 320px');
+  else check(Math.min(edges.left, edges.right) >= 16, `at 320px the language offer keeps ${Math.round(edges.left)}px on its left and ${Math.round(edges.right)}px on its right`);
+  await ctx.close();
+}
+
 // Silent where it has nothing to say: on a page already in that language, and
 // for a language the site does not speak. A banner in either case is worse than
 // none, since it sends the reader somewhere they already are or nowhere.
@@ -784,9 +806,9 @@ for (const [path, locale, why] of [
   const { ctx, tab, hint, shown } = await offered('/', 'fr-FR');
   // The button clicked is the one the banner rendered, never one looked up by a
   // name this file guessed: asked for "Fermer" while the banner had offered
-  // German, the locator spends its whole timeout and throws, which kills the
-  // run before the failures already recorded above are ever printed. Its name
-  // is worth asserting, and that is a check rather than a way to find it.
+  // German, the locator spends its whole timeout and throws, which ends the
+  // run here. Its name is worth asserting, and that is a check rather than a
+  // way to find it.
   const button = hint.getByRole('button');
   if (!shown || (await button.count()) !== 1) {
     fail(`the language offer rendered ${shown ? 'no single button' : 'nothing'}, so dismissing it could not be checked`);
@@ -819,6 +841,8 @@ for (const [path, type] of [
   ['/robots.txt', 'text/plain'],
   ['/assets/site.js', 'text/javascript'],
   ['/.well-known/security.txt', 'text/plain; charset=utf-8'],
+  ['/llms.txt', 'text/plain; charset=utf-8'],
+  ['/fr/index.html.md', 'text/markdown; charset=utf-8'],
 ]) {
   const answer = await fetch(`${BASE}${path}`);
   check(answer.headers.get('content-type') === type, `${path} is typed ${answer.headers.get('content-type')}, production ${type}`);
@@ -840,11 +864,14 @@ for (const { code, path } of LANGUAGES) {
 }
 
 await browser.close();
-stop();
+finish();
 
-if (failures.length) {
-  console.error(`\n${failures.length} problem(s):\n`);
-  for (const problem of failures) console.error(`  - ${problem}`);
-  process.exit(1);
+function finish() {
+  stop();
+  if (failures.length) {
+    console.error(`\n${failures.length} problem(s):\n`);
+    for (const problem of failures) console.error(`  - ${problem}`);
+    process.exit(1);
+  }
+  console.log('site verified in a browser');
 }
-console.log('site verified in a browser');

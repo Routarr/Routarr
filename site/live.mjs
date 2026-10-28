@@ -117,10 +117,9 @@ for (const { code, path } of LANGUAGES) {
   await tab.close();
 }
 
-// A file rather than a page: whether the host lets `_headers` set its type, as
-// RFC 9116 requires, shows nowhere but here.
-{
-  const path = '/.well-known/security.txt';
+// Files rather than pages: whether the host lets `_headers` set their type with
+// its charset, as RFC 9116 and RFC 7763 require, shows nowhere but here.
+for (const path of ['/.well-known/security.txt', '/llms.txt', '/fr/index.html.md']) {
   const answer = await context.request.get(`${ORIGIN}${path}`);
   if (answer.status() !== 200) fail(`${path} answered ${answer.status()}`);
   const served = answer.headers();
@@ -128,6 +127,15 @@ for (const { code, path } of LANGUAGES) {
     const actual = served[name.toLowerCase()];
     if (actual !== value) fail(`${path}: ${name} is served as "${actual ?? '(absent)'}", _headers says "${value}"`);
   }
+}
+
+// The Worker answers on the site's origin alone. Its `workers.dev` address,
+// under the account's subdomain `routarr`, is off in `wrangler.jsonc`.
+{
+  const name = readFileSync(join(ROOT, 'wrangler.jsonc'), 'utf-8').match(/^\s*"name": "([^"]+)"/m)[1];
+  const address = `https://${name}.routarr.workers.dev/`;
+  const answer = await context.request.get(address, { maxRedirects: 0 }).catch(() => null);
+  if (answer?.ok() && (await answer.text()).includes(`v${VERSION}`)) fail(`${address} serves the site as well`);
 }
 
 await browser.close();
