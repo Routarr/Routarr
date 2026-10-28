@@ -1449,7 +1449,7 @@ mod tests {
         let english = crate::localization::Localizer::new("en").describe(&outcome);
         assert!(english.contains("Unknown"), "{english}");
         let french = crate::localization::Localizer::new("fr").describe(&outcome);
-        assert!(french.contains("inconnu"), "{french}");
+        assert!(french.contains("Inconnu"), "{french}");
     }
 
     #[test]
