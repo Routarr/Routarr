@@ -329,10 +329,11 @@ const TERMS = [
   ['faq.p', 'SettingGlobalDryRun', 'within'],
   ['how.p', 'SettingGlobalDryRun', 'within'],
   ['how.foot.2', 'SettingGlobalDryRun', 'within'],
-  ['features.h3', 'Instances', 'within'],
+  ['features.name', 'Instances'],
   ['safety.b.2', 'SettingBatchLimit'],
   ['safety.b.3', 'SettingConfirmationThreshold'],
-  ['features.k.3', 'Exceptions'],
+  ['features.name.3', 'Exceptions'],
+  ['features.name.6', 'Backups'],
   ['api.step.1', 'Applications', 'within'],
   ['api.step.1', 'ScopeOperate', 'within'],
   ['api.step.1', 'ScopeWrite', 'within'],
@@ -400,8 +401,17 @@ for (const [code, forms] of Object.entries(FORMS)) {
   if (shown.join() !== order.join()) fail(`the safety section shows the gates as ${shown.join(', ')}, the executor runs ${order.join(', ')}`);
   const gates = order.length;
 
-  if (conditions < 10 || languages < 2 || formats.length < 2 || executed.length < 3) {
-    fail(`read ${conditions} condition(s), ${languages} language(s), ${formats.length} format(s) and ${executed.length} guard(s) from the code: a pattern stopped matching`);
+  // The backups as a new installation takes them, which `features.fact.6` states: on, every
+  // 24 hours, and a count kept.
+  const settings = readOutside('backend/src/services/settings.rs');
+  const shipped = (key) => settings.match(new RegExp(`\\("${key}", Kind::[^"]*"([^"]*)"\\)`))?.[1];
+  const kept = Number(shipped('backup_retention_count'));
+  if (shipped('backup_enabled') !== 'true' || shipped('backup_interval_hours') !== '24') {
+    fail(`features.fact.6 says a backup is taken daily by default, settings.rs ships backup_enabled ${shipped('backup_enabled')} every ${shipped('backup_interval_hours')} hour(s)`);
+  }
+
+  if (conditions < 10 || languages < 2 || formats.length < 2 || executed.length < 3 || !(kept > 0)) {
+    fail(`read ${conditions} condition(s), ${languages} language(s), ${formats.length} format(s), ${executed.length} guard(s) and ${kept} backup(s) kept from the code: a pattern stopped matching`);
   }
 
   const WORDS = {
@@ -419,6 +429,7 @@ for (const [code, forms] of Object.entries(FORMS)) {
     ['features.h2', languages, 'languages'],
     ['explain.p.2', languages, 'languages'],
     ['features.fact.5', formats.length, 'notification formats'],
+    ['features.fact.6', kept, 'backups kept'],
     ['header.desc.4', gates, 'gates'],
     ['safety.h2', gates, 'gates'],
     ['safety.p', gates, 'gates'],
@@ -1147,7 +1158,7 @@ for (const [what, tint, grounds, texts] of TINTED) {
 // "ReadsRadarr". A space in the markup separates them for both.
 let bandsRead = 0;
 for (const [file, html] of Object.entries(pages)) {
-  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head|plan-legend|gates-legend|spec-fact)">[\s\S]*?<\/p>/g)) {
+  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head|plan-legend|gates-legend)">[\s\S]*?<\/p>/g)) {
     bandsRead++;
     if (/<\/(?:i|span)>(?:<span|[^\s<])|[^\s>]<span\b/.test(block)) fail(`${file}: a label runs into what follows it: ${block.slice(0, 90)}`);
   }
