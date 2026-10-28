@@ -418,12 +418,11 @@
             type="button"
             class="palette-trigger"
             onclick={() => (palette = true)}
-            aria-label={t('CommandPalette')}
             aria-keyshortcuts={mac ? 'Meta+K' : 'Control+K'}
           >
             <Search size={14} aria-hidden="true" />
             <span class="palette-trigger-label">{t('CommandPalette')}</span>
-            <kbd class="palette-trigger-key">{shortcut}</kbd>
+            <kbd class="palette-trigger-key" aria-hidden="true">{shortcut}</kbd>
           </button>
 
           {#if !phone}

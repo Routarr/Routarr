@@ -90,7 +90,7 @@ fs4 = { version = "1.1.0", default-features = false }
 http-body-util = "0.1"
 # Holds every documented answer the API gives to the schema the contract
 # states for it: the field names and the types both.
-jsonschema = { version = "0.58", default-features = false }
+jsonschema = { version = "0.59", default-features = false }
 # Properties that hold for any input, for the functions that read what an Arr,
 # a source or an operator wrote: folders, folded values, stamps.
 proptest = "1"
