@@ -1671,7 +1671,7 @@ async fn a_start_refused_by_its_migration_archives_the_database_once() {
     let second = crate::db::init_pool(&config).await.expect_err("a failed migration started");
 
     for refused in [first.to_string(), second.to_string()] {
-        assert!(refused.contains("004_release_0_3_0"), "the migration is not named: {refused}");
+        assert!(refused.contains("003_release_0_3_0"), "the migration is not named: {refused}");
         assert!(refused.contains(&older) || refused.contains(&taken[0]), "{refused}");
     }
     assert_eq!(archives(), [older], "a second archive was taken of the same database");

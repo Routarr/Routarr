@@ -94,7 +94,7 @@ configured Radarr and Sonarr instances, to the metadata sources the user enables
 Connect provider if one is used, to a notification webhook if one is set, and, when the user asks
 for it, to the address of the anime identifier table, GitHub by default.
 
-To install, save the compose file from the README (image ghcr.io/routarr/routarr:0.2, port
+To install, save the compose file from the README (image ghcr.io/routarr/routarr:0.3, port
 9876, ./config mounted at /config) and run:
 
 ```bash

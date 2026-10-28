@@ -1,4 +1,8 @@
--- What 0.3.0 adds after 003, kept as one file while no release has run it.
+-- What 0.3.0 adds to the 0.2.0 schema.
+
+-- The template a rule was added from, as `children@1`, so the gallery knows which
+-- templates a library already holds. NULL for a rule written by hand.
+ALTER TABLE rules ADD COLUMN template TEXT;
 
 -- What the last run of each rule test found, read by the warning and the gauges, where its title
 -- went on that run, and who pinned the test.

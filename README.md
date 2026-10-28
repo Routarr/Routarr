@@ -63,7 +63,7 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 ```yaml
 services:
   routarr:
-    image: ghcr.io/routarr/routarr:0.2
+    image: ghcr.io/routarr/routarr:0.3
     container_name: routarr
     ports:
       - "9876:9876"
@@ -180,7 +180,7 @@ To restore an archive:
   docker run -d --name routarr -p 9876:9876 -v "$PWD/config:/config" \
     --restart unless-stopped --stop-timeout 30 --cap-drop ALL \
     --security-opt no-new-privileges:true --read-only --tmpfs /tmp:size=64m,noexec,nosuid \
-    ghcr.io/routarr/routarr:0.2
+    ghcr.io/routarr/routarr:0.3
   ```
 
   On Unraid, add it from the Docker tab, the port and the folder in their own fields and the other

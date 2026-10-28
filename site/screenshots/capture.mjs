@@ -19,7 +19,7 @@ const NOT_FOUND = JSON.parse(
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
-  viewport: { width: 1440, height: 900 },
+  viewport: { width: 1440, height: 1080 },
   deviceScaleFactor: 2,
   colorScheme: 'dark',
 });
@@ -46,9 +46,14 @@ if (await run.count()) {
   await page.waitForTimeout(1500);
   await page.waitForLoadState('networkidle');
 }
-// The decisions are what the README describes: their table is scrolled into
-// view, past the totals and the destinations' capacity.
-await page.locator('table').last().evaluate((table) => table.closest('section, .card')?.scrollIntoView());
+// The decisions are what the README describes: the switch above their table is
+// scrolled to just under the top bar, which stays over whatever scrolls under it,
+// past the totals and the destinations' capacity.
+await page.locator('.segmented').first().evaluate((views) => {
+  const bar = document.querySelector('.topbar')?.getBoundingClientRect().height ?? 0;
+  views.style.scrollMarginTop = `${bar + 12}px`;
+  views.scrollIntoView({ block: 'start' });
+});
 // Let the dark theme's transitions land before the shutter.
 await page.waitForTimeout(400);
 await page.screenshot({ path: OUT });

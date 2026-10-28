@@ -1403,7 +1403,7 @@ pub(crate) const WITHDRAWN_CREDENTIALS_TABLE: &str =
     withdrawn_at TEXT NOT NULL DEFAULT (datetime('now'))
 );";
 
-/// The copy tables as migration `004_release_0_3_0` creates them, for the same reason.
+/// The copy tables as migration `003_release_0_3_0` creates them, for the same reason.
 pub(crate) const COPY_FOLDERS_TABLE: &str = "CREATE TABLE IF NOT EXISTS backup_copy_folders (
     path TEXT PRIMARY KEY
 );";
@@ -1719,7 +1719,7 @@ mod tests {
     fn the_restore_creates_the_withdrawals_table_as_the_migration_does() {
         let migration = include_str!("../../../migrations/002_release_0_2_0.sql");
         assert!(migration.contains(WITHDRAWN_CREDENTIALS_TABLE), "the two definitions drifted");
-        let migration = include_str!("../../../migrations/004_release_0_3_0.sql");
+        let migration = include_str!("../../../migrations/003_release_0_3_0.sql");
         for table in [COPY_FOLDERS_TABLE, COPIES_TABLE] {
             assert!(migration.contains(table), "the two definitions drifted: {table}");
         }
