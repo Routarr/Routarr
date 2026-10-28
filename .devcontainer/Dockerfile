@@ -239,7 +239,7 @@ RUN cargo install --locked --root /usr/local "cargo-mutants@${CARGO_MUTANTS_VERS
 
 # Playwright's system libraries, at frontend/package.json's version. Only the
 # browsers download at create time.
-ARG PLAYWRIGHT_VERSION=1.64.0
+ARG PLAYWRIGHT_VERSION=1.64.1
 RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium firefox webkit \
   && rm -rf /root/.npm /var/lib/apt/lists/*
 
