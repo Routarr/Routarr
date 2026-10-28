@@ -147,7 +147,9 @@ function blocks(nodes, base) {
       }).join('\n'));
     } else if (node.tag === 'dl') {
       const lines = [];
-      for (const child of node.children) {
+      // HTML lets a `div` wrap each term and its description.
+      const pairs = node.children.flatMap((child) => (child.tag === 'div' && !silent(child) ? child.children : [child]));
+      for (const child of pairs) {
         if (typeof child === 'string' || silent(child)) continue;
         const text = clean(inline(child.children, base)).replace(/\n/g, ' ');
         if (child.tag === 'dt') lines.push(`- **${text}**`);

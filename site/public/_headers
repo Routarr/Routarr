@@ -100,7 +100,35 @@
 /assets/site.js
   Cache-Control: public, max-age=0, must-revalidate
 
-# RFC 9116 section 3 asks for `text/plain` with the utf-8 charset, which the
-# host's type for a `.txt` leaves out. `check.mjs` holds this rule here.
+# The host types a `.txt` and a `.md` with no charset, and a client then reads
+# the UTF-8 as Latin-1. RFC 9116 section 3 asks `security.txt` for the utf-8
+# charset, and RFC 7763 asks it of Markdown. `check.mjs` holds these rules here,
+# one per Markdown copy of a page.
 /.well-known/security.txt
   Content-Type: text/plain; charset=utf-8
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/how/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/api/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/fr/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/fr/how/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/fr/api/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/de/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/de/how/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/de/api/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/es/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/es/how/index.html.md
+  Content-Type: text/markdown; charset=utf-8
+/es/api/index.html.md
+  Content-Type: text/markdown; charset=utf-8
