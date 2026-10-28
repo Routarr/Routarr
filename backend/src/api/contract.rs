@@ -110,9 +110,10 @@ at most every ten minutes. Past either it is answered `429`, with `Retry-After` 
 From 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. \
 Before it, a minor release may, and its release notes name each change. A renamed path still \
 answers under its old name for at least two minor releases and six months, marked `deprecated` \
-here, with a `Deprecation` header on every answer. New operations, new \
-fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the \
-kinds of a condition) may appear in any release."
+here, with a `Deprecation` header on every answer. New operations, new fields and new values \
+of an enum in an answer may appear in any release: every such enum is open, `action`, \
+`status`, `error`, `reason`, `confirm`, `stopped` and the kinds of a condition among them, so a \
+client accepts a value it does not know."
     ),
     servers((url = "/api/v1")),
     paths(
@@ -377,12 +378,13 @@ fn status() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn metrics() {}
 
-/// Reach every Arr and source, and report
+/// What every Arr and source last answered, probed again with operate
 ///
 /// Probes each enabled instance and source and records the result for `/status`. A probe of
 /// the same configuration under 30 seconds old is answered again unless `fresh=true`, and a
 /// call waits for one running. `probe=false` reads the database alone: instances read
-/// `unchecked`, sources `connected: null`, and `warnings` repeat the last probe.
+/// `unchecked`, sources `connected: null`, and `warnings` repeat the last probe. A key without
+/// the `operate` scope reads that way, and is refused `probe=true`.
 #[utoipa::path(
     get,
     path = "/health",
@@ -731,7 +733,7 @@ fn list_tasks() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn get_task() {}
 
-/// Stop an apply or a revert
+/// Stop an apply or a revert this key started
 ///
 /// The run stops before its next move: what already reached the Arr stays done, and the task's
 /// report says where it stopped. An application key stops only the tasks it started.
@@ -825,7 +827,7 @@ fn get_instance() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_sources() {}
 
-/// The values the library holds, for each condition
+/// The values the library holds, for the conditions that list them
 ///
 /// The genres, languages, countries, certifications, tags, series types and folders the
 /// library holds, each with its title count, and the closed lists of languages and countries.

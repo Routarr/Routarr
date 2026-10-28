@@ -125,7 +125,7 @@ describe('Instances', () => {
     await fireEvent.click(
       await screen.findByRole('menuitem', { name: 'Remove the titles it no longer reports' }),
     );
-    expect(await answerConfirmation()).toContain('no longer reports 40 titles');
+    expect(await answerConfirmation()).toContain('no longer reports: 40');
 
     await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
     expect(nthCall(remove)[0]).toBe('i1');

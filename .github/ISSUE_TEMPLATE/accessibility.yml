@@ -1,0 +1,52 @@
+name: Accessibility barrier
+description: Something in Routarr or on routarr.app you cannot reach, read or use
+labels: ['accessibility']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What Routarr aims at, and how it is checked, is in
+        [ACCESSIBILITY.md](https://github.com/Routarr/Routarr/blob/main/ACCESSIBILITY.md).
+        Write in English or in your own language.
+
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The screen or the page, as its title names it, and the dialog or control.
+    validations:
+      required: true
+
+  - type: textarea
+    id: barrier
+    attributes:
+      label: The barrier
+      description: What you tried to do, what happened, and what you expected instead.
+    validations:
+      required: true
+
+  - type: input
+    id: technology
+    attributes:
+      label: Assistive technology
+      description: |
+        A screen reader, a magnifier, voice control, a switch, the keyboard alone, a high
+        contrast or forced colours mode: its name and version, or "none".
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and system
+      description: The browser and its version, and the operating system.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Routarr version
+      description: Shown at the foot of the sidebar. Leave it empty for routarr.app.
+    validations:
+      required: false

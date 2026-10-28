@@ -5,9 +5,9 @@
 > evaluates rules the user writes, and moves each title to the right root folder through the Arr
 > API. It shows the whole plan first and writes only when the user says so.
 
-It ships as one Docker image for amd64 and arm64, so a Pi or an N100 is enough. Storage is a
-single SQLite file, with no database service to run. It is licensed GPL-3.0-only and is not
-affiliated with the Servarr project.
+It ships as one Docker image for amd64 and arm64, so a Pi on a 64-bit system or an N100 is
+enough. Storage is a single SQLite file, with no database service to run. It is licensed
+GPL-3.0-only and is not affiliated with the Servarr project.
 
 Routarr never manages downloads, indexers or the library itself, and it does not replace Radarr
 or Sonarr. A move writes exactly two things through the Arr API, the root folder and the path,
@@ -46,10 +46,11 @@ Six gates run in this order before anything is written, and the first to object 
 global dry-run, batch limit, reachability, capacity, confirmation threshold, and revalidation at
 apply time. All six are on by default. The global dry-run is on from the first launch, blocks
 writes at the server whatever the interface does, and alone makes the whole application
-read-only. Reachability, capacity and the confirmation threshold ask the user a question, and
-the other three refuse. Moving files on disk is an option, unchecked by default. Without it,
-Routarr re-points the library entry and leaves the files where they are. Automatic application
-exists and is off by default. When enabled, it touches only titles with no files on disk yet.
+read-only. Reachability, capacity and the confirmation threshold ask the user a question, the
+dry-run and the batch limit refuse, and revalidation sets aside a move the rules no longer
+justify. Moving files on disk is an option, unchecked by default. Without it, Routarr re-points
+the library entry and leaves the files where they are. Automatic application exists and is off
+by default. When enabled, it touches only titles with no files on disk yet.
 
 Metadata sources form an ordered list, and the order decides which source wins when they
 disagree. No metadata key is required: Radarr and Sonarr are a source of their own, and AniList
@@ -64,10 +65,12 @@ Routarr also provides:
 - Any number of Radarr (4.2 or later) and Sonarr (4 or later) instances, each with its own sync
   interval, folders and mappings, on Linux or Windows: a path on a drive letter or a network
   share is compared as Windows compares it, whatever its case or separator. Sonarr 3 works too,
-  a new series routed at the next sync.
-- A secret webhook token per instance, sent in a header by Radarr 5.16 and Sonarr 4.0.11 or in
-  the URL by older releases. A title added in Radarr or Sonarr is synced, enriched and evaluated
-  at once rather than at the next poll, and can be routed before it downloads.
+  a new series routed at the next sync, and its original language read from another source than
+  Sonarr, which reports it from 4.
+- A secret webhook token per instance, sent in the X-Routarr-Token header by Radarr 5.16 and
+  Sonarr 4.0.11, as a Basic password by any release, or in the URL. A title added in Radarr or
+  Sonarr is synced, enriched and evaluated at once rather than at the next poll, and can be
+  routed before it downloads.
 - Authentication on by default: an API key, a single account, or OpenID Connect, which can let
   named people or groups in to read only.
 - Prometheus metrics at /api/v1/metrics, behind the same API key.
@@ -91,7 +94,7 @@ configured Radarr and Sonarr instances, to the metadata sources the user enables
 Connect provider if one is used, to a notification webhook if one is set, and, when the user asks
 for it, to the address of the anime identifier table, GitHub by default.
 
-To install, save the compose file from the README (image ghcr.io/routarr/routarr:latest, port
+To install, save the compose file from the README (image ghcr.io/routarr/routarr:0.2, port
 9876, ./config mounted at /config) and run:
 
 ```bash
@@ -105,8 +108,10 @@ paste it. The container runs as uid 1000 and drops every capability, so the data
 to belong to uid 1000. Routarr archives itself into config/backups/ on a schedule, each archive a
 consistent copy holding the database and routarr.key, without which the stored Arr credentials
 cannot be recovered: keep copies of those archives, and copy the config/ folder itself only with
-Routarr stopped. The image tag latest follows the most recent release, 0.1
-follows the patch releases of 0.1, and a full version such as 0.1.0 pins one.
+Routarr stopped. The image tag X.Y, as the compose file names it, follows the patch releases of
+one minor, X.Y.Z pins one release, and latest follows the most recent. Before 1.0 a minor release
+may break a setting or the API, so an installation stays on its minor line and moves to the next
+after reading that release's notes.
 
 For stronger isolation the same image runs under gVisor (runtime: runsc in the compose file), a
 kernel in user space between the container and the host's, on an amd64 Linux host. It protects
@@ -123,18 +128,21 @@ with), and optionally Settings (turn off the global dry-run once the result is t
 ROUTARR_AUTH selects authentication: apikey (the default), forms (one account with a password),
 oidc (OpenID Connect), external (a reverse proxy in front authenticates) or none (open). Under
 oidc, ROUTARR_OIDC_READ_SUBJECTS and ROUTARR_OIDC_READ_GROUPS name people who sign in to read
-only: the library, the proposals, the history and the tasks, never a move or a setting.
+only what a key's read scope reaches: the library, proposals, history, tasks, rules and their
+tests, categories, folders, exceptions, sources, backup list, metrics and instances without their
+keys. Never a move, a setting or an archive, and no one's name but their own.
 ROUTARR_BASE_PATH serves Routarr under a sub-path such as /routarr behind a reverse proxy. The
 API, the interface and the webhook URLs all move with it, and no image rebuild is needed.
 ROUTARR_API_KEY sets the API key instead of generating one, and ROUTARR_SECRET_KEY sets the key
-that encrypts the stored Arr keys. Every variable is listed in backend/.env.example, and
+that encrypts the stored credentials: the Arr and metadata keys, the notification address, the
+signing secret and the backup passphrase. Every variable is listed in backend/.env.example, and
 everything else is set in the interface, under Settings and Metadata sources.
 
 Security issues are reported privately through GitHub, as SECURITY.md describes, never in a
 public issue. Only the most recent release is supported. Out of scope by design: a permission
-model beyond full and read-only access, telemetry of any kind (opt-in included), a second database
-engine, signal weighting, nested condition groups, temporary exceptions and a persistent task
-queue.
+model beyond the owner, people signed in to read alone and application keys limited to their
+scopes, telemetry of any kind (opt-in included), a second database engine, signal weighting,
+nested condition groups, temporary exceptions and a persistent task queue.
 
 The Site links below are Markdown copies of the three English pages of the showcase site, each
 at its page's address with index.html.md appended, and the French, German and Spanish copies are

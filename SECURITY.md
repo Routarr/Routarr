@@ -25,6 +25,12 @@ What you can expect:
   90 days after the report, the advisory is published then, with what an
   installation can do meanwhile.
 
+A weakness the project finds itself in a released version is disclosed the
+same way when its severity is Medium or above: an advisory naming the versions
+it affects, published with the release that fixes it. Every security fix,
+whatever its severity, is listed in that release's notes. No advisory is
+published for a weakness only 0.1.x had.
+
 Useful in a report: what an attacker needs to be able to do first (reach the
 port? already have the API key? control a Radarr the instance talks to?), and
 what they get out of it. A concrete request or a short reproduction is worth
@@ -32,11 +38,14 @@ more than a scanner's output.
 
 ## Supported versions
 
-Only the newest release is supported and there is no back-porting: a fix
-ships in the next release. Write a report against that version, or against
+Only the newest release is supported and there is no back-porting to an older
+line: a fix ships in the next release, a patch of the newest minor when it
+cannot wait for the next one. Write a report against that version, or against
 `main`. A security fix in the base image, Alpine, ships in a patch release of
-its own rather than waiting for the next change to Routarr (the versions
-policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions)).
+its own rather than waiting for the next change to Routarr. While `main`
+already holds the next minor, such a patch is made on the newest minor's
+release branch, `release/X.Y` (the versions policy and the release branches are
+in [CONTRIBUTING.md](CONTRIBUTING.md#versions)).
 
 | Version        | Supported |
 | -------------- | --------- |
@@ -135,13 +144,13 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
 - **`/auth/login` bounds what it can be made to spend, and locks nobody out.**
   It is public and argon2id is deliberately expensive, in time and in memory
   (about 19 MiB per check), so the cost that makes a password hard to guess also
-  makes the endpoint expensive to serve. At most two checks run at once and at
-  most ten requests sit inside the endpoint. The rest are answered `503` with a
-  `Retry-After` of one second. The hash runs on a
-  blocking thread, never on the async runtime, so a burst of sign-ins cannot
-  stall the interface, the scheduler or the webhooks. A password shorter than
-  the twelve-character minimum is refused without hashing, since it cannot be
-  the stored one. The permit and the queue slot are held by the *hash* rather
+  makes the endpoint expensive to serve. At most two checks run at once, at most
+  ten requests sit inside the endpoint, and one address holds at most three of
+  them. The rest are answered `503` with a `Retry-After` of one second. The hash
+  runs on a blocking thread, never on the async runtime, so a burst of sign-ins
+  cannot stall the interface, the scheduler or the webhooks. A password shorter
+  than the twelve-character minimum is refused without hashing, since it cannot
+  be the stored one. The permit and the queue slot are held by the *hash* rather
   than by the request: a blocking task cannot be cancelled, so a client that
   hangs up would otherwise return them while the work it started ran on, and a
   flood of abandoned connections would start one argon2 each up to the size of
@@ -162,17 +171,19 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   network: every peer inside a listed range, such as `172.18.0.0/16`, chooses
   the address its sign-ins count against, each container of a shared Docker
   network included, which the start says.
-- **The `forms` mode stores its single password with argon2id** and opens
-  opaque server-side sessions, never signed tokens: revoking one is a delete,
-  which a self-validating token cannot offer. A session is stored by the
-  SHA-256 digest of its id, so a copy of the database opens none. The cookie is
-  `HttpOnly`, `SameSite=Lax` and scoped to the mount point, and named `__Host-`
-  over TLS at the root of a host, so no other subdomain and no plain `http://`
-  page can set it. A write carrying it is refused when the request states an
-  origin that is not this one. A browser sends it to every service of the same
-  host name whatever its port, whose pages are the same site: give Routarr a
-  host name of its own when the other services of the host are not trusted. A
-  request another origin sets off, the same site included, never starts a probe.
+- **The `forms` mode stores its single password with argon2id** and opens opaque
+  server-side sessions, never signed tokens: revoking one is a delete, which a
+  self-validating token cannot offer. A session is stored by the SHA-256 digest
+  of its id, so a copy of the database opens none. The cookie is `HttpOnly`,
+  `SameSite=Lax` and scoped to the mount point, and named `__Host-` over TLS at
+  the root of a host, so no other subdomain and no plain `http://` page can set
+  it. A write carrying it is refused when the request states an origin that is
+  not this one. An origin `ROUTARR_CORS_ORIGINS` lists counts as this one, so
+  each one listed is trusted as much as Routarr's own pages. A browser sends it
+  to every service of the same host name whatever its port, whose pages are the
+  same site: give Routarr a host name of its own when the other services of the
+  host are not trusted. A request another origin sets off, the same site
+  included, never starts a probe.
 - **A session ends on its own, in use or not.** About a week without a request,
   and at the latest thirty days after it opened, or twenty-four hours through
   an OpenID Connect provider, so a provider that removes a person is followed
@@ -190,7 +201,9 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   accepts until it restarts. Outside `forms` the command refuses, unless
   `--force` resets the account for a later switch to `forms`.
 - **In `none` and `external` modes a write with no API key is refused when the
-  request states an origin that is not this one.** Nothing else stands between
+  request states an origin that is not this one.** An origin
+  `ROUTARR_CORS_ORIGINS` lists counts as this one, so each one listed is trusted
+  as much as Routarr's own pages. Nothing else stands between
   a page of another site and the API there: `none` asks for nothing, and in
   `external` the proxy in front has already signed the browser in.
 - **In `none` mode a request sent to a host name Routarr does not know is
@@ -210,11 +223,12 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   beside their `sub`, since many providers let a person change the name.
 - **The `oidc` mode can let people in to read alone.** The people
   `ROUTARR_OIDC_READ_SUBJECTS` and `ROUTARR_OIDC_READ_GROUPS` name reach the
-  routes the read scope of an application key reaches (the library, the
-  proposals, the history, the tasks) and are refused everything else with `403`
-  and `read_only`. Like such a key, a reader reads no one's name but their own
-  where a screen says who acted. Someone the full lists name too has full
-  access.
+  routes the read scope of an application key reaches (the library, proposals,
+  history, tasks, rules and their tests, categories, folders, exceptions,
+  sources, backup list, metrics and instances without their keys) and are
+  refused everything else with `403` and `read_only`. Like such a key, a reader
+  reads no one's name but their own where a screen says who acted. Someone the
+  full lists name too has full access.
 - **The `oidc` mode runs the authorization code flow with PKCE**, checks the
   issuer, the audience, the expiry and the nonce it generated. An attempt
   travels in a cookie sealed with the master key, so the public route that
@@ -230,19 +244,22 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   that does not match answers 404 rather than 401, so it does not confirm
   whether the instance exists.
 - **One webhook delivery is handled at a time per instance, and at most four
-  wait behind it.** That route is the only one an unauthenticated party
-  reaches, and each accepted call costs a request to the Arr, a metadata
-  fetch, a simulation and, with automatic application armed, a write. The
-  token travels in the URL, so it is in the reverse proxy's log and in the
-  Arr's own. An Arr delivers sequentially and waits for each response, so a
-  season import never has two in flight. A delivery that finds the instance
-  busy takes a place in its queue and waits up to twenty seconds for its
-  turn, first come first served, since an Arr does not retry what it
-  considers delivered. Anything past the four places is acknowledged without
-  work. A flood therefore costs one worker and four waiters, and a newcomer
-  never passes a delivery already waiting. It does not bound a slow sequential
-  caller, which costs exactly what a real import costs: rotate the token from
-  the Instances screen if one is suspected.
+  wait behind it.** Beside the sign-in, that route is the only one that does
+  work for a caller holding no key and no session, and each accepted call costs
+  a request to the Arr, a metadata fetch, a simulation and, with automatic
+  application armed, a write. The token travels in the URL unless the Arr sends
+  it as the `X-Routarr-Token` header (Radarr 5.16 and Sonarr 4.0.11 on) or as
+  the password of Basic credentials (any release), which the Instances screen
+  offers. In the URL it is in the reverse proxy's log and in the Arr's own. An
+  Arr delivers sequentially and waits for each response, so a season import
+  never has two in flight. A delivery that finds the instance busy takes a place
+  in its queue and waits up to twenty seconds for its turn, first come first
+  served, since an Arr does not retry what it considers delivered. Anything past
+  the four places is acknowledged without work. A flood therefore costs one
+  worker and four waiters, and a newcomer never passes a delivery already
+  waiting. It does not bound a slow sequential caller, which costs exactly what
+  a real import costs: rotate the token from the Instances screen if one is
+  suspected.
 - **Arr API keys are sealed with AES-256-GCM** and never returned. The interface
   shows `•••• (encrypted)`. Webhook tokens are the exception, stored in clear,
   since the Instances screen shows each webhook address: once a copy of the
@@ -308,11 +325,14 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   server does not start: reqwest's defaults follow ten redirects anywhere with
   no timeout, so a fallback would silently discard both properties on the one
   path that carries a credential.
-- **Nothing is sent to a link-local address** (169.254.0.0/16, fe80::/10),
-  where a cloud host's metadata service hands out the machine's credentials.
+- **Nothing is sent to where a cloud host's metadata service answers**, handing
+  out the machine's credentials: the link-local ranges (169.254.0.0/16,
+  fe80::/10), Alibaba Cloud's 100.100.100.200 and AWS's fd00:ec2::254, each also
+  written inside an IPv6 address.
   The check is made on the address a connection is about to use, so a name
   that resolves there later is refused as well as an address typed in. The
-  loopback and private ranges, where Arrs live, stay reachable.
+  loopback and private ranges, where Arrs live, stay reachable, those two
+  addresses aside.
 - **Transport errors are described from the error's source chain**, never from
   `reqwest`'s own `Display`, which embeds the URL and therefore any `?api_key=`
   in it.
@@ -330,8 +350,8 @@ Adversarial tests live in two files.
 authentication cannot be walked around, that user text is data and not SQL, and
 that no response carries a decrypted secret.
 [`backend/src/tests/webhook_fuzz.rs`](backend/src/tests/webhook_fuzz.rs) throws
-about 3 000 generated JSON trees at the one route an unauthenticated party can
-reach, on the invariant that no input produces a panic or a 500.
+about 3 000 generated JSON trees at the webhook, the one route that does work on
+a body sent without a key or a session, on the invariant that no input produces a panic or a 500.
 
 ## The security log, and fail2ban
 
@@ -351,11 +371,14 @@ a password or a code:
 2026-10-06T23:04:23.117345918+02:00  WARN request{method=POST uri=/api/v1/auth/login id="5b0f6c1e-3a52-4f7e-9d2c-8e1a4b7c9d03"}: routarr::audit: A sign-in was refused: wrong name or password. event="sign_in" outcome="refused" subject="-" client=203.0.113.9
 ```
 
-A refused key, an unknown application key, a write from another site, a
-webhook with a wrong token and an OpenID Connect callback no sign-in of this
-browser started, which anyone can send as fast as they like, are written once
-a minute per address, an IPv6 one by its /64, with how many came since
-(`repeated=`). Every refused sign-in is written, since Routarr slows them
+A refused key, an unknown or expired application key, a request past a key's
+scopes or to a route the owner keeps, a reader refused, a write from another
+site, a name Routarr does not answer to under `none`, a webhook with a wrong
+token, a sign-in held back while its address waits, and an OpenID Connect
+callback the provider refused or no sign-in of this browser started, which
+anyone can send as fast as they like, are written once a minute per address,
+an IPv6 one by its /64, with how many came since (`repeated=`). Every sign-in
+refused for a wrong name, password or key is written, since Routarr slows them
 itself.
 
 The same events are kept in the database for the **Security log** screen,
@@ -429,7 +452,9 @@ Not vulnerabilities to report, but decisions, with reasons.
   and `ROUTARR_OIDC_READ_GROUPS` name sign in to read what an application key's
   read scope reaches, and are refused everything else. Each application key is
   limited to its scopes. It is a self-hosted tool for a household,
-  not a multi-tenant service. What a session mode adds is
+  not a multi-tenant service, and a permission model beyond the owner, people
+  signed in to read alone and application keys limited to their scopes is out
+  of scope. What a session mode adds is
   a *name*: the account or the provider's subject is stored beside every
   decision and every write it causes, so "who moved this" has an answer past
   "somebody, manually". The key is one such name, `apikey`, which is how a

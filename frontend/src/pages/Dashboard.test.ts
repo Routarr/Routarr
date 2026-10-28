@@ -134,14 +134,14 @@ describe('Dashboard', () => {
     bothReturn(counted(0));
     const { unmount } = show();
 
-    expect(await screen.findByText('Metadata: 4 of 4 titles')).toHaveClass('text-muted');
+    expect(await screen.findByText('Titles with metadata: 4 of 4')).toHaveClass('text-muted');
     expect(screen.queryByRole('link', { name: 'Open Metadata sources' })).toBeNull();
     unmount();
 
     bothReturn(counted(1));
     show();
 
-    expect(await screen.findByText('Metadata: 3 of 4 titles')).toHaveClass('text-warning');
+    expect(await screen.findByText('Titles with metadata: 3 of 4')).toHaveClass('text-warning');
     expect(screen.getByRole('link', { name: 'Open Metadata sources' })).toHaveAttribute(
       'href',
       '/sources',

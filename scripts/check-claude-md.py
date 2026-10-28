@@ -8,9 +8,9 @@ as it is written, so every line also stays within LINE_WIDTH characters: a
 paragraph kept on one long line would pass the count while costing what the
 lines it hides cost.
 
-A rule anywhere under `.claude/rules/` loads only when Claude opens a file its
-`paths:` list matches with Read, Edit or Write, or prints that one file with
-`cat` or `head`. A rule without that list, or
+A rule anywhere under `.claude/rules/` loads only when Claude reads a file its
+`paths:` list matches, with Read, Edit, Write or a Bash read of that one file
+(`cat`, `head`, `tail`, `sed -n`, `grep`). A rule without that list, or
 with frontmatter that is not valid YAML, loads in every session like
 `CLAUDE.md`. An unquoted glob such as `**/*.ts` is not valid YAML, so each glob
 is quoted, and each has to match a tracked file: a mistyped one loads its rule

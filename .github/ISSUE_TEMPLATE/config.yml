@@ -1,6 +1,7 @@
 # Questions and ideas go to Discussions, where an answer stays findable and an
 # idea gathers its arguments before it becomes work. The forms beside this
-# file are the two kinds of issue: a bug and a translation.
+# file are the three kinds of issue: a bug, a translation and an accessibility
+# barrier.
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
