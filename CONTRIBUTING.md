@@ -1,7 +1,8 @@
 # Contributing
 
 Thanks for looking. A few things are worth knowing before you spend time on a
-change, because some of them are unusual.
+change, because some of them are unusual. Everyone taking part is held to the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## Start with the architecture
 
@@ -10,6 +11,12 @@ rules live in [`.claude/rules/`](.claude/rules/), and the reason behind a line t
 looks odd is in the comment beside it. It is the right starting point for
 almost any change, and it will save you from undoing something on purpose.
 
+```
+backend/     the Rust crate
+frontend/    the interface, built into frontend/dist and served by the backend
+site/        the showcase site, deployed separately, never in the image
+```
+
 A few features have been considered and deliberately left out, because they
 complicate the engine or the interface without serving what Routarr is for:
 deciding which root folder a media item belongs in, and getting it there
@@ -17,13 +24,18 @@ safely. Signal weighting, nested condition groups, temporary exceptions and a
 persistent task queue are the ones that come up. Please open an issue before
 building one of those rather than after.
 
+A defect goes in the
+[bug form](https://github.com/Routarr/Routarr/issues/new?template=bug_report.yml),
+and an idea in [Discussions](https://github.com/Routarr/Routarr/discussions/categories/ideas),
+where it is weighed before it becomes work.
+
 ## Getting set up
 
 The dev container ([`.devcontainer/`](.devcontainer/)) ships everything the
 checks below run except Docker: the pinned Rust toolchain, Node, Python,
-cargo-llvm-cov, cargo-deny, cargo-about, actionlint, shellcheck, hadolint,
-gitleaks, oasdiff, ruff, `gh`, and Playwright with its browsers, each at the
-version CI pins. Open the repository in it and
+cargo-llvm-cov, cargo-deny, cargo-about, cargo-mutants, actionlint, shellcheck,
+hadolint, gitleaks, oasdiff, ruff, `gh`, and Playwright with its browsers, each
+at the version CI pins. Open the repository in it and
 `postCreateCommand` does the rest. At every start it names a tool it lacks or
 holds at another version than its Dockerfile pins, which a rebuild settles.
 
@@ -35,6 +47,26 @@ daemon running as root, those files belong to root on the host, and
 by default, which drops the Dockerfile's `SHELL` line, so every `RUN` would go
 through `sh` without `pipefail` and say so in a warning.
 
+In the dev container, the Rust build tree lives in a RAM disk at `/ramdisk`
+rather than on your disk. The RAM disk is half your machine's memory.
+`CARGO_TARGET_DIR` points there, and everything in it is gone when the
+container stops, at the price of one cold `cargo build` when it comes back.
+Nothing on your machine has to be prepared for that: the container runtime
+makes the mount. Every thirty minutes the tree's caches are trimmed once the RAM
+disk is three quarters full (of 24 GiB at most), and `scripts/check.sh` makes
+room before its heaviest areas, as below. On a machine with less than 16 GB of
+RAM, the build tree goes to disk instead and survives a restart. Three commands
+are worth knowing:
+
+```bash
+bash .devcontainer/prune.sh --status   # how full it is, and what is using it
+bash .devcontainer/prune.sh            # reclaim the regenerable parts now
+(cd backend && cargo clean)            # start the build tree over
+```
+
+A build that reports **no space left on device** is that RAM disk filling, not
+your disk. `--status` says so, and a plain `prune.sh` usually fixes it.
+
 Without the container, development is supported on Linux, where CI runs. On
 macOS or Windows, use the dev container. On Linux you need:
 
@@ -43,15 +75,19 @@ macOS or Windows, use the dev container. On Linux you need:
 - Python 3.11 or later
 - curl, and `fuser` (psmisc) or `lsof`, which the end-to-end harness frees its
   ports with
+- a C compiler and linker (`build-essential` on Debian or Ubuntu), which the
+  bundled SQLite and the TLS library are built with
 - Docker, for the image check
 - the CI tools at the versions of the `ARG` lines of
   [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile)
+- ImageMagick, for the README's screenshot when releasing
 
-Then install the two trees and a browser:
+Then install the two trees and a browser. A package's own install scripts run
+only for the two of the site that need theirs:
 
 ```bash
-(cd frontend && npm ci && npx playwright install --with-deps chromium)
-(cd site && npm ci)
+(cd frontend && npm ci --ignore-scripts && npx playwright install --with-deps chromium)
+(cd site && npm ci --ignore-scripts && npm rebuild esbuild workerd)
 ```
 
 ### Running Routarr while you work
@@ -66,29 +102,21 @@ one to `backend/data/routarr.api_key` on its first start. Copy
 `backend/.env.example` to `backend/.env` to change a setting: every variable is
 described there.
 
-Inside it, the Rust build tree lives in a RAM disk at `/ramdisk` rather than
-on your disk. The RAM disk is half your machine's memory, and the build tree is
-kept under 24 GiB of it. `CARGO_TARGET_DIR` points there, and everything in it
-is gone when the container stops, at the price of one cold `cargo build` when it
-comes back. Nothing on your machine has to be prepared for that: the container
-runtime makes the mount. On a machine with less than 16 GB of RAM, the build
-tree goes to disk instead and survives a restart. Three commands are worth
-knowing:
+### Working on the site
 
 ```bash
-bash .devcontainer/prune.sh --status   # how full it is, and what is using it
-bash .devcontainer/prune.sh            # reclaim the regenerable parts now
-(cd backend && cargo clean)            # start the build tree over
+npm --prefix site run build     # the site, into site/dist
+npm --prefix site run preview   # site/dist on :8788, under the real _headers
+npm --prefix site run icons     # favicon.ico and the PNG icons, from public/assets/favicon.svg
+npm --prefix site run og        # each language's link preview card, after editing a text it shows
+npm --prefix site run live      # production, against this checkout's _headers and version
 ```
 
-A build that reports **no space left on device** is that RAM disk filling, not
-your disk. `--status` says so, and a plain `prune.sh` usually fixes it.
-
-```
-backend/     the Rust crate
-frontend/    the interface, built into frontend/dist and served by the backend
-site/        the showcase site, deployed separately, never in the image
-```
+Look at a change through `preview`, after a build. `npm run dev` reloads as you
+type but applies none of `_headers`, so a page the Content Security Policy
+breaks in production looks fine there. The last three, and
+`npm --prefix site run verify`, drive Chromium through the Playwright installed
+in `frontend/node_modules`.
 
 ## What CI will check
 
@@ -116,9 +144,26 @@ gate is `--fail-under-lines 97` (`cargo llvm-cov`), and the image is checked, wi
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 ```
 
+In the dev container, `check.sh` makes room on the RAM disk before the coverage and end-to-end
+areas: `prune.sh --room` removes the build tree's regenerable caches (the coverage tree, then
+the incremental caches, then the debug build) until the room each needs is free. A build already
+running keeps its directory, and the next build after such a pass starts from a colder cache.
+
 gitleaks reads the whole history: a secret-shaped literal, a realistic fake key
 in a test included, keeps failing it after a later commit deletes it. Write a
 fake key that no scanner takes for a real one (`test-key`, `x` repeated).
+
+Every Saturday, `.github/workflows/mutants.yml` runs cargo-mutants over the rule
+engine, the guardrails and the path comparisons, and fails on a mutant no test
+catches. It gates nothing, but a survivor is a test to write. Run its area from
+`backend/` without the workflow's `--in-place`, so cargo-mutants mutates a copy
+and leaves the checkout as it is, with the files and the tests its matrix gives
+the area:
+
+```bash
+cargo mutants --file src/services/executor/guards.rs \
+  -- -- executor batch_apply move_confirmation auto_apply paced_moves
+```
 
 Coverage has floors on both sides: 97 % of backend lines, and 96 / 86 / 95 / 96 for frontend
 statements, branches, functions and lines, with 30 % of each of the four in every frontend file,
@@ -151,8 +196,10 @@ lower one to make a build pass.**
   [`backend/openapi/v1.json`](backend/openapi/v1.json), which `cargo test` holds
   to the code. A change to a type those routes take or return changes the file:
   pin it again with `ROUTARR_WRITE_CONTRACT=1 cargo test contract` and review
-  the difference. Adding is free. Removing, renaming or retyping anything
-  documented breaks a client, and CI refuses it against the last release.
+  the difference. Adding is free, a new value of an enum in an answer
+  included: the contract calls every such enum open, so a client accepts a
+  value it does not know. Removing, renaming or retyping anything documented
+  breaks a client, and CI refuses it against the last release.
   Before 1.0 a minor release may break one on purpose: the line oasdiff prints
   goes in `scripts/api-breaks/since-<last tag>.txt`, and the release notes name
   it.
@@ -164,6 +211,17 @@ lower one to make a build pass.**
   stays for at least two minor releases and six months. The release before its
   removal sets a `Sunset` date, and the removal itself answers `410 Gone` for
   one release, naming the new path.
+
+## Pull requests
+
+- Branch from `main`, and keep to one coherent change: two unrelated fixes are
+  two pull requests.
+- Fill in the checklist of the
+  [pull request template](.github/pull_request_template.md).
+- Every required check passes and the branch is up to date with `main` before
+  it merges. `bash scripts/check.sh` runs most of those checks first.
+- A maintainer merges it with a merge commit, which keeps its commits as they
+  are, so each one follows the rules of [Commits](#commits).
 
 ## Improving a translation
 
@@ -202,9 +260,8 @@ A few things hold every language together:
 
 Not because they are bad ideas, but because they are outside what this is:
 
-- A permission model beyond the three levels there are: the owner, people an
-  OpenID Connect provider signs in to read alone, and application keys limited
-  to their scopes. Roles per screen, per instance or per person are out.
+- A permission model beyond the owner, people signed in to read alone and
+  application keys limited to their scopes.
 - Anything that phones home, including opt-in telemetry.
 - A second database engine.
 - Fetching anything from a third party at run time, fonts included.
@@ -232,12 +289,16 @@ restates the diff says what the diff already says.
 
 ## Releasing
 
-One tag, one image, one release. There is no release branch and no bot: a
-version is published because somebody decided to publish it.
+One tag, one image, one release, and no bot: a version is published because
+somebody decided to publish it. A release is tagged on `main`, or, for a patch
+that cannot wait while `main` already holds the next minor, on the release
+branch of its minor ([below](#a-patch-on-a-release-branch)).
 
-1. Set the version in the three files that carry it (`backend/Cargo.toml`,
-   `frontend/package.json` and `site/package.json`) and run
-   `python3 scripts/check-versions.py`, which fails naming any file left behind.
+1. Set the version in `backend/Cargo.toml`, `frontend/package.json` and
+   `site/package.json`, pin it in the contract, which states it too, with
+   `ROUTARR_WRITE_CONTRACT=1 cargo test contract` in `backend/`, and run
+   `python3 scripts/check-versions.py`, which fails naming any file left
+   behind, the install snippets that name the minor among them.
    `npm version X.Y.Z --no-git-tag-version --ignore-scripts` in `frontend/` and
    `site/` moves each lockfile with its manifest, and any `cargo` command run
    in `backend/` does the same for `Cargo.lock`. CI builds with `--locked`.
@@ -246,14 +307,15 @@ version is published because somebody decided to publish it.
    `.github/assets/simulation.webp` from a throwaway instance.
    Fold the migrations added since the last release into one
    `NNN_release_X_Y_Z.sql` listed in `MIGRATIONS` (`backend/src/db.rs`), before
-   any pre-release tag: `python3 scripts/check-migrations.py --release X.Y.Z`
-   names what is left.
-2. Commit, merge to `main`, and let CI finish. The release refuses a lightweight
-   tag, a commit that is not on `main`, a tag naming another version than
-   `backend/Cargo.toml`, a commit CI or the image build did not pass on a push,
-   migrations not folded, and a version the registry already holds
-   (`scripts/release-guard.sh`, which a dry run can call), so tagging ahead of
-   them only wastes a tag.
+   any pre-release tag, to what they leave behind: a table, a trigger, a column
+   or a row the same file removes further down is left out.
+   `python3 scripts/check-migrations.py --release X.Y.Z` names what is left.
+2. Commit, merge, and let CI finish. The release refuses a lightweight tag, a
+   commit on neither `main` nor the `release/X.Y` branch of its minor, a tag naming
+   another version than `backend/Cargo.toml`, a commit CI or the image build did
+   not pass on a push, migrations not folded, and a version the registry
+   already holds (`scripts/release-guard.sh`, which a dry run can call), so
+   tagging ahead of them only wastes a tag.
 3. `git tag -a vX.Y.Z -m "Routarr X.Y.Z" && git push origin vX.Y.Z`. Annotated:
    the tag records who made it and when, which a lightweight one does not.
 
@@ -264,21 +326,40 @@ packages (an SBOM), attests its provenance in GitHub's signed store
 generated list of commits. The tags people follow move when the release is
 published: `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across minors)
 and `latest`, each onto the newest release it names, so an installation
-following one upgrades once the notes are there to read. A tag with a hyphen in
-it (`v1.2.0-rc.1`) publishes its exact version only.
+following one upgrades once the notes are there to read, and a patch of an
+older minor leaves `latest` where it is. A tag with a hyphen in it
+(`v1.2.0-rc.1`) publishes its exact version only.
 
 4. Write, at the top of that draft, what changed for someone running Routarr,
-   under the same two headings every release:
+   in the same outline every release:
 
    ```markdown
+   Two or three sentences: what this release is about.
+
    ## Before you upgrade
 
-   What to do or know first: each API break `scripts/api-breaks/` lists, a
-   setting that moved, a release to pass through. "Nothing." when there is none.
+   ### Upgrading
+
+   1. Each step, in the order it is taken: a release to pass through, a
+      setting to move. "Nothing to do." when there is none.
+
+   What else to know first: each API break `scripts/api-breaks/` lists.
+
+   ## Deprecations
+
+   What this release deprecates, each with what replaces it and the release
+   that removes it.
 
    ## What changed
 
-   A few lines for someone running Routarr, not the list of commits.
+   ### New
+
+   ### Fixed
+
+   ### Security
+
+   Each security fix, with the versions it affects and its advisory, which a
+   fix of Medium severity or above has (SECURITY.md).
    ```
 
    The generated list stays underneath for whoever wants the detail, without
@@ -293,9 +374,9 @@ blocked, but `latest` and `X.Y` wait for it, and until it is published there is
 no release to point anyone at.
 
 To undo before publishing, delete the draft and the tag: the repository's tag
-rules let an administrator alone delete or move a `v*` tag. The image and its
-tag stay on GHCR, and the release refuses that version again until it is
-deleted from the package's page on GitHub. A published release cannot be
+rules let an administrator alone create, delete or move a `v*` tag. The image
+and its tag stay on GHCR, and the release refuses that version again until it
+is deleted from the package's page on GitHub. A published release cannot be
 undone: GitHub locks it and its tag (immutable releases). A version already
 published is corrected by tagging the next patch, never by moving a tag:
 `latest` follows the newest published release, and an image somebody has
@@ -305,25 +386,46 @@ The provenance attestation needs the repository to be **public**: GitHub does
 not issue one for a private repository outside Enterprise, and the release job
 fails on that step.
 
+### A patch on a release branch
+
+When a fix has to reach the newest release while `main` already holds the next
+minor, a security fix above all, branch `release/X.Y` from the `vX.Y.Z` tag,
+bring the fix to it in a pull request, and follow the steps above with that
+branch in place of `main`: CI and the image build run on its pushes, and the
+release takes a tag on it for a version of that minor. The fix reaches `main`
+too, in a pull request of its own. Publishing the patch moves `X.Y` and leaves
+`latest` on the newest release. Leave **Set as the latest release** unticked
+when publishing it: the site deploys the release GitHub marks as the latest.
+
 ## Versions
 
 Routarr follows [Semantic Versioning](https://semver.org). A version number
-makes its promise about four things a person or another application depends
-on: the image and its tags, the API under `/api/v1` as
-[`backend/openapi/v1.json`](backend/openapi/v1.json) describes it, the
-`ROUTARR_*` environment variables, and the database each release opens.
+makes its promise about what a person or another application depends on: the
+image and its tags, the API under `/api/v1` as
+[`backend/openapi/v1.json`](backend/openapi/v1.json) describes it, the address
+an Arr's webhook calls, the `ROUTARR_*` environment variables, the names and
+labels of the metrics, the commands `routarr --help` lists, the database each
+release opens, and the backup archives and the bundles it writes.
 
 - **A patch release** (0.2.0 to 0.2.1) breaks none of them. It carries fixes,
   the base image's among them: a security fix in Alpine ships in a patch
-  release rather than waiting for the next minor one.
+  release rather than waiting for the next minor one, from the release branch
+  when `main` already holds the next minor.
 - **Before 1.0, a minor release** (0.2 to 0.3) may break one of them, and its
   notes say so under "Before you upgrade". From 1.0 on, only a major release
   does.
-- **An API break is announced one release ahead.** What is to be removed or
-  changed is marked `deprecated` in the contract in one release, and changes
-  in the next at the earliest. Before 1.0 the break lands in `/api/v1` and
-  `scripts/api-breaks/` lists it. From 1.0 on, it goes in `/api/v2`, never in
-  `/api/v1`.
+- **A removal, a rename or a type change in the API is announced one release
+  ahead.** What is to be removed or changed is marked `deprecated` in the
+  contract in one release, and changes in the next at the earliest. Before 1.0
+  the break lands in `/api/v1` and `scripts/api-breaks/` lists it. From 1.0 on,
+  it goes in `/api/v2`, never in `/api/v1`. A new value of an enum in an answer
+  is no break and may appear in any release.
+- **The metrics, the commands and the webhook address follow the API's rule.**
+  A patch release changes none of them, and a rename is announced one release
+  ahead.
+- **An archive or a bundle opens in the release that wrote it and the later
+  ones**, an archive from 0.1.5 on, and an earlier release refuses one in a
+  format it does not read rather than misreading it.
 - **The database moves forward.** A release migrates the database it opens,
   and an older one refuses a database a newer release migrated further, naming
   that release. Going back to a release with the same schema needs nothing.

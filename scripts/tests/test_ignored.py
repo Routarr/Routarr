@@ -1,7 +1,10 @@
 """`.gitignore` and `.dockerignore`, which keep the files Routarr writes out of git and the build."""
 
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import PurePosixPath
 
@@ -19,12 +22,33 @@ RUNTIME = [
     "routarr.key.pre-restore",
     "routarr.db.restore-pending",
     "routarr.db.restore-pending.json",
+    "routarr.db.restore-staging",
     "routarr.key.restore-staging",
     ".backup-work/routarr.db",
     "backups/routarr-backup-20261022-120000.zip",
     "backups/routarr-backup-20261022-120000.zip.enc",
+    "backups/.routarr-backup-20261022-120000.zip.partial",
 ]
 FOLDERS = ["config", "data", "backend/data"]
+# What a tool run in the clone writes into it: a checkout Claude Code makes for a worktree.
+TOOLS = [".claude/worktrees/agent-x/README.md"]
+
+
+def ignored_by_gitignore(paths: list[str]) -> set[str]:
+    """The paths `.gitignore` alone keeps out of git, asked of a fresh repository holding a copy
+    of it: a clone's own `.git/info/exclude` or a global excludes file would answer otherwise."""
+    folder = tempfile.mkdtemp()
+    try:
+        shutil.copy(ROOT / ".gitignore", folder)
+        environment = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        subprocess.run(["git", "init", "-q", folder], env=environment, check=True)
+        answer = subprocess.run(
+            ["git", "check-ignore", "--no-index", "--stdin"], cwd=folder, env=environment,
+            input="\n".join(paths), capture_output=True, text=True, check=False,
+        )
+        return set(answer.stdout.split("\n"))
+    finally:
+        shutil.rmtree(folder)
 
 
 def docker_pattern(pattern: str) -> re.Pattern:
@@ -73,14 +97,11 @@ def copied_sources(dockerfile: str) -> list[str]:
 
 class Ignored(unittest.TestCase):
     def test_runtime_files_stay_out_of_git(self):
-        for folder in FOLDERS:
-            for name in RUNTIME:
-                path = f"{folder}/{name}"
-                with self.subTest(path):
-                    ignored = subprocess.run(
-                        ["git", "check-ignore", "-q", "--no-index", path], cwd=ROOT, check=False
-                    )
-                    self.assertEqual(ignored.returncode, 0, f"git would offer {path} to a commit")
+        paths = [f"{folder}/{name}" for folder in FOLDERS for name in RUNTIME] + TOOLS
+        ignored = ignored_by_gitignore(paths)
+        for path in paths:
+            with self.subTest(path):
+                self.assertTrue(path in ignored, f"git would offer {path} to a commit")
 
     def test_runtime_files_stay_out_of_the_build_context(self):
         for folder in FOLDERS:

@@ -225,6 +225,13 @@ def main() -> int:
             # The weekly audit of advisories runs cargo-deny too.
             + ([find(".github/workflows/advisories.yml", rf"^\s*tool:\s*{name}@([\d.]+)$")] if name == "cargo-deny" else []),
         )
+    failures += agree(
+        "The cargo-mutants version",
+        [
+            find(".github/workflows/mutants.yml", r"^\s*tool:\s*cargo-mutants@([\d.]+)$"),
+            find(".devcontainer/Dockerfile", r"^ARG CARGO_MUTANTS_VERSION=([\d.]+)$"),
+        ],
+    )
 
     # --- The notices ----------------------------------------------------------
     # The image writes the crates' notices with `cargo about`, and the backend job
@@ -331,6 +338,18 @@ def main() -> int:
             find("backend/openapi/v1.json", r'^    "version":\s*"([^"]+)"'),
         ],
     )
+
+    # Before 1.0 a minor release may break an installation, so the install snippets follow the
+    # minor line the crate is on, and an automatic update stays within it.
+    if product:
+        minor = ".".join(product[1].split(".")[:2])
+        snippets = [
+            sighting
+            for relative in ("README.md", "site/src/components/sections/Start.astro", "site/src/llms.txt")
+            for sighting in find_all(relative, r"ghcr\.io/routarr/routarr:([^\s<\"'`),]+)")
+        ]
+        failures += agree(f"The image tag the install snippets name (the crate's minor is {minor})",
+                          [("backend/Cargo.toml", minor), *snippets])
 
     failures += from_lines_parse()
 

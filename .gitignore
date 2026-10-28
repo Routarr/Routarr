@@ -32,8 +32,8 @@ node_modules/
 # Working documents, deliberately unpublished. Not build artefacts.
 /docs
 
-# A second checkout made with `git worktree add`, for parallel work.
-/.worktrees
+# The checkouts Claude Code makes with `--worktree`, `EnterWorktree` and subagent isolation.
+/.claude/worktrees/
 # Claude Code's personal settings and notes. `.claude/rules/` is shared and committed.
 .claude/settings.local.json
 CLAUDE.local.md

@@ -10,15 +10,17 @@ const t = useTranslations(Astro.props.locale);
  * softening: a destination that did not answer may be a NAS that has spun
  * down, two folders reporting the same free space may be one volume where a
  * move is a rename, and a batch past the threshold is the operator's to
- * confirm. Evidence, not proof, so the operator is asked.
+ * confirm. Evidence, not proof, so the operator is asked. The last sets aside
+ * the one title the rules no longer justify and lets the others go, which
+ * neither verb of the legend says.
  */
-const GATES: { number: string; name: Key; note: Key; asks: boolean }[] = [
+const GATES: { number: string; name: Key; note: Key; asks: boolean; verb?: Key }[] = [
   { number: '01', name: 'safety.b', note: 'safety.p.2', asks: false },
   { number: '02', name: 'safety.b.2', note: 'safety.p.3', asks: false },
   { number: '03', name: 'safety.reach', note: 'safety.reach.p', asks: true },
   { number: '04', name: 'safety.capacity', note: 'safety.capacity.p', asks: true },
   { number: '05', name: 'safety.b.3', note: 'safety.p.4', asks: true },
-  { number: '06', name: 'safety.b.4', note: 'safety.p.5', asks: false },
+  { number: '06', name: 'safety.b.4', note: 'safety.p.5', asks: false, verb: 'safety.sets_aside' },
 ];
 ---
 
@@ -40,7 +42,7 @@ const GATES: { number: string; name: Key; note: Key; asks: boolean }[] = [
               <p>{t(gate.note)}</p>
             </div>
             <span class:list={['gate-verb', gate.asks ? 'asks' : 'refuses']}>
-              {t(gate.asks ? 'safety.asks' : 'safety.refuses')}
+              {t(gate.verb ?? (gate.asks ? 'safety.asks' : 'safety.refuses'))}
             </span>
           </li>
         ))

@@ -62,7 +62,7 @@ describe('describeError', () => {
   it('says a failure of the server in the interface language, with its id', () => {
     const failure = new ApiError('An internal error occurred.', 500, 'internal_error', 'req-9');
     expect(describeError(failure)).toBe(
-      'Routarr failed on its side. The server log says why. (request req-9)',
+      'Routarr failed on its side. The server log says why (docker logs routarr). (request req-9)',
     );
   });
 

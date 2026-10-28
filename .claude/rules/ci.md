@@ -71,10 +71,10 @@ paths:
 
 - The dev container has no Docker: the image build and `scripts/smoke-image.sh` run only in CI.
   It installs the other tools CI runs (shellcheck, hadolint, actionlint, gitleaks, cargo-deny,
-  cargo-llvm-cov, oasdiff, ruff) at the versions `ci.yml` pins, and `cargo about` at the root
-  `Dockerfile`'s, which `check-versions.py` holds in step, so bump a tool in both files. Run
-  `bash scripts/check.sh repository` before pushing a script, a workflow, a Dockerfile or a
-  contract change.
+  cargo-llvm-cov, oasdiff, ruff) at the versions `ci.yml` pins, cargo-mutants at `mutants.yml`'s
+  and `cargo about` at the root `Dockerfile`'s, which `check-versions.py` holds in step, so bump
+  a tool in both files. Run `bash scripts/check.sh repository` before pushing a script, a
+  workflow, a Dockerfile or a contract change.
 - `scripts/check.py` runs the `run:` steps of `ci.yml` themselves, mapped to areas by job
   (`AREAS`): a new job needs its line there, and a step only CI can take (an install, a filter)
   its start in `CI_ONLY_STEPS`. `scripts/tests/test_check.py` fails on either missing.

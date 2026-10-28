@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -52,6 +53,22 @@ SHELL = ["bash", "-e", "-c"]
 
 # Docker builds the image and the dev container, which the dev container cannot run.
 DOCKER_AREAS = {"image": "docker.yml builds and smoke-tests the image", "devcontainer": "docker.yml builds the dev container"}
+
+# The KiB a heavy area's build needs free beside the trees already there, or it stops on ENOSPC
+# halfway: coverage builds the whole test suite again, instrumented, in a tree of its own, and e2e
+# builds the release binary with link-time optimisation.
+ROOM_KB = {"coverage": 8 * 1024 * 1024, "e2e": 4 * 1024 * 1024}
+
+
+def room_command(area: str, environment: Mapping[str, str]) -> list[str] | None:
+    """The prune pass that frees room for an area's build, or None. Only for a build tree on the
+    dev container's ramdisk: elsewhere `CARGO_TARGET_DIR` may be a tree other projects share."""
+    target = environment.get("CARGO_TARGET_DIR", "")
+    ramdisk = (environment.get("ROUTARR_RAMDISK") or "/ramdisk").rstrip("/")
+    script = ROOT / ".devcontainer" / "prune.sh"
+    if area not in ROOM_KB or not target.startswith(ramdisk + "/") or not script.is_file():
+        return None
+    return ["bash", str(script), "--room", str(ROOM_KB[area])]
 
 
 @dataclass
@@ -256,6 +273,11 @@ def main() -> int:
             skipped.append(f"{area}: {why}, which needs Docker")
     engines = [engine.strip() for engine in args.engines.split(",") if engine.strip()]
     for area in [a for a in ORDER if a in wanted]:
+        room = room_command(area, os.environ)
+        if room:
+            print(f"\n==> {area}: {ROOM_KB[area] // 1048576} GiB kept free for its build, the ramdisk's "
+                  "regenerable caches going first", flush=True)
+            subprocess.run(room, cwd=ROOT, check=False)
         for step in [s for s in steps if s.area == area]:
             label = f"{area}: {step.name}"
             why = step.ci_only()

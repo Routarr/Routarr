@@ -5,20 +5,10 @@ from Radarr and Sonarr, enriches them from an ordered list of metadata sources, 
 rules a user writes, and moves each item to the right root folder through the Arr APIs. Rust and
 Axum backend, Svelte 5 and Vite frontend, shipped as one Docker image.
 
-Each area has its own rules in `.claude/rules/`: `backend.md`, `frontend.md`, `site.md` and
-`ci.md`. A rule loads when Claude opens a file its `paths:` list matches with Read, Edit or
-Write, or prints that one file with `cat` or `head`. A `grep` or a `sed` loads none, so open a
-file with Read before changing it.
-
-## Layout
-
-```
-backend/     the Rust crate: src/, migrations/, locales/, Cargo.toml
-frontend/    the interface, built into frontend/dist and served by the backend
-site/        the showcase site, deployed to Cloudflare, never in the image
-scripts/     the consistency checks CI runs, the locale tooling, the image smoke test
-Dockerfile   builds backend and frontend into one image, `site/` is in .dockerignore
-```
+Each area has its own rules in `.claude/rules/`, the backend's split by topic (`backend*.md`). A
+rule loads when Claude reads a file its `paths:` list matches, with Read, Edit, Write or a Bash
+read of that one file (`cat`, `head`, `tail`, `sed -n`, `grep`). A search over several files
+loads none, so open a file with Read before changing it.
 
 ## Commands
 
@@ -28,7 +18,7 @@ Backend, from `backend/`:
 cargo run                                   # http://0.0.0.0:9876, reads .env
 cargo test                                  # offline, in-memory SQLite
 cargo test services::rule_engine            # one module, or one test by name
-cargo test live_sources -- --ignored --nocapture   # the real AniList, Tenrai, MAL, OMDb, TheTVDB
+cargo test live_sources -- --ignored --nocapture   # every metadata source, against the real one
 cargo test live_arrs -- --ignored --test-threads=1   # a real Radarr and Sonarr, see its header
 cargo fmt
 cargo clippy --locked --all-targets -- -D warnings

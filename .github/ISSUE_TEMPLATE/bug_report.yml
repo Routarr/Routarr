@@ -9,6 +9,14 @@ body:
         [SECURITY.md](https://github.com/Routarr/Routarr/blob/main/SECURITY.md)
         instead.
 
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched the open and closed issues, and this one is not among them.
+          required: true
+
   - type: textarea
     id: what
     attributes:
@@ -40,6 +48,38 @@ body:
     id: arrs
     attributes:
       label: Radarr / Sonarr versions
+    validations:
+      required: false
+
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Sign-in mode
+      description: "`ROUTARR_AUTH`, `apikey` when it is not set."
+      options:
+        - apikey
+        - forms
+        - oidc
+        - external
+        - none
+    validations:
+      required: true
+
+  - type: input
+    id: install
+    attributes:
+      label: How it runs
+      description: |
+        Compose, Unraid, Synology, TrueNAS, Podman or gVisor, amd64 or arm64, and a reverse
+        proxy or `ROUTARR_BASE_PATH` if there is one.
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: For a problem in the interface, the browser and its version.
     validations:
       required: false
 

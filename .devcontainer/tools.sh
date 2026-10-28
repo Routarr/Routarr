@@ -27,6 +27,7 @@ check node NODE node --version
 check cargo-llvm-cov CARGO_LLVM_COV cargo llvm-cov --version
 check cargo-about CARGO_ABOUT cargo about --version
 check cargo-deny CARGO_DENY cargo-deny --version
+check cargo-mutants CARGO_MUTANTS cargo mutants --version
 check actionlint ACTIONLINT actionlint -version
 check shellcheck SHELLCHECK shellcheck --version
 check hadolint HADOLINT hadolint --version

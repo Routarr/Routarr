@@ -5839,7 +5839,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /tasks/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. Its `message` is written in the language set for Routarr's interface, so a program reads `event` and `data`, which never change with it. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. A renamed path still answers under its old name for at least two minor releases and six months, marked `deprecated` here, with a `Deprecation` header on every answer. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /tasks/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. Its `message` is written in the language set for Routarr's interface, so a program reads `event` and `data`, which never change with it. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. A renamed path still answers under its old name for at least two minor releases and six months, marked `deprecated` here, with a `Deprecation` header on every answer. New operations, new fields and new values of an enum in an answer may appear in any release: every such enum is open, `action`, `status`, `error`, `reason`, `confirm`, `stopped` and the kinds of a condition among them, so a client accepts a value it does not know.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
@@ -7152,7 +7152,7 @@
     },
     "/health": {
       "get": {
-        "description": "Probes each enabled instance and source and records the result for `/status`. A probe of\nthe same configuration under 30 seconds old is answered again unless `fresh=true`, and a\ncall waits for one running. `probe=false` reads the database alone: instances read\n`unchecked`, sources `connected: null`, and `warnings` repeat the last probe.",
+        "description": "Probes each enabled instance and source and records the result for `/status`. A probe of\nthe same configuration under 30 seconds old is answered again unless `fresh=true`, and a\ncall waits for one running. `probe=false` reads the database alone: instances read\n`unchecked`, sources `connected: null`, and `warnings` repeat the last probe. A key without\nthe `operate` scope reads that way, and is refused `probe=true`.",
         "operationId": "health",
         "parameters": [
           {
@@ -7205,7 +7205,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Reach every Arr and source, and report",
+        "summary": "What every Arr and source last answered, probed again with operate",
         "tags": [
           "status"
         ],
@@ -7636,7 +7636,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Stop an apply or a revert",
+        "summary": "Stop an apply or a revert this key started",
         "tags": [
           "tasks"
         ],
@@ -7816,7 +7816,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "The values the library holds, for each condition",
+        "summary": "The values the library holds, for the conditions that list them",
         "tags": [
           "library"
         ],
@@ -8359,7 +8359,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "The values the library holds, for each condition",
+        "summary": "The values the library holds, for the conditions that list them",
         "tags": [
           "library"
         ],
@@ -10787,7 +10787,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Stop an apply or a revert",
+        "summary": "Stop an apply or a revert this key started",
         "tags": [
           "tasks"
         ],

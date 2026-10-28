@@ -10,7 +10,9 @@
     "preview": "node serve.mjs",
     "check": "astro check && node check.mjs",
     "icons": "node icons.mjs",
-    "verify": "node verify.mjs"
+    "og": "node og.mjs",
+    "verify": "node verify.mjs",
+    "live": "node live.mjs"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.11",
