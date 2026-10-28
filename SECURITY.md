@@ -306,11 +306,13 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   application key revoked, a signing secret replaced, the master API key
   rotated, the password changed or an instance's webhook token rotated stay as
   they are today, and every session the archive held is closed. Going back to
-  last night undoes the damage of a leaked key, not its revocation. The master
-  key a restore replaces is deleted as the restore is applied, since a key
-  withdrawn on purpose must not survive on disk. The database it replaces is
-  kept beside the restored one, as `routarr.db.pre-restore`, and listed on the
-  Backups card until it is deleted there or the next restore replaces it.
+  last night undoes the damage of a leaked key, not its revocation. The
+  database a restore replaces is kept beside the restored one, as
+  `routarr.db.pre-restore`, and listed on the Backups card until it is deleted
+  there or the next restore replaces it. When the restore brings another master
+  key, the one that opens the database set aside is kept beside it, as
+  `routarr.key.pre-restore`, as secret as the key, and goes with it: a key
+  withdrawn on purpose survives on disk only as long as the way back it opens.
 - **The application makes no outbound request nobody asked for.** No telemetry,
   no fonts from a CDN, no analytics. Every response carries a CSP whose
   `connect-src` is `'self'`.

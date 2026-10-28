@@ -246,14 +246,14 @@ async fn trim_snapshot(snapshot: &Path, job: Option<&str>, name: &str) -> AppRes
 pub enum BeforeMigrating {
     /// The archive it took.
     Taken(BackupFile),
-    /// The archive an earlier attempt of this release took of the same schema, a start whose
-    /// migration failed being retried.
+    /// The archive an earlier attempt of this release took of the database as it stands, a
+    /// start whose migration failed being retried.
     Kept(String),
 }
 
 /// Back up a database before a start migrates it: every later archive is of the new schema,
-/// which the release before cannot open. Once per release and schema, however often the start
-/// is retried.
+/// which the release before cannot open. Once per release, schema and state of the database,
+/// however often the start is retried.
 pub async fn before_migrating(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
@@ -263,16 +263,34 @@ pub async fn before_migrating(
     let schema = last_migration(pool).await?;
     let suffix = before_migrating_suffix();
     let dir = backups_in(&config.data_dir);
-    let kept = list_in(&dir).into_iter().map(|file| file.name).find(|name| {
-        kind_of(name) == suffix
-            && manifest_of(&dir.join(name), passphrase.as_ref(), &english)
-                .is_some_and(|manifest| manifest.schema == schema)
-    });
-    if let Some(name) = kept {
+    let kept =
+        list_in(&dir).into_iter().filter(|file| kind_of(&file.name) == suffix).find_map(|file| {
+            let manifest = manifest_of(&dir.join(&file.name), passphrase.as_ref(), &english)?;
+            (manifest.schema == schema).then_some((file.name, manifest.created_at))
+        });
+    let worked_on = last_worked_on(pool).await?;
+    let now = crate::services::routing::format_timestamp(chrono::Utc::now());
+    // A stamp ahead of the clock orders nothing, and a looping start must take one archive.
+    let unchanged_since = |taken_at: &str| {
+        worked_on
+            .as_deref()
+            .is_none_or(|worked_on| worked_on <= taken_at || worked_on > now.as_str())
+    };
+    if let Some((name, taken_at)) = kept
+        && unchanged_since(&taken_at)
+    {
         return Ok(BeforeMigrating::Kept(name));
     }
     let file = write_archive(config, pool, &suffix, passphrase, None, &english, free_space).await?;
     Ok(BeforeMigrating::Taken(file))
+}
+
+/// When a release last worked on the database, as a stored timestamp: the newest job, since
+/// every release records its hourly maintenance as one, and every schema holds `jobs`.
+async fn last_worked_on(pool: &sqlx::SqlitePool) -> AppResult<Option<String>> {
+    Ok(sqlx::query_scalar("SELECT MAX(COALESCE(finished_at, started_at)) FROM jobs")
+        .fetch_one(pool)
+        .await?)
 }
 
 async fn last_migration(pool: &sqlx::SqlitePool) -> AppResult<String> {
@@ -1584,6 +1602,30 @@ async fn check_database(path: &Path) -> Result<(), String> {
     verdict.map_err(|e| e.to_string())?
 }
 
+/// Keep the master key that opens the database a restore sets aside beside it, as long as that
+/// database is kept, when the restore brings another. An earlier restore's copy goes, since the
+/// database it opened goes. With no key in place, the copy is the one a stopped start kept.
+fn set_the_key_aside(config: &crate::config::Config) -> AppResult<()> {
+    let key = config.secret_key_path();
+    let kept = with_suffix(&key, PRE_RESTORE);
+    let Some(opening) = key_in_place(config, &key) else { return Ok(()) };
+    let restored = key_in_place(config, &pending_path(&key));
+    if restored.is_none_or(|restored| restored == opening) {
+        match std::fs::remove_file(&kept) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(AppError::Config(format!("cannot take {} away: {e}", kept.display())));
+            }
+            _ => {}
+        }
+    } else {
+        std::fs::rename(&key, &kept)
+            .map_err(|e| AppError::Config(format!("cannot set {} aside: {e}", key.display())))?;
+        info!("The master key that opens the database restored over is kept at {}", kept.display());
+    }
+    crate::crypto::sync_parent(&key);
+    Ok(())
+}
+
 /// Set the database a restore replaces aside, with its write-ahead log, which SQLite would
 /// otherwise replay over the restored file. The log is handled by its path: a start stopped
 /// between the two renames leaves it beside a database already set aside.
@@ -1636,13 +1678,14 @@ pub fn replaced_database(config: &crate::config::Config) -> Option<ReplacedDatab
     })
 }
 
-/// Delete the database the last restore set aside. `false` when there was none.
+/// Delete the database the last restore set aside and the master key kept to open it. `false`
+/// when there was none.
 pub fn delete_replaced_database(config: &crate::config::Config) -> AppResult<bool> {
     let kept = with_suffix(&config.db_path, PRE_RESTORE);
-    if !kept.exists() {
-        return Ok(false);
-    }
-    for file in [with_suffix(&kept, "-wal"), with_suffix(&kept, "-shm"), kept] {
+    let found = kept.exists();
+    let key = with_suffix(&config.secret_key_path(), PRE_RESTORE);
+    // The key last: a deletion stopped halfway leaves no database it opens without it.
+    for file in [with_suffix(&kept, "-wal"), with_suffix(&kept, "-shm"), kept, key] {
         match std::fs::remove_file(&file) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 return Err(AppError::Internal(format!("cannot delete {}: {e}", file.display())));
@@ -1650,8 +1693,10 @@ pub fn delete_replaced_database(config: &crate::config::Config) -> AppResult<boo
             _ => {}
         }
     }
-    info!("The database the last restore replaced was deleted");
-    Ok(true)
+    if found {
+        info!("The database the last restore replaced was deleted");
+    }
+    Ok(found)
 }
 
 /// Apply a pending restore, from `main` before the pool opens. Each file is renamed into place,
@@ -1686,15 +1731,18 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
         None => info!("A restore is pending, applying it before opening the database"),
     }
 
+    // Before anything is restored, or a resumed start reads the archive's key as the one replaced.
+    if config.db_path.exists() {
+        set_the_key_aside(config)?;
+    }
+    set_the_database_aside(&config.db_path)?;
     for target in targets.into_iter().rev() {
         let staged = pending_path(&target);
         if !staged.exists() {
             continue;
         }
 
-        if target == config.db_path {
-            set_the_database_aside(&target)?;
-        } else if target.exists() {
+        if target == config.api_key_path() && target.exists() {
             // Not set aside, and an earlier copy goes: a key withdrawn on purpose must not survive.
             std::fs::remove_file(with_suffix(&target, PRE_RESTORE)).ok();
         }
