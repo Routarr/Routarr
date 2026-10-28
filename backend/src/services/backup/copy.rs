@@ -4,14 +4,14 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::{Scaffold, list_in, partial_path, sealed};
+use super::{Scaffold, is_valid_backup_name, list_in, partial_path, sealed};
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobKind};
 use crate::localization::Localizer;
@@ -141,23 +141,17 @@ async fn run(state: &AppState, folder: PathBuf, by: &Attribution) -> AppResult<C
         keep,
         ours,
     };
-    let copied = Arc::new(Mutex::new(Vec::new()));
-    let (named, written) = (Arc::clone(&copied), Arc::clone(&state.backup_copy_written));
-    let copying = tokio::task::spawn_blocking(move || {
-        let _lock = lock;
-        bring_level(pass, &named, &written)
-    });
-    let outcome = watched(copying, &state.backup_copy_written, STALL).await.and_then(|o| o);
-    // Whatever the outcome: an archive copied and not recorded would never be pruned.
-    let written = copied.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-    if let Err(e) = record_copied(state, &written).await {
-        warn!("The archives copied to {shown} were not recorded: {e}");
+    let left = Arc::new(Left::default());
+    let (leaving, written) = (Arc::clone(&left), Arc::clone(&state.backup_copy_written));
+    let mut copying = tokio::task::spawn_blocking(move || bring_level(pass, &leaving, &written));
+    let outcome = watched(&mut copying, &state.backup_copy_written, STALL).await.and_then(|o| o);
+    let running = !copying.is_finished();
+    record_left(state, &folder, &left).await;
+    if running {
+        record_once_ended(state, &folder, left, copying, lock);
     }
     match outcome {
         Ok(report) => {
-            if !adopted && let Err(e) = record_adopted(state, &folder).await {
-                warn!("{shown} was not recorded as the copy folder: {e}");
-            }
             if let Err(e) = forget_gone(state, &report.present).await {
                 warn!("The copies gone from {shown} were not forgotten: {e}");
             }
@@ -179,13 +173,13 @@ async fn run(state: &AppState, folder: PathBuf, by: &Attribution) -> AppResult<C
 
 /// The outcome of `work`, or `TimedOut` once `written` stood still for `stall`.
 async fn watched<T>(
-    mut work: tokio::task::JoinHandle<T>,
+    work: &mut tokio::task::JoinHandle<T>,
     written: &AtomicU64,
     stall: Duration,
 ) -> Result<T, Refusal> {
     let mut seen = written.load(Ordering::SeqCst);
     loop {
-        match tokio::time::timeout(stall, &mut work).await {
+        match tokio::time::timeout(stall, &mut *work).await {
             Ok(Ok(value)) => return Ok(value),
             Ok(Err(e)) => return Err(Refusal::Failed(e.to_string())),
             Err(_) => {
@@ -234,13 +228,48 @@ struct Pass {
     ours: HashSet<String>,
 }
 
-/// What `run` does, on a blocking thread: any call here may wait on the share. Each archive
-/// copied lands in `copied` and in `ours` at once, and its bytes in `written` as they go.
-fn bring_level(
-    pass: Pass,
-    copied: &Mutex<Vec<String>>,
-    written: &AtomicU64,
-) -> Result<CopyReport, Refusal> {
+/// What a copy left in the folder, recorded whatever its outcome: unrecorded, a marker reads as
+/// another database's, and an archive copied is never pruned.
+#[derive(Default)]
+struct Left {
+    /// Set once the marker exists, written whole or not.
+    marker: AtomicBool,
+    copies: Mutex<Vec<String>>,
+}
+
+async fn record_left(state: &AppState, folder: &Path, left: &Left) {
+    let shown = folder.display();
+    if left.marker.load(Ordering::SeqCst)
+        && let Err(e) = record_adopted(state, folder).await
+    {
+        warn!("{shown} was not recorded as the copy folder: {e}");
+    }
+    let copies = left.copies.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    if let Err(e) = record_copied(state, &copies).await {
+        warn!("The archives copied to {shown} were not recorded: {e}");
+    }
+}
+
+/// Record what `left` holds once `work` ends, `guard` held until then: a thread waiting on the
+/// share cannot be stopped, and goes on writing there after its copy is reported failed.
+fn record_once_ended<T: Send + 'static>(
+    state: &AppState,
+    folder: &Path,
+    left: Arc<Left>,
+    work: tokio::task::JoinHandle<T>,
+    guard: impl Send + 'static,
+) {
+    let (state, folder) = (state.clone(), folder.to_path_buf());
+    tokio::spawn(async move {
+        let _guard = guard;
+        work.await.ok();
+        record_left(&state, &folder, &left).await;
+    });
+}
+
+/// What `run` does, on a blocking thread: any call here may wait on the share. What it leaves
+/// lands in `left` at once, and the bytes it copies in `written` as the share takes them.
+fn bring_level(pass: Pass, left: &Left, written: &AtomicU64) -> Result<CopyReport, Refusal> {
     let Pass { source, data, folder, names, adopted, keep, mut ours } = pass;
     let folder = folder.as_path();
     if !folder.is_dir() {
@@ -250,7 +279,7 @@ fn bring_level(
         if adopted {
             return Err(Refusal::Unmounted);
         }
-        mark(folder).map_err(failed)?;
+        mark(folder, &left.marker).map_err(failed)?;
     } else if !adopted {
         return Err(Refusal::Foreign);
     }
@@ -260,7 +289,7 @@ fn bring_level(
     let mut report = CopyReport { same_disk: same_disk(folder, &data), ..CopyReport::default() };
     for name in names.iter().filter(|name| !held.contains(*name)) {
         if copy_one(&source.join(name), &folder.join(name), written).map_err(failed)? {
-            copied.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(name.clone());
+            left.copies.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(name.clone());
             ours.insert(name.clone());
             report.copied.push(name.clone());
         }
@@ -277,8 +306,22 @@ fn bring_level(
     }
     super::prune_in(folder, keep, Some(&ours));
 
-    report.present = list_in(folder).into_iter().map(|file| file.name).collect();
+    report.present = listed(folder).map_err(failed)?;
     Ok(report)
+}
+
+/// The archives in the folder by name, newest first, or why it could not be read whole: a
+/// listing cut short would read the copies it missed as gone.
+fn listed(folder: &Path) -> std::io::Result<Vec<String>> {
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(folder)? {
+        let name = entry?.file_name();
+        if let Some(name) = name.to_str().filter(|name| is_valid_backup_name(name)) {
+            names.push(name.to_string());
+        }
+    }
+    names.sort_by(|a, b| b.cmp(a));
+    Ok(names)
 }
 
 /// Whether `a` and `b` sit on one file system, which a bind mount reports as its host's. False
@@ -297,7 +340,8 @@ fn same_disk(a: &Path, b: &Path) -> bool {
 }
 
 /// Copy `from` to `to` as an archive is written: private, synced, and named only once whole,
-/// each byte counted in `written`. `false` when `from` went meanwhile, pruned or deleted.
+/// each byte counted in `written` once the disk holds it. `false` when `from` went meanwhile,
+/// pruned or deleted.
 fn copy_one(from: &Path, to: &Path, written: &AtomicU64) -> std::io::Result<bool> {
     let mut input = match std::fs::File::open(from) {
         Ok(input) => input,
@@ -307,9 +351,10 @@ fn copy_one(from: &Path, to: &Path, written: &AtomicU64) -> std::io::Result<bool
     let partial = partial_path(to);
     std::fs::remove_file(&partial).ok();
     let scaffold = Scaffold(vec![partial.clone()]);
-    let mut output = Counted { file: crate::crypto::create_private(&partial, true)?, written };
+    let file = crate::crypto::create_private(&partial, true)?;
+    let mut output = Counted { file, written, unsynced: 0 };
     std::io::copy(&mut input, &mut output)?;
-    output.file.sync_all()?;
+    output.sync()?;
     // Never over a copy that already exists, which `rename` would replace.
     if to.exists() {
         let exists = format!("{} exists already", to.display());
@@ -321,16 +366,33 @@ fn copy_one(from: &Path, to: &Path, written: &AtomicU64) -> std::io::Result<bool
     Ok(true)
 }
 
-/// A file whose every write is counted as it lands.
+/// How many bytes a copy writes between two syncs. A write lands in memory at once, and a slow
+/// share would spend minutes in one sync at the end, counting nothing meanwhile.
+const SYNC_EVERY: u64 = 4 * 1024 * 1024;
+
+/// A file whose bytes are counted once the disk holds them, synced every `SYNC_EVERY`.
 struct Counted<'a> {
     file: std::fs::File,
     written: &'a AtomicU64,
+    unsynced: u64,
+}
+
+impl Counted<'_> {
+    /// Wait until the disk holds every byte written, then count them.
+    fn sync(&mut self) -> std::io::Result<()> {
+        self.file.sync_all()?;
+        self.written.fetch_add(std::mem::take(&mut self.unsynced), Ordering::SeqCst);
+        Ok(())
+    }
 }
 
 impl std::io::Write for Counted<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.unsynced >= SYNC_EVERY {
+            self.sync()?;
+        }
         let landed = self.file.write(bytes)?;
-        self.written.fetch_add(landed as u64, Ordering::SeqCst);
+        self.unsynced += landed as u64;
         Ok(landed)
     }
 
@@ -339,10 +401,12 @@ impl std::io::Write for Counted<'_> {
     }
 }
 
-fn mark(folder: &Path) -> std::io::Result<()> {
+/// Write the folder's marker, `created` set as soon as the file exists.
+fn mark(folder: &Path, created: &AtomicBool) -> std::io::Result<()> {
     use std::io::Write;
     let marker = folder.join(MARKER);
     let mut file = crate::crypto::create_private(&marker, true)?;
+    created.store(true, Ordering::SeqCst);
     file.write_all(b"Routarr copies its backups into this folder. Keep this file here.\n")?;
     file.sync_all()?;
     crate::crypto::sync_parent(&marker);
@@ -409,17 +473,24 @@ pub async fn adopt(state: &AppState) -> AppResult<()> {
     let Some(folder) = state.config.backup_copy_dir.clone() else {
         return Err(AppError::BadRequest(localizer.translate("ErrorBackupCopyUnset", &[])));
     };
-    let marking = folder.clone();
-    let marked = tokio::task::spawn_blocking(move || {
+    let left = Arc::new(Left::default());
+    let (marking, leaving) = (folder.clone(), Arc::clone(&left));
+    let mut marked = tokio::task::spawn_blocking(move || {
         if !marking.is_dir() {
             return Err(Refusal::Missing);
         }
         if marking.join(MARKER).exists() {
             return Ok(());
         }
-        mark(&marking).map_err(failed)
+        mark(&marking, &leaving.marker).map_err(failed)
     });
-    let refusal = match tokio::time::timeout(ANSWER, marked).await {
+    let answered = tokio::time::timeout(ANSWER, &mut marked).await;
+    let running = !marked.is_finished();
+    record_left(state, &folder, &left).await;
+    if running {
+        record_once_ended(state, &folder, left, marked, ());
+    }
+    let refusal = match answered {
         Ok(Ok(Ok(()))) => None,
         Ok(Ok(Err(refusal))) => Some(refusal),
         Ok(Err(e)) => Some(Refusal::Failed(e.to_string())),
@@ -563,14 +634,14 @@ mod tests {
     async fn a_slow_copy_that_progresses_is_not_reported_failed() {
         let written = Arc::new(AtomicU64::new(0));
         let writing = Arc::clone(&written);
-        let work = tokio::task::spawn_blocking(move || {
+        let mut work = tokio::task::spawn_blocking(move || {
             for _ in 0..3 {
                 std::thread::sleep(Duration::from_secs(1));
                 writing.fetch_add(8192, Ordering::SeqCst);
             }
         });
 
-        let outcome = watched(work, &written, Duration::from_secs(2)).await;
+        let outcome = watched(&mut work, &written, Duration::from_secs(2)).await;
 
         assert!(outcome.is_ok(), "a copy still writing was reported failed");
     }
@@ -578,10 +649,32 @@ mod tests {
     #[tokio::test]
     async fn a_copy_that_stops_progressing_is_reported_timed_out() {
         let written = AtomicU64::new(0);
-        let work = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(1)));
+        let mut work = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(1)));
 
-        let outcome = watched(work, &written, Duration::from_millis(300)).await;
+        let outcome = watched(&mut work, &written, Duration::from_millis(300)).await;
 
         assert!(matches!(outcome, Err(Refusal::TimedOut)), "a copy that hangs was not reported");
+    }
+
+    /// Bytes in memory are not on the share yet: counted as they land, a copy waiting minutes on
+    /// a slow share to take them would read as one that hangs.
+    #[test]
+    fn a_copy_counts_its_bytes_once_the_disk_holds_them() {
+        use std::io::Write;
+        let dir = crate::tests::TempDir::new("copy-counted");
+        let written = AtomicU64::new(0);
+        let file = std::fs::File::create(dir.join("archive")).unwrap();
+        let mut output = Counted { file, written: &written, unsynced: 0 };
+        let chunk = vec![0u8; 64 * 1024];
+        let chunk_bytes = chunk.len() as u64;
+
+        for _ in 0..SYNC_EVERY / chunk_bytes {
+            output.write_all(&chunk).unwrap();
+        }
+        assert_eq!(written.load(Ordering::SeqCst), 0, "bytes were counted before any sync");
+        output.write_all(&chunk).unwrap();
+        assert_eq!(written.load(Ordering::SeqCst), SYNC_EVERY, "a full stretch was not synced");
+        output.sync().unwrap();
+        assert_eq!(written.load(Ordering::SeqCst), SYNC_EVERY + chunk_bytes);
     }
 }

@@ -186,6 +186,30 @@ async fn a_folder_that_lost_its_marker_takes_nothing_until_taken_as_it_is() {
     assert!(copies.join(MARKER).exists());
 }
 
+/// A pass that marks a new folder and then fails leaves it this database's: read as another
+/// database's, it would take nothing more until the owner took it as it is.
+#[tokio::test]
+async fn a_folder_marked_by_a_copy_that_failed_stays_this_databases() {
+    let (app, data, copies) = app_copying("marked-failed", true).await;
+    let backups = data.join("backups");
+    // A folder under an archive's name, which no copy can read.
+    let unreadable = backups.join("routarr-backup-20260901-020000.zip");
+    std::fs::create_dir_all(&unreadable).unwrap();
+
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    let ended = copies_ended(&app, 1).await;
+    assert_eq!(ended[0], ("failed".to_string(), Some("JobDetailBackupCopyFailed".to_string())));
+    assert!(copies.join(MARKER).exists(), "the copy failed before marking the folder");
+
+    std::fs::remove_dir(&unreadable).unwrap();
+    archive(&backups, "routarr-backup-20260902-020000.zip", b"this database's");
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    let ended = copies_ended(&app, 2).await;
+
+    assert_eq!(ended[0], ("success".to_string(), Some("JobDetailBackupsCopied".to_string())));
+    assert_eq!(archives_in(&copies), ["routarr-backup-20260902-020000.zip"]);
+}
+
 /// The adoption holds whatever spelling names the folder: respelled with a trailing separator,
 /// the empty mount point of a share not mounted still takes nothing.
 #[tokio::test]
@@ -337,6 +361,17 @@ impl Hanging {
         assert!(made.success());
         Self(path)
     }
+
+    /// The pipe opened for writing once a reader opens it. The reader then waits for a first
+    /// byte, which never comes, until the file returned is dropped.
+    async fn reached(&self) -> std::fs::File {
+        let (opened, reached) = tokio::sync::oneshot::channel();
+        let pipe = self.0.clone();
+        // An open for writing waits for a reader, on a thread no runtime waits for.
+        std::thread::spawn(move || opened.send(std::fs::OpenOptions::new().write(true).open(pipe)));
+        let opened = tokio::time::timeout(std::time::Duration::from_secs(10), reached).await;
+        opened.expect("nothing read the pipe").unwrap().unwrap()
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -383,4 +418,77 @@ async fn a_copy_that_hangs_holds_back_nothing_but_itself() {
         &("failed".to_string(), Some("JobDetailBackupCopyTimedOut".to_string())),
         "{ended:?}"
     );
+}
+
+/// A copy reported hung goes on, and an archive it copies once the share answers again is
+/// recorded as this database's, or the retention count would never prune it.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn an_archive_copied_after_its_copy_was_reported_hung_is_recorded() {
+    let (app, data, copies) = app_copying("hung-then-copied", true).await;
+    copied_into_before(&app, &copies).await;
+    let late = "routarr-backup-20260902-020000.zip";
+    archive(&data.join("backups"), late, b"copied once the share answers");
+    let hanging = Hanging::at(copies.join("routarr-backup-20260901-020000.zip"));
+
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    let ended = copies_ended(&app, 1).await;
+    assert_eq!(ended[0], ("failed".to_string(), Some("JobDetailBackupCopyTimedOut".to_string())));
+    drop(hanging);
+
+    let recorded = || async {
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM backup_copies WHERE name = ?)")
+            .bind(late)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap()
+    };
+    super::until(recorded).await;
+    assert!(copies.join(late).exists(), "the copy did not go on once the share answered");
+    assert!(recorded().await, "the archive copied once the share answered was not recorded");
+}
+
+/// A share that drops before the last listing of a pass is no empty folder: the copies this
+/// database recorded there stay its own, or the retention count would never prune them.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_folder_that_cannot_be_listed_forgets_none_of_its_copies() {
+    let (app, data, copies) = app_copying("unlisted", true).await;
+    copied_into_before(&app, &copies).await;
+    let (held, gone) = ("routarr-backup-20260902-020000.zip", "routarr-backup-20260830-020000.zip");
+    archive(&data.join("backups"), held, b"this database's");
+    archive(&copies, held, b"this database's");
+    for name in [held, gone] {
+        sqlx::query("INSERT INTO backup_copies (name) VALUES (?)")
+            .bind(name)
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+    }
+    let recorded = || async {
+        sqlx::query_scalar::<_, String>("SELECT name FROM backup_copies ORDER BY name DESC")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap()
+    };
+    let hanging = Hanging::at(copies.join("routarr-backup-20260901-020000.zip"));
+
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    // The pass reads the folder, then the share goes before it reads it again.
+    let reached = hanging.reached().await;
+    let away = data.join("share-away");
+    std::fs::rename(&copies.0, &away).unwrap();
+    drop(reached);
+    let ended = copies_ended(&app, 1).await;
+
+    assert_eq!(recorded().await, [held, gone], "a folder that did not answer was read as empty");
+    assert_eq!(ended[0].0, "failed", "{ended:?}");
+
+    // The share back, a pass that reads it whole forgets the copy it no longer holds.
+    std::fs::rename(&away, &copies.0).unwrap();
+    std::fs::remove_file(&hanging.0).unwrap();
+    backup::copy_in_background(&app.state, Attribution::manual(None));
+    let ended = copies_ended(&app, 2).await;
+    assert_eq!(ended[0].0, "success", "{ended:?}");
+    assert_eq!(recorded().await, [held]);
 }
