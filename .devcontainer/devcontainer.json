@@ -96,7 +96,7 @@
       "label": "Vite preview of frontend/dist"
     }
   },
-  // Unlisted ports are the tests' own (`frontend/e2e/run.sh` binds 9877 and 7979).
+  // Unlisted ports are the tests' own (`frontend/e2e/run.sh` binds 9877, 7979 and 7980).
   "otherPortsAttributes": {
     "onAutoForward": "ignore"
   }

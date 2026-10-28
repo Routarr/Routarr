@@ -223,6 +223,13 @@ RUN arch="$(dpkg --print-architecture)" \
   && rm /tmp/cargo-deny.tgz \
   && cargo-deny --version
 
+# cargo-mutants at mutants.yml's version (check-versions.py), built from crates.io, which checks
+# the crate against the sum its index holds: its releases carry no arm64 Linux build.
+ARG CARGO_MUTANTS_VERSION=27.1.0
+RUN cargo install --locked --root /usr/local "cargo-mutants@${CARGO_MUTANTS_VERSION}" \
+  && rm -rf "${CARGO_HOME:?}/registry" \
+  && cargo mutants --version
+
 # Playwright's system libraries, at frontend/package.json's version. Only the
 # browsers download at create time.
 ARG PLAYWRIGHT_VERSION=1.64.0

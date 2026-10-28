@@ -194,6 +194,7 @@ echo "==> Routarr on :$PORT"
 # ROUTARR_E2E_BASE lets the specs tagged @subpath exercise the reverse-proxy
 # sub-path against the same harness, rather than needing a second one.
 env \
+  ROUTARR_HOST=127.0.0.1 \
   ROUTARR_DB_PATH="$WORK/routarr.db" \
   ROUTARR_PORT="$PORT" \
   ROUTARR_FRONTEND_DIR="$ROOT/frontend/dist" \

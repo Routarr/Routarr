@@ -15,7 +15,9 @@
 #                  is what stops a wrong guess reaching them.
 #
 # Armed by `postStartCommand` and `postAttachCommand` with `--daemon`. Safe to
-# run by hand, and `--status` reports without changing anything.
+# run by hand, and `--status` reports without changing anything. `--room KIB`,
+# which `scripts/check.py` runs before its heavy areas, removes the build tree's
+# caches until its filesystem has KIB free.
 set -euo pipefail
 
 # Checked against a file only this repository has: a root resolved wrongly would
@@ -51,8 +53,8 @@ fs_of() { findmnt -no FSTYPE --target "$(readlink -f "$1")" 2>/dev/null || echo 
 # What the build tree may grow to before its caches go, wherever it lives. The
 # tmpfs is half the RAM, so on a large machine a percentage of it alone lets the
 # tree grow far past anything a build needs, in memory the rest of the machine
-# could use. A coverage pass, a test build and a `--release` build together
-# fit well under it.
+# could use. It bounds the tree at rest, not the room the next build needs,
+# which `--room` makes.
 BUDGET_KB="${ROUTARR_BUILD_BUDGET_KB:-$((24 * 1024 * 1024))}"
 
 # How much of the ramdisk's budget is used, as a bare integer: its size, or
@@ -127,6 +129,7 @@ drop_idle() {
   [ -n "$path" ] && [ -d "$path" ] || return 0
   if building "$owner"; then
     note "skipped ${path#"${root:-}"/}: a build is running"
+    held="$path"
     return 0
   fi
   drop "$path" "$why"
@@ -174,9 +177,9 @@ prune_once() {
   # then the cheapest cache to lose goes first, the budget measured again
   # before the next. `llvm-cov-target` is rebuilt by the next coverage run,
   # the least frequent, `incremental` by the next build, and `debug` costs
-  # minutes. 75%: enough headroom left for the `--release` build the e2e
-  # harness makes, the largest single thing that lands here, before a full
-  # tmpfs fails the compile with ENOSPC, which reads as a broken toolchain.
+  # minutes. A pass on the clock skips a tree a build holds, so a burst of
+  # builds can still fill the tmpfs, which fails the compile with ENOSPC and
+  # reads as a broken toolchain: `--room` makes the room before a build starts.
   #
   # Only a tree Routarr was built in: `CARGO_TARGET_DIR` may name one every
   # project on the machine shares, whose caches are not this script's.
@@ -215,6 +218,51 @@ prune_once() {
   # per window reload is how a useful message stops being read.
   if [ "$freed" -gt 0 ]; then
     note "reclaimed $((freed / 1024)) MB"
+  fi
+}
+
+# Free KiB on the filesystem holding a path, through a link as `fs_of` reads it.
+free_kb() {
+  local kb
+  kb="$(df -k --output=avail "$(readlink -f "$1")" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  echo "${kb:-0}"
+}
+
+# The caches of an idle Routarr tree, cheapest first, until `want` KiB are free.
+# Succeeds when it falls short too: the build that follows says what it lacked.
+make_room() {
+  local want="$1" target path owner free
+  freed=0
+  held=""
+  target="${CARGO_TARGET_DIR:-${root:+$root/backend/target}}"
+  if [ -z "$target" ] || [ ! -d "$target" ]; then
+    note "room: no build tree, nothing to remove"
+    return 0
+  fi
+  free="$(free_kb "$target")"
+  if [ "$free" -ge "$want" ]; then
+    note "room: $((free / 1024)) MB free of the $((want / 1024)) MB asked, nothing removed"
+    return 0
+  fi
+  if ! routarr_built "$target"; then
+    note "skipped $target: not Routarr's build tree"
+    return 0
+  fi
+  for path in "$target/llvm-cov-target" "$target"/*/incremental "$target/debug"; do
+    [ "$(free_kb "$target")" -ge "$want" ] && break
+    case "$path" in
+      */incremental) owner="$(dirname "$path")" ;;
+      *) owner="$path" ;;
+    esac
+    drop_idle "$owner" "$path" "room asked for the next build"
+  done
+  free="$(free_kb "$target")"
+  if [ "$free" -ge "$want" ]; then
+    note "room: reclaimed $((freed / 1024)) MB, $((free / 1024)) MB free of the $((want / 1024)) MB asked"
+  elif [ -n "$held" ]; then
+    note "room: only $((free / 1024)) MB free of the $((want / 1024)) MB asked: a build holds ${held#"$target"/}"
+  else
+    note "room: only $((free / 1024)) MB free of the $((want / 1024)) MB asked, and no cache is left to remove"
   fi
 }
 
@@ -280,6 +328,13 @@ case "${1:-}" in
     # returns without a word is indistinguishable from one that is stuck.
     fill="$(df -h "$RAMDISK" 2>/dev/null | tail -1 | awk '{print $5 " of " $2 " used"}')"
     note "${fill:-ramdisk not measurable}, sweep armed every $((INTERVAL / 60)) min"
+    ;;
+  --room)
+    if ! [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+      echo "usage: prune.sh --room KIB, the KiB to free where the build tree lives" >&2
+      exit 2
+    fi
+    make_room "$2"
     ;;
   *)
     prune_once

@@ -1,5 +1,6 @@
 """`.devcontainer/prune.sh`, which bounds the dev container's caches and must delete nothing else."""
 
+import fcntl
 import os
 import shutil
 import subprocess
@@ -17,6 +18,10 @@ def tmpfs(path: Path) -> bool:
     found = subprocess.run(["findmnt", "-no", "FSTYPE", "--target", str(path)],
                            capture_output=True, text=True, check=False)
     return found.stdout.strip() == "tmpfs"
+
+
+def free_kb(path: Path) -> int:
+    return shutil.disk_usage(path).free // 1024
 
 
 class Prune(unittest.TestCase):
@@ -76,6 +81,62 @@ class Prune(unittest.TestCase):
         self.prune(CARGO_TARGET_DIR=str(target), ROUTARR_BUILD_BUDGET_KB="1")
         self.assertFalse((target / "debug").exists())
         self.assertTrue((target / "release").exists())
+
+    def room(self, target: Path, kb: int | str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", str(self.folder / ".devcontainer" / "prune.sh"), "--room", str(kb)],
+            env={**self.environment, "CARGO_TARGET_DIR": str(target)},
+            capture_output=True, text=True, check=False,
+        )
+
+    def tree_in_shm(self) -> tuple[Path, int]:
+        """A Routarr build tree on a tmpfs of its own size, each cache holding `chunk` KiB."""
+        (self.folder / "backend").mkdir()
+        (self.folder / "backend" / "Cargo.toml").write_text('[package]\nname = "routarr"\n')
+        chunk = min(8192, free_kb(SHM) // 5)
+        if chunk < 256:
+            self.skipTest("/dev/shm has no room for three caches")
+        ramdisk = Path(tempfile.mkdtemp(dir=SHM))
+        self.addCleanup(shutil.rmtree, ramdisk)
+        target = ramdisk / "target"
+        for path in ["llvm-cov-target/debug/deps/cache", "debug/incremental/cache", "debug/deps/cache",
+                     "debug/routarr", "release/routarr"]:
+            (target / path).parent.mkdir(parents=True, exist_ok=True)
+            (target / path).write_bytes(b"x" * chunk * 1024 if path.endswith("cache") else b"built\n")
+        return target, chunk
+
+    @unittest.skipUnless(tmpfs(SHM), "room is measured on a tmpfs here, and /dev/shm is none")
+    def test_room_drops_the_cheapest_cache_first_and_stops_once_it_is_made(self):
+        target, chunk = self.tree_in_shm()
+        made = self.room(target, free_kb(SHM) + chunk // 2)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.assertFalse((target / "llvm-cov-target").exists())
+        self.assertTrue((target / "debug" / "incremental").exists())
+
+        self.room(target, free_kb(SHM) + chunk // 2)
+        self.assertFalse((target / "debug" / "incremental").exists())
+        self.assertTrue((target / "debug" / "deps" / "cache").exists())
+        self.assertTrue((target / "release" / "routarr").exists())
+
+    @unittest.skipUnless(tmpfs(SHM), "room is measured on a tmpfs here, and /dev/shm is none")
+    def test_room_leaves_a_tree_a_build_holds_and_says_it_fell_short(self):
+        target, chunk = self.tree_in_shm()
+        lock = target / "llvm-cov-target" / ".cargo-lock"
+        with lock.open("w") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            made = self.room(target, free_kb(SHM) + 4 * chunk)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.assertTrue((target / "llvm-cov-target" / "debug" / "deps" / "cache").exists())
+        self.assertFalse((target / "debug").exists())
+        self.assertTrue((target / "release" / "routarr").exists())
+        self.assertIn("a build holds llvm-cov-target", made.stdout)
+
+    def test_room_refuses_a_size_it_cannot_read(self):
+        for size in ["", "8G"]:
+            with self.subTest(size=size):
+                refused = self.room(self.folder / "target", size)
+                self.assertEqual(refused.returncode, 2)
+                self.assertIn("usage", refused.stderr)
 
 
 if __name__ == "__main__":

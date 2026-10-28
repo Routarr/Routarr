@@ -93,6 +93,21 @@ class Check(unittest.TestCase):
         self.assertTrue(printed)
         self.assertLessEqual(printed, set(check.ORDER) | set(check.DOCKER_AREAS))
 
+    def test_the_heavy_areas_make_room_first_on_the_ramdisk_alone(self):
+        on_ramdisk = {"CARGO_TARGET_DIR": "/ramdisk/cargo-target"}
+        for area in ("coverage", "e2e"):
+            with self.subTest(area=area):
+                command = check.room_command(area, on_ramdisk)
+                self.assertEqual(command[-2:], ["--room", str(check.ROOM_KB[area])])
+        for area in ("repository", "backend", "frontend", "site"):
+            with self.subTest(area=area):
+                self.assertIsNone(check.room_command(area, on_ramdisk))
+        moved = {"CARGO_TARGET_DIR": "/mnt/fast/target", "ROUTARR_RAMDISK": "/mnt/fast"}
+        self.assertIsNotNone(check.room_command("e2e", moved))
+        for elsewhere in ({}, {"CARGO_TARGET_DIR": "/home/me/target"}, {"CARGO_TARGET_DIR": "/ramdisk-2/target"}):
+            with self.subTest(environment=elsewhere):
+                self.assertIsNone(check.room_command("coverage", elsewhere))
+
     def test_the_list_names_each_step_with_its_area_and_directory(self):
         listed = subprocess.run(
             ["python3", str(SCRIPTS / "check.py"), "--list"],
