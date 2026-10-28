@@ -33,7 +33,7 @@ const SPEC: { group: Key; fact: Key; name: Key; note: Key }[] = [
           <div class="spec-item">
             <dt>{t(row.group)}</dt>
             <dd>
-              <p class="spec-fact">{t(row.fact)}<span>{t(row.name)}</span></p>
+              <p class="spec-fact">{t(row.fact)} <span>{t(row.name)}</span></p>
               <p set:html={t(row.note)} />
             </dd>
           </div>

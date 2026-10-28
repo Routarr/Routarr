@@ -33,7 +33,8 @@ bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's sc
 - Production is the latest published release, built at its tag and deployed by
   `.github/workflows/site.yml`, which runs `check.mjs` and `verify.mjs` first. A site text
   describing a feature merges with the feature and reaches visitors with the release that ships
-  it. Cloudflare builds main too, as an uploaded version it never deploys.
+  it. Cloudflare builds nothing itself, and `wrangler.jsonc` keeps the Worker off `workers.dev`
+  and preview addresses, so routarr.app is the one place it answers.
 
 ## Content Security Policy
 
@@ -79,15 +80,18 @@ bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's sc
 
 ## Domain
 
-- The domain is written in `astro.config.mjs` (`site`), `public/robots.txt`, `public/llms.txt`,
+- The domain is written in `astro.config.mjs` (`site`), `public/robots.txt`, `src/llms.txt`,
   `public/.well-known/security.txt` and the root `README.md`. `check.mjs` refuses a second origin
   and reads `security.txt`, not the README.
 
 ## llms.txt
 
-- `public/llms.txt` restates the pages, the README and what Routarr does not do, for language
+- `src/llms.txt` restates the pages, the README and what Routarr does not do, for language
   models (llmstxt.org). `check.mjs` checks its shape, its links and the counts and formats it
   shares with the pages, read from the code. Its other facts change with the feature.
+- `src/pages/llms.txt.ts` serves it with `{tag}` as the release the build describes. A document
+  the site links is that release's, and `SECURITY.md` alone is read on main: `check.mjs` refuses
+  any other link to a branch, the footer's included.
 - It links each page's Markdown copy, `index.html.md` beside the page, which `markdown.mjs`
   writes from the built `<main>` after every build. A label and the text after it need a space
   in the markup, or the copy and a screen reader run them together.
