@@ -842,50 +842,38 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 
 /* ----------------------------------------------------------------- spec */
 
-/* A list of definitions, not a grid: six independent capabilities, each a
-   term and what it means, so there is no second axis for a table to draw. Two
-   columns because six short entries down one leave the right half of the
-   section empty, and a hairline over each entry because six of them with
-   nothing between reads as one block of prose. */
-.spec { margin: 34px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 44px; }
-.spec-item { padding: 18px 0; border-top: 1px solid var(--border); }
-/* The top two sit under the head, which already separates them. */
-.spec-item:nth-child(-n + 2) { border-top: 0; padding-top: 0; }
-.spec dt {
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+/* A list of definitions, not a grid: independent capabilities, each a term
+   and what it means, so there is no second axis for a table to draw. One row
+   each, the name in a column of its own so the names read down as an index.
+   That column is as wide as the longest name, shared by every row: a German
+   word under a reader's own letter spacing overflows any fixed width. */
+.spec {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(10rem, max-content) minmax(0, 1fr);
+  column-gap: 40px;
+  border-top: 1px solid var(--border);
 }
-.spec dd { margin: 7px 0 0; }
-.spec-fact {
-  margin: 0 0 5px;
-  font-family: var(--mono);
-  font-size: 0.92rem;
-  color: var(--accent-text);
+.spec > div {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--border);
 }
-/* The name is what the feature is called. It is the smaller of the two here
-   because it is the one you can guess from the fact and not the other way
-   round. The space before it in the markup draws most of the gap. */
-.spec-fact span {
-  margin-inline-start: 2px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.spec dd p:last-child { margin: 0; font-size: 0.95rem; }
-/* A fact that is what goes on the wire keeps the size of the facts around it. */
-.spec-fact code { font-size: inherit; overflow-wrap: anywhere; }
+.spec dt { grid-row: span 2; font-size: 1.05rem; font-weight: 650; line-height: 1.5; color: var(--text); }
+.spec dd { grid-column: 2; margin: 0; }
+.spec-fact { font-family: var(--mono); font-size: 0.92rem; line-height: 1.6; color: var(--accent-text); overflow-wrap: anywhere; }
+.spec-note { margin-top: 2px; font-size: 0.95rem; color: var(--text-soft); }
+.spec-note code { color: var(--text); overflow-wrap: anywhere; }
 
-/* One column below 860px: two columns that narrow break a mono fact every
-   second word, and the fact is the line that carries the entry. */
-@media (max-width: 859px) {
-  .spec { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .spec-item:nth-child(2) { border-top: 1px solid var(--border); padding-top: 18px; }
+/* Below 640px the name column takes a third of the line, so the name moves
+   above its fact. */
+@media (max-width: 639px) {
+  .spec { grid-template-columns: minmax(0, 1fr); }
+  .spec > div { padding: 15px 0; }
+  .spec dt, .spec dd { grid-row: auto; grid-column: 1; }
+  .spec dt { margin-bottom: 2px; }
 }
 
 /* -------------------------------------------------------------- folders */

@@ -17,6 +17,7 @@ FILES = [
     "backend/rust-toolchain.toml",
     "backend/src/api/conditions.rs",
     "backend/src/services/notify.rs",
+    "backend/src/services/settings.rs",
     "backend/src/services/executor/mod.rs",
     "frontend/src/App.svelte",
     "site/src/pages/index.astro",
@@ -87,6 +88,11 @@ class ChangedAreas(unittest.TestCase):
                        "backend/src/services/executor/mod.rs"]:
             with self.subTest(source):
                 self.assertEqual(self.woken(source), ["backend", "image", "site"])
+
+    def test_the_settings_whose_backup_defaults_the_site_states_wake_the_site(self):
+        self.assertEqual(
+            self.woken("backend/src/services/settings.rs"), ["backend", "frontend", "image", "site"]
+        )
 
     def test_a_path_git_would_quote_is_read_as_written(self):
         self.assertEqual(self.woken("site/src/pages/é.astro"), ["site"])

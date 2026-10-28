@@ -6,16 +6,17 @@ const t = useTranslations(Astro.props.locale);
 
 /**
  * Independent capabilities have one dimension, so a `dl` rather than a framed grid, with
- * `dt` terms rather than headings that would make an outline of labels. Each line leads
- * with what the capability does and gives its name second.
+ * `dt` terms rather than headings that would make an outline of labels. Each term has two
+ * `dd`, its fact and its sentence, so a screen reader and the Markdown copy part them.
  */
-const SPEC: { group: Key; fact: Key; name: Key; note: Key }[] = [
-  { group: 'features.k', fact: 'features.fact', name: 'features.h3', note: 'features.p.2' },
-  { group: 'features.k.2', fact: 'features.fact.2', name: 'features.h3.2', note: 'features.p.3' },
-  { group: 'features.k.3', fact: 'features.fact.3', name: 'features.h3.3', note: 'features.p.4' },
-  { group: 'features.k.4', fact: 'features.fact.4', name: 'features.h3.4', note: 'features.p.5' },
-  { group: 'features.k.5', fact: 'features.fact.5', name: 'features.h3.5', note: 'features.p.6' },
-  { group: 'features.k.6', fact: 'features.fact.6', name: 'features.h3.6', note: 'features.p.7' },
+const ROWS: { name: Key; fact: Key; note: Key }[] = [
+  { name: 'features.name', fact: 'features.fact', note: 'features.note' },
+  { name: 'features.name.2', fact: 'features.fact.2', note: 'features.note.2' },
+  { name: 'features.name.3', fact: 'features.fact.3', note: 'features.note.3' },
+  { name: 'features.name.4', fact: 'features.fact.4', note: 'features.note.4' },
+  { name: 'features.name.5', fact: 'features.fact.5', note: 'features.note.5' },
+  { name: 'features.name.6', fact: 'features.fact.6', note: 'features.note.6' },
+  { name: 'features.name.7', fact: 'features.fact.7', note: 'features.note.7' },
 ];
 ---
 
@@ -29,13 +30,11 @@ const SPEC: { group: Key; fact: Key; name: Key; note: Key }[] = [
 
     <dl class="spec">
       {
-        SPEC.map((row) => (
-          <div class="spec-item">
-            <dt>{t(row.group)}</dt>
-            <dd>
-              <p class="spec-fact">{t(row.fact)} <span>{t(row.name)}</span></p>
-              <p set:html={t(row.note)} />
-            </dd>
+        ROWS.map((row) => (
+          <div>
+            <dt>{t(row.name)}</dt>
+            <dd class="spec-fact">{t(row.fact)}</dd>
+            <dd class="spec-note" set:html={t(row.note)} />
           </div>
         ))
       }

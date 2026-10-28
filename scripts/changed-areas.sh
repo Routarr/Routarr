@@ -70,9 +70,10 @@ echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|contrib/m
 FRONTEND_READS='backend/locales/en\.json|backend/openapi/v1\.json|backend/src/(main|state|localization|jobs/mod|api/(deprecated|auth|health|move_log))\.rs|backend/src/services/(metadata|settings|rule_engine/validation|backup/sealed)\.rs|backend/src/.*\.json'
 echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$FRONTEND_READS|$CONTROL)")"
 # What the site's checks read from other deliverables: the crate's version, the dictionaries,
-# the contract, the sources whose counts the pages state, the README, the first-run screen, and
-# the frontend's Playwright (`verify.mjs`). `site/check.mjs` refuses to read a file outside it.
-SITE_READS='backend/(Cargo\.toml|locales/|openapi/v1\.json|src/api/conditions\.rs|src/services/notify\.rs|src/services/executor/mod\.rs)|frontend/package(-lock)?\.json|frontend/src/components/ApiKeyGate\.svelte|README\.md'
+# the contract, the sources whose counts and defaults the pages state, the README, the first-run
+# screen, and the frontend's Playwright (`verify.mjs`). `site/check.mjs` refuses to read a file
+# outside it.
+SITE_READS='backend/(Cargo\.toml|locales/|openapi/v1\.json|src/api/conditions\.rs|src/services/(notify|settings)\.rs|src/services/executor/mod\.rs)|frontend/package(-lock)?\.json|frontend/src/components/ApiKeyGate\.svelte|README\.md'
 echo "site=$(decide "^(site/|$SITE_READS|scripts/install-browser\.sh|$CONTROL)")"
 # What the root Dockerfile builds or copies, what starts the image, and the
 # compose file whose container name and data path the first-run command names.

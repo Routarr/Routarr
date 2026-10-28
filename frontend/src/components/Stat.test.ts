@@ -12,6 +12,16 @@ describe('Stat', () => {
     expect(three.container.querySelector('.metric')?.className).toContain('is-danger');
   });
 
+  it('draws a figure that opens its list as a figure, not as a link in a sentence', () => {
+    const { container } = renderWithI18n(Stat, {
+      props: { label: 'Movies managed', value: 4, to: '/library?type=movie' },
+    });
+
+    const link = container.querySelector('a');
+    expect(link?.className).toContain('metric-link');
+    expect(link?.className).not.toContain('text-link');
+  });
+
   it('groups the figure the way the language writes numbers', () => {
     const { container } = renderWithI18n(Stat, {
       props: { label: 'Evaluated', value: 12345 },
