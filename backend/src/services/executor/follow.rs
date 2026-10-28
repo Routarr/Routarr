@@ -4,7 +4,7 @@
 use std::time::Duration;
 use tracing::warn;
 
-use super::record::{count_failure, record_confirmed, record_failure, record_held};
+use super::record::{count_failure, record_confirmed, record_failure};
 use super::{ApplyReport, MoveDirection, Moved, PendingMove, Sending, StopReason};
 use crate::error::AppResult;
 use crate::integrations::adapter::{ArrAdapter, ArrMedia};
@@ -121,10 +121,8 @@ async fn settle(
         }
         Some(reason) => {
             let failed = Said::told(&reason, localizer);
-            record_failure(state, &sent.mv, &failed, direction, by).await;
-            if let Some(Some(held)) = &held {
-                record_held(&state.pool, &sent.mv, held).await;
-            }
+            let held = held.as_ref().and_then(Option::as_ref);
+            record_failure(state, &sent.mv, &failed, held, direction, by).await;
             count_failure(report, &sent.mv, &failed);
             report.note(sent.moved(arr, "failed"));
         }
@@ -276,10 +274,9 @@ pub async fn settle_requested(
                 settled.push(Moved::of(&mv, named, from_path, to_path, "applied"));
             }
             Some(reason) => {
-                record_failure(state, &mv, &Said::told(&reason, &localizer), direction, by).await;
-                if let Some(Some(held)) = &held {
-                    record_held(&state.pool, &mv, held).await;
-                }
+                let (failed, held) =
+                    (Said::told(&reason, &localizer), held.as_ref().and_then(Option::as_ref));
+                record_failure(state, &mv, &failed, held, direction, by).await;
                 settled.push(Moved::of(&mv, named, from_path, None, "failed"));
             }
         }
