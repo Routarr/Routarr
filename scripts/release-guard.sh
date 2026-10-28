@@ -35,7 +35,7 @@ refuse() {
 # version's tags and its attestation.
 still_tagged() {
   local tagged
-  tagged=$(gh api "repos/$REPOSITORY/commits/tags/$TAG" --jq .sha) ||
+  tagged=$(gh api "repos/$REPOSITORY/commits/refs/tags/$TAG" --jq .sha) ||
     refuse "$TAG no longer exists. Nothing published."
   [ "$tagged" = "$SHA" ] || refuse "$TAG now names $tagged, not $SHA. Nothing published."
 }
