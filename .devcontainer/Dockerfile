@@ -18,6 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
   && rm -rf /var/lib/apt/lists/*
 
+# Every download below gives up on a transfer stalled for a minute and tries again, so a slow
+# mirror costs a retry rather than the job's whole timeout. An ARG, so the image keeps no setting.
+ARG CURL_HOME=/etc/routarr-build
+RUN mkdir -p "$CURL_HOME" \
+  && printf '%s\n' '--retry 3' '--retry-all-errors' '--connect-timeout 30' \
+     '--speed-limit 1024' '--speed-time 60' > "$CURL_HOME/.curlrc"
+
 # Node from its tarball, pinned with the release's SHASUMS256.txt: Debian's is
 # older and has no npm. check-versions.py holds the major to CI's and the image's.
 ARG NODE_VERSION=24.21.0
@@ -232,7 +239,7 @@ RUN cargo install --locked --root /usr/local "cargo-mutants@${CARGO_MUTANTS_VERS
 
 # Playwright's system libraries, at frontend/package.json's version. Only the
 # browsers download at create time.
-ARG PLAYWRIGHT_VERSION=1.64.0
+ARG PLAYWRIGHT_VERSION=1.64.1
 RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium firefox webkit \
   && rm -rf /root/.npm /var/lib/apt/lists/*
 
