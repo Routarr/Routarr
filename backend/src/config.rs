@@ -625,6 +625,7 @@ impl Config {
             .unwrap_or_default();
         startup_notes.extend(proxy_range_notes(&trusted_proxies));
         startup_notes.extend(time_zone_note(env("TZ").as_deref(), zone_known));
+        startup_notes.extend(owner_variables_note(env("PUID").as_deref(), env("PGID").as_deref()));
         Ok(Self {
             host: env_or(env, "ROUTARR_HOST", "0.0.0.0"),
             port: env_parse(env, "ROUTARR_PORT", 9876)?,
@@ -1207,6 +1208,22 @@ fn time_zone_note(tz: Option<&str>, known: impl Fn(&str) -> bool) -> Option<Stri
     ))
 }
 
+/// What the start says of `PUID` and `PGID`, which the linuxserver.io and hotio images read and
+/// this one does not: unsaid, the owner they name is dropped without a word.
+fn owner_variables_note(puid: Option<&str>, pgid: Option<&str>) -> Option<String> {
+    let set = |value: Option<&str>| value.is_some_and(|value| !value.trim().is_empty());
+    let named = match (set(puid), set(pgid)) {
+        (true, true) => "PUID and PGID are set, and Routarr reads neither",
+        (true, false) => "PUID is set, and Routarr does not read it",
+        (false, true) => "PGID is set, and Routarr does not read it",
+        (false, false) => return None,
+    };
+    Some(format!(
+        "{named}: it runs as the user it is started as. To run it as the data folder's owner, set \
+         `user:` in the compose file or pass `--user` to docker run"
+    ))
+}
+
 /// Whether the system's zone files hold `zone`, or `true` on a system without them, which
 /// cannot tell.
 fn zone_known(zone: &str) -> bool {
@@ -1293,6 +1310,14 @@ mod tests {
         assert_eq!(concurrency_from(100), (16, true));
         assert_eq!(concurrency_from(0), (1, true));
         assert_eq!(concurrency_from(4), (4, false));
+    }
+
+    #[test]
+    fn an_owner_given_as_puid_or_pgid_is_said_to_be_ignored() {
+        assert_eq!(owner_variables_note(None, Some(" ")), None);
+        let note = owner_variables_note(Some("99"), None).unwrap();
+        assert!(note.starts_with("PUID is set") && note.contains("--user"), "{note}");
+        assert!(owner_variables_note(None, Some("100")).unwrap().starts_with("PGID is set"));
     }
 
     #[test]
@@ -1421,6 +1446,8 @@ mod tests {
             ("RUST_LOG", "routarr=trace"),
             ("ROUTARR_TRUSTED_PROXIES", "10.0.0.1, ,172.18.0.0/16"),
             ("TZ", "Mars/Olympus"),
+            ("PUID", "99"),
+            ("PGID", "100"),
             ("ROUTARR_HOST", "10.1.2.3"),
             ("ROUTARR_PORT", "9123"),
             ("ROUTARR_BACKUP_COPY_DIR", "/mnt/copies/./routarr/"),
@@ -1483,6 +1510,7 @@ mod tests {
         assert!(said("RUST_LOG") && said("ROUTARR_TRUSTED_PROXIES"), "{:?}", config.startup_notes);
         let zones_known = Path::new("/usr/share/zoneinfo").is_dir();
         assert_eq!(said("TZ is 'Mars/Olympus'"), zones_known, "{:?}", config.startup_notes);
+        assert!(said("PUID and PGID are set"), "{:?}", config.startup_notes);
         assert_eq!((config.host.as_str(), config.port), ("10.1.2.3", 9123));
         assert_eq!(config.backup_copy_dir, Some(PathBuf::from("/mnt/copies/routarr")));
         assert_eq!(config.frontend_dir, PathBuf::from("/opt/routarr/ui"));
