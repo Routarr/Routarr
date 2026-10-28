@@ -3235,6 +3235,19 @@ td * {
   color: var(--text-muted);
   font-size: 13px;
 }
+/* A figure that opens the list it counts. A strip of figures is no sentence, so its accent figure
+   marks it at rest, and its name underlines on hover and focus. */
+.metric-link {
+  text-decoration: none;
+}
+.metric-link .metric-value {
+  color: var(--accent-strong);
+}
+.metric-link:hover .metric-label,
+.metric-link:focus-visible .metric-label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 /* A run's figures as one line of facts over the proposals they count, lighter than the
    dashboard's strip. */
 .metrics.is-compact {

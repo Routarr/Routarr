@@ -18,7 +18,7 @@
 {/snippet}
 
 {#if to}
-  <a class="{drawn} text-link" href={href(to)}>{@render figure()}</a>
+  <a class="{drawn} metric-link" href={href(to)}>{@render figure()}</a>
 {:else}
   <div class={drawn}>{@render figure()}</div>
 {/if}
