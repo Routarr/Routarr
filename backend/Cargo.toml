@@ -1,6 +1,6 @@
 [package]
 name = "routarr"
-version = "0.3.0-rc.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Smart media routing engine for Radarr and Sonarr"
