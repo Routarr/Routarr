@@ -757,11 +757,18 @@ mod tests {
     fn a_condition_that_is_also_an_exclusion_is_rejected() {
         let condition = Condition::GenreContains(vec!["Animation".into(), "Family".into()]);
         let respelled = Condition::GenreContains(vec!["family".into(), " ANIMATION".into()]);
-        for exclusion in [condition.clone(), respelled] {
-            let issues = validate(vec![condition.clone()], vec![exclusion]);
+        let folder = |path: &str| Condition::CurrentRootFolder(path.into());
+        let decade = Condition::YearRange { min: Some(1980), max: Some(1989) };
+        for (required, excluded) in [
+            (condition.clone(), condition.clone()),
+            (condition.clone(), respelled),
+            (folder("/movies/anime"), folder("/movies/anime/")),
+            (decade.clone(), decade),
+        ] {
+            let issues = validate(vec![required.clone()], vec![excluded.clone()]);
             assert!(
                 issues.iter().any(|i| i.is_error() && i.key == "ValidationExclusionConflict"),
-                "{issues:?}"
+                "{required:?} under {excluded:?}: {issues:?}"
             );
         }
         let narrower = Condition::GenreContains(vec!["Family".into()]);
@@ -769,24 +776,30 @@ mod tests {
         assert!(!issues.iter().any(|i| i.key == "ValidationExclusionConflict"), "{issues:?}");
     }
 
-    /// In `any` mode another condition still admits titles the exclusion lets through.
+    /// In `any` mode another condition still admits titles the exclusion lets through. Under
+    /// `all`, or alone, none does.
     #[test]
     fn an_exclusion_repeating_one_of_several_any_conditions_is_no_conflict() {
         let known = ["anime".to_string()];
-        let conditions = [
-            Condition::GenreContains(vec!["Music".into()]),
-            Condition::KeywordContains(vec!["concert film".into()]),
-        ];
-        let exclusions = [Condition::GenreContains(vec!["Music".into()])];
-        let issues = validate_rule(
-            draft("both", MatchMode::Any, &conditions, &exclusions, "anime"),
-            env(&known, &known, &MetadataField::ALL),
-        );
-        assert!(!issues.iter().any(|i| i.key == "ValidationExclusionConflict"), "{issues:?}");
+        let music = Condition::GenreContains(vec!["Music".into()]);
+        let concert = Condition::KeywordContains(vec!["concert film".into()]);
+        let conflicts = |mode, conditions: &[Condition]| {
+            let exclusions = [music.clone()];
+            validate_rule(
+                draft("both", mode, conditions, &exclusions, "anime"),
+                env(&known, &known, &MetadataField::ALL),
+            )
+            .iter()
+            .any(|i| i.key == "ValidationExclusionConflict")
+        };
+        let both = [music.clone(), concert];
+        assert!(!conflicts(MatchMode::Any, &both));
+        assert!(conflicts(MatchMode::All, &both));
+        assert!(conflicts(MatchMode::Any, &both[..1]));
     }
 
     /// An exclusion wider than its condition vetoes every title the condition admits, though
-    /// the two differ.
+    /// the two differ. One narrower, or reading another field, leaves a title alone.
     #[test]
     fn an_exclusion_covering_every_title_its_condition_admits_is_a_conflict() {
         let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
@@ -808,6 +821,18 @@ mod tests {
                 Condition::CurrentRootFolder("/movies/anime/kids".into()),
                 Condition::CurrentRootFolderStartsWith("/movies/anime".into()),
             ),
+            (
+                Condition::KeywordContainsAll(list(&["mecha", "space"])),
+                Condition::KeywordContains(list(&["Space"])),
+            ),
+            (
+                Condition::OriginCountryAll(list(&["JP", "KR"])),
+                Condition::OriginCountry(list(&["kr"])),
+            ),
+            (
+                Condition::GenreContains(list(&["Animation"])),
+                Condition::GenreContainsAll(list(&["animation"])),
+            ),
         ];
         for (condition, exclusion) in conflicting {
             let issues = validate(vec![condition.clone()], vec![exclusion.clone()]);
@@ -816,11 +841,27 @@ mod tests {
                 "{condition:?} under {exclusion:?}: {issues:?}"
             );
         }
-        let apart = validate(
-            vec![Condition::GenreContains(list(&["Animation", "Drama"]))],
-            vec![Condition::GenreContainsAll(list(&["Animation", "Drama"]))],
-        );
-        assert!(!apart.iter().any(|i| i.key == "ValidationExclusionConflict"), "{apart:?}");
+        let apart = [
+            (
+                Condition::GenreContains(list(&["Animation", "Drama"])),
+                Condition::GenreContainsAll(list(&["Animation", "Drama"])),
+            ),
+            (
+                Condition::TagInAll(list(&["kids", "anime"])),
+                Condition::TagInAll(list(&["anime", "horror"])),
+            ),
+            (
+                Condition::GenreContains(list(&["Animation"])),
+                Condition::KeywordContains(list(&["Animation"])),
+            ),
+        ];
+        for (condition, exclusion) in apart {
+            let issues = validate(vec![condition.clone()], vec![exclusion.clone()]);
+            assert!(
+                !issues.iter().any(|i| i.key == "ValidationExclusionConflict"),
+                "{condition:?} under {exclusion:?}: {issues:?}"
+            );
+        }
     }
 
     #[test]
