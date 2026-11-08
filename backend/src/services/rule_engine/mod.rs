@@ -965,6 +965,7 @@ mod tests {
     fn disabled_rules_are_ignored() {
         let mut disabled = anime_rule();
         disabled.enabled = false;
+        assert!(in_order(std::slice::from_ref(&disabled), &media()).is_empty());
         assert!(evaluate(&[disabled], None).winner.is_none());
     }
 

@@ -29,25 +29,43 @@ jobs:
     timeout-minutes: 150
     permissions:
       contents: read
-    # Shards of about an hour each: a mutant costs a build of some 45 s plus its tests. The
-    # tests named are those reaching the code, and `paths.rs` takes the whole suite, since its
-    # collation orders every query.
+    # Each mutant costs a build plus every test its area names, so a name added to an area
+    # lengthens each of its shards, and an area whose shards near `timeout-minutes` takes one
+    # more. The tests named are those reaching the code, an API test by its path since `api`
+    # alone matches hundreds, and `paths.rs` takes the whole suite, since its collation orders
+    # every query.
     strategy:
       fail-fast: false
       matrix:
         include:
           - area: rule-engine
             files: src/services/rule_engine/*.rs
-            tests: rule_engine rule_tests rule_health routing placement properties scores ratings
-            shard: 0/3
+            tests: >-
+              rule_engine rule_tests rule_health routing placement properties scores ratings
+              tests::api::explain_ tests::api::a_rule_given_no_priority_goes_last
+              tests::api::a_condition_nothing_can_answer_for_the_rule
+            shard: 0/4
           - area: rule-engine
             files: src/services/rule_engine/*.rs
-            tests: rule_engine rule_tests rule_health routing placement properties scores ratings
-            shard: 1/3
+            tests: >-
+              rule_engine rule_tests rule_health routing placement properties scores ratings
+              tests::api::explain_ tests::api::a_rule_given_no_priority_goes_last
+              tests::api::a_condition_nothing_can_answer_for_the_rule
+            shard: 1/4
           - area: rule-engine
             files: src/services/rule_engine/*.rs
-            tests: rule_engine rule_tests rule_health routing placement properties scores ratings
-            shard: 2/3
+            tests: >-
+              rule_engine rule_tests rule_health routing placement properties scores ratings
+              tests::api::explain_ tests::api::a_rule_given_no_priority_goes_last
+              tests::api::a_condition_nothing_can_answer_for_the_rule
+            shard: 2/4
+          - area: rule-engine
+            files: src/services/rule_engine/*.rs
+            tests: >-
+              rule_engine rule_tests rule_health routing placement properties scores ratings
+              tests::api::explain_ tests::api::a_rule_given_no_priority_goes_last
+              tests::api::a_condition_nothing_can_answer_for_the_rule
+            shard: 3/4
           - area: guards
             files: src/services/executor/guards.rs
             tests: executor batch_apply move_confirmation auto_apply paced_moves
