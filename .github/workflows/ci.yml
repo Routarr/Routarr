@@ -249,7 +249,7 @@ jobs:
       # A RustSec advisory, an unmaintained or yanked crate, a licence the GPL cannot ship beside,
       # or a source nobody named fails here (`deny.toml`).
       - name: Check advisories, licences and sources
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           # Named with its version rather than taken from the ref
           # (`@cargo-deny`), whose meaning a commit pin silently changes. The
@@ -260,7 +260,7 @@ jobs:
       # A crate whose licence text `cargo about` cannot find fails the image build. Here it fails
       # beside the licence gate. `cargo fetch` brings every platform's crates for `--frozen`.
       - name: Install cargo about
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           # The version the image writes the notices with (`check-versions.py`).
           tool: cargo-about@0.9.2
@@ -286,7 +286,7 @@ jobs:
         with:
           workspaces: backend
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           # The version the dev container installs (`check-versions.py`), so
           # the floor is measured by one tool on both sides.
