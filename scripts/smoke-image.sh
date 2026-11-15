@@ -182,7 +182,7 @@ if docker exec "$NAME" sh -c 'test -w /app || test -w /app/routarr || test -w /a
 fi
 ok "leaves /app read-only to uid 1000"
 
-# The way back in for a locked-out operator, run where the README says, with
+# The way back in for a locked-out operator, run where OPERATING.md says, with
 # the server still running: the image carries no sqlite3 to do it by hand. The
 # image signs in with a key, where a reset needs --force.
 if docker exec "$NAME" /app/routarr reset-account >/dev/null 2>&1; then

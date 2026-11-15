@@ -147,8 +147,8 @@ nested condition groups, temporary exceptions and a persistent task queue.
 The Site links below are Markdown copies of the three English pages of the showcase site, each
 at its page's address with index.html.md appended, and the French, German and Spanish copies are
 under Optional. Under Docs, repository files are linked as raw text at the release this site
-describes, the security policy as it stands on main, and the README is the reference for
-installation and configuration.
+describes, the security policy as it stands on main, the README is the reference for
+installation and configuration, and the operating guide for running it.
 
 ## Site
 
@@ -163,7 +163,10 @@ installation and configuration.
 ## Docs
 
 - [README](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/README.md): features, quick
-  start, image tags, configuration and backups.
+  start, image tags and configuration.
+- [Operating guide](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/OPERATING.md):
+  upgrading, backups and restore, install notes, a reverse proxy, the sign-in modes,
+  troubleshooting, gVisor isolation and Prometheus monitoring.
 - [Environment variables](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/backend/.env.example):
   every variable, listed and commented, OpenID Connect and the metadata source keys included.
 - [Security policy](https://raw.githubusercontent.com/Routarr/Routarr/main/SECURITY.md): how to

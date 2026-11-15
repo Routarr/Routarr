@@ -33,7 +33,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    // The browsers the README promises: current Chrome and Edge, Firefox from
+    // The browsers OPERATING.md promises: current Chrome and Edge, Firefox from
     // its extended support release, Safari of the last two years. The code and
     // the stylesheet use what these have, `:has()` and `AbortSignal.any` among
     // them, with no fallback for an older one.
