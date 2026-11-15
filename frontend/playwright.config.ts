@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test';
  * be torn down afterwards.
  */
 /**
- * The engines the README promises to support, one run of the whole suite each.
+ * The engines OPERATING.md promises to support, one run of the whole suite each.
  * Chromium unless `ROUTARR_E2E_BROWSER` names another, as each CI job does.
  */
 const ENGINES = {

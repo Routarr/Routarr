@@ -393,7 +393,7 @@ jobs:
     # Drives the release binary *serving the built frontend*, so either side
     # changing is reason enough to run it.
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
-    # The whole suite in each engine the README promises, none cancelling another.
+    # The whole suite in each engine OPERATING.md promises, none cancelling another.
     strategy:
       fail-fast: false
       matrix:

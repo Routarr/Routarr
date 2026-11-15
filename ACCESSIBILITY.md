@@ -27,7 +27,8 @@ WCAG 2.2 A and AA, page by page, before each deployment ([`site/verify.mjs`](sit
 ## What it supports
 
 The interface is made for current Chrome, Edge and Firefox, Firefox's extended support release
-included, and Safari of the last two years, as the [README](README.md) says.
+included, and Safari of the last two years, as the
+[operating guide](OPERATING.md#install-notes) says.
 
 ## Known limits
 

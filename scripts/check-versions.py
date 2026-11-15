@@ -345,7 +345,8 @@ def main() -> int:
         minor = ".".join(product[1].split(".")[:2])
         snippets = [
             sighting
-            for relative in ("README.md", "site/src/components/sections/Start.astro", "site/src/llms.txt")
+            for relative in ("README.md", "OPERATING.md", "site/src/components/sections/Start.astro",
+                             "site/src/llms.txt")
             for sighting in find_all(relative, r"ghcr\.io/routarr/routarr:([^\s<\"'`),]+)")
         ]
         failures += agree(f"The image tag the install snippets name (the crate's minor is {minor})",

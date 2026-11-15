@@ -1,6 +1,6 @@
 # Alert rules for Routarr's metrics, at /api/v1/metrics read with a key holding the read scope,
 # loaded from `rule_files` in prometheus.yml. `routarr_warnings` holds the warnings Routarr shows.
-# `job="routarr"` is the job of the README's `scrape_configs` example: change it if yours differs.
+# `job="routarr"` is the job of OPERATING.md's `scrape_configs` example: change it if yours differs.
 groups:
   - name: routarr
     rules:

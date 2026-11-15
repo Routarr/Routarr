@@ -155,7 +155,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The README offers gVisor, a kernel in user space, as a line in the compose
+  # OPERATING.md offers gVisor, a kernel in user space, as a line in the compose
   # file. Offered and never run, it could break on a change to the image and
   # nobody would hear of it before a user did. So the image this workflow built
   # goes through the whole smoke test again under it.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install gVisor on an Ubuntu amd64 CI runner and register it with Docker as `runsc`, so
-# `scripts/smoke-image.sh` can start the image under it. A host follows the README instead.
+# `scripts/smoke-image.sh` can start the image under it. A host follows OPERATING.md instead.
 #
 #   sudo bash scripts/install-runtime.sh gvisor
 set -euo pipefail

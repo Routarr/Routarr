@@ -2,6 +2,7 @@
 paths:
   - "site/**"
   - "README.md"
+  - "OPERATING.md"
 ---
 # Showcase site
 
@@ -86,9 +87,9 @@ bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's sc
 
 ## llms.txt
 
-- `src/llms.txt` restates the pages, the README and what Routarr does not do, for language
-  models (llmstxt.org). `check.mjs` checks its shape, its links and the counts and formats it
-  shares with the pages, read from the code. Its other facts change with the feature.
+- `src/llms.txt` restates the pages, the README, `OPERATING.md` and what Routarr does not do,
+  for language models (llmstxt.org). `check.mjs` checks its shape, its links and the counts and
+  formats it shares with the pages, read from the code. Its other facts change with the feature.
 - `src/pages/llms.txt.ts` serves it with `{tag}` as the release the build describes. A document
   the site links is that release's, and `SECURITY.md` alone is read on main: `check.mjs` refuses
   any other link to a branch, the footer's included.

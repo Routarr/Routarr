@@ -340,9 +340,10 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   in it.
 - **The image runs as a non-root user** and carries a HEALTHCHECK.
 - **The image runs under gVisor**, for a host that wants a kernel between
-  Routarr and its own (see the README). On every change to the image, CI runs
-  the whole smoke test under it against an amd64 build. A release runs the same
-  test, without gVisor, on each architecture before publishing it.
+  Routarr and its own (see [OPERATING.md](OPERATING.md#stronger-isolation)). On
+  every change to the image, CI runs the whole smoke test under it against an
+  amd64 build. A release runs the same test, without gVisor, on each
+  architecture before publishing it.
 - **Every GitHub action is pinned to a commit**, not to a movable tag, which
   the repository's settings require. The base images and BuildKit are pinned
   by digest, and no release build restores a cache another run wrote.
