@@ -30,6 +30,7 @@ describe('App', () => {
       mode: 'apikey',
       api_key_configured: true,
       api_key_pinned: false,
+      install: null,
     });
     vi.spyOn(api, 'getStatus').mockResolvedValue({
       version: '0.1.0',

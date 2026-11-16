@@ -148,3 +148,14 @@ async fn a_stop_during_the_start_ends_it_at_once() {
     let ended = tokio::time::timeout(Duration::from_secs(2), long).await;
     assert_eq!(ended.expect("the start went on past the stop"), None);
 }
+
+/// `nohup` starts a process with SIGHUP ignored, which a handler would replace: the hangup it
+/// was asked to survive would then stop it.
+#[test]
+fn a_hangup_inherited_ignored_stays_ignored() {
+    let status = |ignored: &str| format!("Name:\troutarr\nSigIgn:\t{ignored}\nSigCgt:\t1\n");
+    assert!(crate::listener::ignores_hangup(&status("0000000000000001")));
+    assert!(crate::listener::ignores_hangup(&status("0000000000001001")));
+    assert!(!crate::listener::ignores_hangup(&status("0000000000001000")));
+    assert!(!crate::listener::ignores_hangup("Name:\troutarr\n"));
+}

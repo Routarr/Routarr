@@ -134,6 +134,12 @@ ok "runs as uid 1000"
 
 expect_status 401 "refuses /api/v1/status without a key" "$BASE/api/v1/status"
 
+# The first-run screen shows the command above only to an installation that says it is the image.
+mode=$(curl -s --max-time 10 "$BASE/api/v1/auth/mode") || fail "cannot read /api/v1/auth/mode"
+install=$(printf '%s' "$mode" | sed -n 's/.*"install":"\([a-z]*\)".*/\1/p')
+[ "$install" = docker ] || fail "the image says it was installed as '$install', not docker"
+ok "says it is the image, so the first-run screen names the command above"
+
 # Split into words on purpose: it is a command line with no quoting in it.
 # shellcheck disable=SC2086
 key=$($read_key) || fail "\`$read_key\` failed"

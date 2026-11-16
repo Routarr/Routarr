@@ -175,10 +175,13 @@ one.
 
 Routarr writes its log to the container's output: `docker logs --tail 100 routarr` prints the
 end of it, as does the log button of a NAS's container screen, and `ROUTARR_LOG_LEVEL=debug`
-writes more.
+writes more. `ROUTARR_LOG_FILE` writes it to a file as well, for a service manager that keeps no
+output.
 
 - **It stops at start, or restarts in a loop:** its last lines say why and what to change, a
-  folder it cannot write or a database a newer release migrated, for instance.
+  folder it cannot write or a database a newer release migrated, for instance. A configuration
+  it refuses ends it with the status 78, which a service manager can be told not to restart on,
+  as systemd's `RestartPreventExitStatus=78` does.
 - **Every save answers 403 behind a proxy:** the proxy does not forward the public host, see
   [Behind a reverse proxy](#behind-a-reverse-proxy).
 - **The interface sends you to the server log:** the same command shows the line it means.

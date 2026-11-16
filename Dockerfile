@@ -105,7 +105,8 @@ ENV ROUTARR_PORT=9876 \
     ROUTARR_HOST=0.0.0.0 \
     ROUTARR_DB_PATH=/config/routarr.db \
     ROUTARR_FRONTEND_DIR=/app/frontend/dist \
-    ROUTARR_LOG_LEVEL=info
+    ROUTARR_LOG_LEVEL=info \
+    ROUTARR_INSTALL=docker
 
 COPY --from=backend-builder /app/target/release/routarr /app/routarr
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist

@@ -281,7 +281,7 @@
 {:else if unauthorized}
   <!-- Fetched when shown: a browser holding a session never sees it. -->
   {#await import('./ApiKeyGate.svelte') then { default: ApiKeyGate }}
-    <ApiKeyGate />
+    <ApiKeyGate install={auth.data?.install ?? null} />
   {:catch error}
     <PageFailure {error} />
   {/await}

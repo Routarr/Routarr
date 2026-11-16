@@ -233,6 +233,21 @@ pub fn stop_on(
     (stopping, hurrying)
 }
 
+/// Whether the process inherited SIGHUP ignored, as `nohup` starts it, from Linux's
+/// `/proc/self/status`: heard, the hangup `nohup` was asked to survive would stop it.
+pub fn hangup_ignored() -> bool {
+    std::fs::read_to_string("/proc/self/status").is_ok_and(|status| ignores_hangup(&status))
+}
+
+/// Whether a `/proc/<pid>/status` lists SIGHUP, signal 1, among the signals ignored.
+pub(crate) fn ignores_hangup(status: &str) -> bool {
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("SigIgn:"))
+        .and_then(|mask| u64::from_str_radix(mask.trim(), 16).ok())
+        .is_some_and(|mask| mask & 1 == 1)
+}
+
 /// Resolves once `flag` is raised.
 pub async fn fired(mut flag: tokio::sync::watch::Receiver<bool>) {
     if flag.wait_for(|raised| *raised).await.is_err() {

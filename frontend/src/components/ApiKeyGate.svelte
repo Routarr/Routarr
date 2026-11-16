@@ -1,6 +1,7 @@
 <script lang="ts">
   import { KeyRound } from '../lib/icons';
   import { api, ApiError } from '../api/client';
+  import type { AuthMode } from '../api/types';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -8,9 +9,12 @@
 
   /**
    * Shown in place of the application when the server wants a key this browser lacks, the
-   * ordinary first visit. It names the key's file, which is on the volume, where the log line
-   * goes with the container. The key is traded once for a session cookie no script can read.
+   * ordinary first visit. It names the key's file, which outlives the log line that named it,
+   * and the command printing it where the installation is known. The key is traded once for a
+   * session cookie no script can read.
    */
+  let { install = null }: { install?: AuthMode['install'] } = $props();
+
   let key = $state('');
   let error = $state<string | null>(null);
   let busy = $state(false);
@@ -18,6 +22,16 @@
   // The container name of the README and docker-compose.yml, and the image's data directory.
   // `scripts/smoke-image.sh` runs this line against the built image.
   const READ_KEY_COMMAND = 'docker exec routarr cat /config/routarr.api_key';
+  // The service account and the data directory of the deb and rpm packages.
+  const PACKAGE_KEY_COMMAND = 'sudo -u routarr cat /var/lib/routarr/routarr.api_key';
+
+  const reading = $derived.by(() => {
+    if (install === 'docker') return { said: 'ApiKeyDockerCommand', command: READ_KEY_COMMAND };
+    if (install === 'deb' || install === 'rpm') {
+      return { said: 'ApiKeyPackageCommand', command: PACKAGE_KEY_COMMAND };
+    }
+    return null;
+  });
 
   // The theme is a server setting the server tells nobody without a key, so this screen
   // follows the system's.
@@ -64,10 +78,12 @@
     <p class="text-muted text-base mb-3">
       {t('ApiKeyGeneratedFile', { file: 'routarr.api_key' })}
     </p>
-    <p class="text-muted text-base">{t('ApiKeyDockerCommand')}</p>
-    <div class="mb-3">
-      <CopyField value={READ_KEY_COMMAND} label={READ_KEY_COMMAND} />
-    </div>
+    {#if reading}
+      <p class="text-muted text-base">{t(reading.said)}</p>
+      <div class="mb-3">
+        <CopyField value={reading.command} label={reading.command} />
+      </div>
+    {/if}
 
     <div class="form-group">
       <label class="form-label" for="gate-api-key">{t('RoutarrApiKey')}</label>

@@ -18,7 +18,8 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-const show = () => renderWithI18n(ApiKeyGate);
+const show = (install: 'docker' | 'deb' | 'rpm' | null = 'docker') =>
+  renderWithI18n(ApiKeyGate, { props: { install } });
 
 async function send(key: string) {
   const field = await screen.findByLabelText('Routarr API key');
@@ -36,6 +37,26 @@ describe('ApiKeyGate', () => {
         name: 'Copy – docker exec routarr cat /config/routarr.api_key',
       }),
     ).toBeInTheDocument();
+  });
+
+  it('names the command of the package that installed it', async () => {
+    show('rpm');
+
+    expect(await screen.findByText('With the package, this command prints it:')).toBeTruthy();
+    expect(
+      screen.getByRole('button', {
+        name: 'Copy – sudo -u routarr cat /var/lib/routarr/routarr.api_key',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/docker/)).toBeNull();
+  });
+
+  /** Where nothing said how it was installed, a command would be a guess that may be wrong. */
+  it('names the file alone when the installation is unknown', async () => {
+    show(null);
+
+    expect(await screen.findByText(/saved it as routarr.api_key/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Copy/ })).toBeNull();
   });
 
   it('refuses to submit an empty key', async () => {

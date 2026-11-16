@@ -119,6 +119,7 @@ describe('Layout', () => {
       mode,
       api_key_configured: true,
       api_key_pinned: false,
+      install: null,
     });
     vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
     show();
@@ -135,6 +136,7 @@ describe('Layout', () => {
       mode: 'forms',
       api_key_configured: true,
       api_key_pinned: false,
+      install: null,
     });
     vi.spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status())
@@ -227,6 +229,7 @@ describe('Layout', () => {
       mode: 'forms',
       api_key_configured: false,
       api_key_pinned: false,
+      install: null,
     });
     vi.spyOn(api, 'logout').mockRejectedValue(new ApiError('later', 503, 'unavailable'));
     show();
@@ -242,6 +245,7 @@ describe('Layout', () => {
       mode: 'apikey',
       api_key_configured: true,
       api_key_pinned: false,
+      install: null,
     });
     const logout = vi.spyOn(api, 'logout').mockResolvedValue(undefined as never);
     const reload = vi.fn();
@@ -261,6 +265,7 @@ describe('Layout', () => {
       mode,
       api_key_configured: false,
       api_key_pinned: false,
+      install: null,
     });
     show();
 
@@ -413,6 +418,7 @@ describe('Layout', () => {
       mode: 'apikey',
       api_key_configured: true,
       api_key_pinned: false,
+      install: null,
     });
     vi.stubGlobal('matchMedia', () => ({
       matches: true,
@@ -828,6 +834,7 @@ describe('a dialog whose code never arrives', () => {
       mode: 'forms',
       api_key_configured: false,
       api_key_pinned: false,
+      install: null,
     });
     const send = vi.fn();
     show();
