@@ -1,0 +1,16 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Routarr
+Upstream-Contact: https://github.com/Routarr/Routarr/issues
+Source: https://github.com/Routarr/Routarr
+
+Files: *
+Copyright: 2026 the Routarr contributors
+License: GPL-3.0-only
+ Routarr is free software: you can redistribute it and/or modify it under the terms of the
+ GNU General Public License as published by the Free Software Foundation, version 3.
+ .
+ On Debian systems, the complete text of the GNU General Public License version 3 is in
+ /usr/share/common-licenses/GPL-3.
+ .
+ The binary links the Rust crates and musl, and the interface bundles npm packages, under the
+ licences /usr/share/routarr/frontend/third-party-notices.txt lists with their notices.

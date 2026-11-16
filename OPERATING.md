@@ -10,6 +10,7 @@ The variables it sets are listed and commented in [`backend/.env.example`](backe
 - [Upgrading](#upgrading)
 - [Backups and restore](#backups-and-restore)
 - [Install notes](#install-notes)
+- [Without Docker](#without-docker)
 - [Behind a reverse proxy](#behind-a-reverse-proxy)
 - [Sign-in modes](#sign-in-modes)
 - [When something goes wrong](#when-something-goes-wrong)
@@ -106,6 +107,49 @@ To restore an archive:
 - **No media folder.** Routarr asks Radarr and Sonarr to move the files and reads none of them, so
   it mounts nothing but `config/`. Its `/config` has nothing to do with the `/data` media folder the
   TRaSH guides set up for the Arrs.
+
+## Without Docker
+
+Each release also ships a deb, an rpm and a tarball for 64-bit Linux, `amd64` and `arm64`, with
+the very binary the image runs: static, it depends on no library of the system.
+
+**From a package**, downloaded from the release:
+
+```bash
+sudo apt install ./routarr_<version>-1_amd64.deb      # Debian, Ubuntu: the service starts at once
+sudo dnf install ./routarr-<version>-1.x86_64.rpm     # Fedora, RHEL and their rebuilds
+sudo systemctl enable --now routarr                    # on Fedora and RHEL, which leave it off
+sudo -u routarr cat /var/lib/routarr/routarr.api_key   # the key the first visit asks for
+```
+
+- **Where things are.** The service `routarr` runs as the system user `routarr`. Its library, its
+  keys and its backups are in `/var/lib/routarr`, its settings in `/etc/routarr/routarr.env`, which
+  an upgrade keeps: change a line there, then `sudo systemctl restart routarr`. The log is
+  `journalctl -u routarr`.
+- **A command by hand** runs as that user, and reads the same settings from anywhere:
+  `sudo -u routarr routarr reset-account`, `sudo -u routarr routarr restore <archive>` with the
+  service stopped. Run as root, a command is refused: the files it would leave would be root's,
+  and the service could no longer open its library.
+- **The unit is hardened**: it writes `/var/lib/routarr` and nothing else, and sees no home
+  folder. A backup copy folder needs a line of its own, written by `sudo systemctl edit routarr`
+  into a drop-in an upgrade keeps:
+
+  ```ini
+  [Service]
+  ReadWritePaths=/mnt/nas/routarr-backups
+  ```
+
+  with `ProtectHome=no` too when the folder is under `/home`.
+- **Upgrading** is installing the newer package: the service restarts on it, and its start
+  archives the library before migrating it, as in the image. **Removing** the package keeps
+  `/var/lib/routarr`. `sudo apt purge routarr` deletes it with the settings.
+
+**From the tarball**, on any distribution: unpack it anywhere and start `./routarr` from its
+folder, with `ROUTARR_DB_PATH` naming the database's whole path, such as
+`ROUTARR_DB_PATH=/srv/routarr/routarr.db ./routarr`. The binary finds the interface beside itself.
+Started from `/` by a service manager, a relative database path is refused, naming the variable.
+A unit of your own can start from [the package's](packaging/linux/routarr.service): Routarr tells
+systemd when it serves (`Type=notify`), and a configuration it refuses ends it with the status 78.
 
 ## Behind a reverse proxy
 
