@@ -127,7 +127,8 @@ fn owned_elsewhere(config: &Config, probe: &std::path::Path) -> Option<crate::er
     let database = std::fs::metadata(&config.db_path).ok().map(|file| file.uid());
     let folder = std::fs::metadata(&config.data_dir).ok()?.uid();
     let owner = stranger(me, database, folder)?;
-    Some(foreign_library(&config.data_dir, owner, me, config.install))
+    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    Some(foreign_library(&config.data_dir, (owner, me), config.install, &passwd))
 }
 
 #[cfg(not(unix))]
@@ -146,16 +147,15 @@ fn stranger(me: u32, database: Option<u32>, folder: u32) -> Option<u32> {
 }
 
 /// Why a library `owner` holds is refused to a process running as `me`, with the remedy the
-/// installation calls for.
+/// installation calls for, each user named as `passwd` names it.
 #[cfg(unix)]
 fn foreign_library(
     dir: &std::path::Path,
-    owner: u32,
-    me: u32,
+    (owner, me): (u32, u32),
     install: Option<Install>,
+    passwd: &str,
 ) -> crate::error::AppError {
-    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
-    let name = |uid: u32| user_name(&passwd, uid);
+    let name = |uid: u32| user_name(passwd, uid);
     let shown =
         |uid: u32| name(uid).map_or(format!("uid {uid}"), |name| format!("{name} (uid {uid})"));
     let (dir, whose, runs) = (dir.display(), shown(owner), shown(me));
@@ -1499,15 +1499,17 @@ mod tests {
         assert_eq!(user_name(passwd, 999).as_deref(), Some("routarr"));
         assert_eq!(user_name(passwd, 1000), None);
         let dir = std::path::Path::new("/var/lib/routarr");
-        let as_root = foreign_library(dir, 999, 0, Some(Install::Deb)).to_string();
+        let said =
+            |owner, me, install| foreign_library(dir, (owner, me), install, passwd).to_string();
+        let as_root = said(999, 0, Some(Install::Deb));
         assert!(as_root.contains("runs as root") && as_root.contains("sudo -u"), "{as_root}");
-        let in_docker = foreign_library(dir, 1000, 0, Some(Install::Docker)).to_string();
+        let in_docker = said(1000, 0, Some(Install::Docker));
         assert!(in_docker.contains("--user 1000"), "{in_docker}");
-        let unopened = foreign_library(dir, 0, 1000, None).to_string();
+        let unopened = said(0, 1000, None);
         assert!(unopened.contains("uid 1000, who cannot open"), "{unopened}");
-        let in_the_image = foreign_library(dir, 0, 1000, Some(Install::Docker)).to_string();
+        let in_the_image = said(0, 1000, Some(Install::Docker));
         assert!(in_the_image.contains("chown -R 1000:1000"), "{in_the_image}");
-        let packaged = foreign_library(dir, 999, 1000, Some(Install::Deb)).to_string();
+        let packaged = said(999, 1000, Some(Install::Deb));
         assert!(packaged.contains("sudo -u") && !packaged.contains("chown"), "{packaged}");
     }
 
