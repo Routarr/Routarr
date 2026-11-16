@@ -1589,6 +1589,19 @@ async fn the_mode_says_whether_a_key_exists_at_all() {
     assert_eq!(mode["api_key_pinned"], true);
 }
 
+/// The first-run screen names the command that prints the key, which only the installation
+/// knows, before any key is held.
+#[tokio::test]
+async fn the_mode_says_how_routarr_was_installed() {
+    let (app, _dir) = forms_app("mode-install").await;
+    assert_eq!(app.get("/api/v1/auth/mode").await.assert_ok()["install"], serde_json::Value::Null);
+
+    let mut config = (*app.state.config).clone();
+    config.install = Some(crate::install::Install::Deb);
+    let packaged = TestApp::around(app.state.clone().with_config(config));
+    assert_eq!(packaged.get("/api/v1/auth/mode").await.assert_ok()["install"], "deb");
+}
+
 /// Without a catch layer a panic drops the connection, with no status and no `X-Request-Id` to
 /// find its line in the log. The handler sits inside `request_layers`, so this pins the catch
 /// layer inside the request-id layers.

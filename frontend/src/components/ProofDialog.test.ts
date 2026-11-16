@@ -17,6 +17,7 @@ function asking(mode: 'forms' | 'apikey') {
     mode,
     api_key_configured: true,
     api_key_pinned: false,
+    install: null,
   });
   renderWithI18n(ProofDialog);
   const send = vi.fn().mockResolvedValue('written');
@@ -62,6 +63,7 @@ describe('ProofDialog', () => {
       mode: 'forms',
       api_key_configured: true,
       api_key_pinned: false,
+      install: null,
     });
     renderWithI18n(ProofDialog);
     void withProof(vi.fn(), 'archive');

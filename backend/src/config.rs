@@ -1,4 +1,5 @@
 use crate::error::{AppError, AppResult};
+use crate::install::Install;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -303,6 +304,11 @@ pub struct Config {
     /// `RUST_LOG`, a tracing filter that replaces `log_level` whole when it
     /// parses.
     pub log_filter: Option<String>,
+    /// `ROUTARR_LOG_FILE`, a file the log is written to beside the standard output, for a
+    /// service manager that keeps no output.
+    pub log_file: Option<PathBuf>,
+    /// `ROUTARR_INSTALL`, how the image or a package installed Routarr.
+    pub install: Option<Install>,
     /// What was read and set aside for a default, said as warnings once the
     /// log is up: read before it, nothing would hear them.
     pub startup_notes: Vec<String>,
@@ -411,6 +417,8 @@ impl std::fmt::Debug for Config {
             log_level,
             log_format,
             log_filter,
+            log_file,
+            install,
             startup_notes,
             frontend_dir,
             tmdb_api_key,
@@ -463,6 +471,8 @@ impl std::fmt::Debug for Config {
             .field("log_level", log_level)
             .field("log_format", log_format)
             .field("log_filter", log_filter)
+            .field("log_file", log_file)
+            .field("install", install)
             .field("startup_notes", startup_notes)
             .field("frontend_dir", frontend_dir)
             .field("tmdb_api_key", &hidden(tmdb_api_key))
@@ -545,18 +555,27 @@ pub fn normalise_base_path(raw: &str) -> String {
     if trimmed.is_empty() { String::new() } else { format!("/{trimmed}") }
 }
 
-/// Where the built interface is, when nobody said: beside the binary in the image, one level
-/// up under `cargo run` from `backend/`, which otherwise answers a 404 on every route.
+/// Where the built interface is, when nobody said, or every route answers a 404.
 fn default_frontend_dir() -> PathBuf {
-    let here = PathBuf::from("./frontend/dist");
-    if here.exists() {
-        return here;
+    let candidates = frontend_candidates(std::env::current_exe().ok().as_deref());
+    candidates.iter().find(|dir| dir.exists()).unwrap_or(&candidates[0]).clone()
+}
+
+/// Where the interface may be, in the order looked at. The binary's own first, beside it as in
+/// the image and a tarball, or under `share/` as a package installs it, so an installed binary
+/// never serves the interface of the folder it was started from. Then the working directory,
+/// or one level up as `cargo run` from `backend/` needs. The first is the default.
+fn frontend_candidates(exe: Option<&Path>) -> Vec<PathBuf> {
+    let dist = Path::new("frontend").join("dist");
+    let mut candidates = Vec::new();
+    if let Some(dir) = exe.and_then(Path::parent) {
+        candidates.push(dir.join(&dist));
+        if let Some(prefix) = dir.parent() {
+            candidates.push(prefix.join("share").join("routarr").join("frontend"));
+        }
     }
-    let beside = PathBuf::from("../frontend/dist");
-    if beside.exists() {
-        return beside;
-    }
-    here
+    candidates.extend([Path::new(".").join(&dist), Path::new("..").join(&dist)]);
+    candidates
 }
 
 impl Config {
@@ -606,6 +625,15 @@ impl Config {
         }
         let (log_filter, note) = log_filter_from(non_empty(env, "RUST_LOG"));
         startup_notes.extend(note);
+        let raw_install = non_empty(env, "ROUTARR_INSTALL");
+        let install = raw_install.as_deref().and_then(Install::parse);
+        if let Some(raw) = raw_install.filter(|_| install.is_none()) {
+            let variable = "ROUTARR_INSTALL";
+            startup_notes.push(format!(
+                "{variable} is '{raw}', neither docker, deb nor rpm: the messages name no \
+                 command of an installation"
+            ));
+        }
         let trusted_proxies = non_empty(env, "ROUTARR_TRUSTED_PROXIES")
             .map(|v| {
                 v.split(',')
@@ -625,7 +653,11 @@ impl Config {
             .unwrap_or_default();
         startup_notes.extend(proxy_range_notes(&trusted_proxies));
         startup_notes.extend(time_zone_note(env("TZ").as_deref(), zone_known));
-        startup_notes.extend(owner_variables_note(env("PUID").as_deref(), env("PGID").as_deref()));
+        startup_notes.extend(owner_variables_note(
+            env("PUID").as_deref(),
+            env("PGID").as_deref(),
+            install,
+        ));
         Ok(Self {
             host: env_or(env, "ROUTARR_HOST", "0.0.0.0"),
             port: env_parse(env, "ROUTARR_PORT", 9876)?,
@@ -636,6 +668,8 @@ impl Config {
             log_level,
             log_format,
             log_filter,
+            log_file: non_empty(env, "ROUTARR_LOG_FILE").map(PathBuf::from),
+            install,
             startup_notes,
             frontend_dir: path_or(env("ROUTARR_FRONTEND_DIR"), default_frontend_dir),
             tmdb_api_key: non_empty(env, "TMDB_API_KEY"),
@@ -991,6 +1025,8 @@ impl Config {
             log_level: "error".into(),
             log_format: "text".into(),
             log_filter: None,
+            log_file: None,
+            install: None,
             startup_notes: Vec::new(),
             frontend_dir: PathBuf::from("/nonexistent"),
             tmdb_api_key: None,
@@ -1210,7 +1246,11 @@ fn time_zone_note(tz: Option<&str>, known: impl Fn(&str) -> bool) -> Option<Stri
 
 /// What the start says of `PUID` and `PGID`, which the linuxserver.io and hotio images read and
 /// this one does not: unsaid, the owner they name is dropped without a word.
-fn owner_variables_note(puid: Option<&str>, pgid: Option<&str>) -> Option<String> {
+fn owner_variables_note(
+    puid: Option<&str>,
+    pgid: Option<&str>,
+    install: Option<Install>,
+) -> Option<String> {
     let set = |value: Option<&str>| value.is_some_and(|value| !value.trim().is_empty());
     let named = match (set(puid), set(pgid)) {
         (true, true) => "PUID and PGID are set, and Routarr reads neither",
@@ -1218,10 +1258,14 @@ fn owner_variables_note(puid: Option<&str>, pgid: Option<&str>) -> Option<String
         (false, true) => "PGID is set, and Routarr does not read it",
         (false, false) => return None,
     };
-    Some(format!(
-        "{named}: it runs as the user it is started as. To run it as the data folder's owner, set \
-         `user:` in the compose file or pass `--user` to docker run"
-    ))
+    let how = match install {
+        Some(Install::Docker) => {
+            "To run it as the data folder's owner, set `user:` in the compose file or pass \
+             `--user` to docker run"
+        }
+        _ => "Start it as the data folder's owner",
+    };
+    Some(format!("{named}: it runs as the user it is started as. {how}"))
 }
 
 /// Whether the system's zone files hold `zone`, or `true` on a system without them, which
@@ -1314,10 +1358,44 @@ mod tests {
 
     #[test]
     fn an_owner_given_as_puid_or_pgid_is_said_to_be_ignored() {
-        assert_eq!(owner_variables_note(None, Some(" ")), None);
-        let note = owner_variables_note(Some("99"), None).unwrap();
+        let docker = Some(Install::Docker);
+        assert_eq!(owner_variables_note(None, Some(" "), docker), None);
+        let note = owner_variables_note(Some("99"), None, docker).unwrap();
         assert!(note.starts_with("PUID is set") && note.contains("--user"), "{note}");
-        assert!(owner_variables_note(None, Some("100")).unwrap().starts_with("PGID is set"));
+        let note = owner_variables_note(None, Some("100"), docker).unwrap();
+        assert!(note.starts_with("PGID is set"), "{note}");
+        for native in [None, Some(Install::Deb)] {
+            let note = owner_variables_note(Some("99"), Some("100"), native).unwrap();
+            assert!(!note.contains("docker") && note.contains("owner"), "{native:?}: {note}");
+        }
+    }
+
+    #[test]
+    fn an_installation_no_one_sets_is_said_and_names_no_command() {
+        let lookup = |key: &str| (key == "ROUTARR_INSTALL").then(|| "tarball".to_string());
+        let config = Config::from_lookup(&lookup).unwrap();
+        assert_eq!(config.install, None);
+        let said = config.startup_notes.iter().any(|note| note.starts_with("ROUTARR_INSTALL"));
+        assert!(said, "{:?}", config.startup_notes);
+    }
+
+    #[test]
+    fn the_interface_is_looked_for_beside_the_binary_before_the_working_directory() {
+        let dist = |dir: &str| Path::new(dir).join("frontend").join("dist");
+        assert_eq!(
+            frontend_candidates(Some(Path::new("/opt/routarr/routarr"))),
+            [
+                dist("/opt/routarr"),
+                PathBuf::from("/opt/share/routarr/frontend"),
+                dist("."),
+                dist(".."),
+            ]
+        );
+        assert_eq!(
+            frontend_candidates(Some(Path::new("/usr/bin/routarr")))[1],
+            PathBuf::from("/usr/share/routarr/frontend")
+        );
+        assert_eq!(frontend_candidates(None), [dist("."), dist("..")]);
     }
 
     #[test]
@@ -1444,6 +1522,8 @@ mod tests {
             ("ROUTARR_LOG_LEVEL", "DEBUG"),
             ("ROUTARR_LOG_FORMAT", "json"),
             ("RUST_LOG", "routarr=trace"),
+            ("ROUTARR_LOG_FILE", " /var/log/routarr/routarr.log "),
+            ("ROUTARR_INSTALL", "Deb"),
             ("ROUTARR_TRUSTED_PROXIES", "10.0.0.1, ,172.18.0.0/16"),
             ("TZ", "Mars/Olympus"),
             ("PUID", "99"),
@@ -1504,6 +1584,8 @@ mod tests {
         assert_eq!(config.metadata_concurrency, 7);
         assert_eq!((config.log_level.as_str(), config.log_format.as_str()), ("debug", "json"));
         assert_eq!(config.log_filter.as_deref(), Some("routarr=trace"));
+        assert_eq!(config.log_file, Some(PathBuf::from("/var/log/routarr/routarr.log")));
+        assert_eq!(config.install, Some(Install::Deb));
         let proxies = ["10.0.0.1", "172.18.0.0/16"].map(|entry| Network::parse(entry).unwrap());
         assert_eq!(config.trusted_proxies, proxies);
         let said = |start: &str| config.startup_notes.iter().any(|note| note.starts_with(start));

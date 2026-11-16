@@ -20,6 +20,7 @@ const inMode = (mode: AuthMode['mode']) =>
     mode,
     api_key_configured: true,
     api_key_pinned: false,
+    install: null,
   });
 
 afterEach(() => {

@@ -110,6 +110,18 @@ pub enum AppError {
     Internal(String),
 }
 
+/// `EX_CONFIG` of `sysexits.h`: the status a refused configuration ends the process with.
+pub const EX_CONFIG: u8 = 78;
+
+/// The status the process ends with on `error`. A refused configuration fails the same way at
+/// every try, so it has a status of its own that a service manager is told not to restart on.
+pub fn exit_status(error: &(dyn std::error::Error + 'static)) -> u8 {
+    match error.downcast_ref::<AppError>() {
+        Some(AppError::Config(_)) => EX_CONFIG,
+        _ => 1,
+    }
+}
+
 impl AppError {
     /// Whether the text is the operator's alone: a database, serialization or configuration error
     /// names the schema, the input or the setup, which even the keyless webhook would answer.
@@ -492,6 +504,17 @@ pub type AppResult<T> = Result<T, AppError>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// systemd's `RestartPreventExitStatus=78` stops a restart loop on this status alone.
+    #[test]
+    fn a_refused_configuration_ends_the_process_with_its_own_status() {
+        let refused: Box<dyn std::error::Error> = Box::new(AppError::Config("refused".into()));
+        assert_eq!(exit_status(refused.as_ref()), EX_CONFIG);
+        let failed: Box<dyn std::error::Error> = Box::new(AppError::Internal("failed".into()));
+        assert_eq!(exit_status(failed.as_ref()), 1);
+        let usage: Box<dyn std::error::Error> = "unknown command".into();
+        assert_eq!(exit_status(usage.as_ref()), 1);
+    }
 
     #[test]
     fn an_upstream_http_error_keeps_its_cause() {

@@ -34,7 +34,7 @@ pub fn main() -> std::process::ExitCode {
                 } else {
                     eprintln!("Error: {error}");
                 }
-                std::process::ExitCode::FAILURE
+                std::process::ExitCode::from(error::exit_status(error.as_ref()))
             }
         }
     });
@@ -69,6 +69,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(file) = dotenv {
         config.startup_notes.push(format!("Variables read from {}", file.display()));
     }
+    crate::install::settle(config.install);
     match invocation {
         commands::Invocation::Healthcheck => return commands::healthcheck(&config).await,
         commands::Invocation::ResetAccount { revoke_keys, force } => {
@@ -83,7 +84,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         | commands::Invocation::Version => {}
     }
     config.validate()?;
-    init_tracing(&config);
+    let log_file = match &config.log_file {
+        Some(path) => Some(crate::logging::RotatingFile::open(path).map_err(|e| {
+            error::AppError::Config(format!(
+                "ROUTARR_LOG_FILE: {} cannot be written ({e})",
+                path.display()
+            ))
+        })?),
+        None => None,
+    };
+    init_tracing(&config, log_file);
     crate::log_panics();
     for note in config.startup_notes.iter().chain(&config.source_notes()) {
         warn!("{note}");
@@ -103,8 +113,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .display()
     );
 
-    // Heard from here on, so a stop asked while the start archives or migrates ends it.
-    let (stopping, hurrying) = stop_on(shutdown_signal(), shutdown_signal());
+    // Held until the process ends, so a second server on this library is refused.
+    db::prepare_data_dir(&config)?;
+    let _instance = db::hold_the_data_dir(&config)?;
+
+    // Heard from here on, so a stop asked while the start archives or migrates ends it. Read
+    // before either handler replaces the disposition it inherited.
+    let hangup = !listener::hangup_ignored();
+    let (stopping, hurrying) = stop_on(shutdown_signal(hangup), shutdown_signal(hangup));
+    let told = stopping.clone();
+    tokio::spawn(async move {
+        fired(told).await;
+        crate::systemd::notify("STOPPING=1");
+    });
     let Some(storage) = until_stopped(crate::open_storage(&config), stopping.clone()).await else {
         info!("Routarr stopped before its database was open");
         return Ok(());
@@ -139,12 +160,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let deprecated_calls = Arc::clone(&state.deprecated_calls);
     let app = crate::build_router(state);
 
+    // Not a refused configuration: an address not up yet at boot is there at a later try.
     let socket = tokio::net::TcpListener::bind(&bind_addr).await.map_err(|e| {
-        error::AppError::Config(format!(
-            "Routarr cannot listen on {bind_addr} (ROUTARR_HOST, ROUTARR_PORT): {e}"
-        ))
+        format!("Routarr cannot listen on {bind_addr} (ROUTARR_HOST, ROUTARR_PORT): {e}")
     })?;
     info!("Routarr web server listening on http://{bind_addr}");
+    crate::systemd::notify("READY=1");
 
     listener::serve(
         socket,
@@ -186,7 +207,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn init_tracing(config: &Config) {
+/// The log on standard output, and in `file` too when `ROUTARR_LOG_FILE` names one.
+fn init_tracing(config: &Config, file: Option<std::sync::Mutex<crate::logging::RotatingFile>>) {
     let filter = config
         .log_filter
         .as_deref()
@@ -198,35 +220,52 @@ fn init_tracing(config: &Config) {
     let registry = tracing_subscriber::registry().with(filter);
 
     if config.log_format.eq_ignore_ascii_case("json") {
-        let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339();
-        registry.with(tracing_subscriber::fmt::layer().json().with_timer(local)).init();
+        let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339;
+        let file = file.map(|file| {
+            tracing_subscriber::fmt::layer().json().with_timer(local()).with_writer(file)
+        });
+        registry
+            .with(tracing_subscriber::fmt::layer().json().with_timer(local()))
+            .with(file)
+            .init();
     } else {
         // Colours only on a terminal: in `docker logs` and in a file the
         // escape codes stand between a fail2ban filter and the address.
         let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
-        registry.with(crate::logging::text_layer(std::io::stdout, colours)).init();
+        let file = file.map(|file| crate::logging::text_layer(file, false));
+        registry.with(crate::logging::text_layer(std::io::stdout, colours)).with(file).init();
     }
 }
 
-/// Resolve on Ctrl-C or SIGTERM.
-async fn shutdown_signal() {
+/// Resolve on Ctrl-C, SIGTERM or, when `hangup`, SIGHUP, the terminal it ran in closing.
+async fn shutdown_signal(hangup: bool) {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("failed to install Ctrl-C handler");
     };
 
     #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+    let heard = |kind: tokio::signal::unix::SignalKind| async move {
+        tokio::signal::unix::signal(kind).expect("failed to install a signal handler").recv().await;
+    };
+    #[cfg(unix)]
+    let terminate = heard(tokio::signal::unix::SignalKind::terminate());
+    #[cfg(unix)]
+    let hangup = async move {
+        match hangup {
+            true => heard(tokio::signal::unix::SignalKind::hangup()).await,
+            false => std::future::pending::<()>().await,
+        }
     };
 
     #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+    let (terminate, hangup) = (std::future::pending::<()>(), {
+        let _ = hangup;
+        std::future::pending::<()>()
+    });
 
     tokio::select! {
         _ = ctrl_c => info!("Received Ctrl-C, shutting down"),
         _ = terminate => info!("Received SIGTERM, shutting down"),
+        _ = hangup => info!("Received SIGHUP, shutting down"),
     }
 }

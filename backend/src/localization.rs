@@ -439,6 +439,14 @@ impl Localizer {
             return key.to_string();
         };
 
+        // Where the log is, which only the server knows, so no caller passes it.
+        let hint;
+        let mut params = params.to_vec();
+        if template.contains("{log}") && !params.iter().any(|(name, _)| *name == "log") {
+            hint = self.log_hint(crate::install::current());
+            params.push(("log", &hint));
+        }
+
         let grouped: Vec<(&str, String)> = params
             .iter()
             .map(|(name, value)| {
@@ -454,6 +462,26 @@ impl Localizer {
             grouped.iter().map(|(name, value)| (*name, value.as_str())).collect();
         substitute(template, &params)
     }
+
+    /// What a `{log}` says: the command printing the log, or where the log goes when the
+    /// installation is not known.
+    fn log_hint(&self, install: Option<crate::install::Install>) -> String {
+        install.map_or_else(
+            || self.translate("LogStandardOutput", &[]),
+            |install| install.log_command().to_string(),
+        )
+    }
+}
+
+/// [`dictionary`] as the interface is sent it, each `{log}` already said.
+pub fn served_dictionary(localizer: &Localizer) -> Dictionary {
+    let mut strings = dictionary(localizer.language());
+    for (key, text) in &mut strings {
+        if text.contains("{log}") {
+            *text = localizer.translate(key, &[]);
+        }
+    }
+    strings
 }
 
 /// Replace `{placeholder}` occurrences, in one pass over the template: a value
@@ -793,6 +821,25 @@ mod tests {
             fr.translate("CategoryNotFound", &[("name", "anime")]),
             "La catégorie «\u{a0}anime\u{a0}» n'existe pas"
         );
+    }
+
+    #[test]
+    fn a_log_placeholder_names_where_the_installation_sends_the_log() {
+        use crate::install::Install;
+        let english = Localizer::new("en");
+        assert_eq!(english.log_hint(Some(Install::Docker)), "docker logs routarr");
+        assert_eq!(english.log_hint(Some(Install::Rpm)), "journalctl -u routarr");
+        let unknown = english.log_hint(None);
+        assert_eq!(unknown, english.translate("LogStandardOutput", &[]));
+
+        // No test settles the installation, so every `{log}` reads as the unknown one.
+        let warned = english.translate("WarnSchedulerPanicked", &[("count", "2")]);
+        assert!(warned.contains(&unknown) && warned.contains('2'), "{warned}");
+        let served = served_dictionary(&Localizer::new("fr"));
+        let french = Localizer::new("fr").translate("LogStandardOutput", &[]);
+        assert!(served["InternalError"].contains(&french), "{}", served["InternalError"]);
+        let left: Vec<_> = served.iter().filter(|(_, text)| text.contains("{log}")).collect();
+        assert!(left.is_empty(), "{left:?}");
     }
 
     #[test]

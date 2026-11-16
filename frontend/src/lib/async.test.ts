@@ -60,6 +60,9 @@ describe('describeError', () => {
   });
 
   it('says a failure of the server in the interface language, with its id', () => {
+    // The server sends the dictionary with its `{log}` said, here as the image says it.
+    const said = ENGLISH['InternalError']!.replace('{log}', 'docker logs routarr');
+    seedDictionary({ ...ENGLISH, InternalError: said });
     const failure = new ApiError('An internal error occurred.', 500, 'internal_error', 'req-9');
     expect(describeError(failure)).toBe(
       'Routarr failed on its side. The server log says why (docker logs routarr). (request req-9)',

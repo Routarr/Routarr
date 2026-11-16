@@ -6,6 +6,7 @@ use tracing::info;
 
 use crate::config::Config;
 use crate::crypto;
+use crate::install::Install;
 
 /// Migrations embedded in the binary, applied in order, exactly once. A `.sql` file in
 /// `migrations/` runs only once listed here. Each release's files fold into one before its tag.
@@ -52,6 +53,12 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
     if config.db_path == *":memory:" {
         return Ok(());
     }
+    let system_root = std::env::var_os("SystemRoot").map(std::path::PathBuf::from);
+    if let Ok(working_dir) = std::env::current_dir()
+        && let Some(refusal) = misplaced(&config.db_path, &working_dir, system_root.as_deref())
+    {
+        return Err(refusal);
+    }
     if config.db_path.is_dir() {
         let path = config.db_path.display();
         let file = config.db_path.join("routarr.db");
@@ -62,11 +69,15 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
         )));
     }
     let dir = &config.data_dir;
-    let refused = |e: std::io::Error| unwritable(dir, &e);
+    let refused = |e: std::io::Error| unwritable(dir, &e, config.install);
     std::fs::create_dir_all(dir).map_err(refused)?;
     let probe = dir.join(".routarr-write-check");
     std::fs::File::create(&probe).map_err(refused)?;
+    let foreign = owned_elsewhere(config, &probe);
     std::fs::remove_file(&probe).map_err(refused)?;
+    if let Some(refusal) = foreign {
+        return Err(refusal);
+    }
     // An empty probe file fits on a full disk, which SQLite then calls a disk I/O error.
     match fs4::available_space(dir).ok().and_then(|free| too_full(dir, free)) {
         Some(refusal) => Err(refusal),
@@ -74,25 +85,188 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
     }
 }
 
-/// Why the data directory `dir` cannot be written, with the remedy `e` calls for.
-fn unwritable(dir: &std::path::Path, e: &std::io::Error) -> crate::error::AppError {
+/// The refusal of a database a relative path puts in a system folder. A service manager starts
+/// Routarr in `/`, or a Windows service in the Windows folder, and the library would open there.
+fn misplaced(
+    db_path: &std::path::Path,
+    working_dir: &std::path::Path,
+    system_root: Option<&std::path::Path>,
+) -> Option<crate::error::AppError> {
+    if !db_path.is_relative() {
+        return None;
+    }
+    // Windows names a folder whatever its case.
+    let lowered = |path: &std::path::Path| path.to_string_lossy().to_lowercase();
+    let in_system = working_dir.parent().is_none()
+        || system_root.is_some_and(|root| {
+            std::path::Path::new(&lowered(working_dir)).starts_with(lowered(root))
+        });
+    if !in_system {
+        return None;
+    }
+    let example = if cfg!(windows) {
+        r"C:\ProgramData\Routarr\routarr.db"
+    } else {
+        "/var/lib/routarr/routarr.db"
+    };
+    Some(crate::error::AppError::Config(format!(
+        "The database path {} is relative to the working directory {}, a system folder. Set \
+         ROUTARR_DB_PATH to the database's whole path, such as {example}",
+        db_path.display(),
+        working_dir.display()
+    )))
+}
+
+/// The refusal of a process whose files the library's owner could not open, `probe` a file it
+/// just wrote. Run as root over a library the service owns, a command leaves root's files the
+/// next start cannot open. Run as another user, it cannot open the library at all.
+#[cfg(unix)]
+fn owned_elsewhere(config: &Config, probe: &std::path::Path) -> Option<crate::error::AppError> {
+    use std::os::unix::fs::MetadataExt;
+    let me = std::fs::metadata(probe).ok()?.uid();
+    let database = std::fs::metadata(&config.db_path).ok().map(|file| file.uid());
+    let folder = std::fs::metadata(&config.data_dir).ok()?.uid();
+    let owner = stranger(me, database, folder)?;
+    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    Some(foreign_library(&config.data_dir, (owner, me), config.install, &passwd))
+}
+
+#[cfg(not(unix))]
+fn owned_elsewhere(_: &Config, _: &std::path::Path) -> Option<crate::error::AppError> {
+    None
+}
+
+/// Whose library this is, when it is not `me`'s: the database's owner, or the folder's when
+/// root would make the database in it. Anyone else may write into a folder open to them.
+#[cfg(unix)]
+fn stranger(me: u32, database: Option<u32>, folder: u32) -> Option<u32> {
+    match database {
+        Some(owner) => (owner != me).then_some(owner),
+        None => (me == 0 && folder != 0).then_some(folder),
+    }
+}
+
+/// Why a library `owner` holds is refused to a process running as `me`, with the remedy the
+/// installation calls for, each user named as `passwd` names it.
+#[cfg(unix)]
+fn foreign_library(
+    dir: &std::path::Path,
+    (owner, me): (u32, u32),
+    install: Option<Install>,
+    passwd: &str,
+) -> crate::error::AppError {
+    let name = |uid: u32| user_name(passwd, uid);
+    let shown =
+        |uid: u32| name(uid).map_or(format!("uid {uid}"), |name| format!("{name} (uid {uid})"));
+    let (dir, whose, runs) = (dir.display(), shown(owner), shown(me));
+    let sudo = format!("sudo -u {}", name(owner).unwrap_or_else(|| format!("'#{owner}'")));
+    crate::error::AppError::Config(match (me, install) {
+        (0, Some(Install::Docker)) => format!(
+            "The library in {dir} belongs to {whose}, and Routarr runs as root: the files it would \
+             leave there would be root's, and Routarr could not open them as {whose}. Run it as \
+             {whose} instead, with --user {owner} on docker exec or on the container"
+        ),
+        (0, _) => format!(
+            "The library in {dir} belongs to {whose}, and Routarr runs as root: the files it would \
+             leave there would be root's, and Routarr could not open them as {whose}. Run it as \
+             {whose} instead, for example with {sudo}"
+        ),
+        (_, Some(Install::Docker)) => format!(
+            "The library in {dir} belongs to {whose}, and Routarr runs as {runs}, who cannot open \
+             it. Give the folder and its files to uid {me} (chown -R {me}:{me} on the host), or \
+             run the container as {whose} with user:"
+        ),
+        (_, Some(_)) => format!(
+            "The library in {dir} belongs to {whose}, and Routarr runs as {runs}, who cannot open \
+             it. Run it as {whose}, for example with {sudo}"
+        ),
+        (_, None) => format!(
+            "The library in {dir} belongs to {whose}, and Routarr runs as {runs}, who cannot open \
+             it. Run it as {whose}, for example with {sudo}, or give the folder and its files to \
+             {runs}"
+        ),
+    })
+}
+
+/// The name `/etc/passwd` gives `uid`, if it lists it.
+#[cfg(unix)]
+fn user_name(passwd: &str, uid: u32) -> Option<String> {
+    passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        let listed: u32 = fields.nth(1)?.parse().ok()?;
+        (listed == uid && !name.is_empty()).then(|| name.to_string())
+    })
+}
+
+/// The lock a server holds on its data directory while it runs, so a second one started on the
+/// same library is refused before it runs the same schedule against the same Arrs. The system
+/// releases it when the process ends, however it ends.
+pub fn hold_the_data_dir(config: &Config) -> Result<Option<std::fs::File>, String> {
+    if config.db_path == *":memory:" {
+        return Ok(None);
+    }
+    let path = config.data_dir.join("routarr.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("{} cannot be opened ({e})", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Err(format!(
+            "Another Routarr is running on the data directory {}: two would run the same \
+             schedule against the same Arrs. Stop it first, or give this one a ROUTARR_DB_PATH of \
+             its own",
+            config.data_dir.display()
+        )),
+        // Some network shares keep no lock: the start goes on unguarded rather than not at all.
+        Err(std::fs::TryLockError::Error(e)) => {
+            tracing::warn!(
+                "{} cannot be locked ({e}): nothing stops a second Routarr started on this library",
+                path.display()
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// Why the data directory `dir` cannot be written, with the remedy `e` and the installation
+/// call for.
+fn unwritable(
+    dir: &std::path::Path,
+    e: &std::io::Error,
+    install: Option<Install>,
+) -> crate::error::AppError {
     use std::io::ErrorKind;
-    let dir = dir.display();
-    crate::error::AppError::Config(match e.kind() {
-        ErrorKind::PermissionDenied => format!(
-            "The data directory {dir} cannot be written ({e}). Give it to the user Routarr runs \
+    let shown = dir.display();
+    crate::error::AppError::Config(match (e.kind(), install) {
+        (ErrorKind::PermissionDenied, Some(Install::Docker)) => format!(
+            "The data directory {shown} cannot be written ({e}). Give it to the user Routarr runs \
              as, uid 1000 in the image (chown -R 1000:1000 on the host), or run the container as \
              the folder's owner with user:"
         ),
-        ErrorKind::ReadOnlyFilesystem => format!(
-            "The data directory {dir} is mounted read-only ({e}). Mount it read-write: remove :ro \
-             from its volume"
+        (ErrorKind::PermissionDenied, Some(_)) => format!(
+            "The data directory {shown} cannot be written ({e}). Give it to the user Routarr runs \
+             as: sudo chown -R routarr:routarr {shown}"
         ),
-        ErrorKind::StorageFull => format!(
-            "The data directory {dir} cannot be written ({e}): its disk has no space left. Free \
+        (ErrorKind::PermissionDenied, None) => format!(
+            "The data directory {shown} cannot be written ({e}). Give it to the user Routarr runs \
+             as, or run Routarr as the folder's owner"
+        ),
+        (ErrorKind::ReadOnlyFilesystem, Some(Install::Docker)) => format!(
+            "The data directory {shown} is mounted read-only ({e}). Mount it read-write: remove \
+             :ro from its volume"
+        ),
+        (ErrorKind::ReadOnlyFilesystem, _) => {
+            format!("The data directory {shown} is mounted read-only ({e}). Mount it read-write")
+        }
+        (ErrorKind::StorageFull, _) => format!(
+            "The data directory {shown} cannot be written ({e}): its disk has no space left. Free \
              some space, then start again"
         ),
-        _ => format!("The data directory {dir} cannot be written ({e})"),
+        _ => format!("The data directory {shown} cannot be written ({e})"),
     })
 }
 
@@ -156,7 +330,7 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
                 Some(archive) => format!(
                     "{ahead}. Start that release again, or restore a backup this one can open, \
                      with the server stopped: {}",
-                    restore_command(&archive)
+                    restore_command(&archive, config.install)
                 ),
                 None => format!(
                     "{ahead}. Start that release again: no archive in {} is at a schema this \
@@ -193,7 +367,7 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
             crate::error::AppError::Config(format!(
                 "{refused}. To go back to the release before, restore {archive} with the server \
                  stopped: {}",
-                restore_command(&archive)
+                restore_command(&archive, config.install)
             ))
         }
         (other, _) => other,
@@ -328,12 +502,15 @@ async fn refuse_a_newer_schema(pool: &SqlitePool) -> crate::error::AppResult<()>
     }
 }
 
-/// The command restoring `archive` with the server stopped, by hand and in a container.
-fn restore_command(archive: &str) -> String {
-    format!(
-        "routarr restore {archive} (in Docker: docker compose run --rm routarr /app/routarr \
-         restore {archive})"
-    )
+/// The command restoring `archive` with the server stopped, as the installation runs it.
+fn restore_command(archive: &str, install: Option<Install>) -> String {
+    match install {
+        Some(Install::Docker) => {
+            format!("docker compose run --rm routarr /app/routarr restore {archive}")
+        }
+        Some(_) => format!("sudo -u routarr routarr restore {archive}"),
+        None => format!("routarr restore {archive}"),
+    }
 }
 
 /// Why a database `newer` migrated is refused.
@@ -1246,18 +1423,129 @@ mod tests {
     #[test]
     fn a_data_folder_that_cannot_be_written_is_told_its_own_remedy() {
         let dir = std::path::Path::new("/config");
-        let said =
-            |kind: std::io::ErrorKind| unwritable(dir, &std::io::Error::from(kind)).to_string();
+        let said = |kind: std::io::ErrorKind, install: Option<Install>| {
+            unwritable(dir, &std::io::Error::from(kind), install).to_string()
+        };
+        let docker = Some(Install::Docker);
 
-        let owner = said(std::io::ErrorKind::PermissionDenied);
+        let owner = said(std::io::ErrorKind::PermissionDenied, docker);
         assert!(owner.contains("chown -R 1000:1000"), "{owner}");
-        let read_only = said(std::io::ErrorKind::ReadOnlyFilesystem);
+        let read_only = said(std::io::ErrorKind::ReadOnlyFilesystem, docker);
         assert!(read_only.contains("read-only") && read_only.contains(":ro"), "{read_only}");
         assert!(!read_only.contains("chown"), "a read-only mount is told to change its owner");
-        let full = said(std::io::ErrorKind::StorageFull);
+        let full = said(std::io::ErrorKind::StorageFull, docker);
         assert!(full.contains("no space left") && !full.contains("chown"), "{full}");
-        let other = said(std::io::ErrorKind::Other);
+        let other = said(std::io::ErrorKind::Other, docker);
         assert!(other.contains("/config") && !other.contains("chown"), "{other}");
+
+        let package = said(std::io::ErrorKind::PermissionDenied, Some(Install::Rpm));
+        assert!(package.contains("sudo chown -R routarr:routarr /config"), "{package}");
+        for kind in [std::io::ErrorKind::PermissionDenied, std::io::ErrorKind::ReadOnlyFilesystem] {
+            for native in [None, Some(Install::Deb)] {
+                let told = said(kind, native);
+                assert!(
+                    !told.contains("1000") && !told.contains("remove :ro"),
+                    "{native:?}: {told}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_way_back_is_the_command_the_installation_runs() {
+        let named = |install| restore_command("routarr-0.3.0.zip", install);
+        assert_eq!(
+            named(Some(Install::Docker)),
+            "docker compose run --rm routarr /app/routarr restore routarr-0.3.0.zip"
+        );
+        assert_eq!(named(Some(Install::Deb)), "sudo -u routarr routarr restore routarr-0.3.0.zip");
+        assert_eq!(named(None), "routarr restore routarr-0.3.0.zip");
+    }
+
+    /// A service manager starts a process in `/`, where the relative default would put the
+    /// library in `/data`, and a Windows service in the Windows folder.
+    #[test]
+    fn a_relative_library_in_a_system_folder_is_refused_naming_the_variable() {
+        let relative = std::path::Path::new("./data/routarr.db");
+        let root = std::path::Path::new("/");
+
+        let refused = misplaced(relative, root, None).expect("a library in / was accepted");
+        assert!(refused.to_string().contains("ROUTARR_DB_PATH"), "{refused}");
+        let windows = std::path::Path::new("/windows");
+        let service = std::path::Path::new("/WINDOWS/System32");
+        assert!(misplaced(relative, service, Some(windows)).is_some());
+
+        let absolute = std::path::Path::new("/var/lib/routarr/routarr.db");
+        assert!(misplaced(absolute, root, None).is_none());
+        let home = std::path::Path::new("/home/someone");
+        assert!(misplaced(relative, home, Some(windows)).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_library_is_refused_to_a_user_whose_files_its_owner_could_not_open() {
+        // Root over the service's database, or anyone over a database another user owns.
+        assert_eq!(stranger(0, Some(999), 999), Some(999));
+        assert_eq!(stranger(1000, Some(0), 1000), Some(0));
+        // Root making the database in the service's folder.
+        assert_eq!(stranger(0, None, 999), Some(999));
+        // The owner itself, and a user writing into a folder open to everyone.
+        assert_eq!(stranger(999, Some(999), 0), None);
+        assert_eq!(stranger(1000, None, 99), None);
+        assert_eq!(stranger(0, Some(0), 0), None);
+
+        let passwd =
+            "root:x:0:0:root:/root:/bin/sh\nroutarr:x:999:999::/var/lib/routarr:/sbin/nologin";
+        assert_eq!(user_name(passwd, 999).as_deref(), Some("routarr"));
+        assert_eq!(user_name(passwd, 1000), None);
+        let dir = std::path::Path::new("/var/lib/routarr");
+        let said =
+            |owner, me, install| foreign_library(dir, (owner, me), install, passwd).to_string();
+        let as_root = said(999, 0, Some(Install::Deb));
+        assert!(as_root.contains("runs as root") && as_root.contains("sudo -u"), "{as_root}");
+        let in_docker = said(1000, 0, Some(Install::Docker));
+        assert!(in_docker.contains("--user 1000"), "{in_docker}");
+        let unopened = said(0, 1000, None);
+        assert!(unopened.contains("uid 1000, who cannot open"), "{unopened}");
+        let in_the_image = said(0, 1000, Some(Install::Docker));
+        assert!(in_the_image.contains("chown -R 1000:1000"), "{in_the_image}");
+        let packaged = said(999, 1000, Some(Install::Deb));
+        assert!(packaged.contains("sudo -u") && !packaged.contains("chown"), "{packaged}");
+    }
+
+    /// The probe a start writes is the process's own file, so a folder the process owns passes,
+    /// and the check reads that owner rather than refusing every library.
+    #[cfg(unix)]
+    #[test]
+    fn a_library_the_process_owns_is_prepared() {
+        let dir = std::env::temp_dir().join(format!("routarr-owned-{}", std::process::id()));
+        let mut config = Config::for_tests();
+        config.set_db_path(dir.join("routarr.db"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&config.db_path, b"").unwrap();
+
+        prepare_data_dir(&config).expect("the process's own library was refused");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_second_server_on_one_library_is_refused_while_the_first_holds_it() {
+        let dir = std::env::temp_dir().join(format!("routarr-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut config = Config::for_tests();
+        config.set_db_path(dir.join("routarr.db"));
+
+        let first = hold_the_data_dir(&config).unwrap();
+        assert!(first.is_some(), "the first server holds no lock");
+        let second = hold_the_data_dir(&config).expect_err("a second server was let in");
+        assert!(second.contains("Another Routarr") && second.contains("ROUTARR_DB_PATH"));
+        drop(first);
+        assert!(hold_the_data_dir(&config).unwrap().is_some(), "a lock outlived its server");
+
+        let mut memory = Config::for_tests();
+        memory.set_db_path(":memory:".into());
+        assert!(hold_the_data_dir(&memory).unwrap().is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A full disk passes the write probe, which writes nothing, and stops the start one line

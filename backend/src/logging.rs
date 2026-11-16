@@ -2,6 +2,9 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::fs::File;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use tracing_subscriber::field::RecordFields;
 use tracing_subscriber::fmt::format::{DefaultFields, Format, Full, Writer};
@@ -65,4 +68,121 @@ fn escaped(text: &str) -> Cow<'_, str> {
         return Cow::Borrowed(text);
     }
     Cow::Owned(text.replace('\n', "\\n").replace('\r', "\\r"))
+}
+
+/// How large `ROUTARR_LOG_FILE` grows before it is set aside.
+const LOG_FILE_LIMIT: u64 = 10 * 1024 * 1024;
+
+/// How many set-aside files are kept, `routarr.log.1` the newest: with the file in use, the log
+/// holds at most six times [`LOG_FILE_LIMIT`].
+const LOG_FILES_KEPT: usize = 5;
+
+/// The file `ROUTARR_LOG_FILE` names, for a service manager that keeps no output. Appended to
+/// across starts, and moved to `.1` before a line would take it past its limit, the older ones
+/// each moving one number up.
+pub struct RotatingFile {
+    path: PathBuf,
+    /// Closed while the files move, since Windows renames no file held open.
+    file: Option<File>,
+    written: u64,
+    limit: u64,
+    kept: usize,
+}
+
+impl RotatingFile {
+    pub fn open(path: &Path) -> io::Result<std::sync::Mutex<Self>> {
+        Self::with_limit(path, LOG_FILE_LIMIT, LOG_FILES_KEPT).map(std::sync::Mutex::new)
+    }
+
+    fn with_limit(path: &Path, limit: u64, kept: usize) -> io::Result<Self> {
+        if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)?;
+        }
+        let file = appended(path)?;
+        let written = file.metadata()?.len();
+        Ok(Self { path: path.to_path_buf(), file: Some(file), written, limit, kept })
+    }
+
+    fn numbered(&self, number: usize) -> PathBuf {
+        let mut name = self.path.clone().into_os_string();
+        name.push(format!(".{number}"));
+        PathBuf::from(name)
+    }
+
+    fn rotate(&mut self) -> io::Result<()> {
+        self.file = None;
+        for number in (1..self.kept).rev() {
+            std::fs::rename(self.numbered(number), self.numbered(number + 1)).ok();
+        }
+        std::fs::rename(&self.path, self.numbered(1))?;
+        self.file = Some(appended(&self.path)?);
+        self.written = 0;
+        Ok(())
+    }
+}
+
+fn appended(path: &Path) -> io::Result<File> {
+    std::fs::OpenOptions::new().create(true).append(true).open(path)
+}
+
+impl io::Write for RotatingFile {
+    fn write(&mut self, line: &[u8]) -> io::Result<usize> {
+        if self.written > 0 && self.written + line.len() as u64 > self.limit {
+            self.rotate()?;
+        }
+        let file = match &mut self.file {
+            Some(file) => file,
+            // A rotation that failed half way: the file it names is opened again.
+            None => self.file.insert(appended(&self.path)?),
+        };
+        let length = file.write(line)?;
+        self.written += length as u64;
+        Ok(length)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.as_mut().map_or(Ok(()), File::flush)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn a_log_file_moves_aside_before_it_passes_its_limit_and_keeps_its_last_files() {
+        let dir = std::env::temp_dir().join(format!("routarr-log-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let path = dir.join("logs").join("routarr.log");
+        let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_default();
+
+        let mut log = RotatingFile::with_limit(&path, 20, 2).unwrap();
+        for line in ["first line\n", "second line\n", "third line\n", "fourth line\n"] {
+            log.write_all(line.as_bytes()).unwrap();
+        }
+        assert_eq!(read(&path), "fourth line\n");
+        assert_eq!(read(&log.numbered(1)), "third line\n");
+        assert_eq!(read(&log.numbered(2)), "second line\n");
+        assert!(!log.numbered(3).exists(), "more files kept than asked");
+
+        drop(log);
+        let mut again = RotatingFile::with_limit(&path, 20, 2).unwrap();
+        again.write_all(b"fifth\n").unwrap();
+        assert_eq!(read(&path), "fourth line\nfifth\n", "a restart started the file over");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_line_written_reaches_the_file_at_once() {
+        let dir = std::env::temp_dir().join(format!("routarr-log-open-{}", std::process::id()));
+        let path = dir.join("routarr.log");
+        let log = RotatingFile::open(&path).unwrap();
+
+        let mut file = log.lock().unwrap();
+        file.write_all(b"Starting Routarr\n").unwrap();
+        file.flush().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "Starting Routarr\n");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

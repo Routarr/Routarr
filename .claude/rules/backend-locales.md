@@ -6,6 +6,9 @@ paths:
 ---
 # Backend dictionaries
 
+- A text sending the reader to the server log says `{log}`, never a command: the server fills it
+  with the command of its installation (`install.rs`), in what it translates and in the
+  dictionary it sends, so no call passes it (`FILLED` in `scripts/check-locales.py`).
 - A new key needs `en.json` alone, since every language falls back to English key by key.
   `scripts/check-locales.py` fails on a key the code uses and `en.json` lacks, a key another
   language has and English lacks, a changed `{placeholder}`, an empty value, a key no source

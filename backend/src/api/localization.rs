@@ -35,9 +35,10 @@ pub async fn dictionary(
 
 /// What `/localization` answers, which the page also carries from the start.
 pub async fn answer(state: &AppState) -> LocalizationResponse {
-    let language = state.localizer().await.language().to_string();
+    let localizer = state.localizer().await;
+    let language = localizer.language().to_string();
     LocalizationResponse {
-        strings: localization::dictionary(&language),
+        strings: localization::served_dictionary(&localizer),
         // With the strings, so the direction flips in the same paint as the language.
         direction: localization::direction(&language),
         counts: localization::COUNTS,

@@ -199,6 +199,7 @@ env \
   ROUTARR_PORT="$PORT" \
   ROUTARR_FRONTEND_DIR="$ROOT/frontend/dist" \
   ROUTARR_BASE_PATH="${ROUTARR_E2E_BASE:-}" \
+  ROUTARR_INSTALL=docker \
   "${MODE[@]}" \
   "$TARGET_DIR/release/routarr" >"$WORK/routarr.log" 2>&1 &
 ROUTARR_PID=$!

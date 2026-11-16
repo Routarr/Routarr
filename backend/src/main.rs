@@ -21,6 +21,7 @@ mod crypto;
 mod db;
 mod error;
 mod http;
+mod install;
 mod integrations;
 mod jobs;
 mod listener;
@@ -32,6 +33,7 @@ mod process;
 mod race;
 mod services;
 mod state;
+mod systemd;
 mod timestamp;
 
 #[cfg(test)]

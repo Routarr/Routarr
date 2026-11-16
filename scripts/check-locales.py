@@ -148,6 +148,8 @@ NOT_KEYS = {
     "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp",
     # A rule's issue code, whose message stays English since the interface sent the id.
     "UnknownInstance",
+    # The variable naming the Windows folder.
+    "SystemRoot",
 }
 
 # The ids of the help's terms and cards, which name an entry rather than a sentence.
@@ -170,7 +172,12 @@ NOT_COUNTS = {
     "reasons", "template", "regions", "route", "rule", "scale", "schema", "scope", "scopes", "screen", "second",
     "section", "service", "setting", "since", "size", "source", "sources", "status", "supported",
     "tab", "tags", "task", "terms", "text", "title", "titles", "triggers", "type", "url", "used", "value", "values", "variable", "version", "when", "year",
+    "log",
 }
+
+# The placeholders the server fills itself, in what it translates and in the dictionary it
+# sends the interface, so no call passes them.
+FILLED = {"log"}
 
 
 def source_text() -> str:
@@ -403,7 +410,7 @@ def parameter_problems(
         # A key en.json lacks has no sentence to compare with.
         if said is None:
             continue
-        for name in sorted(said - call.params):
+        for name in sorted(said - call.params - FILLED):
             problems.append(f"{where}: '{call.key}' says {{{name}}}, which the call does not pass")
         for name in sorted(call.params - said):
             problems.append(f"{where}: '{call.key}' is passed '{name}', which its English does not say")

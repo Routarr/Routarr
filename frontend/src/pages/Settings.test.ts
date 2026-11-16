@@ -40,6 +40,7 @@ const APIKEY_MODE: AuthMode = {
   mode: 'apikey',
   api_key_configured: true,
   api_key_pinned: false,
+  install: null,
 };
 
 type ProviderOverride = { configured?: boolean; order?: string[] };
@@ -1013,7 +1014,7 @@ describe('the API key card', () => {
   afterEach(() => window.history.replaceState({}, '', '/settings'));
 
   it('is offered in the mode whose only credential it is', async () => {
-    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false, install: null });
 
     expect(await screen.findByRole('heading', { name: 'Routarr API key' })).toBeInTheDocument();
     expect(screen.getByText(API_KEY_HELP)).toBeInTheDocument();
@@ -1022,7 +1023,7 @@ describe('the API key card', () => {
   it.each([['none' as const], ['external' as const]])(
     'is absent in %s mode, where nothing reads the header',
     async (mode) => {
-      mount({}, { mode, api_key_configured: true, api_key_pinned: false });
+      mount({}, { mode, api_key_configured: true, api_key_pinned: false, install: null });
 
       await screen.findByRole('heading', { name: 'Settings', level: 1 });
       expect(screen.queryByRole('heading', { name: 'Routarr API key' })).toBeNull();
@@ -1035,7 +1036,7 @@ describe('the API key card', () => {
    * modes it is not.
    */
   it('is offered in a session mode that has a key, and says what it is for', async () => {
-    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false, install: null });
 
     expect(await screen.findByRole('heading', { name: 'Routarr API key' })).toBeInTheDocument();
     expect(
@@ -1051,13 +1052,13 @@ describe('the API key card', () => {
    * handed the password.
    */
   it('offers to mint one in a session mode that has none', async () => {
-    mount({}, { mode: 'oidc', api_key_configured: false, api_key_pinned: false });
+    mount({}, { mode: 'oidc', api_key_configured: false, api_key_pinned: false, install: null });
 
     expect(await screen.findByRole('button', { name: 'Create a key' })).toBeInTheDocument();
   });
 
   it('offers no button when the environment pins the key, and says why', async () => {
-    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: true });
+    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: true, install: null });
 
     expect(
       await screen.findByText('ROUTARR_API_KEY sets this key, so it cannot be changed here.'),
@@ -1067,7 +1068,7 @@ describe('the API key card', () => {
 
   it('shows what it just minted, once, and keeps no copy', async () => {
     const rotate = vi.spyOn(api, 'rotateApiKey').mockResolvedValue({ api_key: 'the-new-one' });
-    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false, install: null });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }));
     // The question names what breaks, not just what is about to happen.
@@ -1083,7 +1084,7 @@ describe('the API key card', () => {
 
   it('asks before replacing a key other clients are using', async () => {
     const rotate = vi.spyOn(api, 'rotateApiKey');
-    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false, install: null });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }));
     await answerConfirmation(null);
@@ -1096,18 +1097,18 @@ describe('the API key card', () => {
    * not there at all. The backend refuses too, and neither relies on the other.
    */
   it('offers removal only where another way in remains', async () => {
-    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false, install: null });
     await screen.findByRole('button', { name: 'Regenerate' });
     expect(screen.queryByRole('button', { name: 'Remove the key' })).toBeNull();
 
     cleanup();
-    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false, install: null });
     expect(await screen.findByRole('button', { name: 'Remove the key' })).toBeInTheDocument();
   });
 
   it('keeps the key when its removal is cancelled', async () => {
     const remove = vi.spyOn(api, 'deleteApiKey');
-    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false, install: null });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));
     expect(await answerConfirmation(null)).toBe(
@@ -1119,11 +1120,12 @@ describe('the API key card', () => {
 
   it('removes the key once confirmed, with the proof sent', async () => {
     const remove = vi.spyOn(api, 'deleteApiKey').mockResolvedValue(undefined as never);
-    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false, install: null });
     vi.mocked(api.authMode).mockResolvedValue({
       mode: 'forms',
       api_key_configured: false,
       api_key_pinned: false,
+      install: null,
     });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));

@@ -1666,6 +1666,10 @@ async fn a_refused_start_names_the_archive_to_restore() {
 
     let message = refused.expect_err("the database was opened").to_string();
     assert!(message.contains(&format!("routarr restore {}", file.name)), "{message}");
+    assert!(!message.contains("docker"), "a command no installation said it runs: {message}");
+    let mut in_the_image = (*config).clone();
+    in_the_image.install = Some(crate::install::Install::Docker);
+    let message = crate::db::init_pool(&in_the_image).await.expect_err("opened").to_string();
     let in_docker = format!("docker compose run --rm routarr /app/routarr restore {}", file.name);
     assert!(message.contains(&in_docker), "no command a container runs: {message}");
 

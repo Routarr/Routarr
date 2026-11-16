@@ -623,13 +623,14 @@ pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
 /// What the shell needs before it can render anything, including a refusal.
 ///
 /// Public: a browser not signed in yet learns the mode and whether a key exists, which
-/// shortens no 256-bit key.
+/// shortens no 256-bit key, and how Routarr was installed, for the command that reads its key.
 pub async fn mode(State(state): State<AppState>) -> super::Json<serde_json::Value> {
     super::Json(serde_json::json!({
         "mode": state.config.auth_mode.as_str(),
         "api_key_configured": state.api_key().is_some(),
         // A key from the environment cannot be rotated: the variable replaces it at restart.
         "api_key_pinned": state.config.api_key.is_some(),
+        "install": state.config.install.map(crate::install::Install::as_str),
     }))
 }
 

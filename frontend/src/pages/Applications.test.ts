@@ -32,6 +32,7 @@ function show(listed: Application[]) {
     mode: 'none',
     api_key_configured: false,
     api_key_pinned: false,
+    install: null,
   });
   return renderWithI18n(Applications);
 }
