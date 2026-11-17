@@ -60,8 +60,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         _ => {}
     }
 
-    // The working directory's alone, held to the rule of every other variable.
-    let dotenv = crate::config::read_dotenv(&std::env::current_dir()?)?;
+    // The working directory's, or the package's for the binary a package installed, held to the
+    // rule of every other variable.
+    let exe = std::env::current_exe().ok();
+    let dotenv = crate::config::variables_file(&std::env::current_dir()?, exe.as_deref())?;
     if let Some(file) = &dotenv {
         dotenvy::from_path(file)?;
     }

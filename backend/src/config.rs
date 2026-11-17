@@ -1197,11 +1197,36 @@ fn parse_switch(key: &str, raw: Option<String>, default: bool) -> AppResult<bool
     }
 }
 
+/// Where the packages install the binary, and keep the service's variables.
+const PACKAGED_BINARY: &str = "/usr/bin/routarr";
+const PACKAGED_VARIABLES: &str = "/etc/routarr/routarr.env";
+
+/// The variables file a start reads: the working directory's `.env`, or else, for the binary a
+/// package installed, the package's file, so a command run by hand reaches the service's
+/// library. A binary built or unpacked anywhere else reads no file outside its working
+/// directory, and a build never opens the service's library.
+pub fn variables_file(dir: &Path, exe: Option<&Path>) -> AppResult<Option<PathBuf>> {
+    let packaged = exe == Some(Path::new(PACKAGED_BINARY));
+    variables_among(dir, packaged.then(|| Path::new(PACKAGED_VARIABLES)))
+}
+
+fn variables_among(dir: &Path, packaged: Option<&Path>) -> AppResult<Option<PathBuf>> {
+    if let Some(file) = read_dotenv(dir)? {
+        return Ok(Some(file));
+    }
+    packaged.map_or(Ok(None), read_env_file)
+}
+
 /// The `.env` of `dir`, the working directory, once every line of it reads: a file in a folder
 /// above configures nothing, and a line it cannot read stops the start, named by its variable.
 /// The caller loads it, since setting a variable is the process's business.
 pub fn read_dotenv(dir: &Path) -> AppResult<Option<PathBuf>> {
-    let file = dir.join(".env");
+    read_env_file(&dir.join(".env"))
+}
+
+/// `file` once every line of it reads, or `None` when there is no such file.
+fn read_env_file(file: &Path) -> AppResult<Option<PathBuf>> {
+    let file = file.to_path_buf();
     let unreadable = |e: &dyn std::fmt::Display| {
         AppError::Config(format!("{} cannot be read: {e}", file.display()))
     };
@@ -1844,6 +1869,27 @@ mod tests {
         std::fs::create_dir(&below).unwrap();
         assert_eq!(read_dotenv(&below).unwrap(), None);
         assert_eq!(read_dotenv(&dir).unwrap(), Some(dir.join(".env")), "the control");
+    }
+
+    /// `sudo -u routarr routarr reset-account` runs from anywhere, with none of the service's
+    /// variables, and has to reach the service's library rather than make one where it stands.
+    #[test]
+    fn the_packaged_binary_reads_the_packages_variables_when_no_dotenv_is_there() {
+        let dir = crate::tests::TempDir::new("packaged-variables");
+        let package = dir.join("routarr.env");
+        std::fs::write(&package, "A_DB_PATH=/var/lib/routarr/routarr.db\n").unwrap();
+        let elsewhere = dir.join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+
+        assert_eq!(variables_among(&elsewhere, Some(&package)).unwrap(), Some(package.clone()));
+        assert_eq!(variables_among(&elsewhere, None).unwrap(), None, "a build read it");
+        std::fs::write(elsewhere.join(".env"), "A_PORT=19874\n").unwrap();
+        let chosen = variables_among(&elsewhere, Some(&package)).unwrap();
+        assert_eq!(chosen, Some(elsewhere.join(".env")), "the working directory's lost");
+        assert_eq!(variables_among(&dir, Some(&dir.join("missing.env"))).unwrap(), None);
+
+        let built = Path::new("/ramdisk/cargo-target/release/routarr");
+        assert_eq!(variables_file(&dir, Some(built)).unwrap(), None);
     }
 
     /// A `TZ` naming no zone reads as UTC, unsaid, and every log line is off by its offset.

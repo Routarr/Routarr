@@ -141,7 +141,7 @@ SOURCES = {
         ".",
         ("scripts/**/*.*", ".github/**/*.yml", ".devcontainer/*.*", ".devcontainer/Dockerfile",
          "Dockerfile", "docker-compose.yml", ".hadolint.yaml", ".gitignore", ".dockerignore",
-         "ruff.toml", "contrib/**/*.*", "LICENSES/*.txt"),
+         "ruff.toml", "contrib/**/*.*", "LICENSES/*.txt", "packaging/**/*"),
     ),
 }
 
