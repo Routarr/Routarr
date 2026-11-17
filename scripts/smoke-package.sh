@@ -115,7 +115,7 @@ smoke_rpm() {
 set -euo pipefail
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
-dnf install -y -q --allowerasing /tmp/routarr.rpm sudo procps-ng curl >/dev/null
+dnf install -y -q --allowerasing /tmp/routarr.rpm sudo procps-ng curl util-linux >/dev/null
 ok "installs with dnf on $(. /etc/os-release && echo "$PRETTY_NAME")"
 [ "$(stat -c '%U:%G %a' /etc/routarr/routarr.env)" = "root:routarr 640" ] || fail "routarr.env: $(stat -c '%U:%G %a' /etc/routarr/routarr.env)"
 [ "$(stat -c '%U:%G %a' /var/lib/routarr)" = "routarr:routarr 750" ] || fail "/var/lib/routarr: $(stat -c '%U:%G %a' /var/lib/routarr)"
@@ -124,9 +124,14 @@ test -s /usr/share/licenses/routarr/LICENSE || fail "no licence in /usr/share/li
 grep -q "^# musl" /usr/share/licenses/routarr/third-party-notices.txt || fail "the notices do not name musl"
 ok "the account, the files and their owners are in place"
 
-(cd / && runuser -u routarr -- /usr/bin/routarr >/tmp/routarr.log 2>&1) &
+# setpriv switches to the account with no PAM session, which a container without systemd may
+# not open.
+(cd / && setpriv --reuid=routarr --regid=routarr --init-groups -- /usr/bin/routarr \
+  >/tmp/routarr.log 2>&1) &
 for _ in $(seq 1 60); do curl -sf --max-time 5 http://127.0.0.1:9876/api/v1/ping >/dev/null && break; sleep 1; done
-curl -sf --max-time 5 http://127.0.0.1:9876/api/v1/ping >/dev/null || { cat /tmp/routarr.log; fail "no answer"; }
+curl -sf --max-time 5 http://127.0.0.1:9876/api/v1/ping >/dev/null || {
+  ps -eo pid,user,stat,args; cat /tmp/routarr.log; fail "no answer"
+}
 grep -q '"install":"rpm"' <(curl -s http://127.0.0.1:9876/api/v1/auth/mode) || fail "it does not say it is an rpm"
 grep -q "Data directory: /var/lib/routarr" /tmp/routarr.log || fail "it did not read /etc/routarr/routarr.env"
 ok "started as routarr, it reads its settings and answers as an rpm"
