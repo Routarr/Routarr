@@ -27,6 +27,10 @@ FILES = [
     "contrib/monitoring/prometheus-alerts.yml",
     "README.md",
     "Dockerfile",
+    "packaging/linux/routarr.service",
+    "LICENSES/MIT-musl.txt",
+    "scripts/smoke-package.sh",
+    "scripts/install-nfpm.sh",
 ]
 
 
@@ -103,6 +107,15 @@ class ChangedAreas(unittest.TestCase):
 
     def test_a_site_change_costs_neither_the_rust_jobs_nor_the_image(self):
         self.assertEqual(self.woken("site/src/pages/index.astro"), ["site"])
+
+    def test_the_packaging_wakes_the_image_the_packages_are_built_from(self):
+        for source in ("packaging/linux/routarr.service", "LICENSES/MIT-musl.txt"):
+            with self.subTest(source=source):
+                self.assertEqual(self.woken(source), ["image"])
+        # The backend job runs the checks under `scripts/`, so a script wakes it as well.
+        for source in ("scripts/smoke-package.sh", "scripts/install-nfpm.sh"):
+            with self.subTest(source=source):
+                self.assertEqual(self.woken(source), ["backend", "image"])
 
     def test_the_dev_container_wakes_its_own_build_alone(self):
         self.assertEqual(self.woken(".devcontainer/Dockerfile"), ["devcontainer"])

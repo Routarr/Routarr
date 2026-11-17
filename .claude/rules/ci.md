@@ -59,6 +59,12 @@ paths:
 - `docker.yml` runs `scripts/smoke-image.sh` again under gVisor, installed by
   `scripts/install-runtime.sh` at a pinned version and checksum, and `release.yml` runs it on
   both architectures before pushing. A check added to the smoke test has to hold in all three.
+- The deb, the rpm and the tarball are built from an image's `/app` (`scripts/build-packages.sh`,
+  `packaging/linux/`), so they ship its binary. `docker.yml`'s `packages` job installs the deb
+  under the runner's systemd and the rpm in Fedora (`scripts/smoke-package.sh`), which runs
+  `PACKAGE_KEY_COMMAND` of `ApiKeyGate.svelte` as `smoke-image.sh` runs `READ_KEY_COMMAND`. The
+  paths there (`/usr/bin/routarr`, `/etc/routarr/routarr.env`, `/var/lib/routarr`) are also
+  constants of `backend/src/config.rs` and `db.rs`.
 - No release build restores a cache: anything that runs on main can write the one `docker.yml`
   keeps, and `release.yml` signs what it builds. Every `setup-buildx-action` names BuildKit by
   digest (`driver-opts`), and `check-versions.py` holds the copies equal.

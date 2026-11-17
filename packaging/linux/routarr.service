@@ -1,0 +1,56 @@
+# The service the deb and rpm packages install. Its settings are in /etc/routarr/routarr.env,
+# which the binary reads itself, so a command run by hand reads the same ones. To change a line
+# here, `sudo systemctl edit routarr` writes a drop-in an upgrade keeps.
+
+[Unit]
+Description=Routarr, a routing layer for Radarr and Sonarr
+Documentation=https://github.com/Routarr/Routarr/blob/main/OPERATING.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=routarr
+Group=routarr
+ExecStart=/usr/bin/routarr
+WorkingDirectory=/var/lib/routarr
+Restart=on-failure
+# A configuration Routarr refuses fails the same way at every try.
+RestartPreventExitStatus=78
+# A start archives the library before it migrates it, which takes as long as the library is big.
+TimeoutStartSec=30min
+# The stop drains requests, waits for the work in flight and closes the database in 25 seconds.
+TimeoutStopSec=30s
+
+# Routarr reads no media file: it asks Radarr and Sonarr to move them. It writes its library
+# alone, and a backup copy folder given a ReadWritePaths= of its own in a drop-in.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/routarr
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
