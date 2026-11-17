@@ -2,7 +2,6 @@
 //! library holds is decided as the simulation decides it, one it does not is looked up in the
 //! Arr and decided the same way. Nothing is stored: a title asked about is not in the library.
 
-use chrono::Utc;
 use serde::Serialize;
 use tokio::sync::Semaphore;
 
@@ -148,7 +147,8 @@ pub async fn place(
         } else {
             routing::Fresh::default()
         };
-        let decided = routing::route_one_with(&state.pool, &media, Utc::now(), fresh).await?;
+        let decided =
+            routing::route_one_with(&state.pool, &media, jiff::Timestamp::now(), fresh).await?;
         placement.answers.push(answer(state, &instance, &media, source, decided).await?);
     }
 
@@ -243,7 +243,7 @@ async fn unheld(
         (
             added.tags.clone(),
             added.monitored.unwrap_or(true),
-            Some(routing::format_timestamp(Utc::now())),
+            Some(routing::format_timestamp(jiff::Timestamp::now())),
             added.series_type.clone().or(item.series_type),
             added.quality_profile.clone(),
         )

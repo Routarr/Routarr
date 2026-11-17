@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use tracing_subscriber::field::RecordFields;
 use tracing_subscriber::fmt::format::{DefaultFields, Format, Full, Writer};
-use tracing_subscriber::fmt::time::ChronoLocal;
+use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::fmt::{FormatFields, FormattedFields};
 use tracing_subscriber::registry::LookupSpan;
 
@@ -16,17 +16,41 @@ use tracing_subscriber::registry::LookupSpan;
 pub fn text_layer<S, W>(
     writer: W,
     colours: bool,
-) -> tracing_subscriber::fmt::Layer<S, OneLine, Format<Full, ChronoLocal>, W>
+) -> tracing_subscriber::fmt::Layer<S, OneLine, Format<Full, LocalTime>, W>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
     W: for<'writer> tracing_subscriber::fmt::MakeWriter<'writer> + 'static,
 {
-    // Local time in the operator's `TZ`, as Radarr and Sonarr log it, with its offset.
     tracing_subscriber::fmt::layer()
         .fmt_fields(OneLine)
         .with_ansi(colours)
-        .with_timer(ChronoLocal::rfc_3339())
+        .with_timer(LocalTime)
         .with_writer(writer)
+}
+
+/// Local time in the operator's `TZ`, as Radarr and Sonarr log it, with its offset.
+pub struct LocalTime;
+
+impl FormatTime for LocalTime {
+    fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
+        w.write_str(&rfc3339(&jiff::Zoned::now()))
+    }
+}
+
+/// `at` as `SECURITY.md` shows a log line's time: its fraction in groups of three digits and
+/// none when whole, its offset rounded to the minute and never written `Z`.
+fn rfc3339(at: &jiff::Zoned) -> String {
+    let fraction = match at.subsec_nanosecond() {
+        0 => String::new(),
+        nanos if nanos % 1_000_000 == 0 => format!(".{:03}", nanos / 1_000_000),
+        nanos if nanos % 1_000 == 0 => format!(".{:06}", nanos / 1_000),
+        nanos => format!(".{nanos:09}"),
+    };
+    let offset = at.offset().seconds();
+    let sign = if offset < 0 { '-' } else { '+' };
+    let minutes = (offset.abs() + 30) / 60;
+    let (hours, minutes) = (minutes / 60, minutes % 60);
+    format!("{}{fraction}{sign}{hours:02}:{minutes:02}", at.strftime("%Y-%m-%dT%H:%M:%S"))
 }
 
 /// The fields of an event or a span as `DefaultFields` writes them, a line break written `\n`
@@ -149,6 +173,27 @@ impl io::Write for RotatingFile {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn a_log_time_is_local_with_its_offset_and_the_shortest_group_of_fraction_digits() {
+        let at = |stamp: &str, offset: i32| {
+            let zone = jiff::tz::TimeZone::fixed(jiff::tz::Offset::from_seconds(offset).unwrap());
+            rfc3339(&stamp.parse::<jiff::Timestamp>().unwrap().to_zoned(zone))
+        };
+        let utc = |stamp: &str| at(stamp, 0);
+        assert_eq!(utc("2026-11-16T18:45:35.900599649Z"), "2026-11-16T18:45:35.900599649+00:00");
+        assert_eq!(utc("2026-11-16T18:45:35.900599Z"), "2026-11-16T18:45:35.900599+00:00");
+        assert_eq!(utc("2026-11-16T18:45:35.9Z"), "2026-11-16T18:45:35.900+00:00");
+        assert_eq!(utc("2026-11-16T18:45:35Z"), "2026-11-16T18:45:35+00:00");
+        assert_eq!(at("2026-11-16T18:45:35Z", 2 * 3600), "2026-11-16T20:45:35+02:00");
+        assert_eq!(at("2026-11-16T18:45:35Z", -(3 * 3600 + 1800)), "2026-11-16T15:15:35-03:30");
+        // An offset with seconds, as the oldest of a zone's are, rounds to the minute.
+        assert_eq!(at("1900-01-01T00:00:00Z", 561), "1900-01-01T00:09:21+00:09");
+
+        let mut written = String::new();
+        LocalTime.format_time(&mut Writer::new(&mut written)).unwrap();
+        assert!(written.parse::<jiff::Timestamp>().is_ok() && !written.ends_with('Z'), "{written}");
+    }
 
     #[test]
     fn a_log_file_moves_aside_before_it_passes_its_limit_and_keeps_its_last_files() {

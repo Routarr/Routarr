@@ -99,8 +99,10 @@ impl Attempt {
         }
         let attempt: Self = serde_json::from_str(&secrets.open(sealed).ok()?).ok()?;
         let named: bool = attempt.state.as_bytes().ct_eq(state.as_bytes()).into();
-        (attempt.purpose == PURPOSE && named && attempt.expires > chrono::Utc::now().timestamp())
-            .then_some(attempt)
+        (attempt.purpose == PURPOSE
+            && named
+            && attempt.expires > jiff::Timestamp::now().as_second())
+        .then_some(attempt)
     }
 }
 
@@ -223,7 +225,7 @@ pub async fn start(state: &AppState, again: bool, return_to: Option<String>) -> 
         state: crate::crypto::generate_secret()?,
         nonce: crate::crypto::generate_secret()?,
         verifier: crate::crypto::generate_secret()?,
-        expires: chrono::Utc::now().timestamp() + FLOW_MINUTES * 60,
+        expires: jiff::Timestamp::now().as_second() + FLOW_MINUTES * 60,
         again,
         return_to,
     };
@@ -365,7 +367,7 @@ pub async fn finish(
     {
         return Err(AppError::BadRequest("The token was issued for another client.".into()));
     }
-    let now = chrono::Utc::now().timestamp() as f64;
+    let now = jiff::Timestamp::now().as_second() as f64;
     if claims.exp <= now {
         return Err(AppError::BadRequest("The token has expired.".into()));
     }
@@ -512,7 +514,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let state = "s".repeat(64);
         let attempt = |expires: i64, purpose: &str| Attempt {
             purpose: purpose.into(),

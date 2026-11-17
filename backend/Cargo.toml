@@ -48,8 +48,10 @@ tower-http = { version = "0.7", features = [
     "timeout",
 ]  }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "chrono"] }
-chrono = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# The zone `TZ` names is read from the system's zone files, and on Windows,
+# which has none, from the copy the default features bundle.
+jiff = "0.2"
 uuid = { version = "1", features = ["v4"] }
 dotenvy = "0.15"
 thiserror = "2"

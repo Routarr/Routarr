@@ -1151,8 +1151,8 @@ async fn an_apply_stamps_its_move_in_the_shape_a_sync_compares() {
 
     let stamp = stamp.expect("the apply left no stamp");
     let moved = crate::services::routing::parse_timestamp(&stamp).expect("an unreadable stamp");
-    let age = chrono::Utc::now() - moved;
-    assert!(age.num_seconds().abs() < 60, "{stamp} is not the moment of the apply");
+    let age = jiff::Timestamp::now().duration_since(moved);
+    assert!(age.as_secs().abs() < 60, "{stamp} is not the moment of the apply");
     assert_eq!(stamp, crate::services::routing::format_timestamp(moved), "{stamp}");
 }
 
@@ -1903,7 +1903,7 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
     // An age the operator weighs against their hardware, never a UTC time to convert.
     assert!(message.contains("3 h"), "and say how long it has been quiet: {message}");
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let today = jiff::Timestamp::now().strftime("%Y-%m-%d").to_string();
     assert!(!message.contains(&today), "no stored time in the sentence: {message}");
 
     // A folder that never answered says so, rather than a dash for a date.

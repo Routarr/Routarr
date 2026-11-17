@@ -150,8 +150,8 @@ impl Calls {
             None => ("person", "", identity.and_then(Identity::actor).unwrap_or_default()),
         };
         let key: Key = (kind, id.to_owned(), method.to_owned(), route.to_owned());
-        let now = chrono::Utc::now();
-        let today = now.format("%Y-%m-%d").to_string();
+        let now = jiff::Timestamp::now();
+        let today = now.strftime("%Y-%m-%d").to_string();
         let known = self.day_logged(&key).as_deref() == Some(today.as_str());
         let logged = !known && !logged_on(pool, &key, &today).await;
         self.logged

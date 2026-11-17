@@ -1051,8 +1051,8 @@ async fn a_key_carries_the_expiry_it_was_given_and_reads_it_back() {
     let listed = listed.assert_ok().as_array().unwrap().clone();
     let quarterly = listed.iter().find(|key| key["name"] == "quarterly").unwrap();
     let expires_at = quarterly["expires_at"].as_str().unwrap();
-    let in_90_days = chrono::Utc::now() + chrono::Duration::days(90);
-    assert_eq!(&expires_at[..10], in_90_days.format("%Y-%m-%d").to_string(), "{quarterly}");
+    let in_90_days = jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 90);
+    assert_eq!(&expires_at[..10], in_90_days.strftime("%Y-%m-%d").to_string(), "{quarterly}");
     assert_eq!(quarterly["expired"], false);
     let forever = listed.iter().find(|key| key["name"] == "forever").unwrap();
     assert!(forever["expires_at"].is_null(), "{forever}");

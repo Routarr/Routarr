@@ -108,7 +108,7 @@ pub async fn run_all(pool: &SqlitePool, localizer: &Localizer) -> AppResult<Rule
 /// goes through here: Run, a pin, the pass after a sync and the auto-apply check.
 pub async fn check(state: &crate::state::AppState) -> AppResult<RuleTestRun> {
     let run = run_all(&state.pool, &state.localizer().await).await?;
-    let checked_at = routing::format_timestamp(chrono::Utc::now());
+    let checked_at = routing::format_timestamp(jiff::Timestamp::now());
     // Read under the lock the verdicts are written with, or two runs both find the suite passing.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let (was_failing, _) = failing(&mut *tx).await?;

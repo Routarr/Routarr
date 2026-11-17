@@ -129,7 +129,7 @@ pub async fn create(
     let metadata = enrichment::resolve_for_media(&state, &media).await?;
 
     // Pinned with the case, since `added_within_days` reads `now` and the wall clock moves on.
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     let evaluated_at = routing::format_timestamp(now);
 
     // With none given, pin today's decision: the explanation panel's one-click pin relies on it.

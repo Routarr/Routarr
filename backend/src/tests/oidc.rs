@@ -800,7 +800,7 @@ async fn a_sign_in_asked_again_needs_a_fresh_auth_time_and_lands_where_it_was_as
         }
     };
 
-    let now = chrono::Utc::now().timestamp();
+    let now = jiff::Timestamp::now().as_second();
     assert_eq!(again(serde_json::json!({})).await.as_deref(), Some("/?signin=failed"));
     let stale = serde_json::json!({ "auth_time": now - 3600 });
     assert_eq!(again(stale).await.as_deref(), Some("/?signin=failed"));

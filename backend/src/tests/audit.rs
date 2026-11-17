@@ -240,7 +240,7 @@ async fn the_refusal_security_md_shows_is_the_line_a_refused_sign_in_writes() {
         .expect("SECURITY.md shows no refusal");
     let (stamp, _) = documented.split_once(' ').unwrap();
     assert!(
-        chrono::DateTime::parse_from_rfc3339(stamp).is_ok() && !stamp.ends_with('Z'),
+        stamp.parse::<jiff::Timestamp>().is_ok() && !stamp.ends_with('Z'),
         "the log writes no time as {stamp}"
     );
     let shape = |line: &str| {

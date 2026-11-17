@@ -793,10 +793,10 @@ pub async fn load_identifiers_of(
 /// How long a search that found nothing for `key` holds: thirty days and up to ten more, the
 /// same for a key each time. A work is often listed late, but every miss searched each pass would
 /// hold a paced enrichment for hours, and one shared lifetime would bring them all due at once.
-pub(crate) fn miss_lifetime(key: &str) -> chrono::Duration {
+pub(crate) fn miss_lifetime(key: &str) -> jiff::SignedDuration {
     use sha2::Digest;
     let spread = sha2::Sha256::digest(key.as_bytes())[0] % 11;
-    chrono::Duration::days(30 + i64::from(spread))
+    jiff::SignedDuration::from_hours(24 * (30 + i64::from(spread)))
 }
 
 /// The keys already resolved for one source, so a pass only searches for what
@@ -810,14 +810,14 @@ pub async fn resolved_keys(pool: &SqlitePool, source: &str) -> AppResult<HashSet
     .fetch_all(pool)
     .await?;
 
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     Ok(rows
         .into_iter()
         .map(|(kind, key, found, at)| (resolution_key(&kind, &key), found, at))
         .filter(|(key, found, at)| {
             *found
                 || crate::services::routing::parse_timestamp(at)
-                    .is_some_and(|at| at + miss_lifetime(key) > now)
+                    .is_some_and(|at| now.duration_since(at) < miss_lifetime(key))
         })
         .map(|(key, _, _)| key)
         .collect())
@@ -1250,7 +1250,7 @@ mod tests {
     #[test]
     fn misses_written_at_one_instant_come_due_over_ten_days() {
         let days: HashSet<i64> = (0..200)
-            .map(|n| miss_lifetime(&resolution_key("movie", &format!("title:{n}"))).num_days())
+            .map(|n| miss_lifetime(&resolution_key("movie", &format!("title:{n}"))).as_hours() / 24)
             .collect();
         assert_eq!(days, (30..=40).collect());
     }

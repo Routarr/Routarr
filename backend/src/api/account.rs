@@ -62,7 +62,7 @@ pub async fn prove(
             _ => false,
         },
         AuthMode::Oidc => {
-            if chrono::Utc::now().timestamp() - signed_in_at > RECENT_SIGN_IN_SECONDS {
+            if jiff::Timestamp::now().as_second() - signed_in_at > RECENT_SIGN_IN_SECONDS {
                 return Err(AppError::Reauthenticate(localizer.translate("ErrorSignInAgain", &[])));
             }
             true

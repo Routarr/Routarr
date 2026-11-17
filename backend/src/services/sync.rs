@@ -298,7 +298,7 @@ fn asked(by: &Attribution) -> bool {
 }
 
 /// How long a scheduled sync goes without listing the root folders.
-const FOLDERS_LISTED_EVERY: chrono::Duration = chrono::Duration::hours(24);
+const FOLDERS_LISTED_EVERY: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
 
 /// Whether this sync lists the Arr's root folders, which makes the Arr walk
 /// every folder inside each: when somebody asked for it, and otherwise once a
@@ -312,7 +312,7 @@ async fn lists_folders(state: &AppState, instance: &Instance, by: &Attribution) 
             .bind(&instance.id)
             .fetch_one(&state.pool)
             .await?;
-    let due = chrono::Utc::now() - FOLDERS_LISTED_EVERY;
+    let due = jiff::Timestamp::now() - FOLDERS_LISTED_EVERY;
     Ok(listed
         .and_then(|at| crate::services::routing::parse_timestamp(&at))
         .is_none_or(|at| at < due))
@@ -335,7 +335,7 @@ async fn do_sync(
     let adapter = state.adapter(instance)?;
 
     // Before the first request: `upsert_media` keeps a path moved after this instant.
-    let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
+    let read_at = crate::services::routing::format_timestamp(jiff::Timestamp::now());
 
     // The release the warnings hold against the oldest supported, kept when the Arr is silent.
     let version = match adapter.test_connection().await {
@@ -412,7 +412,7 @@ async fn do_sync(
     );
 
     // Stamps what this run writes: a time window would let a long sync delete its own folders.
-    let sync_token = crate::services::routing::format_timestamp(chrono::Utc::now());
+    let sync_token = crate::services::routing::format_timestamp(jiff::Timestamp::now());
 
     // One transaction per instance, or the orphan cleanup deletes rows not written yet.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
@@ -672,7 +672,7 @@ pub async fn sync_single_media(
 ) -> AppResult<Option<String>> {
     let adapter: ArrAdapter = state.adapter(instance)?;
     // Before the first request, as `do_sync` reads it: a move applied meanwhile wins.
-    let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
+    let read_at = crate::services::routing::format_timestamp(jiff::Timestamp::now());
     let Some(item) = adapter.get_media_one(arr_id).await? else {
         return Ok(None);
     };
@@ -1120,7 +1120,7 @@ pub(crate) async fn stored_tag_labels(
 pub async fn refresh_root_folders(state: &AppState, instance_id: &str) -> AppResult<()> {
     let instance = state.instance(instance_id).await?;
     let listed = state.adapter(&instance)?.get_root_folders().await?;
-    let now = crate::services::routing::format_timestamp(chrono::Utc::now());
+    let now = crate::services::routing::format_timestamp(jiff::Timestamp::now());
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     for folder in &listed {
         sqlx::query(

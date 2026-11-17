@@ -747,9 +747,9 @@ async fn a_second_backup_in_the_same_second_is_refused_before_any_copy() {
     let backups = dir.join("backups");
     std::fs::create_dir_all(&backups).unwrap();
     // Every second the call can land in is taken.
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     for ahead in 0..3 {
-        let stamp = (now + chrono::Duration::seconds(ahead)).format("%Y%m%d-%H%M%S");
+        let stamp = (now + jiff::SignedDuration::from_secs(ahead)).strftime("%Y%m%d-%H%M%S");
         std::fs::write(backups.join(format!("routarr-backup-{stamp}.zip")), b"taken").unwrap();
     }
 
@@ -1323,14 +1323,15 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     let file = std::fs::File::options().write(true).open(dir.join("backups").join(&name)).unwrap();
     file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200)).unwrap();
     let stamp = name.trim_start_matches("routarr-backup-").trim_end_matches(".zip");
-    let stamped = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").unwrap().and_utc();
+    let stamped = jiff::civil::DateTime::strptime("%Y%m%d-%H%M%S", stamp).unwrap();
+    let stamped = jiff::tz::Offset::UTC.to_timestamp(stamped).unwrap();
 
     let listed = app.get("/api/v1/backups").await;
     let body = listed.assert_ok();
     assert_eq!(body["backups"].as_array().unwrap().len(), 1);
     assert_eq!(body["retention_count"], 7);
     let listed_at = body["backups"][0]["created_at"].as_str().unwrap();
-    assert_eq!(listed_at, stamped.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    assert_eq!(listed_at, crate::timestamp::utc(stamped));
 
     // Asked as a browser would: gzipped again, an archive loses the length progress reads.
     use http_body_util::BodyExt;
@@ -1850,7 +1851,8 @@ async fn a_start_that_migrates_takes_a_backup_first() {
     assert!(backups(&upgraded).contains(before), "the pruning took the way back away");
     assert_eq!(backup::newest_openable(&config, None).as_ref(), Some(before));
     assert!(
-        backup::last_taken_at(&state).is_some_and(|taken| taken.format("%Y").to_string() == "2099")
+        backup::last_taken_at(&state)
+            .is_some_and(|taken| taken.strftime("%Y").to_string() == "2099")
     );
     state.pool.close().await;
 }
@@ -1901,8 +1903,8 @@ async fn a_backup_missed_for_two_intervals_is_warned_of() {
     std::fs::write(dir.join("backups/routarr-backup-20200101-000000.zip"), b"").unwrap();
     assert!(overdue(&app).await, "an archive years old was not warned of");
 
-    let recent = chrono::Utc::now() - chrono::Duration::hours(30);
-    let name = format!("routarr-backup-{}.zip", recent.format("%Y%m%d-%H%M%S"));
+    let recent = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(30);
+    let name = format!("routarr-backup-{}.zip", recent.strftime("%Y%m%d-%H%M%S"));
     std::fs::write(dir.join("backups").join(name), b"").unwrap();
     assert!(!overdue(&app).await, "an archive inside two intervals was warned of");
 }

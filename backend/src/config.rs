@@ -1230,7 +1230,7 @@ pub fn read_dotenv(dir: &Path) -> AppResult<Option<PathBuf>> {
     Ok(Some(file))
 }
 
-/// What the start says of `TZ` when it names no zone `known` holds, which chrono reads as UTC.
+/// What the start says of `TZ` when it names no zone `known` holds, which then reads as UTC.
 /// A POSIX rule (`CET-1CEST`) names no file, and is not judged.
 fn time_zone_note(tz: Option<&str>, known: impl Fn(&str) -> bool) -> Option<String> {
     let zone = tz?.trim().trim_start_matches(':');
@@ -1846,7 +1846,7 @@ mod tests {
         assert_eq!(read_dotenv(&dir).unwrap(), Some(dir.join(".env")), "the control");
     }
 
-    /// chrono reads a `TZ` naming no zone as UTC, unsaid, and every log line is off by its offset.
+    /// A `TZ` naming no zone reads as UTC, unsaid, and every log line is off by its offset.
     #[test]
     fn a_time_zone_no_system_knows_is_said() {
         let known = |zone: &str| zone == "Europe/Paris";

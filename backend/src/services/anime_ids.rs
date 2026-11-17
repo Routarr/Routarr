@@ -282,12 +282,13 @@ async fn refused<'c>(
         sqlx::query_as("SELECT source, external_id, refused_at FROM anime_ids_refused")
             .fetch_all(executor)
             .await?;
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     Ok(rows
         .into_iter()
         .filter(|(source, external_id, at)| {
             let lifetime = metadata::miss_lifetime(&format!("{source}:{external_id}"));
-            crate::services::routing::parse_timestamp(at).is_some_and(|at| at + lifetime > now)
+            crate::services::routing::parse_timestamp(at)
+                .is_some_and(|at| now.duration_since(at) < lifetime)
         })
         .map(|(source, external_id, _)| (source, external_id))
         .collect())

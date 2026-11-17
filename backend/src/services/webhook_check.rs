@@ -154,7 +154,7 @@ pub async fn checked(
         Ok(check) => Some(WebhookCheckResponse::said(
             check,
             &instance.name,
-            crate::services::routing::format_timestamp(chrono::Utc::now()),
+            crate::services::routing::format_timestamp(jiff::Timestamp::now()),
             localizer,
         )),
         Err(e) => {

@@ -1,7 +1,7 @@
 //! Pure, synchronous routing decision logic, free of I/O so a simulation does no
 //! per-item query.
 
-use chrono::{DateTime, Utc};
+use jiff::{SignedDuration, Timestamp};
 use serde::Serialize;
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
@@ -260,7 +260,7 @@ pub struct EvalContext<'a> {
     pub media: &'a Media,
     pub metadata: Option<&'a MediaMetadata>,
     /// Reference instant for time-relative conditions, injected for testability.
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
 }
 
 /// Evaluate all rules against a single media item: the first to hold wins, and
@@ -744,12 +744,12 @@ fn evaluate_single_condition(
                 media.added_at.as_deref().and_then(crate::services::routing::parse_timestamp);
             ConditionOutcome::new(
                 kind,
-                added.is_some_and(|added| added_within(ctx.now - added, *days)),
+                added.is_some_and(|added| added_within(ctx.now.duration_since(added), *days)),
                 "ConditionAddedWithinDays",
                 &[("value", days.to_string())],
                 // The age at `now`, what the condition compares, as an ISO 8601 duration.
                 added
-                    .map(|added| format!("PT{}M", (ctx.now - added).num_minutes()))
+                    .map(|added| format!("PT{}M", ctx.now.duration_since(added).as_mins()))
                     .unwrap_or_default(),
             )
         }
@@ -769,12 +769,13 @@ fn evaluate_single_condition(
 
 /// How far ahead of Routarr's clock an Arr's may run: a title it dates that
 /// much in the future has just been added.
-const CLOCK_AHEAD: chrono::TimeDelta = chrono::TimeDelta::days(1);
+const CLOCK_AHEAD: SignedDuration = SignedDuration::from_hours(24);
 
 /// Whether a title `age` old was added within the last `days` days of 24
-/// hours. A count past what a duration holds reaches every past date.
-fn added_within(age: chrono::TimeDelta, days: i64) -> bool {
-    age >= -CLOCK_AHEAD && chrono::TimeDelta::try_days(days).is_none_or(|window| age <= window)
+/// hours. A count past what i64 milliseconds hold reaches every past date.
+fn added_within(age: SignedDuration, days: i64) -> bool {
+    age >= -CLOCK_AHEAD
+        && days.checked_mul(86_400_000).is_none_or(|ms| age <= SignedDuration::from_millis(ms))
 }
 
 /// Whether a language is among `values`. A missing language is absent, never
@@ -791,14 +792,13 @@ fn join_ids(ids: &[i64]) -> String {
 mod tests {
     use super::*;
     use crate::models::{Condition, MatchMode, Media, ProviderMetadata, Rule, RuleMediaType};
-    use chrono::TimeZone;
 
     fn evaluate_one(condition: &Condition, ctx: EvalContext<'_>) -> ConditionOutcome {
         evaluate_single_condition(condition, &folded_values(condition), &Reading::new(ctx))
     }
 
-    fn now() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 8, 21, 12, 0, 0).unwrap()
+    fn now() -> Timestamp {
+        "2026-08-21T12:00:00Z".parse().unwrap()
     }
 
     fn media() -> Media {
@@ -1591,17 +1591,19 @@ mod tests {
 
     #[test]
     fn added_within_days_counts_whole_days_back_from_the_clock() {
-        use chrono::TimeDelta;
-        let added = |before: TimeDelta| {
-            let stamp = (now() - before).format("%Y-%m-%d %H:%M:%S").to_string();
+        let added = |before: SignedDuration| {
+            let stamp = (now() - before).strftime("%Y-%m-%d %H:%M:%S").to_string();
             matches_on(|m| m.added_at = Some(stamp), Condition::AddedWithinDays(7))
         };
-        assert!(!added(TimeDelta::days(7) + TimeDelta::hours(23)));
-        assert!(added(TimeDelta::days(6) + TimeDelta::hours(23)));
-        assert!(added(TimeDelta::days(7)));
-        assert!(added(-TimeDelta::minutes(2)), "a clock two minutes ahead");
-        assert!(!added(-TimeDelta::days(2)));
-        assert!(!added(TimeDelta::days(2000)));
+        let days = |count: i64| SignedDuration::from_hours(24 * count);
+        let hours = SignedDuration::from_hours;
+        assert!(!added(days(7) + hours(23)));
+        assert!(added(days(6) + hours(23)));
+        assert!(added(days(7)));
+        assert!(added(-SignedDuration::from_mins(2)), "a clock two minutes ahead");
+        assert!(!added(-days(2)));
+        assert!(!added(days(2000)));
+        assert!(added_within(days(2000), i64::MAX), "a count no duration holds");
     }
 
     /// Two days back from the fixture's clock end at noon on the 19th, UTC.

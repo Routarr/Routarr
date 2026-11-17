@@ -57,7 +57,7 @@ impl RevertScope {
             .until
             .as_deref()
             .and_then(routing::parse_timestamp)
-            .filter(|until| *until <= chrono::Utc::now())
+            .filter(|until| *until <= jiff::Timestamp::now())
         {
             extra.push(term(localizer, "DecidedBefore", &ago(until, localizer)));
         }
@@ -114,6 +114,6 @@ fn term(localizer: &Localizer, label: &str, value: &str) -> String {
         .translate("FilterTerm", &[("label", &localizer.translate(label, &[])), ("value", value)])
 }
 
-fn ago(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
+fn ago(then: jiff::Timestamp, localizer: &Localizer) -> String {
     localizer.translate("AgeAgo", &[("age", &human_age(then, localizer))])
 }

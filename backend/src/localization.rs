@@ -63,8 +63,8 @@ pub fn decimal_separator(code: &str) -> char {
 
 /// How long ago `then` was, in its largest whole unit and the reader's words, `3 h` or
 /// `2 d`, since the age is what a reader weighs, never a UTC time.
-pub fn human_age(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
-    age_of((chrono::Utc::now() - then).num_minutes(), localizer)
+pub fn human_age(then: jiff::Timestamp, localizer: &Localizer) -> String {
+    age_of(jiff::Timestamp::now().duration_since(then).as_mins(), localizer)
 }
 
 /// An age of `minutes` in its largest whole unit, as [`human_age`] writes it.
@@ -79,7 +79,7 @@ pub fn age_of(minutes: i64, localizer: &Localizer) -> String {
 }
 
 /// How a language writes a date, as the interface's short date (`Intl.DateTimeFormat`) writes
-/// it, in chrono's terms. Any other language writes it as English. `date_cases.json` holds
+/// it, in strftime's terms. Any other language writes it as English. `date_cases.json` holds
 /// both sides to it.
 const DATES: &[(&str, &str)] = &[
     ("ar", "%-d\u{200f}/%-m\u{200f}/%Y"),
@@ -109,17 +109,17 @@ const DATES: &[(&str, &str)] = &[
 ];
 
 /// `date` as `code` writes a date.
-pub fn written_date(date: chrono::NaiveDate, code: &str) -> String {
+pub fn written_date(date: jiff::civil::Date, code: &str) -> String {
     let tag = base_tag(code);
     let pattern =
         DATES.iter().find(|(language, _)| *language == tag).map_or("%-m/%-d/%y", |(_, p)| *p);
-    date.format(pattern).to_string()
+    date.strftime(pattern).to_string()
 }
 
 /// The day of `at` where Routarr runs (`TZ`, as the log reads it), as the reader's language
 /// writes a date.
-pub fn human_date(at: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
-    written_date(at.with_timezone(&chrono::Local).date_naive(), localizer.language())
+pub fn human_date(at: jiff::Timestamp, localizer: &Localizer) -> String {
+    written_date(at.to_zoned(jiff::tz::TimeZone::system()).date(), localizer.language())
 }
 
 /// Bytes as an operator reads them, in binary steps as a file manager shows them, with the
@@ -695,7 +695,7 @@ mod tests {
     fn an_age_is_said_in_its_largest_whole_unit() {
         let english = Localizer::new("en");
         let ago = |minutes: i64| {
-            human_age(chrono::Utc::now() - chrono::Duration::minutes(minutes), &english)
+            human_age(jiff::Timestamp::now() - jiff::SignedDuration::from_mins(minutes), &english)
         };
 
         assert_eq!(ago(0), "1 min");
@@ -917,7 +917,7 @@ mod tests {
     fn a_date_is_written_as_the_language_writes_it() {
         let cases: serde_json::Value =
             serde_json::from_str(include_str!("date_cases.json")).unwrap();
-        let dates: Vec<chrono::NaiveDate> = cases["dates"]
+        let dates: Vec<jiff::civil::Date> = cases["dates"]
             .as_array()
             .unwrap()
             .iter()

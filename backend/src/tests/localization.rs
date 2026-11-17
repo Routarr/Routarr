@@ -427,7 +427,7 @@ async fn mapping_conflicts_are_translated() {
     // a nap from a fault, and a stored UTC time is not how anyone reads one.
     // French keeps the figure and its unit together, with a no-break space.
     assert!(message.contains("3\u{a0}h"), "{conflicts:?}");
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let today = jiff::Timestamp::now().strftime("%Y-%m-%d").to_string();
     assert!(!message.contains(&today), "{conflicts:?}");
 }
 

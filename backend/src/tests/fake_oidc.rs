@@ -275,7 +275,7 @@ async fn token(
         "iss": state.issuer,
         "sub": "user-42",
         "aud": client,
-        "exp": chrono::Utc::now().timestamp() + 300,
+        "exp": jiff::Timestamp::now().as_second() + 300,
         "nonce": asked.get("nonce"),
     });
     if let (Some(base), Some(overrides)) =

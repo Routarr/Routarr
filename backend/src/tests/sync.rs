@@ -93,7 +93,7 @@ async fn a_webhook_read_started_before_a_move_does_not_put_the_old_path_back() {
     // An apply that will land one second from now, seen from the row: the
     // read below starts before it and answers after it.
     let moved_at = crate::services::routing::format_timestamp(
-        chrono::Utc::now() + chrono::Duration::seconds(1),
+        jiff::Timestamp::now() + jiff::SignedDuration::from_secs(1),
     );
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
