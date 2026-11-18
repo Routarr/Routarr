@@ -73,6 +73,29 @@ packages, which an image scanner reads. Their licences, and those of the
 packages the interface bundles, are in
 `/app/frontend/dist/third-party-notices.txt`, which the About dialog links.
 
+## Verifying a package
+
+Each file a release attaches, the tarball, the deb and the rpm, has the same
+attestation, checked against the file itself:
+
+```bash
+gh attestation verify routarr_<version>-1_amd64.deb \
+  --repo Routarr/Routarr \
+  --signer-workflow Routarr/Routarr/.github/workflows/release.yml
+```
+
+The rpm, the `SHA256SUMS` every release lists its files in, and the apt and dnf
+repositories of packages.routarr.app are signed with one key, published there
+as `routarr.asc`. `gpg --show-keys routarr.asc` prints its fingerprint, which
+has to be:
+
+```text
+@FINGERPRINT@
+```
+
+apt and dnf then check every signature against it. A package's notices are in
+`/usr/share/routarr/frontend/third-party-notices.txt`.
+
 ## What is already in place
 
 Stated so a report can skip what is covered, and so a gap is easier to see.
@@ -339,6 +362,10 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   `reqwest`'s own `Display`, which embeds the URL and therefore any `?api_key=`
   in it.
 - **The image runs as a non-root user** and carries a HEALTHCHECK.
+- **The packages' service runs as a system user of its own**, under a hardened
+  unit: it writes its library alone, sees no home folder, holds no capability
+  and is held to the system calls of a service. CI installs the deb under
+  systemd and rates the unit with `systemd-analyze security`.
 - **The image runs under gVisor**, for a host that wants a kernel between
   Routarr and its own (see [OPERATING.md](OPERATING.md#stronger-isolation)). On
   every change to the image, CI runs the whole smoke test under it against an

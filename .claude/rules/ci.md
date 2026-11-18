@@ -21,10 +21,13 @@ paths:
 - Every checkout sets `persist-credentials: false` (`gh` takes `GH_TOKEN`), and `release.yml`
   grants nothing at the top (`permissions: {}`), each job naming what it needs.
 - The seven workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
-  run, `docker.yml` queues so a started image build finishes, `release.yml` publishes `X.Y.Z` on a
-  `v*` tag and moves `latest` and `X.Y` when the release is published (`scripts/release-tags.py`),
-  `site.yml` builds the site from the latest release's tag and deploys it from the `production`
-  environment (secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`), comparing production
+  run, `docker.yml` queues so a started image build finishes, `release.yml` publishes `X.Y.Z`
+  and attaches the packages on a `v*` tag, and moves `latest` and `X.Y`
+  (`scripts/release-tags.py`) and rebuilds the apt and dnf repositories on Pages
+  (`scripts/repository-releases.py`) when it is published, `site.yml` builds the site from the
+  latest release's tag and deploys it from the `production` environment (secrets
+  `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `PACKAGES_GPG_KEY` with
+  `PACKAGES_GPG_PASSPHRASE` for the packages), comparing production
   with it every week, `mutants.yml` runs cargo-mutants every Saturday, `live-arrs.yml` drives a
   real Radarr and Sonarr every Wednesday, and `advisories.yml` audits the three lockfiles every
   Tuesday. None of the last three gates anything.
