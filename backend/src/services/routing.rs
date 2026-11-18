@@ -2,7 +2,7 @@
 //! A run loads in a fixed number of queries and writes in one transaction, since a
 //! query per item fails `tests/scale.rs`.
 
-use chrono::Utc;
+use jiff::Timestamp;
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -118,7 +118,7 @@ static LAST_ORDER: AtomicI64 = AtomicI64::new(0);
 /// title tell which of them read the library last. Taken from the clock, in microseconds:
 /// [`above_stored`] holds it above what a clock set back or a restored archive left.
 fn load_order() -> i64 {
-    let now = Utc::now().timestamp_micros();
+    let now = Timestamp::now().as_microsecond();
     let next = |last: i64| now.max(last + 1);
     match LAST_ORDER.try_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
         Ok(last) | Err(last) => next(last),
@@ -212,7 +212,7 @@ pub async fn simulate_loaded(
 ) -> AppResult<SimulationResult> {
     let started = std::time::Instant::now();
     let simulation_id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // Every move and skip is kept, and as many unchanged titles as the run returns.
     let unchanged = if options.persist_unchanged {
@@ -352,7 +352,7 @@ struct Pass {
 fn evaluate_pass(
     library: &LoadedLibrary,
     rules: &[Rule],
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
     wording: Option<&Wording>,
     evaluated: &AtomicUsize,
 ) -> Pass {
@@ -473,7 +473,7 @@ fn decide(
     media: &Media,
     route: Route,
     wording: &Wording,
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
 ) -> Decision {
     let Route { evaluation, category, target, action, .. } = route;
     let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
@@ -603,7 +603,7 @@ fn route(
     ctx: &RoutingContext,
     media: &Media,
     rules: &Prepared<'_>,
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
     planned: &Planned,
 ) -> Route {
     let metadata = resolve_metadata(
@@ -670,11 +670,7 @@ pub struct ItemRoute {
 
 /// Decide one item live, through `route`, from what the database holds now. It
 /// loads only this item's context, so it takes no library-pass permit.
-pub async fn route_one(
-    pool: &SqlitePool,
-    media: &Media,
-    now: chrono::DateTime<Utc>,
-) -> AppResult<ItemRoute> {
+pub async fn route_one(pool: &SqlitePool, media: &Media, now: Timestamp) -> AppResult<ItemRoute> {
     route_one_with(pool, media, now, Fresh::default()).await
 }
 
@@ -694,7 +690,7 @@ pub struct Fresh {
 pub async fn route_one_with(
     pool: &SqlitePool,
     media: &Media,
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
     fresh: Fresh,
 ) -> AppResult<ItemRoute> {
     let mut snapshot = pool.begin().await?;
@@ -728,7 +724,7 @@ pub async fn revalidated_targets(
     }
     let ctx = load_context(&mut snapshot, Scope::Items(&media)).await?;
     snapshot.commit().await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let rules = Prepared::new(&ctx.rules);
     Ok(media
         .into_iter()
@@ -858,7 +854,7 @@ pub async fn compare(
     sample: usize,
     language: &str,
 ) -> AppResult<Comparison> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let wording = Wording {
         trigger: String::new(),
         subject: None,
@@ -921,7 +917,7 @@ pub async fn reach(
     sample: usize,
     language: &str,
 ) -> AppResult<Reach> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let wording = Wording {
         trigger: String::new(),
         subject: None,
@@ -1001,7 +997,7 @@ pub async fn evaluate_library(
     pool: &SqlitePool,
     passes: &LibraryPasses,
 ) -> AppResult<Vec<LibraryOutcome>> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let library = load_library(pool, passes, &SimulationOptions::default()).await?;
     off_the_workers(None, 0, move |_| {
         let ctx = &library.ctx;
@@ -1023,25 +1019,83 @@ pub async fn evaluate_library(
     .await
 }
 
-pub fn format_timestamp(ts: chrono::DateTime<Utc>) -> String {
-    ts.format("%Y-%m-%d %H:%M:%S").to_string()
+pub fn format_timestamp(ts: Timestamp) -> String {
+    ts.strftime("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 /// The inverse of `format_timestamp`, also reading RFC 3339 and a bare date as
 /// an Arr writes them. `None` when unreadable, so a caller never falls back to
 /// today's clock unawares.
-pub fn parse_timestamp(raw: &str) -> Option<chrono::DateTime<Utc>> {
+pub fn parse_timestamp(raw: &str) -> Option<Timestamp> {
     let raw = raw.trim();
-    if let Ok(stamp) = chrono::DateTime::parse_from_rfc3339(raw) {
-        return Some(stamp.with_timezone(&Utc));
+    if let Some(stamp) = rfc3339(raw) {
+        return Some(stamp);
     }
+    let utc = |at: jiff::civil::DateTime| jiff::tz::Offset::UTC.to_timestamp(at).ok();
     for shape in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"] {
-        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(raw, shape) {
-            return Some(naive.and_utc());
+        if let Ok(at) = jiff::civil::DateTime::strptime(shape, raw) {
+            return utc(at);
         }
     }
-    let date = chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").ok()?;
-    Some(date.and_hms_opt(0, 0, 0)?.and_utc())
+    utc(jiff::civil::Date::strptime("%Y-%m-%d", raw).ok()?.into())
+}
+
+/// RFC 3339 as the API reads it: a four-digit year, `T`, `t` or a space before the time, a
+/// fraction of any length read to the nanosecond, and `Z` or an offset within a day. A leap
+/// second reads as the second before it.
+fn rfc3339(raw: &str) -> Option<Timestamp> {
+    let (stamp, zone) = raw.split_at_checked(19)?;
+    let stamp = stamp.as_bytes();
+    let separated = [(4, "-"), (7, "-"), (10, "Tt "), (13, ":"), (16, ":")]
+        .into_iter()
+        .all(|(at, separators)| separators.as_bytes().contains(&stamp[at]));
+    if !separated {
+        return None;
+    }
+    let field = |from: usize, to: usize| digits(&stamp[from..to]);
+    let date = jiff::civil::Date::new(field(0, 4)? as i16, field(5, 7)? as i8, field(8, 10)? as i8);
+    let second = match field(17, 19)? {
+        60 => 59,
+        second => second,
+    };
+    let (nanosecond, zone) = match zone.strip_prefix('.') {
+        Some(fraction) => {
+            let end = fraction.find(|c: char| !c.is_ascii_digit()).unwrap_or(fraction.len());
+            let read = &fraction.as_bytes()[..end.min(9)];
+            (digits(read)? * 10_i64.pow(9 - read.len() as u32), &fraction[end..])
+        }
+        None => (0, zone),
+    };
+    let (hour, minute) = (field(11, 13)? as i8, field(14, 16)? as i8);
+    let time = jiff::civil::Time::new(hour, minute, second as i8, nanosecond as i32);
+    let offset = jiff::tz::Offset::from_seconds(offset_seconds(zone)?).ok()?;
+    offset.to_timestamp(date.ok()?.to_datetime(time.ok()?)).ok()
+}
+
+/// `Z`, or `+HH:MM` and `-HH:MM` with either minus sign, in seconds east of UTC.
+fn offset_seconds(zone: &str) -> Option<i32> {
+    if zone.eq_ignore_ascii_case("z") {
+        return Some(0);
+    }
+    let (sign, clock) = match zone.strip_prefix('+') {
+        Some(clock) => (1, clock),
+        None => (-1, zone.strip_prefix(['-', '\u{2212}'])?),
+    };
+    let clock = clock.as_bytes();
+    if clock.len() != 5 || clock[2] != b':' {
+        return None;
+    }
+    let (hours, minutes) = (digits(&clock[..2])?, digits(&clock[3..])?);
+    (hours < 24 && minutes < 60).then_some(sign * (hours * 3600 + minutes * 60) as i32)
+}
+
+/// The number some ASCII digits write, `None` when there are none or one is not a digit.
+fn digits(text: &[u8]) -> Option<i64> {
+    if text.is_empty() {
+        return None;
+    }
+    text.iter()
+        .try_fold(0, |n, &digit| digit.is_ascii_digit().then(|| n * 10 + i64::from(digit - b'0')))
 }
 
 /// Which items a context is loaded for.
@@ -1557,7 +1611,7 @@ async fn store_run(
     library: &LoadedLibrary,
     trigger: &str,
     simulation_id: &str,
-    now: chrono::DateTime<Utc>,
+    now: Timestamp,
     verdicts: &[Verdict],
     decisions: &[&Decision],
 ) -> AppResult<()> {

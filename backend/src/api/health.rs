@@ -1262,7 +1262,7 @@ async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
 /// What the warnings read off the data folder, gathered off the async workers in one go.
 #[derive(Default)]
 struct OnDisk {
-    last_backup: Option<chrono::DateTime<chrono::Utc>>,
+    last_backup: Option<jiff::Timestamp>,
     pending_restore: Option<crate::services::backup::PendingRestore>,
     /// The bytes left on the data disk when too few, as [`data_disk_low`] weighs them.
     free_when_low: Option<u64>,
@@ -1285,10 +1285,10 @@ async fn on_disk(state: &AppState) -> OnDisk {
 /// missed one yet.
 async fn backup_overdue(
     state: &AppState,
-    last: Option<chrono::DateTime<chrono::Utc>>,
+    last: Option<jiff::Timestamp>,
     hours: i64,
 ) -> AppResult<bool> {
-    let limit = chrono::Duration::hours(2 * hours);
+    let limit = jiff::SignedDuration::from_hours(2 * hours);
     let since = match last {
         Some(taken) => taken,
         None => {
@@ -1302,7 +1302,7 @@ async fn backup_overdue(
             }
         }
     };
-    Ok(chrono::Utc::now() - since > limit)
+    Ok(jiff::Timestamp::now().duration_since(since) > limit)
 }
 
 /// The bytes left on the data folder's disk, when too few for the next backup and the database's

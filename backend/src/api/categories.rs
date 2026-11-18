@@ -172,7 +172,7 @@ pub async fn create(
         description: req.description,
         is_default: req.is_default,
         display_order: req.display_order,
-        created_at: crate::services::routing::format_timestamp(chrono::Utc::now()),
+        created_at: crate::services::routing::format_timestamp(jiff::Timestamp::now()),
     };
     Ok(super::Created::at(&state, location, created))
 }

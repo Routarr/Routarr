@@ -56,7 +56,7 @@ pub(super) async fn record_requested(
     mv: &PendingMove,
     direction: MoveDirection,
 ) -> AppResult<()> {
-    let now = format_timestamp(chrono::Utc::now());
+    let now = format_timestamp(jiff::Timestamp::now());
     let requested = match direction {
         MoveDirection::Forward => sqlx::query(
             "UPDATE decisions SET status = 'requested', error_message = NULL, applied_at = ?
@@ -83,7 +83,7 @@ pub(super) async fn record_sent(
     direction: MoveDirection,
     by: &Attribution,
 ) {
-    let now = format_timestamp(chrono::Utc::now());
+    let now = format_timestamp(jiff::Timestamp::now());
     let moved = durably(&state.pool, async |connection| {
         sqlx::query(
             "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
@@ -146,7 +146,7 @@ pub(super) async fn record_success(
     direction: MoveDirection,
     by: &Attribution,
 ) {
-    let now = format_timestamp(chrono::Utc::now());
+    let now = format_timestamp(jiff::Timestamp::now());
     let recorded = durably(&state.pool, async |connection| {
         write_outcome(connection, mv, new_path, &now, direction).await?;
         log_execution(connection, by, direction, None, mv).await;
@@ -247,7 +247,7 @@ pub(super) async fn record_failure(
             sqlx::query("UPDATE decisions SET status = 'applied', reverted_at = NULL WHERE id = ?")
         }
     };
-    let now = format_timestamp(chrono::Utc::now());
+    let now = format_timestamp(jiff::Timestamp::now());
     let recorded = durably(&state.pool, async |connection| {
         recorded.bind(&mv.decision_id).execute(&mut *connection).await?;
         if let Some(held) = held {

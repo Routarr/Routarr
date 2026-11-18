@@ -699,7 +699,7 @@ impl Delivery {
     fn of(event: Event) -> Self {
         Self {
             id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
-            at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            at: crate::timestamp::utc(jiff::Timestamp::now()),
             event,
         }
     }
@@ -733,7 +733,7 @@ impl Delivery {
         let localizer = state.localizer().await;
         let payload = payload(&self.event, &self.at, Format::of(&format, &url), &localizer);
         // Signed at each attempt: a receiver refuses a timestamp too old, as a late retry's.
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = jiff::Timestamp::now().as_second().to_string();
         let mut request = state
             .http
             .post(&url)

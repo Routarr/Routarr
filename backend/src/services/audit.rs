@@ -227,7 +227,7 @@ impl Log {
             .map(|(name, value)| (name.to_string(), serde_json::Value::String(value)))
             .collect();
         let row = Row {
-            at: crate::services::routing::format_timestamp(chrono::Utc::now()),
+            at: crate::services::routing::format_timestamp(jiff::Timestamp::now()),
             kind: event.kind,
             outcome: event.outcome,
             subject: event.subject.map(str::to_string),
@@ -296,7 +296,7 @@ async fn write(pool: SqlitePool, mut orders: mpsc::Receiver<Order>, lost: Arc<At
         let dropped = lost.swap(0, Ordering::Relaxed);
         if dropped > 0 {
             rows.push(Row {
-                at: crate::services::routing::format_timestamp(chrono::Utc::now()),
+                at: crate::services::routing::format_timestamp(jiff::Timestamp::now()),
                 kind: Kind::SecurityLog,
                 outcome: Outcome::Refused,
                 subject: None,

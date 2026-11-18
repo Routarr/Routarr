@@ -263,8 +263,10 @@ async fn the_warning_reads_the_calls_a_previous_run_stored() {
         .map(|warning| warning["message"].as_str().unwrap().to_owned())
         .collect();
     let english = crate::localization::Localizer::new("en");
-    let two_days_ago =
-        crate::localization::human_date(chrono::Utc::now() - chrono::Duration::days(2), &english);
+    let two_days_ago = crate::localization::human_date(
+        jiff::Timestamp::now() - jiff::SignedDuration::from_hours(48),
+        &english,
+    );
     assert_eq!(messages.len(), 2, "a key no longer live is still warned of: {messages:?}");
     assert!(messages[0].contains("nightly"), "{messages:?}");
     assert!(messages[0].contains(&format!("GET /api/v1/media. Last call on {two_days_ago}")));

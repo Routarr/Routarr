@@ -283,7 +283,7 @@ pub async fn create(
     let secret = crate::crypto::generate_secret()?;
     let expires_at = new.expires_in_days.map(|days| {
         crate::services::routing::format_timestamp(
-            chrono::Utc::now() + chrono::Duration::days(i64::from(days)),
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * i64::from(days)),
         )
     });
     let inserted = sqlx::query(
@@ -382,7 +382,7 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> AppResult<Resolved> {
         return Ok(Resolved::Expired { id: id.to_string(), name: live.name, expires_at });
     }
 
-    if last_use_due(live.last_used_at.as_deref(), chrono::Utc::now()) {
+    if last_use_due(live.last_used_at.as_deref(), jiff::Timestamp::now()) {
         let (pool, id) = (pool.clone(), id.to_string());
         tokio::spawn(async move {
             let touched =
@@ -445,9 +445,9 @@ fn digest(secret: &str) -> String {
 
 /// Whether a use at `now` is recorded: once a minute at most, or every call
 /// a script makes would be a write.
-fn last_use_due(last: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> bool {
+fn last_use_due(last: Option<&str>, now: jiff::Timestamp) -> bool {
     last.and_then(crate::services::routing::parse_timestamp)
-        .is_none_or(|last| now - last > chrono::Duration::minutes(1))
+        .is_none_or(|last| now.duration_since(last) > jiff::SignedDuration::from_mins(1))
 }
 
 #[cfg(test)]

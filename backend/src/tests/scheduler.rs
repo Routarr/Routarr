@@ -333,7 +333,7 @@ async fn a_restart_takes_no_backup_before_the_interval_since_the_last_one() {
     app.store_setting("backup_enabled", "true").await;
     let backups = backup::backup_dir(&app.state);
     std::fs::create_dir_all(&backups).unwrap();
-    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let stamp = jiff::Timestamp::now().strftime("%Y%m%d-%H%M%S");
     std::fs::write(backups.join(format!("routarr-backup-{stamp}.zip")), b"taken before").unwrap();
 
     tick(&app).await;

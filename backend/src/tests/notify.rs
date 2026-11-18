@@ -952,7 +952,7 @@ async fn each_attempt_is_stamped_in_seconds_when_it_is_sent() {
     let deliveries = receiver.awaiting(2).await;
     let stamps: Vec<i64> =
         deliveries.iter().map(|d| d.timestamp.parse().expect(&d.timestamp)).collect();
-    let now = chrono::Utc::now().timestamp();
+    let now = jiff::Timestamp::now().as_second();
     assert!(stamps.iter().all(|stamp| (now - stamp).abs() <= 5), "{stamps:?} against {now}");
     assert!(stamps[1] > stamps[0], "the retry carried the first attempt's stamp: {stamps:?}");
 }
@@ -1230,8 +1230,10 @@ async fn a_key_about_to_expire_is_announced_once_a_week_before() {
     assert!(body["data"]["expires_at"].as_str().unwrap().ends_with('Z'), "{body}");
     assert!(body["message"].as_str().unwrap().contains("soon"), "{body}");
     let english = crate::localization::Localizer::new("en");
-    let day =
-        crate::localization::human_date(chrono::Utc::now() + chrono::Duration::days(5), &english);
+    let day = crate::localization::human_date(
+        jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 5),
+        &english,
+    );
     assert!(body["message"].as_str().unwrap().contains(&format!("on {day}")), "{body}");
     settled(&app).await;
     assert_eq!(receiver.deliveries().len(), 1, "announced twice, or another key announced");

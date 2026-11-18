@@ -9,8 +9,6 @@ use sqlx::AssertSqlSafe;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use chrono::Datelike;
-
 use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::services::metadata;
@@ -362,7 +360,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<RuleBundle>
 /// When a bundle is written, as another installation reads it: in RFC 3339,
 /// its zone stated.
 pub(crate) fn exported_now() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    crate::timestamp::utc(jiff::Timestamp::now())
 }
 
 /// Every rule as a bundle carries it, its scope by instance name.
@@ -638,7 +636,7 @@ pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
         covered_fields: metadata::covered_fields(&providers),
         covered_scales: metadata::covered_scales(&providers),
         localizer: state.localizer().await,
-        current_year: i64::from(chrono::Utc::now().year()),
+        current_year: i64::from(jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC).year()),
         instances: sqlx::query_scalar("SELECT id FROM instances").fetch_all(&state.pool).await?,
     })
 }

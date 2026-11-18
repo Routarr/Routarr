@@ -148,7 +148,7 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         && let Some(left) = list(state)
             .first()
             .and_then(taken_at)
-            .map(|taken| (chrono::Utc::now() - taken).to_std().unwrap_or_default())
+            .map(age)
             .and_then(|age| APPLICATION_GAP.checked_sub(age))
             .filter(|left| !left.is_zero())
     {
@@ -269,7 +269,7 @@ pub async fn before_migrating(
             (manifest.schema == schema).then_some((file.name, manifest.created_at))
         });
     let worked_on = last_worked_on(pool).await?;
-    let now = crate::services::routing::format_timestamp(chrono::Utc::now());
+    let now = crate::services::routing::format_timestamp(jiff::Timestamp::now());
     // A stamp ahead of the clock orders nothing, and a looping start must take one archive.
     let unchanged_since = |taken_at: &str| {
         worked_on
@@ -341,7 +341,7 @@ async fn write_archive(
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", dir.display())))?;
 
-    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let stamp = jiff::Timestamp::now().strftime("%Y%m%d-%H%M%S").to_string();
     let plain_name = format!("routarr-backup-{stamp}{suffix}.zip");
     let name = match passphrase {
         Some(_) => format!("{plain_name}{}", sealed::SUFFIX),
@@ -367,7 +367,7 @@ async fn write_archive(
     let manifest = BackupManifest {
         version: env!("CARGO_PKG_VERSION").to_string(),
         schema,
-        created_at: crate::services::routing::format_timestamp(chrono::Utc::now()),
+        created_at: crate::services::routing::format_timestamp(jiff::Timestamp::now()),
         includes_master_key: master_key.is_some(),
     };
 
@@ -539,14 +539,17 @@ fn work_file(data_dir: &Path, label: &str) -> AppResult<PathBuf> {
 /// The instant the schedule counts its interval from. An application key's archives are left
 /// out, or one taken every few minutes would hold the schedule off for good.
 pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
-    let taken = last_taken_at(state)?;
-    let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
-    tokio::time::Instant::now().checked_sub(age)
+    tokio::time::Instant::now().checked_sub(age(last_taken_at(state)?))
+}
+
+/// How long ago `taken` was, nothing for a stamp ahead of the clock.
+fn age(taken: jiff::Timestamp) -> std::time::Duration {
+    std::time::Duration::try_from(jiff::Timestamp::now().duration_since(taken)).unwrap_or_default()
 }
 
 /// When the newest archive the schedule or a person took was written: a script taking them in
 /// a loop would hide a schedule that stopped.
-pub fn last_taken_at(state: &AppState) -> Option<chrono::DateTime<chrono::Utc>> {
+pub fn last_taken_at(state: &AppState) -> Option<jiff::Timestamp> {
     list(state)
         .iter()
         .find(|file| !taken_by_a_key(file) && !taken_before_migrating(file))
@@ -561,14 +564,15 @@ fn taken_before_migrating(file: &BackupFile) -> bool {
     kind_of(&file.name).starts_with(BEFORE_MIGRATING_SUFFIX)
 }
 
-fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
+fn taken_at(file: &BackupFile) -> Option<jiff::Timestamp> {
     stamped_at(&file.name)
 }
 
 /// When `name` was taken, by its UTC stamp: a copy of the folder resets file dates.
-fn stamped_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+fn stamped_at(name: &str) -> Option<jiff::Timestamp> {
     let stamp = stamp_of(name)?.get(..STAMP.len())?;
-    Some(chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc())
+    let at = jiff::civil::DateTime::strptime("%Y%m%d-%H%M%S", stamp).ok()?;
+    jiff::tz::Offset::UTC.to_timestamp(at).ok()
 }
 
 /// Every archive on disk, newest first.
@@ -589,7 +593,9 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
             let name = entry.file_name().to_string_lossy().into_owned();
             // The file's date only for a name that carries no stamp.
             let created = stamped_at(&name)
-                .or_else(|| metadata.modified().ok().map(chrono::DateTime::<chrono::Utc>::from))
+                .or_else(|| {
+                    metadata.modified().ok().and_then(|at| jiff::Timestamp::try_from(at).ok())
+                })
                 .map(crate::services::routing::format_timestamp)
                 .unwrap_or_default();
             Some(BackupFile {
@@ -868,7 +874,7 @@ async fn stage(
     discard_pending(&paths);
     let note = Note {
         name: name.to_string(),
-        staged_at: crate::services::routing::format_timestamp(chrono::Utc::now()),
+        staged_at: crate::services::routing::format_timestamp(jiff::Timestamp::now()),
     };
     if let Err(e) = write_note(&config.db_path, &note) {
         return Err(AppError::Internal(format!("cannot record the restore staged: {e}")));
@@ -1165,7 +1171,7 @@ pub fn pending_restore(config: &crate::config::Config) -> Option<PendingRestore>
         None => PendingRestore {
             name: database.file_name()?.to_string_lossy().into_owned(),
             staged_at: written
-                .map(chrono::DateTime::<chrono::Utc>::from)
+                .and_then(|at| jiff::Timestamp::try_from(at).ok())
                 .map(crate::services::routing::format_timestamp)
                 .unwrap_or_default(),
         },
@@ -1669,7 +1675,7 @@ pub fn replaced_database(config: &crate::config::Config) -> Option<ReplacedDatab
         .flatten()
         .filter_map(|meta| meta.modified().ok())
         .max()
-        .map(chrono::DateTime::<chrono::Utc>::from)
+        .and_then(|at| jiff::Timestamp::try_from(at).ok())
         .map(crate::services::routing::format_timestamp)
         .unwrap_or_default();
     Some(ReplacedDatabase {

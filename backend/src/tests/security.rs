@@ -1379,7 +1379,7 @@ async fn a_session_expires_on_the_server_when_its_cookie_does() {
         .await
         .unwrap();
     let expires = crate::services::routing::parse_timestamp(&expires).expect(&expires);
-    let left = (expires - chrono::Utc::now()).num_minutes();
+    let left = expires.duration_since(jiff::Timestamp::now()).as_mins();
     let week = crate::services::accounts::SESSION_DAYS * 24 * 60;
     assert!((week - 5..=week).contains(&left), "{left} minutes left");
 }

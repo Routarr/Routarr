@@ -99,7 +99,7 @@ async fn the_process_says_when_it_started_and_what_memory_it_holds() {
             .map(|value| value.parse::<f64>().unwrap())
     };
     let started = value("process_start_time_seconds").expect("a start time");
-    let now = chrono::Utc::now().timestamp() as f64;
+    let now = jiff::Timestamp::now().as_second() as f64;
     assert!(started > now - 3600.0 && started <= now, "{started}");
     if cfg!(target_os = "linux") {
         assert!(value("process_resident_memory_bytes").expect("a resident size") > 1e6);
@@ -305,7 +305,7 @@ async fn each_metadata_source_reports_its_health_cache_and_quota() {
         assert!(body.contains(&format!("{series} {value}\n")), "no {series} {value} in:\n{body}");
     }
     let checked = source("routarr_metadata_source_checked_timestamp_seconds", "tenrai");
-    let two_days = (chrono::Utc::now() - chrono::Duration::days(2)).timestamp();
+    let two_days = (jiff::Timestamp::now() - jiff::SignedDuration::from_hours(48)).as_second();
     let said: f64 = body
         .lines()
         .find_map(|line| line.strip_prefix(&format!("{checked} ")))
@@ -372,7 +372,7 @@ async fn the_content_type_is_the_one_prometheus_expects() {
 #[tokio::test]
 async fn the_newest_archive_and_the_free_space_are_series() {
     let (app, _dir) = super::backup::app_with_files("metrics-backup").await;
-    let before = chrono::Utc::now().timestamp();
+    let before = jiff::Timestamp::now().as_second();
     crate::services::backup::create(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();

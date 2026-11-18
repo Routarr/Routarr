@@ -13,6 +13,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::Config;
 use crate::listener::{fired, stop_on, until_stopped};
+use crate::logging::LocalTime;
 use crate::state::AppState;
 use crate::{commands, db, error, jobs, listener};
 
@@ -222,12 +223,11 @@ fn init_tracing(config: &Config, file: Option<std::sync::Mutex<crate::logging::R
     let registry = tracing_subscriber::registry().with(filter);
 
     if config.log_format.eq_ignore_ascii_case("json") {
-        let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339;
         let file = file.map(|file| {
-            tracing_subscriber::fmt::layer().json().with_timer(local()).with_writer(file)
+            tracing_subscriber::fmt::layer().json().with_timer(LocalTime).with_writer(file)
         });
         registry
-            .with(tracing_subscriber::fmt::layer().json().with_timer(local()))
+            .with(tracing_subscriber::fmt::layer().json().with_timer(LocalTime))
             .with(file)
             .init();
     } else {

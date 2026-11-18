@@ -225,7 +225,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: instances
             .iter()
             .filter_map(|(id, name, _, _, synced, ..)| {
-                Some((arr_instance(id, name), at(synced)?.timestamp() as f64))
+                Some((arr_instance(id, name), at(synced)?.as_second() as f64))
             })
             .collect(),
     });
@@ -243,7 +243,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: instances
             .iter()
             .filter_map(|(id, name, .., heard, _)| {
-                Some((arr_instance(id, name), at(heard)?.timestamp() as f64))
+                Some((arr_instance(id, name), at(heard)?.as_second() as f64))
             })
             .collect(),
     });
@@ -253,7 +253,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: instances
             .iter()
             .filter_map(|(id, name, _, _, _, tried, ..)| {
-                Some((arr_instance(id, name), at(tried)?.timestamp() as f64))
+                Some((arr_instance(id, name), at(tried)?.as_second() as f64))
             })
             .collect(),
     });
@@ -308,7 +308,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: sources
             .filter_map(|(source, _, at, _)| {
                 let at = crate::services::routing::parse_timestamp(at)?;
-                Some((source_label(source), at.timestamp() as f64))
+                Some((source_label(source), at.as_second() as f64))
             })
             .collect(),
     });
@@ -356,7 +356,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "When the newest archive the schedule or the owner took was written, in seconds \
                since the Unix epoch.",
         samples: crate::services::backup::last_taken_at(&state)
-            .map(|taken| (String::new(), taken.timestamp() as f64))
+            .map(|taken| (String::new(), taken.as_second() as f64))
             .into_iter()
             .collect(),
     });
@@ -366,7 +366,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
                Unix epoch. Absent without the variable.",
         samples: crate::services::backup::last_copied_at(&state)
             .await
-            .map(|copied| (String::new(), copied.timestamp() as f64))
+            .map(|copied| (String::new(), copied.as_second() as f64))
             .into_iter()
             .collect(),
     });

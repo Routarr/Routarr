@@ -4,7 +4,6 @@ use super::{Json, Query};
 use axum::extract::State;
 
 use super::Path;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
@@ -485,7 +484,7 @@ pub async fn explain(
         .fetch_one(&state.pool)
         .await?;
 
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     let routing::ItemRoute { rules, override_category, route } =
         routing::route_one(&state.pool, &media, now).await?;
     let routing::Route { metadata, evaluation, category, target, action } = route;

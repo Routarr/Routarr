@@ -613,7 +613,7 @@ pub async fn status(
 }
 
 /// When a copy last ended well, for the metrics.
-pub async fn last_copied_at(state: &AppState) -> Option<chrono::DateTime<chrono::Utc>> {
+pub async fn last_copied_at(state: &AppState) -> Option<jiff::Timestamp> {
     state.config.backup_copy_dir.as_ref()?;
     let finished: Option<String> = sqlx::query_scalar(
         "SELECT MAX(finished_at) FROM jobs WHERE kind = 'backup_copy' AND status = 'success'",

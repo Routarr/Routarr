@@ -429,7 +429,7 @@ async fn a_run_after_the_clock_went_back_stores_what_it_decided() {
     let app = TestApp::new().await;
     app.seed_library().await;
     app.seed_anime_rule().await;
-    let ahead = chrono::Utc::now().timestamp_micros() + 86_400_000_000;
+    let ahead = jiff::Timestamp::now().as_microsecond() + 86_400_000_000;
     sqlx::query(
         "INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
          VALUES ('m-1', 'standard', ?, datetime('now'))",

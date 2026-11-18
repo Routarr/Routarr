@@ -22,8 +22,8 @@ async fn titles(app: &TestApp, query: &str) -> Vec<String> {
 
 /// An hour from now or an hour ago, as a client sends a time.
 fn hour(sign: i64) -> String {
-    let at = chrono::Utc::now() + chrono::Duration::hours(sign);
-    at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    let at = jiff::Timestamp::now() + jiff::SignedDuration::from_hours(sign);
+    crate::timestamp::utc(at)
 }
 
 /// Every film of [`TestApp::films_to_move`] applied, as an apply of its whole simulation.

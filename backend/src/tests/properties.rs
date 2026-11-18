@@ -122,11 +122,11 @@ proptest! {
 
     /// A stamp reads back as the second it was written at.
     #[test]
-    fn a_stamp_reads_back_as_its_second(seconds in 0i64..4_102_444_800, nanos in 0u32..1_000_000_000) {
+    fn a_stamp_reads_back_as_its_second(seconds in 0i64..4_102_444_800, nanos in 0i32..1_000_000_000) {
         use crate::services::routing::{format_timestamp, parse_timestamp};
-        let written = chrono::DateTime::from_timestamp(seconds, nanos).unwrap();
+        let written = jiff::Timestamp::new(seconds, nanos).unwrap();
         let read = parse_timestamp(&format_timestamp(written));
-        prop_assert_eq!(read, chrono::DateTime::from_timestamp(seconds, 0));
+        prop_assert_eq!(read, jiff::Timestamp::new(seconds, 0).ok());
     }
 
     /// A mount point is settled once normalised: empty, or one leading slash
