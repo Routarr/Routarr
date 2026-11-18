@@ -1,8 +1,9 @@
 name: Release
 
 # The one place an image leaves the runner, never on a merge (`docker.yml` builds with
-# `push: false`). A `v*` tag publishes its exact version `X.Y.Z`, and the release's publication
-# moves `latest` and `X.Y` onto it, so whoever follows them upgrades once the notes are there.
+# `push: false`). A `v*` tag publishes its exact version `X.Y.Z` and attaches its packages to the
+# draft, and the release's publication moves `latest` and `X.Y` onto it and rebuilds the package
+# repositories, so whoever follows them upgrades once the notes are there.
 on:
   push:
     tags: ['v*']
@@ -140,6 +141,30 @@ jobs:
 
       - name: Start the image and check it serves
         run: bash scripts/smoke-image.sh routarr:smoke
+
+      # The tarball, the deb and the rpm of this architecture, from the image just checked, so
+      # each ships its binary. Checked before the image is pushed: a release ships all or none.
+      - name: Install nFPM
+        run: sudo bash scripts/install-nfpm.sh
+
+      - name: Build the packages from the image
+        env:
+          ARCH: ${{ matrix.arch }}
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/build-packages.sh image routarr:smoke "$ARCH" "${TAG#v}" "$RUNNER_TEMP/packages"
+
+      - name: Check the tarball, the deb and the rpm
+        run: |
+          bash scripts/smoke-package.sh tarball "$RUNNER_TEMP"/packages/*.tar.gz
+          bash scripts/smoke-package.sh deb "$RUNNER_TEMP"/packages/*.deb
+          bash scripts/smoke-package.sh rpm "$RUNNER_TEMP"/packages/*.rpm
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/*
+          if-no-files-found: error
+          retention-days: 1
 
       # Pushed by digest and carrying no tag: a tag applied here would be taken
       # by whichever architecture pushed last, leaving the other unreachable
@@ -311,6 +336,113 @@ jobs:
             *) prerelease= ;;
           esac
           gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag --draft $prerelease
+
+  # The packages of both architectures attached to the draft, the rpm signed, beside the sums
+  # of every file and their signature, each attested like the image for `gh attestation verify`
+  # (SECURITY.md). Attached before a person publishes the draft: a published release is final.
+  packages:
+    name: Attach the packages
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Where the signing key is kept, beside the site's deployment secrets.
+    environment: production
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/packages
+          pattern: packages-*
+          merge-multiple: true
+
+      - name: Install rpmsign
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+
+      - name: Sign the rpm and the sums
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+          PACKAGES_GPG_PASSPHRASE: ${{ secrets.PACKAGES_GPG_PASSPHRASE }}
+        run: bash scripts/package-repository.sh sign "$RUNNER_TEMP/packages"
+
+      - name: Attest the packages' provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/packages/*
+          create-storage-record: false
+
+      - name: Attach them to the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/packages/*
+
+  # On publication, the apt and dnf repositories of packages.routarr.app rebuilt from the
+  # packages of the releases they carry (`scripts/repository-releases.py`), signed, and handed to
+  # GitHub Pages whole. A pre-release stays on its own page.
+  repository:
+    name: Build the package repositories
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the repository tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq apt-utils createrepo-c rpm
+
+      - name: Download the packages the repositories carry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          kept=$(gh api --paginate "repos/$REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft or .prerelease | not) | .tag_name' |
+            python3 scripts/repository-releases.py)
+          mkdir -p "$RUNNER_TEMP/released"
+          while read -r tag; do
+            # A release from before the packages has none to give.
+            assets=$(gh release view "$tag" --repo "$REPOSITORY" --json assets --jq '.assets[].name')
+            grep -qE '\.(deb|rpm)$' <<<"$assets" || continue
+            gh release download "$tag" --repo "$REPOSITORY" --dir "$RUNNER_TEMP/released" \
+              --pattern '*.deb' --pattern '*.rpm'
+          done <<<"$kept"
+
+      - name: Build and sign them
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+          PACKAGES_GPG_PASSPHRASE: ${{ secrets.PACKAGES_GPG_PASSPHRASE }}
+        run: bash scripts/package-repository.sh build "$RUNNER_TEMP/released" "$RUNNER_TEMP/site"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/site
+
+  pages:
+    name: Publish the package repositories
+    needs: repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   # On publication: `X.Y`, `X` from 1.0 on and `latest` move onto the version the tag
   # published, each when it is the newest of its line (`scripts/release-tags.py`), so a patch

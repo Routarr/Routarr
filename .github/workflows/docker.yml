@@ -224,6 +224,13 @@ jobs:
       - name: Install the rpm on Fedora and check it
         run: bash scripts/smoke-package.sh rpm "$RUNNER_TEMP"/packages/*.rpm
 
+      # The repositories a release publishes, signed with a key of this run, then installed from.
+      - name: Install the repository tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq apt-utils createrepo-c rpm
+
+      - name: Build the repositories and install from them with apt and dnf
+        run: bash scripts/smoke-repository.sh "$RUNNER_TEMP/packages"
+
   # The dev container's image, on both architectures it installs for: each tool
   # it downloads is held to one sum per architecture, and only a build on that
   # architecture checks it. Nothing is kept or pushed.

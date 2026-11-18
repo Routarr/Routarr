@@ -351,6 +351,15 @@ def main() -> int:
         ]
         failures += agree(f"The image tag the install snippets name (the crate's minor is {minor})",
                           [("backend/Cargo.toml", minor), *snippets])
+        lines = [
+            sighting
+            for relative in ("OPERATING.md",)
+            for pattern in (r"packages\.routarr\.app/apt ([0-9][^\s\"'`]*) main",
+                            r"packages\.routarr\.app/rpm/routarr-([0-9][^\s\"'`]*)\.repo")
+            for sighting in find_all(relative, pattern)
+        ]
+        failures += agree(f"The repository line the install snippets name (the crate's minor is "
+                          f"{minor})", [("backend/Cargo.toml", minor), *lines])
 
     failures += from_lines_parse()
 

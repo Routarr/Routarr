@@ -117,6 +117,7 @@ else is set in the interface, under **Settings** and **Metadata sources**.
 - [Upgrading](OPERATING.md#upgrading): the new image, the archive taken first, and going back.
 - [Backups and restore](OPERATING.md#backups-and-restore): the archives, a copy off the machine, a restore.
 - [Install notes](OPERATING.md#install-notes): without Compose, on a NAS, your own CA, the browsers and Arrs supported.
+- [Without Docker](OPERATING.md#without-docker): the deb and rpm repositories, and the tarball.
 - [Behind a reverse proxy](OPERATING.md#behind-a-reverse-proxy): the headers to forward, and a sub-path.
 - [Sign-in modes](OPERATING.md#sign-in-modes): OpenID Connect, a lost password, and the open mode.
 - [When something goes wrong](OPERATING.md#when-something-goes-wrong): the log, and what a bug report takes.
