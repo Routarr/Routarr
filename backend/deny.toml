@@ -45,6 +45,9 @@ ignore = [
   # opens only the files it wrote, and a restore takes the database alone from an archive, never
   # a `-wal`. Lifted once sqlx accepts libsqlite3-sys 0.39, which bundles SQLite 3.54.
   { id = "RUSTSEC-2026-0459", reason = "no foreign -wal file is ever opened beside a database" },
+  # Reached only through `Url::origin()`, which neither Routarr nor a crate it links calls: the
+  # redirect policy compares hosts and ports. Lifted with url 2.5.9 once it is two weeks old.
+  { id = "RUSTSEC-2026-0592", reason = "Url::origin() is called nowhere in the binary" },
 ]
 
 [sources]
