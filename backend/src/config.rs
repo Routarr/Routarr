@@ -900,7 +900,13 @@ impl Config {
         }
         let data = std::path::absolute(&self.data_dir).unwrap_or_else(|_| self.data_dir.clone());
         let (copy, data) = (lexical(copy), lexical(&data));
-        if copy.starts_with(&data) || data.starts_with(&copy) {
+        // Windows names a folder whatever its case.
+        let folded = |path: &Path| match cfg!(windows) {
+            true => PathBuf::from(path.to_string_lossy().to_lowercase()),
+            false => path.to_path_buf(),
+        };
+        let (within, around) = (folded(&copy), folded(&data));
+        if within.starts_with(&around) || around.starts_with(&within) {
             return Err(AppError::Config(format!(
                 "{VARIABLE} is {}, which holds or lies in the data folder {}. Copy to a folder \
                  of its own, mounted from another disk",
@@ -1046,8 +1052,18 @@ impl Config {
             cors_origins: vec![],
             allowed_hosts: vec![],
             trusted_proxies: vec![],
-            http_timeout: Duration::from_millis(300),
-            library_timeout: Duration::from_millis(900),
+            // Windows refuses a closed loopback port only after retrying for about two seconds,
+            // which a shorter budget reads as no answer.
+            http_timeout: if cfg!(windows) {
+                Duration::from_secs(3)
+            } else {
+                Duration::from_millis(300)
+            },
+            library_timeout: if cfg!(windows) {
+                Duration::from_secs(9)
+            } else {
+                Duration::from_millis(900)
+            },
             max_library_bytes: 1 << 20,
             move_wait: Duration::from_secs(2),
             webhook_answer_wait: Duration::from_secs(5),
@@ -1786,14 +1802,28 @@ mod tests {
 
     #[test]
     fn a_backup_copy_folder_is_whole_and_apart_from_the_data() {
+        // Absolute on the system the test runs on. Windows names a folder whatever its case.
+        let (database, refused, served): (&str, &[&str], &[&str]) = if cfg!(windows) {
+            (
+                r"C:\config\routarr.db",
+                &["copies", r"C:\config\backups", r"C:\config\..\config\x", r"C:\", r"c:\CONFIG\x"],
+                &[r"\\nas\routarr", r"C:\config-copy", r"C:\config\..\mnt\nas", r"D:\config"],
+            )
+        } else {
+            (
+                "/config/routarr.db",
+                &["copies", "/config/backups-copy", "/config/../config/x", "/", "/config"],
+                &["/mnt/nas/routarr", "/config-copy", "/config/../mnt/nas"],
+            )
+        };
         let mut config = Config::for_tests();
-        config.set_db_path(PathBuf::from("/config/routarr.db"));
-        for refused in ["copies", "/config/backups-copy", "/config/../config/x", "/", "/config"] {
+        config.set_db_path(PathBuf::from(database));
+        for &refused in refused {
             config.backup_copy_dir = Some(PathBuf::from(refused));
             let err = config.validate().expect_err(refused).to_string();
             assert!(err.contains("ROUTARR_BACKUP_COPY_DIR"), "{refused}: {err}");
         }
-        for served in ["/mnt/nas/routarr", "/config-copy", "/config/../mnt/nas"] {
+        for &served in served {
             config.backup_copy_dir = Some(PathBuf::from(served));
             assert!(config.validate().is_ok(), "{served}");
         }

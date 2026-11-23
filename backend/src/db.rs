@@ -1475,7 +1475,10 @@ mod tests {
         let service = std::path::Path::new("/WINDOWS/System32");
         assert!(misplaced(relative, service, Some(windows)).is_some());
 
-        let absolute = std::path::Path::new("/var/lib/routarr/routarr.db");
+        let absolute = match cfg!(windows) {
+            true => std::path::Path::new(r"C:\ProgramData\Routarr\routarr.db"),
+            false => std::path::Path::new("/var/lib/routarr/routarr.db"),
+        };
         assert!(misplaced(absolute, root, None).is_none());
         let home = std::path::Path::new("/home/someone");
         assert!(misplaced(relative, home, Some(windows)).is_none());
