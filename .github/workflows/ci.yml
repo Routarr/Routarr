@@ -267,6 +267,37 @@ jobs:
       - name: Check the crates' notices generate
         run: cargo fetch --locked && cargo about generate --frozen about.hbs -o /dev/null
 
+  # The Windows binary compiles code no Linux build sees, and the suite meets NTFS paths, locks
+  # and permissions there.
+  backend-windows:
+    name: Backend on Windows
+    runs-on: windows-2025
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+        shell: bash
+    env:
+      # aws-lc's assembly comes prebuilt, where building it would need NASM on the runner.
+      AWS_LC_SYS_PREBUILT_NASM: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: backend
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Lint for Windows
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test on Windows
+        run: cargo test --locked
+
   coverage:
     name: Backend coverage
     runs-on: ubuntu-24.04

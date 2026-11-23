@@ -332,7 +332,16 @@ fn same_disk(a: &Path, b: &Path) -> bool {
         use std::os::unix::fs::MetadataExt;
         matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev())
     }
-    #[cfg(not(unix))]
+    // A folder a volume is mounted on reads as its parent's drive.
+    #[cfg(windows)]
+    {
+        let volume = |path: &Path| match std::fs::canonicalize(path).ok()?.components().next()? {
+            std::path::Component::Prefix(prefix) => Some(prefix.as_os_str().to_ascii_uppercase()),
+            _ => None,
+        };
+        matches!((volume(a), volume(b)), (Some(a), Some(b)) if a == b)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (a, b);
         false

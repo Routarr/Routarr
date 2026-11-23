@@ -29,11 +29,17 @@ const SEE_HELP: &str = "`routarr --help` lists the commands";
 pub enum Invocation {
     Serve,
     Healthcheck,
-    ResetAccount { revoke_keys: bool, force: bool },
+    ResetAccount {
+        revoke_keys: bool,
+        force: bool,
+    },
     Restore(Option<String>),
     DecryptBackup(Option<String>, Option<String>),
     Help,
     Version,
+    /// Serve as the Windows service, as the service manager starts it.
+    #[cfg(windows)]
+    Service,
 }
 
 /// Read the command line, the program's name left out. Anything but a known
@@ -55,6 +61,8 @@ pub fn invocation(args: &[String]) -> Result<Invocation, String> {
         "-h" | "--help" | "help" => alone(Invocation::Help),
         "-V" | "--version" | "version" => alone(Invocation::Version),
         "healthcheck" => alone(Invocation::Healthcheck),
+        #[cfg(windows)]
+        "service" => alone(Invocation::Service),
         "reset-account" => {
             let (mut revoke_keys, mut force) = (false, false);
             for flag in &rest {

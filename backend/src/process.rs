@@ -18,16 +18,57 @@ use crate::state::AppState;
 use crate::{commands, db, error, jobs, listener};
 
 pub fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let invocation = match commands::invocation(&args) {
+        Ok(invocation) => invocation,
+        Err(refused) => {
+            eprintln!("Error: {refused}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    #[cfg(windows)]
+    if invocation == commands::Invocation::Service {
+        return crate::service::dispatch();
+    }
+    std::process::ExitCode::from(run_to_end(invocation, Stops::Console))
+}
+
+/// What asks the server to stop.
+pub enum Stops {
+    /// A signal, or the console it runs in.
+    Console,
+    /// The stop controls the Windows service manager sent, counted.
+    #[cfg(windows)]
+    Service(tokio::sync::watch::Receiver<u32>),
+}
+
+impl Stops {
+    /// The stop, and a second one that hurries it.
+    fn heard(self, hangup: bool) -> (BoxFuture<'static, ()>, BoxFuture<'static, ()>) {
+        match self {
+            Self::Console => (Box::pin(shutdown_signal(hangup)), Box::pin(shutdown_signal(hangup))),
+            #[cfg(windows)]
+            Self::Service(asked) => {
+                (Box::pin(asked_times(asked.clone(), 1)), Box::pin(asked_times(asked, 2)))
+            }
+        }
+    }
+}
+
+type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// Run `invocation` on a runtime of its own until it ends, and answer its exit status.
+pub fn run_to_end(invocation: commands::Invocation, stops: Stops) -> u8 {
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {
             eprintln!("Error: the runtime cannot start: {e}");
-            return std::process::ExitCode::FAILURE;
+            return 1;
         }
     };
-    let code = runtime.block_on(async {
-        match run().await {
-            Ok(()) => std::process::ExitCode::SUCCESS,
+    let status = runtime.block_on(async {
+        match run(invocation, stops).await {
+            Ok(()) => 0,
             Err(error) => {
                 // One sentence, in the log once set up so a JSON log keeps it, else on stderr.
                 if tracing::dispatcher::has_been_set() {
@@ -35,17 +76,18 @@ pub fn main() -> std::process::ExitCode {
                 } else {
                     eprintln!("Error: {error}");
                 }
-                std::process::ExitCode::from(error::exit_status(error.as_ref()))
+                error::exit_status(error.as_ref())
             }
         }
     });
     listener::end(runtime, listener::ABANDON);
-    code
+    status
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let invocation = commands::invocation(&args)?;
+async fn run(
+    invocation: commands::Invocation,
+    stops: Stops,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Before the configuration is read: neither needs it, and neither may
     // fail on it.
     match invocation {
@@ -85,6 +127,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         commands::Invocation::Serve
         | commands::Invocation::Help
         | commands::Invocation::Version => {}
+        #[cfg(windows)]
+        commands::Invocation::Service => {}
+    }
+    // A service has no console to log to. Beside a relative library the start is refused, and the
+    // file would land in the Windows folder first.
+    #[cfg(windows)]
+    if matches!(stops, Stops::Service(_)) && config.data_dir.is_absolute() {
+        config.log_file.get_or_insert_with(|| config.data_dir.join("routarr.log"));
     }
     config.validate()?;
     let log_file = match &config.log_file {
@@ -122,12 +172,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Heard from here on, so a stop asked while the start archives or migrates ends it. Read
     // before either handler replaces the disposition it inherited.
-    let hangup = !listener::hangup_ignored();
-    let (stopping, hurrying) = stop_on(shutdown_signal(hangup), shutdown_signal(hangup));
+    let (first, second) = stops.heard(!listener::hangup_ignored());
+    let (stopping, hurrying) = stop_on(first, second);
     let told = stopping.clone();
     tokio::spawn(async move {
         fired(told).await;
         crate::systemd::notify("STOPPING=1");
+        #[cfg(windows)]
+        crate::service::stopping();
     });
     let Some(storage) = until_stopped(crate::open_storage(&config), stopping.clone()).await else {
         info!("Routarr stopped before its database was open");
@@ -169,6 +221,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     info!("Routarr web server listening on http://{bind_addr}");
     crate::systemd::notify("READY=1");
+    #[cfg(windows)]
+    crate::service::ready();
 
     listener::serve(
         socket,
@@ -239,35 +293,65 @@ fn init_tracing(config: &Config, file: Option<std::sync::Mutex<crate::logging::R
     }
 }
 
-/// Resolve on Ctrl-C, SIGTERM or, when `hangup`, SIGHUP, the terminal it ran in closing.
+/// Resolve once the service manager has sent `times` stop controls.
+#[cfg(windows)]
+async fn asked_times(mut asked: tokio::sync::watch::Receiver<u32>, times: u32) {
+    if asked.wait_for(|count| *count >= times).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+    info!("The Windows service manager asked Routarr to stop, shutting down");
+}
+
+/// Resolve on Ctrl-C or on the system's own stop, logging which.
 async fn shutdown_signal(hangup: bool) {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("failed to install Ctrl-C handler");
     };
-
-    #[cfg(unix)]
-    let heard = |kind: tokio::signal::unix::SignalKind| async move {
-        tokio::signal::unix::signal(kind).expect("failed to install a signal handler").recv().await;
+    let heard = tokio::select! {
+        () = ctrl_c => "Ctrl-C",
+        heard = system_stop(hangup) => heard,
     };
-    #[cfg(unix)]
-    let terminate = heard(tokio::signal::unix::SignalKind::terminate());
-    #[cfg(unix)]
+    info!("Received {heard}, shutting down");
+}
+
+/// SIGTERM or, when `hangup`, SIGHUP, the terminal it ran in closing.
+#[cfg(unix)]
+async fn system_stop(hangup: bool) -> &'static str {
+    use tokio::signal::unix::{SignalKind, signal};
+    let heard = |kind: SignalKind| async move {
+        signal(kind).expect("failed to install a signal handler").recv().await;
+    };
     let hangup = async move {
         match hangup {
-            true => heard(tokio::signal::unix::SignalKind::hangup()).await,
+            true => heard(SignalKind::hangup()).await,
             false => std::future::pending::<()>().await,
         }
     };
-
-    #[cfg(not(unix))]
-    let (terminate, hangup) = (std::future::pending::<()>(), {
-        let _ = hangup;
-        std::future::pending::<()>()
-    });
-
     tokio::select! {
-        _ = ctrl_c => info!("Received Ctrl-C, shutting down"),
-        _ = terminate => info!("Received SIGTERM, shutting down"),
-        _ = hangup => info!("Received SIGHUP, shutting down"),
+        () = heard(SignalKind::terminate()) => "SIGTERM",
+        () = hangup => "SIGHUP",
     }
+}
+
+/// Ctrl-Break, the console window closing, the user logging off or Windows shutting down. Windows
+/// ends the process some seconds after the last three, the checkpoint started meanwhile.
+#[cfg(windows)]
+async fn system_stop(_: bool) -> &'static str {
+    use tokio::signal::windows;
+    let installed = "failed to install a console handler";
+    let mut ctrl_break = windows::ctrl_break().expect(installed);
+    let mut close = windows::ctrl_close().expect(installed);
+    let mut logoff = windows::ctrl_logoff().expect(installed);
+    let mut shutdown = windows::ctrl_shutdown().expect(installed);
+    tokio::select! {
+        _ = ctrl_break.recv() => "Ctrl-Break",
+        _ = close.recv() => "the console closing",
+        _ = logoff.recv() => "the user logging off",
+        _ = shutdown.recv() => "Windows shutting down",
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn system_stop(_: bool) -> &'static str {
+    std::future::pending().await
 }

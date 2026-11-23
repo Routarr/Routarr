@@ -12,7 +12,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use sha2::{Digest, Sha256};
 use std::path::Path;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::error::{AppError, AppResult};
 
@@ -412,7 +412,7 @@ pub fn restrict_permissions(path: &Path) {
     {
         use std::os::unix::fs::PermissionsExt;
         if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-            warn!("Could not restrict permissions on {}: {e}", path.display());
+            tracing::warn!("Could not restrict permissions on {}: {e}", path.display());
         }
     }
     #[cfg(not(unix))]
