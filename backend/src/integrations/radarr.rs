@@ -284,6 +284,11 @@ impl RadarrClient {
         self.api().move_commands().await
     }
 
+    /// Whether Radarr is working on the film (`Api::title_in_hand`).
+    pub async fn title_in_hand(&self, movie_id: i64) -> AppResult<bool> {
+        self.api().title_in_hand(movie_id).await
+    }
+
     fn api(&self) -> Api<'_> {
         Api {
             service: SERVICE,

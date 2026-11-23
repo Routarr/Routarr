@@ -69,7 +69,16 @@ impl Api<'_> {
     /// those ended in the last few minutes, which it keeps that long.
     pub async fn move_commands(&self) -> AppResult<Vec<MoveCommand>> {
         let listed: Vec<CommandDto> = send_json(self.service, self.get("/api/v3/command")).await?;
-        Ok(listed.into_iter().flat_map(CommandDto::moves).collect())
+        Ok(listed.iter().flat_map(CommandDto::moves).collect())
+    }
+
+    /// Whether the Arr has a refresh, a rescan or a move of title `item` queued or running. Each
+    /// writes back the whole record it read as it began, old path included, over a move made
+    /// meanwhile. A refresh of the whole library is left out: it holds every title for minutes
+    /// or hours, and rewrites one only when its tags change or a file comes in.
+    pub async fn title_in_hand(&self, item: i64) -> AppResult<bool> {
+        let listed: Vec<CommandDto> = send_json(self.service, self.get("/api/v3/command")).await?;
+        Ok(listed.iter().any(|command| command.holds(item)))
     }
 }
 
@@ -108,15 +117,19 @@ struct CommandDto {
 }
 
 impl CommandDto {
-    fn moves(self) -> Vec<MoveCommand> {
-        let state = match self.status.to_ascii_lowercase().as_str() {
+    fn state(&self) -> CommandState {
+        match self.status.to_ascii_lowercase().as_str() {
             "completed" => CommandState::Completed,
             "failed" | "aborted" | "cancelled" | "orphaned" => {
                 CommandState::Ended(self.status.to_ascii_lowercase())
             }
             // Queued, started, or a state a later release adds: still the Arr's to settle.
             _ => CommandState::Running,
-        };
+        }
+    }
+
+    /// Each title the command moves, with the folder it goes to when the command names one.
+    fn carried(&self) -> Vec<(i64, Option<&str>)> {
         let one = |key: &str| {
             self.body[key].as_i64().map(|item| (item, self.body["destinationPath"].as_str()))
         };
@@ -124,14 +137,18 @@ impl CommandDto {
             let titles = self.body[list].as_array().map(Vec::as_slice).unwrap_or_default();
             titles.iter().filter_map(|title| title[key].as_i64()).map(|item| (item, None)).collect()
         };
-        let carried: Vec<(i64, Option<&str>)> = match self.name.as_str() {
+        match self.name.as_str() {
             "MoveMovie" => one("movieId").into_iter().collect(),
             "MoveSeries" => one("seriesId").into_iter().collect(),
             "BulkMoveMovie" => bulk("movies", "movieId"),
             "BulkMoveSeries" => bulk("series", "seriesId"),
             _ => Vec::new(),
-        };
-        carried
+        }
+    }
+
+    fn moves(&self) -> Vec<MoveCommand> {
+        let state = self.state();
+        self.carried()
             .into_iter()
             .map(|(item, destination)| MoveCommand {
                 id: self.id,
@@ -141,6 +158,26 @@ impl CommandDto {
                 message: self.message.clone(),
             })
             .collect()
+    }
+
+    /// Whether the command, queued or running, works on title `item` by its id. An empty list or
+    /// no id is the whole library.
+    fn holds(&self, item: i64) -> bool {
+        if self.state() != CommandState::Running {
+            return false;
+        }
+        let listed = |key: &str| {
+            self.body[key]
+                .as_array()
+                .is_some_and(|ids| ids.iter().any(|id| id.as_i64() == Some(item)))
+        };
+        match self.name.as_str() {
+            "RefreshMovie" => listed("movieIds"),
+            "RefreshSeries" => listed("seriesIds"),
+            "RescanMovie" => self.body["movieId"].as_i64() == Some(item),
+            "RescanSeries" => self.body["seriesId"].as_i64() == Some(item),
+            _ => self.carried().iter().any(|(carried, _)| *carried == item),
+        }
     }
 }
 
@@ -249,7 +286,7 @@ mod tests {
             { "id": 10, "name": "MoveSeries", "status": "Completed", "body": { "seriesId": 22 } },
         ]))
         .unwrap();
-        let moves: Vec<MoveCommand> = listed.into_iter().flat_map(CommandDto::moves).collect();
+        let moves: Vec<MoveCommand> = listed.iter().flat_map(CommandDto::moves).collect();
 
         let summary: Vec<(i64, i64, Option<&str>, &CommandState)> =
             moves.iter().map(|m| (m.id, m.item, m.destination.as_deref(), &m.state)).collect();
@@ -264,6 +301,40 @@ mod tests {
             ]
         );
         assert_eq!(moves[1].message.as_deref(), Some("disk full"));
+    }
+
+    /// The bodies as Radarr 6.4 and Sonarr 4.0 list them on `/api/v3/command`.
+    #[test]
+    fn a_title_is_in_hand_while_a_command_naming_it_is_unfinished() {
+        let command = |name: &str, status: &str, body: Value| -> CommandDto {
+            serde_json::from_value(json!({ "id": 1, "name": name, "status": status, "body": body }))
+                .unwrap()
+        };
+        let holding = [
+            command("RefreshMovie", "started", json!({ "movieIds": [10], "isNewMovie": true })),
+            command("RefreshMovie", "queued", json!({ "movieIds": [3, 10] })),
+            command("RescanMovie", "started", json!({ "movieId": 10 })),
+            command("RefreshSeries", "started", json!({ "seriesIds": [10], "isNewSeries": true })),
+            command("RescanSeries", "queued", json!({ "seriesId": 10 })),
+            command("MoveMovie", "started", json!({ "movieId": 10, "destinationPath": "/m/a" })),
+            command("BulkMoveSeries", "queued", json!({ "series": [{ "seriesId": 10 }] })),
+        ];
+        for held in &holding {
+            assert!(held.holds(10), "{} {} {}", held.name, held.status, held.body);
+        }
+        let free = [
+            command("RefreshMovie", "completed", json!({ "movieIds": [10] })),
+            command("RefreshMovie", "failed", json!({ "movieIds": [10] })),
+            command("RefreshMovie", "started", json!({ "movieIds": [11] })),
+            // The whole library, on the Arr's schedule.
+            command("RefreshMovie", "started", json!({ "movieIds": [] })),
+            command("RescanMovie", "started", json!({ "movieId": null })),
+            command("RefreshSeries", "started", json!({ "seriesIds": [] })),
+            command("RssSync", "started", json!({})),
+        ];
+        for free in &free {
+            assert!(!free.holds(10), "{} {} {}", free.name, free.status, free.body);
+        }
     }
 }
 
