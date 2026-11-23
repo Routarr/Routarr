@@ -419,6 +419,62 @@ pub fn restrict_permissions(path: &Path) {
     let _ = path;
 }
 
+/// Close a data folder Routarr has just made to all but its own account, SYSTEM and the
+/// administrators, which every file it then writes inherits. A new folder under
+/// `C:\ProgramData` or a drive's root lets every user read it, and it holds the keys and the
+/// archives. Windows' own `whoami` and `icacls` do it, called from the Windows folder so that no
+/// program of the same name on the `PATH` stands in. A failure is logged and the start goes on,
+/// as a `chmod` that fails on Unix.
+#[cfg(windows)]
+pub fn keep_folder_private(dir: &Path, system_root: Option<&Path>) {
+    let closed = system_root
+        .ok_or_else(|| "SystemRoot is not set".to_string())
+        .and_then(|root| close_folder(dir, &root.join("System32")));
+    match closed {
+        Ok(()) => info!("{} is closed to every other user", dir.display()),
+        Err(e) => tracing::warn!(
+            "{} could not be closed to the other users of this computer, so check who may read \
+             it: {e}",
+            dir.display()
+        ),
+    }
+}
+
+#[cfg(windows)]
+fn close_folder(dir: &Path, system: &Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let whoami = Command::new(system.join("whoami.exe"))
+        .args(["/user", "/fo", "csv", "/nh"])
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| format!("whoami: {e}"))?;
+    let account = account_sid(&String::from_utf8_lossy(&whoami.stdout))
+        .ok_or_else(|| "whoami named no account".to_string())?;
+    // Full control for this account, SYSTEM and the Administrators group, passed down to every
+    // file and folder inside, and nothing inherited from the parent.
+    let granted =
+        [account.as_str(), "S-1-5-18", "S-1-5-32-544"].map(|sid| format!("*{sid}:(OI)(CI)F"));
+    let status = Command::new(system.join("icacls.exe"))
+        .arg(dir)
+        .args(["/inheritance:r", "/grant:r"])
+        .args(&granted)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("icacls: {e}"))?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(format!("icacls ended with {status}")),
+    }
+}
+
+/// The security identifier `whoami /user /fo csv /nh` names, its last quoted field.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn account_sid(whoami: &str) -> Option<String> {
+    let sid = whoami.trim().rsplit(',').next()?.trim().trim_matches('"');
+    (sid.starts_with("S-1-") && sid.len() > 4).then(|| sid.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -478,6 +534,55 @@ mod tests {
         std::fs::create_dir(dir.join("routarr.key.tmp")).unwrap();
         assert!(write_private(&path, b"the key of after").is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"the key of before");
+    }
+
+    /// As `whoami /user /fo csv /nh` prints a user's and a service's virtual account.
+    #[test]
+    fn the_account_is_read_from_what_whoami_prints() {
+        let user = "\"desktop-7\\alice\",\"S-1-5-21-3623811015-3361044348-30300820-1013\"\r\n";
+        assert_eq!(
+            account_sid(user).as_deref(),
+            Some("S-1-5-21-3623811015-3361044348-30300820-1013")
+        );
+        let service = "\"nt service\\routarr\",\"S-1-5-80-1490213893-2211414049-3301104046\"";
+        assert!(account_sid(service).is_some_and(|sid| sid.starts_with("S-1-5-80-")));
+        for nothing in ["", "\"desktop-7\\alice\"", "ERROR: access denied", "\"S-1-\""] {
+            assert_eq!(account_sid(nothing), None, "{nothing}");
+        }
+    }
+
+    /// Inside a folder every user may read, a new folder is read by them all until it is closed.
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_routarr_makes_is_closed_to_the_other_users() {
+        use std::process::Command;
+        let system = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap());
+        let icacls = system.join("System32").join("icacls.exe");
+        let listed = |path: &Path| {
+            let out = Command::new(&icacls).arg(path).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let parent = crate::tests::TempDir::new("open-parent");
+        let opened = Command::new(&icacls)
+            .arg(&*parent)
+            .args(["/grant", "*S-1-5-32-545:(OI)(CI)RX"])
+            .status()
+            .unwrap();
+        assert!(opened.success());
+        let dir = parent.join("data");
+        std::fs::create_dir(&dir).unwrap();
+        assert!(listed(&dir).contains("BUILTIN\\Users"), "{}", listed(&dir));
+
+        keep_folder_private(&dir, Some(&system));
+
+        let acl = listed(&dir);
+        assert!(!acl.contains("BUILTIN\\Users"), "{acl}");
+        assert!(
+            acl.contains("NT AUTHORITY\\SYSTEM") && acl.contains("BUILTIN\\Administrators"),
+            "{acl}"
+        );
+        std::fs::write(dir.join("routarr.key"), b"secret").unwrap();
+        assert!(!listed(&dir.join("routarr.key")).contains("BUILTIN\\Users"));
     }
 
     #[cfg(unix)]

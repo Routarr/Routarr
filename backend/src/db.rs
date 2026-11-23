@@ -70,7 +70,15 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
     }
     let dir = &config.data_dir;
     let refused = |e: std::io::Error| unwritable(dir, &e, config.install);
+    let made_here = !dir.exists();
     std::fs::create_dir_all(dir).map_err(refused)?;
+    // A folder someone made keeps the permissions they gave it, the installer's included.
+    #[cfg(windows)]
+    if made_here {
+        crate::crypto::keep_folder_private(dir, system_root.as_deref());
+    }
+    #[cfg(not(windows))]
+    let _ = made_here;
     let probe = dir.join(".routarr-write-check");
     std::fs::File::create(&probe).map_err(refused)?;
     let foreign = owned_elsewhere(config, &probe);
