@@ -1218,12 +1218,28 @@ const PACKAGED_BINARY: &str = "/usr/bin/routarr";
 const PACKAGED_VARIABLES: &str = "/etc/routarr/routarr.env";
 
 /// The variables file a start reads: the working directory's `.env`, or else, for the binary a
-/// package installed, the package's file, so a command run by hand reaches the service's
-/// library. A binary built or unpacked anywhere else reads no file outside its working
-/// directory, and a build never opens the service's library.
+/// package or the Windows installer put in place, the installer's file, so a command run by
+/// hand reaches the service's library. A binary built or unpacked anywhere else reads no file
+/// outside its working directory, and a build never opens the service's library.
 pub fn variables_file(dir: &Path, exe: Option<&Path>) -> AppResult<Option<PathBuf>> {
-    let packaged = exe == Some(Path::new(PACKAGED_BINARY));
-    variables_among(dir, packaged.then(|| Path::new(PACKAGED_VARIABLES)))
+    let folder = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let packaged = exe.and_then(|exe| packaged_variables(exe, folder));
+    variables_among(dir, packaged.as_deref())
+}
+
+/// The installer's variables file when `exe` is the binary it installed: `/usr/bin/routarr` on
+/// Linux, `Routarr\routarr.exe` under the program files on Windows, `folder` reading the folders
+/// Windows names.
+fn packaged_variables(exe: &Path, folder: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return (exe == Path::new(PACKAGED_BINARY)).then(|| PathBuf::from(PACKAGED_VARIABLES));
+    }
+    let installed = folder("ProgramFiles")?.join("Routarr").join("routarr.exe");
+    // Windows names a file whatever its case.
+    if !exe.to_string_lossy().eq_ignore_ascii_case(&installed.to_string_lossy()) {
+        return None;
+    }
+    Some(folder("ProgramData")?.join("Routarr").join("routarr.env"))
 }
 
 fn variables_among(dir: &Path, packaged: Option<&Path>) -> AppResult<Option<PathBuf>> {
@@ -1920,6 +1936,30 @@ mod tests {
 
         let built = Path::new("/ramdisk/cargo-target/release/routarr");
         assert_eq!(variables_file(&dir, Some(built)).unwrap(), None);
+    }
+
+    /// Any other copy of the binary, a portable one or a build, reads no file of the installer's.
+    #[test]
+    fn only_the_installed_binary_reads_the_installers_variables() {
+        let folders = |name: &str| match name {
+            "ProgramFiles" => Some(PathBuf::from(r"C:\Program Files")),
+            "ProgramData" => Some(PathBuf::from(r"C:\ProgramData")),
+            _ => None,
+        };
+        let (installed, elsewhere, file) = match cfg!(windows) {
+            true => (
+                r"c:\program files\routarr\ROUTARR.EXE",
+                r"C:\Users\someone\routarr\routarr.exe",
+                r"C:\ProgramData\Routarr\routarr.env",
+            ),
+            false => ("/usr/bin/routarr", "/opt/routarr/routarr", "/etc/routarr/routarr.env"),
+        };
+        let installed = Path::new(installed);
+        assert_eq!(packaged_variables(installed, folders), Some(PathBuf::from(file)));
+        assert_eq!(packaged_variables(Path::new(elsewhere), folders), None);
+        if cfg!(windows) {
+            assert_eq!(packaged_variables(installed, |_| None), None, "with no folder named");
+        }
     }
 
     /// A `TZ` naming no zone reads as UTC, unsaid, and every log line is off by its offset.
