@@ -77,6 +77,18 @@ struct QueuedMove {
     settled: bool,
 }
 
+/// A refresh of one film, or of the whole library without one, as Radarr runs after an add and on
+/// its schedule.
+#[derive(Clone)]
+struct Refresh {
+    id: i64,
+    item: Option<i64>,
+    /// The path and root folder it read as it began, which it writes back when it ends.
+    read: (String, String),
+    ends_at: std::time::Instant,
+    settled: bool,
+}
+
 /// How the moves the Arr queues end.
 #[derive(Clone, Default)]
 struct Moving {
@@ -91,6 +103,7 @@ struct Moving {
     /// kept and nothing moved, as both Arrs skip a move whose source folder is missing.
     unseen: Vec<i64>,
     queued: Vec<QueuedMove>,
+    refreshes: Vec<Refresh>,
     /// The most moves the Arr held unfinished at once.
     most_held: usize,
     /// Whether the command list answers a 500, as an Arr that stops answering does.
@@ -300,6 +313,24 @@ impl FakeArr {
     /// From now on each move queued runs for `lasts` before it ends.
     pub fn moving_for(&self, lasts: std::time::Duration) {
         self.moving.lock().expect("lock").lasts = lasts;
+    }
+
+    /// From now on Radarr refreshes film `id` for `lasts`, then writes back the path and root
+    /// folder it read as it began, as a refresh that imports a file does.
+    pub fn refreshing(&self, id: i64, lasts: std::time::Duration, (path, root): (&str, &str)) {
+        self.start_refresh(Some(id), lasts, (path.to_string(), root.to_string()));
+    }
+
+    /// From now on Radarr refreshes its whole library for `lasts`, writing nothing back.
+    pub fn refreshing_the_library(&self, lasts: std::time::Duration) {
+        self.start_refresh(None, lasts, (String::new(), String::new()));
+    }
+
+    fn start_refresh(&self, item: Option<i64>, lasts: std::time::Duration, read: (String, String)) {
+        let mut moving = self.moving.lock().expect("lock");
+        let id = 1000 + moving.refreshes.len() as i64;
+        let ends_at = std::time::Instant::now() + lasts;
+        moving.refreshes.push(Refresh { id, item, read, ends_at, settled: false });
     }
 
     /// From now on a move of title `id` fails on disk, and the Arr puts its
@@ -1044,6 +1075,14 @@ fn settle_moves(state: &FakeState) {
             lay_over(edits, queued.item, &serde_json::json!({ "path": queued.source }));
         }
     }
+    for refresh in moving.refreshes.iter_mut().filter(|r| !r.settled && r.ends_at <= now) {
+        refresh.settled = true;
+        if let Some(item) = refresh.item {
+            let (path, root) = &refresh.read;
+            let read = serde_json::json!({ "path": path, "rootFolderPath": root });
+            lay_over(&state.movie_edits, item, &read);
+        }
+    }
 }
 
 /// The commands the Arr lists, as `GET /api/v3/command` answers.
@@ -1059,6 +1098,16 @@ async fn commands(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let now = std::time::Instant::now();
+    let refreshes = moving.refreshes.iter().map(|refresh| {
+        let status = if refresh.ends_at > now { "started" } else { "completed" };
+        let ids: Vec<i64> = refresh.item.into_iter().collect();
+        serde_json::json!({
+            "id": refresh.id,
+            "name": "RefreshMovie",
+            "status": status,
+            "body": { "movieIds": ids, "isNewMovie": refresh.item.is_some() },
+        })
+    });
     let listed: Vec<serde_json::Value> = moving
         .queued
         .iter()
@@ -1085,6 +1134,7 @@ async fn commands(
                 },
             })
         })
+        .chain(refreshes)
         .collect();
     Ok(Json(serde_json::Value::Array(listed)))
 }

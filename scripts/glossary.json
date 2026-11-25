@@ -1066,5 +1066,40 @@
       "zh_CN": "保留",
       "zh_TW": "保留"
     }
+  },
+  "refresh": {
+    "en": "\\brefresh",
+    "except": [
+      "AutoRefreshing",
+      "HelpFixDashboard1",
+      "Refresh"
+    ],
+    "words": {
+      "ar": "ح[ً-ْـ]*د[ً-ْـ]*ي?[ً-ْـ]*ث",
+      "ca": "actualitz",
+      "cs": "obnov",
+      "da": "opdater",
+      "de": "aktualisier",
+      "el": "αναν[εέ]",
+      "es": "actualiz",
+      "fi": "päivit",
+      "fr": "actualis",
+      "hu": "frissít",
+      "it": "aggiorn",
+      "ja": "更新",
+      "ko": "새로\\s?고침",
+      "nb_NO": "oppdater",
+      "nl": "vernieuw",
+      "pl": "odśwież",
+      "pt": "atualiz",
+      "ro": "reîmprospăt",
+      "ru": "обнов",
+      "sk": "obnov",
+      "sv": "uppdater",
+      "tr": "yenile",
+      "uk": "онов",
+      "zh_CN": "刷新",
+      "zh_TW": "重新整理"
+    }
   }
 }
