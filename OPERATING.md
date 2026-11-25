@@ -113,14 +113,34 @@ To restore an archive:
 Each release also ships a deb, an rpm and a tarball for 64-bit Linux, `amd64` and `arm64`, with
 the very binary the image runs: static, it depends on no library of the system.
 
-**From a package**, downloaded from the release:
+**From the repositories**, which `apt upgrade` and `dnf upgrade` follow. Each minor line has its
+own, as the image has its `X.Y` tag: before 1.0 a minor release may break a setting, so the line
+is changed by hand, release notes read. `stable` follows the newest line, as `latest` does.
+
+On Debian and Ubuntu, where the service starts at once:
 
 ```bash
-sudo apt install ./routarr_<version>-1_amd64.deb      # Debian, Ubuntu: the service starts at once
-sudo dnf install ./routarr-<version>-1.x86_64.rpm     # Fedora, RHEL and their rebuilds
-sudo systemctl enable --now routarr                    # on Fedora and RHEL, which leave it off
-sudo -u routarr cat /var/lib/routarr/routarr.api_key   # the key the first visit asks for
+curl -fsSL https://packages.routarr.app/routarr.asc |
+  sudo gpg --dearmor -o /usr/share/keyrings/routarr.gpg
+echo "deb [signed-by=/usr/share/keyrings/routarr.gpg] https://packages.routarr.app/apt 0.3 main" |
+  sudo tee /etc/apt/sources.list.d/routarr.list
+sudo apt update && sudo apt install routarr
 ```
+
+On Fedora, RHEL and their rebuilds, which leave a new service off:
+
+```bash
+sudo curl -fsSL -o /etc/yum.repos.d/routarr.repo \
+  https://packages.routarr.app/rpm/routarr-0.3.repo
+sudo dnf install routarr && sudo systemctl enable --now routarr
+```
+
+Then `sudo -u routarr cat /var/lib/routarr/routarr.api_key` prints the key the first visit asks
+for. The key that signs the repositories and the rpm has the fingerprint SECURITY.md gives.
+
+**From a release's files**, the same packages without the updates:
+`sudo apt install ./routarr_<version>-1_amd64.deb`, or
+`sudo dnf install ./routarr-<version>-1.x86_64.rpm`.
 
 - **Where things are.** The service `routarr` runs as the system user `routarr`. Its library, its
   keys and its backups are in `/var/lib/routarr`, its settings in `/etc/routarr/routarr.env`, which
@@ -140,9 +160,10 @@ sudo -u routarr cat /var/lib/routarr/routarr.api_key   # the key the first visit
   ```
 
   with `ProtectHome=no` too when the folder is under `/home`.
-- **Upgrading** is installing the newer package: the service restarts on it, and its start
-  archives the library before migrating it, as in the image. **Removing** the package keeps
-  `/var/lib/routarr`. `sudo apt purge routarr` deletes it with the settings.
+- **Upgrading** is `sudo apt upgrade` or `sudo dnf upgrade`, or installing the newer file: the
+  service restarts on it, and its start archives the library before migrating it, as in the
+  image. **Removing** the package keeps `/var/lib/routarr`. `sudo apt purge routarr` deletes it
+  with the settings.
 
 **From the tarball**, on any distribution: unpack it anywhere and start `./routarr` from its
 folder, with `ROUTARR_DB_PATH` naming the database's whole path, such as

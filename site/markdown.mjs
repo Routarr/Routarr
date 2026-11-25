@@ -7,14 +7,14 @@
  * The HTML is Astro's own output for this site, so a small reader of tags is
  * enough and no parser enters the dependency tree. What a reader of the page
  * never meets is left out: a decoration hidden from assistive technology, an
- * icon, a button. Text kept for a screen reader stays, since it carries words
- * the eye takes from the layout.
+ * icon, a button, a group of radios. Text kept for a screen reader stays,
+ * since it carries words the eye takes from the layout.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
-const SKIPPED = new Set(['button', 'script', 'style', 'svg', 'template']);
+const SKIPPED = new Set(['button', 'fieldset', 'script', 'style', 'svg', 'template']);
 const CONTAINERS = new Set(['article', 'aside', 'details', 'div', 'figure', 'footer', 'header', 'main', 'nav', 'section']);
 const BLOCKS = new Set([...CONTAINERS, 'dl', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ol', 'p', 'pre', 'summary', 'table', 'ul']);
 

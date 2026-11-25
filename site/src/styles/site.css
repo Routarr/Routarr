@@ -833,7 +833,64 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .install-note { margin: 7px 0 0; font-size: 0.93rem; }
 .install-aside { display: flex; flex-direction: column; gap: 16px; }
 /* Full width, under the two columns rather than inside one of them. */
-.install + .callout { margin-top: 24px; }
+.install-choice + .callout { margin-top: 24px; }
+
+/* One way of installing at a time, chosen by a row of tabs. The radio stays
+   in place, transparent, so a click anywhere on the tab lands on it and the
+   ring of its focus is drawn by the tab. */
+.install-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 32px 0 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+}
+.install-tab {
+  position: relative;
+  margin-bottom: -1px;
+  padding: 10px 18px;
+  border-bottom: 2px solid transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.install-tab input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.install-tab:hover { color: var(--text); }
+.install-tab:has(input:checked) { color: var(--text); border-bottom-color: var(--accent); }
+.install-tab:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; }
+.install-panel .install { margin-top: 26px; }
+/* The three tabs stay on one row on a phone. */
+@media (max-width: 559px) {
+  .install-tab { padding: 10px 7px; font-size: 0.84rem; }
+}
+@supports selector(:has(*)) {
+  .install-panel { display: none; }
+  .install-choice:has([value="docker"]:checked) [data-install="docker"],
+  .install-choice:has([value="apt"]:checked) [data-install="apt"],
+  .install-choice:has([value="dnf"]:checked) [data-install="dnf"] { display: block; }
+}
+
+/* What a package puts where, beside its steps as the compose file is beside
+   the image's: one list, each place under the name a reader looks for. */
+.install-where {
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding: 16px 20px;
+}
+.install-where-title {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.install-where dl { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.install-where dt { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+.install-where dd { margin: 2px 0 0; font-size: 0.9rem; color: var(--text-soft); overflow-wrap: anywhere; }
+.install-where-more { margin: 16px 0 0; font-size: 0.9rem; }
 .callout-key { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 
 @media (max-width: 899px) {
@@ -1537,7 +1594,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   padding: 16px 20px;
   margin: 26px 0 0;
 }
-.callout p { margin: 0; font-size: 0.95rem; }
+/* A path breaks rather than leaves the box on a phone. */
+.callout p { margin: 0; font-size: 0.95rem; overflow-wrap: anywhere; }
 
 /* A claim inside a heading is the accent, not an italic: at this size the
    slant reads as a quotation and the colour reads as the point, and the

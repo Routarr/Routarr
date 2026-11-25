@@ -289,7 +289,7 @@ restates the diff says what the diff already says.
 
 ## Releasing
 
-One tag, one image, one release, and no bot: a version is published because
+One tag, one image and its packages, one release, and no bot: a version is published because
 somebody decided to publish it. A release is tagged on `main`, or, for a patch
 that cannot wait while `main` already holds the next minor, on the release
 branch of its minor ([below](#a-patch-on-a-release-branch)).
@@ -323,12 +323,19 @@ The tag builds the image for both architectures, starts each one through
 `scripts/smoke-image.sh`, pushes it to GHCR as `X.Y.Z` with the list of its
 packages (an SBOM), attests its provenance in GitHub's signed store
 (SECURITY.md says how to check it), and opens a **draft** release carrying the
-generated list of commits. The tags people follow move when the release is
+generated list of commits. From each image it builds the tarball, the deb and
+the rpm (`scripts/build-packages.sh`), checks each one installed
+(`scripts/smoke-package.sh`), then signs the rpm and the sums of every file
+with the key of the `production` environment and attaches them, attested, to
+the draft. The tags people follow move when the release is
 published: `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across minors)
 and `latest`, each onto the newest release it names, so an installation
 following one upgrades once the notes are there to read, and a patch of an
-older minor leaves `latest` where it is. A tag with a hyphen in it
-(`v1.2.0-rc.1`) publishes its exact version only.
+older minor leaves `latest` where it is. The publication also rebuilds the apt
+and dnf repositories of packages.routarr.app, a suite per minor line and
+`stable`, from the releases `scripts/repository-releases.py` keeps. A tag with a
+hyphen in it (`v1.2.0-rc.1`) publishes its exact version only, its packages on
+its own page.
 
 4. Write, at the top of that draft, what changed for someone running Routarr,
    in the same outline every release:
