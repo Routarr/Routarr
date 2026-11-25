@@ -122,7 +122,7 @@ MEMORY_FILES = ("CLAUDE.md", ".claude/rules/**/*.md")
 SOURCES = {
     "backend files": (
         "backend",
-        ("src/**/*.rs", "migrations/*.sql", "*.toml", "*.hbs", ".env.example",
+        ("src/**/*.rs", "migrations/*.sql", "*.toml", ".cargo/*.toml", "*.hbs", ".env.example",
          "proptest-regressions/**/*.txt"),
     ),
     # `index.html` holds the title a tab shows before the shell names the screen.
