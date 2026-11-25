@@ -1,8 +1,9 @@
 # Operating Routarr
 
 This guide is for whoever runs Routarr once the [quick start](README.md#quick-start) has it
-running: upgrading, backups and restore, the notes on installing it, a reverse proxy in front of
-it, the sign-in modes, what to do when something goes wrong, stronger isolation and monitoring.
+running: upgrading, backups and restore, the notes on installing it, the packages for Linux and
+Windows, a reverse proxy in front of it, the sign-in modes, what to do when something goes wrong,
+stronger isolation and monitoring.
 The variables it sets are listed and commented in [`backend/.env.example`](backend/.env.example).
 
 ## Contents
@@ -11,6 +12,7 @@ The variables it sets are listed and commented in [`backend/.env.example`](backe
 - [Backups and restore](#backups-and-restore)
 - [Install notes](#install-notes)
 - [Without Docker](#without-docker)
+- [On Windows](#on-windows)
 - [Behind a reverse proxy](#behind-a-reverse-proxy)
 - [Sign-in modes](#sign-in-modes)
 - [When something goes wrong](#when-something-goes-wrong)
@@ -150,6 +152,53 @@ folder, with `ROUTARR_DB_PATH` naming the database's whole path, such as
 Started from `/` by a service manager, a relative database path is refused, naming the variable.
 A unit of your own can start from [the package's](packaging/linux/routarr.service): Routarr tells
 systemd when it serves (`Type=notify`), and a configuration it refuses ends it with the status 78.
+
+## On Windows
+
+Each release also ships an installer and a zip for 64-bit Windows 10 and 11, and Windows Server
+2016 or later. The binary carries the C runtime it links, so no Visual C++ package is needed.
+
+**From the installer**, `routarr-<version>-windows-x64.msi`: open it, or run it unattended from
+PowerShell as administrator, then read the key the first visit asks for:
+
+```powershell
+msiexec /i routarr-<version>-windows-x64.msi /qn
+Get-Content $env:ProgramData\Routarr\routarr.api_key
+```
+
+- **Where things are.** The service `Routarr` starts with Windows, as its own virtual account
+  `NT SERVICE\Routarr`. The program is in `C:\Program Files\Routarr`. The library, its keys, its
+  backups and its log, `routarr.log`, are in `C:\ProgramData\Routarr`, which only SYSTEM, the
+  administrators and the service may open. Its settings are in `C:\ProgramData\Routarr\routarr.env`,
+  which an upgrade keeps: change a line there, then `Restart-Service Routarr`.
+- **A command by hand** runs in PowerShell as administrator, and reads the same settings from any
+  folder: `& "$env:ProgramFiles\Routarr\routarr.exe" reset-account`, or, after
+  `Stop-Service Routarr`, `& "$env:ProgramFiles\Routarr\routarr.exe" restore <archive>`.
+- **The network.** Routarr listens on every address, port 9876, and Windows Firewall lets in only
+  the machine itself until a rule allows the port, which this line adds for private and domain
+  networks:
+
+  ```powershell
+  New-NetFirewallRule -DisplayName Routarr -Direction Inbound -Protocol TCP -LocalPort 9876 -Profile Private,Domain -Action Allow
+  ```
+
+- **A backup copy folder on a NAS.** The service reaches a share as the computer itself, which a NAS
+  outside a Windows domain does not know. Run it as a local user the NAS accepts instead: give
+  that user the data folder with `icacls C:\ProgramData\Routarr /grant "<user>:(OI)(CI)F"`, then
+  `sc.exe config Routarr obj= ".\<user>" password= "<password>"` and `Restart-Service Routarr`, and
+  name the share in `ROUTARR_BACKUP_COPY_DIR`, such as `\\nas\routarr-backups`. An upgrade puts the
+  virtual account back: run the `sc.exe config` line again after it.
+- **Upgrading** is installing the newer MSI: it stops the service, replaces the program and starts
+  it again, and the start archives the library before migrating it, as in the image. A crash
+  restarts the service, and a configuration it refuses leaves it stopped, its reason in the log.
+  **Removing** Routarr from Settings, Apps, keeps `C:\ProgramData\Routarr`: delete the folder to
+  remove the library too.
+
+**From the zip**, `routarr-<version>-windows-x64.zip`: unpack it anywhere and start `routarr.exe`
+from its folder, with `ROUTARR_DB_PATH` naming the database's whole path, such as
+`$env:ROUTARR_DB_PATH = "D:\Routarr\routarr.db"; .\routarr.exe` in PowerShell. A data folder it
+makes is closed to the other users of the computer. Ctrl-C stops it cleanly. Closing its window
+stops it too, though Windows ends it a few seconds later, done or not.
 
 ## Behind a reverse proxy
 

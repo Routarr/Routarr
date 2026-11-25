@@ -106,6 +106,39 @@ def install(msi: Path, log: Path) -> None:
         raise SystemExit(f"msiexec /i ended with {done.returncode}\n{tail}")
 
 
+def refused_start() -> None:
+    """A variable the service refuses ends its start with the status 78, which the recovery
+    leaves stopped, and the log it never opened still says why."""
+    settings = DATA / "routarr.env"
+    kept = settings.read_text(encoding="utf-8")
+    # The first line naming a variable is the one read, so the line itself changes.
+    settings.write_text(
+        kept.replace("ROUTARR_PORT=9876", "ROUTARR_PORT=not-a-port"), encoding="utf-8"
+    )
+    try:
+        run("sc.exe", "start", SERVICE, check=False)
+        until(
+            "a refused configuration stops it", lambda: service_state() == "STOPPED", 60
+        )
+        stopped = run("sc.exe", "query", SERVICE).stdout
+        check(
+            re.search(r"SERVICE_EXIT_CODE\s+:\s+78\b", stopped) is not None,
+            "it stops with the status 78",
+        )
+        # Past the recovery's 30 s delay.
+        time.sleep(45)
+        check(
+            service_state() == "STOPPED",
+            "the recovery leaves a refused configuration stopped",
+        )
+        log = (DATA / "routarr.log").read_text(encoding="utf-8", errors="replace")
+        check(
+            "Routarr did not start" in log and "ROUTARR_PORT" in log, "its log says why"
+        )
+    finally:
+        settings.write_text(kept, encoding="utf-8")
+
+
 def the_msi(msi: Path, logs: Path) -> None:
     install(msi, logs / "install.log")
     until("the service runs", lambda: service_state() == "RUNNING")
@@ -162,6 +195,7 @@ def the_msi(msi: Path, logs: Path) -> None:
     )
     log = (DATA / "routarr.log").read_text(encoding="utf-8", errors="replace")
     check("Routarr stopped cleanly" in log, "it stops cleanly, as its log says")
+    refused_start()
 
     run("sc.exe", "start", SERVICE)
     until("it starts again", lambda: answers(9876))
