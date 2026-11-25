@@ -177,6 +177,7 @@
   "SessionEnded": "세션이 종료되었습니다.",
   "ApiKeyDockerCommand": "Docker 이미지에서는 다음 명령으로 확인할 수 있습니다:",
   "ApiKeyPackageCommand": "패키지에서는 다음 명령으로 확인할 수 있습니다:",
+  "ApiKeyWindowsCommand": "Windows 설치 프로그램에서는 관리자 권한으로 실행한 PowerShell에서 다음 명령으로 확인할 수 있습니다:",
   "ApiKeyGeneratedFile": "Routarr가 처음 시작할 때 생성해 데이터베이스 옆의 '{file}' 파일에 저장했습니다. 이 브라우저는 세션을 열기 위해 한 번 전송하며 사본을 보관하지 않습니다.",
   "AppliesTo": "적용 대상",
   "ApplyAll": "모두 적용 ({count})",

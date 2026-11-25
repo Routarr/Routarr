@@ -177,6 +177,7 @@
   "SessionEnded": "Sessão terminada.",
   "ApiKeyDockerCommand": "Com a imagem Docker, este comando mostra-a:",
   "ApiKeyPackageCommand": "Com o pacote, este comando mostra-a:",
+  "ApiKeyWindowsCommand": "Com o instalador do Windows, este comando mostra-a no PowerShell executado como administrador:",
   "ApiKeyGeneratedFile": "O Routarr gerou-a no primeiro arranque e gravou-a como {file}, junto à base de dados. Este navegador envia-a uma vez para abrir uma sessão e não guarda nenhuma cópia.",
   "AppliesTo": "Aplica-se a",
   "ApplyAll": "Aplicar tudo ({count})",

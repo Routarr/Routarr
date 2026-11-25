@@ -177,6 +177,7 @@
   "SessionEnded": "セッションを終了しました。",
   "ApiKeyDockerCommand": "Docker イメージでは、次のコマンドで表示できます:",
   "ApiKeyPackageCommand": "パッケージでは、次のコマンドで表示できます:",
+  "ApiKeyWindowsCommand": "Windows インストーラーでは、管理者として実行した PowerShell で次のコマンドで表示できます:",
   "ApiKeyGeneratedFile": "Routarr が初回起動時に生成し、データベースの隣に「{file}」として保存しました。このブラウザーはセッションを開くために一度だけ送信し、コピーを保持しません。",
   "AppliesTo": "適用対象",
   "ApplyAll": "すべて適用 ({count})",

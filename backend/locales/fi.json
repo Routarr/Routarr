@@ -177,6 +177,7 @@
   "SessionEnded": "Istunto päätetty.",
   "ApiKeyDockerCommand": "Docker-kuvaa käytettäessä tämä komento näyttää sen:",
   "ApiKeyPackageCommand": "Pakettia käytettäessä tämä komento näyttää sen:",
+  "ApiKeyWindowsCommand": "Windows-asennusohjelmaa käytettäessä tämä komento näyttää sen järjestelmänvalvojana suoritetussa PowerShellissä:",
   "ApiKeyGeneratedFile": "Routarr loi sen ensimmäisellä käynnistyksellä ja tallensi sen tiedostoon \"{file}\" tietokannan viereen. Tämä selain lähettää sen kerran istunnon avaamiseksi eikä säilytä siitä kopiota.",
   "AppliesTo": "Koskee",
   "ApplyAll": "Toteuta kaikki ({count})",

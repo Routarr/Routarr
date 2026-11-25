@@ -70,7 +70,15 @@ pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
     }
     let dir = &config.data_dir;
     let refused = |e: std::io::Error| unwritable(dir, &e, config.install);
+    let made_here = !dir.exists();
     std::fs::create_dir_all(dir).map_err(refused)?;
+    // A folder someone made keeps the permissions they gave it, the installer's included.
+    #[cfg(windows)]
+    if made_here {
+        crate::crypto::keep_folder_private(dir, system_root.as_deref());
+    }
+    #[cfg(not(windows))]
+    let _ = made_here;
     let probe = dir.join(".routarr-write-check");
     std::fs::File::create(&probe).map_err(refused)?;
     let foreign = owned_elsewhere(config, &probe);
@@ -246,6 +254,11 @@ fn unwritable(
             "The data directory {shown} cannot be written ({e}). Give it to the user Routarr runs \
              as, uid 1000 in the image (chown -R 1000:1000 on the host), or run the container as \
              the folder's owner with user:"
+        ),
+        (ErrorKind::PermissionDenied, Some(Install::Windows)) => format!(
+            "The data directory {shown} cannot be written ({e}). Run the command from PowerShell \
+             as administrator, or give the service's account, NT SERVICE\\Routarr, full control \
+             of the folder"
         ),
         (ErrorKind::PermissionDenied, Some(_)) => format!(
             "The data directory {shown} cannot be written ({e}). Give it to the user Routarr runs \
@@ -507,6 +520,10 @@ fn restore_command(archive: &str, install: Option<Install>) -> String {
     match install {
         Some(Install::Docker) => {
             format!("docker compose run --rm routarr /app/routarr restore {archive}")
+        }
+        // In PowerShell run as administrator, the only account the data folder lets in.
+        Some(Install::Windows) => {
+            format!("& \"$env:ProgramFiles\\Routarr\\routarr.exe\" restore {archive}")
         }
         Some(_) => format!("sudo -u routarr routarr restore {archive}"),
         None => format!("routarr restore {archive}"),
@@ -1440,8 +1457,10 @@ mod tests {
 
         let package = said(std::io::ErrorKind::PermissionDenied, Some(Install::Rpm));
         assert!(package.contains("sudo chown -R routarr:routarr /config"), "{package}");
+        let windows = said(std::io::ErrorKind::PermissionDenied, Some(Install::Windows));
+        assert!(windows.contains(r"NT SERVICE\Routarr") && !windows.contains("chown"), "{windows}");
         for kind in [std::io::ErrorKind::PermissionDenied, std::io::ErrorKind::ReadOnlyFilesystem] {
-            for native in [None, Some(Install::Deb)] {
+            for native in [None, Some(Install::Deb), Some(Install::Windows)] {
                 let told = said(kind, native);
                 assert!(
                     !told.contains("1000") && !told.contains("remove :ro"),
@@ -1459,6 +1478,10 @@ mod tests {
             "docker compose run --rm routarr /app/routarr restore routarr-0.3.0.zip"
         );
         assert_eq!(named(Some(Install::Deb)), "sudo -u routarr routarr restore routarr-0.3.0.zip");
+        assert_eq!(
+            named(Some(Install::Windows)),
+            r#"& "$env:ProgramFiles\Routarr\routarr.exe" restore routarr-0.3.0.zip"#
+        );
         assert_eq!(named(None), "routarr restore routarr-0.3.0.zip");
     }
 
@@ -1475,7 +1498,10 @@ mod tests {
         let service = std::path::Path::new("/WINDOWS/System32");
         assert!(misplaced(relative, service, Some(windows)).is_some());
 
-        let absolute = std::path::Path::new("/var/lib/routarr/routarr.db");
+        let absolute = match cfg!(windows) {
+            true => std::path::Path::new(r"C:\ProgramData\Routarr\routarr.db"),
+            false => std::path::Path::new("/var/lib/routarr/routarr.db"),
+        };
         assert!(misplaced(absolute, root, None).is_none());
         let home = std::path::Path::new("/home/someone");
         assert!(misplaced(relative, home, Some(windows)).is_none());

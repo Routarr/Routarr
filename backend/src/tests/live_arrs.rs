@@ -346,13 +346,20 @@ async fn a_move_with_files_lands_on_disk_and_a_refused_one_is_recorded() {
     let moved = on_host(&media, "/media/movies/big").join(host.file_name().unwrap());
     assert!(moved.join("Spirited Away (2001).strm").exists(), "the file is not at {moved:?}");
 
-    let locked = on_host(&media, "/media/locked");
+    // A folder the Arr cannot write takes a Unix mode, as the weekly job's host has.
+    #[cfg(unix)]
+    refused_into_a_locked_folder(&app, &media, arr_id).await;
+}
+
+#[cfg(unix)]
+async fn refused_into_a_locked_folder(app: &TestApp, media: &Path, arr_id: i64) {
+    let locked = on_host(media, "/media/locked");
     std::fs::create_dir_all(&locked).unwrap();
-    sync(&app, "radarr").await;
+    sync(app, "radarr").await;
     let mut readonly = std::fs::metadata(&locked).unwrap().permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut readonly, 0o555);
     std::fs::set_permissions(&locked, readonly).unwrap();
-    let report = move_to(&app, &media, "radarr", arr_id, ("locked", "/media/locked"), true).await;
+    let report = move_to(app, media, "radarr", arr_id, ("locked", "/media/locked"), true).await;
     assert_eq!((report.applied, report.failed), (0, 1), "{report:?}");
 }
 

@@ -316,6 +316,27 @@ async fn an_asynchronous_failure_keeps_its_code() {
     assert_eq!(task["error_message"], waited.json["message"], "{task}");
 }
 
+/// A script following the task reads the explanation from the moment it is failed, never the
+/// error as it came first.
+#[tokio::test]
+async fn a_failed_sync_reads_its_explanation_as_soon_as_it_fails() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let waited = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
+    let gate = super::races::arm("sync::failed", "inst-1");
+
+    let started = app.send(preferring_async("/api/v1/instances/inst-1/sync", json!({}))).await;
+    let id = started.assert_status(StatusCode::ACCEPTED)["task_id"].as_str().unwrap().to_string();
+    gate.reached().await;
+    let task = app.get(&format!("/api/v1/tasks/{id}")).await;
+    gate.release();
+
+    let task = task.assert_ok();
+    assert_eq!(task["status"], "failed", "{task}");
+    assert_eq!(task["error_message"], waited.json["message"], "{task}");
+    assert_eq!(task["error"], waited.json["error"], "{task}");
+}
+
 /// A question is asked before any work starts, so it answers at once
 /// whatever the caller prefers, and nothing runs.
 #[tokio::test]

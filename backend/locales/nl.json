@@ -177,6 +177,7 @@
   "SessionEnded": "Sessie beëindigd.",
   "ApiKeyDockerCommand": "Met de Docker-image toont deze opdracht hem:",
   "ApiKeyPackageCommand": "Met het pakket toont deze opdracht hem:",
+  "ApiKeyWindowsCommand": "Met het Windows-installatieprogramma toont deze opdracht hem in PowerShell, uitgevoerd als administrator:",
   "ApiKeyGeneratedFile": "Routarr heeft hem bij de eerste start aangemaakt en als {file} naast de database opgeslagen. Deze browser verzendt hem eenmaal om een sessie te openen en bewaart geen kopie.",
   "AppliesTo": "Geldt voor",
   "ApplyAll": "Alles toepassen ({count})",

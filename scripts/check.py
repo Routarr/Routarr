@@ -38,8 +38,9 @@ AREAS: dict[str, str] = {
 }
 ORDER = ["repository", "backend", "coverage", "frontend", "site", "e2e"]
 
-# Jobs that decide or gather and run nothing to check.
-CI_ONLY_JOBS = {"e2e-done"}
+# Jobs that decide or gather and run nothing to check, or check on a system the dev container
+# is not.
+CI_ONLY_JOBS = {"e2e-done", "backend-windows"}
 
 # Steps only CI takes, by the start of their command, each with why.
 CI_ONLY_STEPS = {

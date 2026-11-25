@@ -271,18 +271,26 @@ def main() -> int:
         )
 
     # --- The runners -----------------------------------------------------------
-    # GitHub moves `ubuntu-latest` on a day nobody chose, and has no such label for arm64, so
-    # every job names its Ubuntu release, the same on both architectures.
-    labels = []
+    # GitHub moves `ubuntu-latest` and `windows-latest` on a day nobody chose, and has no such
+    # label for arm64, so every job names its release, one Ubuntu on both architectures and one
+    # Windows.
+    labels, windows = [], []
     for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         relative = str(workflow.relative_to(ROOT))
         for label in re.findall(r"^\s*(?:runs-on|runner):\s*([^\s$][^\s]*)\s*$", workflow.read_text(), re.MULTILINE):
             release = re.fullmatch(r"ubuntu-(\d+\.\d+)(?:-arm)?", label)
+            windows_release = re.fullmatch(r"windows-(\d{4})", label)
             if release:
                 labels.append((relative, release.group(1)))
+            elif windows_release:
+                windows.append((relative, windows_release.group(1)))
             else:
-                failures.append(f"{relative} runs a job on {label}: name its Ubuntu release, as ubuntu-24.04")
+                failures.append(
+                    f"{relative} runs a job on {label}: name its release, as ubuntu-24.04 or windows-2025"
+                )
     failures += agree("The Ubuntu release of the runners", labels or [None])
+    if windows:
+        failures += agree("The Windows release of the runners", windows)
 
     # --- Coverage floors ------------------------------------------------------
     # CI enforces the backend floor and Vitest the frontend ones. The commands

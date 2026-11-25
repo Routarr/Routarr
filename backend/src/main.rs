@@ -31,6 +31,8 @@ mod models;
 mod paths;
 mod process;
 mod race;
+#[cfg(windows)]
+mod service;
 mod services;
 mod state;
 mod systemd;

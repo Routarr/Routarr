@@ -177,6 +177,7 @@
   "SessionEnded": "Sesja zakończona.",
   "ApiKeyDockerCommand": "W obrazie Dockera wyświetli go to polecenie:",
   "ApiKeyPackageCommand": "Przy instalacji z pakietu wyświetli go to polecenie:",
+  "ApiKeyWindowsCommand": "Przy instalacji instalatorem Windows wyświetli go to polecenie w PowerShellu uruchomionym jako administrator:",
   "ApiKeyGeneratedFile": "Routarr utworzył go przy pierwszym uruchomieniu i zapisał jako {file} obok bazy danych. Ta przeglądarka wysyła go raz, aby otworzyć sesję, i nie przechowuje jego kopii.",
   "AppliesTo": "Dotyczy",
   "ApplyAll": "Zastosuj wszystko ({count})",

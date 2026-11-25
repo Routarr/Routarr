@@ -900,7 +900,13 @@ impl Config {
         }
         let data = std::path::absolute(&self.data_dir).unwrap_or_else(|_| self.data_dir.clone());
         let (copy, data) = (lexical(copy), lexical(&data));
-        if copy.starts_with(&data) || data.starts_with(&copy) {
+        // Windows names a folder whatever its case.
+        let folded = |path: &Path| match cfg!(windows) {
+            true => PathBuf::from(path.to_string_lossy().to_lowercase()),
+            false => path.to_path_buf(),
+        };
+        let (within, around) = (folded(&copy), folded(&data));
+        if within.starts_with(&around) || around.starts_with(&within) {
             return Err(AppError::Config(format!(
                 "{VARIABLE} is {}, which holds or lies in the data folder {}. Copy to a folder \
                  of its own, mounted from another disk",
@@ -1046,8 +1052,18 @@ impl Config {
             cors_origins: vec![],
             allowed_hosts: vec![],
             trusted_proxies: vec![],
-            http_timeout: Duration::from_millis(300),
-            library_timeout: Duration::from_millis(900),
+            // Windows refuses a closed loopback port only after retrying for about two seconds,
+            // which a shorter budget reads as no answer.
+            http_timeout: if cfg!(windows) {
+                Duration::from_secs(3)
+            } else {
+                Duration::from_millis(300)
+            },
+            library_timeout: if cfg!(windows) {
+                Duration::from_secs(9)
+            } else {
+                Duration::from_millis(900)
+            },
             max_library_bytes: 1 << 20,
             move_wait: Duration::from_secs(2),
             webhook_answer_wait: Duration::from_secs(5),
@@ -1202,12 +1218,28 @@ const PACKAGED_BINARY: &str = "/usr/bin/routarr";
 const PACKAGED_VARIABLES: &str = "/etc/routarr/routarr.env";
 
 /// The variables file a start reads: the working directory's `.env`, or else, for the binary a
-/// package installed, the package's file, so a command run by hand reaches the service's
-/// library. A binary built or unpacked anywhere else reads no file outside its working
-/// directory, and a build never opens the service's library.
+/// package or the Windows installer put in place, the installer's file, so a command run by
+/// hand reaches the service's library. A binary built or unpacked anywhere else reads no file
+/// outside its working directory, and a build never opens the service's library.
 pub fn variables_file(dir: &Path, exe: Option<&Path>) -> AppResult<Option<PathBuf>> {
-    let packaged = exe == Some(Path::new(PACKAGED_BINARY));
-    variables_among(dir, packaged.then(|| Path::new(PACKAGED_VARIABLES)))
+    let folder = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let packaged = exe.and_then(|exe| packaged_variables(exe, folder));
+    variables_among(dir, packaged.as_deref())
+}
+
+/// The installer's variables file when `exe` is the binary it installed: `/usr/bin/routarr` on
+/// Linux, `Routarr\routarr.exe` under the program files on Windows, `folder` reading the folders
+/// Windows names.
+fn packaged_variables(exe: &Path, folder: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return (exe == Path::new(PACKAGED_BINARY)).then(|| PathBuf::from(PACKAGED_VARIABLES));
+    }
+    let installed = folder("ProgramFiles")?.join("Routarr").join("routarr.exe");
+    // Windows names a file whatever its case.
+    if !exe.to_string_lossy().eq_ignore_ascii_case(&installed.to_string_lossy()) {
+        return None;
+    }
+    Some(folder("ProgramData")?.join("Routarr").join("routarr.env"))
 }
 
 fn variables_among(dir: &Path, packaged: Option<&Path>) -> AppResult<Option<PathBuf>> {
@@ -1786,14 +1818,28 @@ mod tests {
 
     #[test]
     fn a_backup_copy_folder_is_whole_and_apart_from_the_data() {
+        // Absolute on the system the test runs on. Windows names a folder whatever its case.
+        let (database, refused, served): (&str, &[&str], &[&str]) = if cfg!(windows) {
+            (
+                r"C:\config\routarr.db",
+                &["copies", r"C:\config\backups", r"C:\config\..\config\x", r"C:\", r"c:\CONFIG\x"],
+                &[r"\\nas\routarr", r"C:\config-copy", r"C:\config\..\mnt\nas", r"D:\config"],
+            )
+        } else {
+            (
+                "/config/routarr.db",
+                &["copies", "/config/backups-copy", "/config/../config/x", "/", "/config"],
+                &["/mnt/nas/routarr", "/config-copy", "/config/../mnt/nas"],
+            )
+        };
         let mut config = Config::for_tests();
-        config.set_db_path(PathBuf::from("/config/routarr.db"));
-        for refused in ["copies", "/config/backups-copy", "/config/../config/x", "/", "/config"] {
+        config.set_db_path(PathBuf::from(database));
+        for &refused in refused {
             config.backup_copy_dir = Some(PathBuf::from(refused));
             let err = config.validate().expect_err(refused).to_string();
             assert!(err.contains("ROUTARR_BACKUP_COPY_DIR"), "{refused}: {err}");
         }
-        for served in ["/mnt/nas/routarr", "/config-copy", "/config/../mnt/nas"] {
+        for &served in served {
             config.backup_copy_dir = Some(PathBuf::from(served));
             assert!(config.validate().is_ok(), "{served}");
         }
@@ -1890,6 +1936,30 @@ mod tests {
 
         let built = Path::new("/ramdisk/cargo-target/release/routarr");
         assert_eq!(variables_file(&dir, Some(built)).unwrap(), None);
+    }
+
+    /// Any other copy of the binary, a portable one or a build, reads no file of the installer's.
+    #[test]
+    fn only_the_installed_binary_reads_the_installers_variables() {
+        let folders = |name: &str| match name {
+            "ProgramFiles" => Some(PathBuf::from(r"C:\Program Files")),
+            "ProgramData" => Some(PathBuf::from(r"C:\ProgramData")),
+            _ => None,
+        };
+        let (installed, elsewhere, file) = match cfg!(windows) {
+            true => (
+                r"c:\program files\routarr\ROUTARR.EXE",
+                r"C:\Users\someone\routarr\routarr.exe",
+                r"C:\ProgramData\Routarr\routarr.env",
+            ),
+            false => ("/usr/bin/routarr", "/opt/routarr/routarr", "/etc/routarr/routarr.env"),
+        };
+        let installed = Path::new(installed);
+        assert_eq!(packaged_variables(installed, folders), Some(PathBuf::from(file)));
+        assert_eq!(packaged_variables(Path::new(elsewhere), folders), None);
+        if cfg!(windows) {
+            assert_eq!(packaged_variables(installed, |_| None), None, "with no folder named");
+        }
     }
 
     /// A `TZ` naming no zone reads as UTC, unsaid, and every log line is off by its offset.

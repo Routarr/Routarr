@@ -307,7 +307,7 @@ export interface AuthMode {
   /** Set through `ROUTARR_API_KEY`, so a key replaced here would last until the next restart. */
   api_key_pinned: boolean;
   /** How Routarr was installed, from `ROUTARR_INSTALL`, null when nothing said. */
-  install: 'docker' | 'deb' | 'rpm' | null;
+  install: 'docker' | 'deb' | 'rpm' | 'windows' | null;
 }
 
 /** Who a request is, which the shell reads once the gate has let the person in. */

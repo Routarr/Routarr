@@ -30,9 +30,9 @@ paths:
   Tuesday. None of the last three gates anything.
 - `ci.yml` and `docker.yml` run on `release/**` pushes too: the release guard takes a tag on main
   or, for a patch while main holds the next minor, on its `release/X.Y` branch.
-- Every job runs on `ubuntu-24.04` or `ubuntu-24.04-arm`, one Ubuntu release, which
-  `check-versions.py` holds. A cache is written from main alone and read by every branch: the
-  repository holds 10 GB, and one a pull request writes only evicts main's.
+- Every job runs on `ubuntu-24.04` or `ubuntu-24.04-arm`, one Ubuntu release, or on
+  `windows-2025`, which `check-versions.py` holds. A cache is written from main alone and read by
+  every branch: the repository holds 10 GB, and one a pull request writes only evicts main's.
 - In `ci.yml`, `changes` gates every job except `repository`, and those two are the only
   unfiltered jobs. A check that must see every commit goes in one of them, as
   `scripts/check-versions.py` does in `changes`: a commit touching only a Dockerfile or
@@ -82,8 +82,9 @@ paths:
   a tool in both files. Run `bash scripts/check.sh repository` before pushing a script, a
   workflow, a Dockerfile or a contract change.
 - `scripts/check.py` runs the `run:` steps of `ci.yml` themselves, mapped to areas by job
-  (`AREAS`): a new job needs its line there, and a step only CI can take (an install, a filter)
-  its start in `CI_ONLY_STEPS`. `scripts/tests/test_check.py` fails on either missing.
+  (`AREAS`): a new job needs its line there, or in `CI_ONLY_JOBS` when it runs on Windows, and a
+  step only CI can take (an install, a filter) its start in `CI_ONLY_STEPS`.
+  `scripts/tests/test_check.py` fails on either missing.
 - On a pull request the repository job holds every commit subject and the title to the rules of
   `CONTRIBUTING.md` (`scripts/check-commits.py`). Dependabot's are left out.
 - gitleaks scans every commit and no `.gitleaksignore` exists: a secret-shaped literal, a

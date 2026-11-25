@@ -69,12 +69,19 @@ pub(crate) static STARTED: std::sync::LazyLock<f64> = std::sync::LazyLock::new(|
         .map_or(0.0, |since| since.as_secs_f64())
 });
 
-/// The resident memory of this process, from `/proc` where the system has one.
+/// The resident memory of this process, from `/proc`.
+#[cfg(target_os = "linux")]
 fn resident_bytes() -> Option<f64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = status.lines().find_map(|line| line.strip_prefix("VmRSS:"))?;
     let kib: f64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
     Some(kib * 1024.0)
+}
+
+/// The resident memory of this process, its working set on Windows.
+#[cfg(not(target_os = "linux"))]
+fn resident_bytes() -> Option<f64> {
+    memory_stats::memory_stats().map(|stats| stats.physical_mem as f64)
 }
 
 /// An instance's id, name, last sync outcome, enabled, last success, last try, auto-apply, last

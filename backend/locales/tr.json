@@ -177,6 +177,7 @@
   "SessionEnded": "Oturum sonlandırıldı.",
   "ApiKeyDockerCommand": "Docker imajıyla bu komut anahtarı gösterir:",
   "ApiKeyPackageCommand": "Paketle bu komut anahtarı gösterir:",
+  "ApiKeyWindowsCommand": "Windows yükleyicisiyle bu komut, yönetici olarak çalıştırılan PowerShell'de anahtarı gösterir:",
   "ApiKeyGeneratedFile": "Routarr ilk başlatmada bunu üretti ve veritabanının yanına {file} olarak kaydetti. Bu tarayıcı onu oturum açmak için bir kez gönderir ve kopyasını saklamaz.",
   "AppliesTo": "Şunlara uygulanır",
   "ApplyAll": "Tümünü uygula ({count})",

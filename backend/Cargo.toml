@@ -88,6 +88,14 @@ unicode-normalization = "0.1"
 # The free space of the data folder's disk, on Linux, macOS and Windows alike.
 fs4 = { version = "1.1.0", default-features = false }
 
+# The process's resident memory for the metrics, where no `/proc` tells it.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+memory-stats = "1.2.0"
+
+# The Windows service: its dispatcher, its controls and the states it reports, through a safe API.
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8.1"
+
 [dev-dependencies]
 http-body-util = "0.1"
 # Holds every documented answer the API gives to the schema the contract
