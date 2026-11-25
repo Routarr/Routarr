@@ -214,6 +214,11 @@ impl SonarrClient {
         self.api().move_commands().await
     }
 
+    /// Whether Sonarr is working on the series (`Api::title_in_hand`).
+    pub async fn title_in_hand(&self, series_id: i64) -> AppResult<bool> {
+        self.api().title_in_hand(series_id).await
+    }
+
     fn api(&self) -> Api<'_> {
         Api {
             service: SERVICE,

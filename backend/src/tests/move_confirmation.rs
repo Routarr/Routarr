@@ -148,6 +148,85 @@ async fn a_title_without_files_moves_whatever_the_arr_sees_of_its_folder() {
     assert_eq!(totoro_path(&app).await, AFTER);
 }
 
+/// Radarr's refresh after an add writes back the record it read as it began once a file comes
+/// in: a move made meanwhile would leave the files at the destination and the title pointing at
+/// its old folder.
+#[tokio::test]
+async fn a_move_waits_for_the_arr_to_finish_refreshing_the_title() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    arr.moving_for(Duration::from_millis(500));
+    arr.refreshing(10, Duration::from_millis(200), (BEFORE, "/movies/standard"));
+
+    let report = apply_with_files(&app, &decision_id).await;
+
+    assert_eq!((report.applied, report.failed), (1, 0), "{report:?}");
+    assert_eq!(totoro_path(&app).await, AFTER);
+}
+
+/// A repoint is overwritten as a move of files is, and a refresh that never ends stops the run
+/// with the title still to move.
+#[tokio::test]
+async fn nothing_is_sent_while_the_arr_refreshes_the_title() {
+    for move_files in [true, false] {
+        let arr = FakeArr::start().await;
+        let (app, decision_id) = one_move_ready(&arr).await;
+        let app = app.with_move_wait(Duration::from_millis(1));
+        arr.refreshing(10, STALLED, (BEFORE, "/movies/standard"));
+
+        let report = executor::apply_decisions(
+            &app.state,
+            std::slice::from_ref(&decision_id),
+            move_files,
+            &executor::Confirmed::all(),
+            &Attribution::manual(None),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(report.stopped, Some(executor::StopReason::Stalled), "{report:?}");
+        assert!(arr.recorded().writes.is_empty(), "sent with move_files {move_files}");
+        assert_eq!(decision(&app, &decision_id).await.0, "pending");
+    }
+}
+
+/// An Arr whose command list cannot be read is repointed as it was before Routarr read one.
+#[tokio::test]
+async fn a_repoint_goes_when_the_arr_lists_no_command() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    arr.break_command_listing();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.failed), (1, 0), "{report:?}");
+    assert_eq!(totoro_path(&app).await, AFTER);
+}
+
+/// A refresh of the whole library holds every title for minutes or hours, and rewrites one only
+/// when its tags change or a file comes in.
+#[tokio::test]
+async fn a_refresh_of_the_whole_library_does_not_hold_a_move() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    let lasts = Duration::from_secs(30);
+    arr.refreshing_the_library(lasts);
+    let started = std::time::Instant::now();
+
+    let report = apply_with_files(&app, &decision_id).await;
+
+    assert_eq!((report.applied, report.failed), (1, 0), "{report:?}");
+    assert!(started.elapsed() < lasts, "the move waited for the library's refresh");
+}
+
 #[tokio::test]
 async fn a_move_still_running_when_the_run_stops_waiting_is_confirmed_by_the_next_sync() {
     let arr = FakeArr::start().await;
