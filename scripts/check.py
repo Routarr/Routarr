@@ -40,7 +40,7 @@ ORDER = ["repository", "backend", "coverage", "frontend", "site", "e2e"]
 
 # Jobs that decide or gather and run nothing to check, or check on a system the dev container
 # is not.
-CI_ONLY_JOBS = {"e2e-done", "backend-windows"}
+CI_ONLY_JOBS = {"e2e-done", "backend-windows", "windows-installer"}
 
 # Steps only CI takes, by the start of their command, each with why.
 CI_ONLY_STEPS = {
@@ -52,8 +52,13 @@ CI_ONLY_STEPS = {
 # GitHub's shell for a `run:` that names none: a multi-line step stops at its first failure.
 SHELL = ["bash", "-e", "-c"]
 
-# Docker builds the image and the dev container, which the dev container cannot run.
-DOCKER_AREAS = {"image": "docker.yml builds and smoke-tests the image", "devcontainer": "docker.yml builds the dev container"}
+# What the dev container cannot build, with why: Docker builds the image and the dev container,
+# and a Windows runner the installer.
+ELSEWHERE = {
+    "image": "docker.yml builds and smoke-tests the image, which needs Docker",
+    "devcontainer": "docker.yml builds the dev container, which needs Docker",
+    "windows": "ci.yml builds and smoke-tests the Windows installer, which needs Windows",
+}
 
 # The KiB a heavy area's build needs free beside the trees already there, or it stops on ENOSPC
 # halfway: coverage builds the whole test suite again, instrumented, in a tree of its own, and e2e
@@ -240,7 +245,7 @@ def changed_areas(base: str | None) -> set[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("areas", nargs="*", metavar="AREA", help=f"{', '.join(ORDER)}, image, devcontainer or all")
+    parser.add_argument("areas", nargs="*", metavar="AREA", help=f"{', '.join(ORDER)}, {', '.join(ELSEWHERE)} or all")
     parser.add_argument("--changed", nargs="?", const="", metavar="BASE", help="the areas changed since BASE (the merge base with origin/main)")
     parser.add_argument("--fail-fast", action="store_true", help="stop at the first failure")
     parser.add_argument("--engines", default="chromium", help="the browsers the end-to-end suites run in, comma-separated")
@@ -255,12 +260,12 @@ def main() -> int:
             print(f"{step.area}\t{step.directory}\t{command}" + (f"\t(CI only: {why})" if why else ""))
         return 0
 
-    known = set(ORDER) | set(DOCKER_AREAS) | {"all"}
+    known = set(ORDER) | set(ELSEWHERE) | {"all"}
     unknown = [area for area in args.areas if area not in known]
     if unknown:
         parser.error(f"unknown area {', '.join(unknown)}")
     if "all" in args.areas:
-        wanted = set(ORDER) | set(DOCKER_AREAS)
+        wanted = set(ORDER) | set(ELSEWHERE)
     elif args.areas and args.changed is None:
         wanted = set(args.areas)
     else:
@@ -269,9 +274,9 @@ def main() -> int:
     passed: list[str] = []
     failed: list[str] = []
     skipped: list[str] = []
-    for area, why in DOCKER_AREAS.items():
+    for area, why in ELSEWHERE.items():
         if area in wanted:
-            skipped.append(f"{area}: {why}, which needs Docker")
+            skipped.append(f"{area}: {why}")
     engines = [engine.strip() for engine in args.engines.split(",") if engine.strip()]
     for area in [a for a in ORDER if a in wanted]:
         room = room_command(area, os.environ)

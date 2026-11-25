@@ -31,6 +31,8 @@ FILES = [
     "LICENSES/MIT-musl.txt",
     "scripts/smoke-package.sh",
     "scripts/install-nfpm.sh",
+    "packaging/windows/routarr.wxs",
+    "scripts/build-windows.py",
 ]
 
 
@@ -72,30 +74,33 @@ class ChangedAreas(unittest.TestCase):
         self.assertEqual(self.woken("contrib/monitoring/prometheus-alerts.yml"), ["backend"])
 
     def test_the_route_table_wakes_the_frontend_whose_tests_read_it(self):
-        self.assertEqual(self.woken("backend/src/main.rs"), ["backend", "frontend", "image"])
+        self.assertEqual(self.woken("backend/src/main.rs"), ["backend", "frontend", "image", "windows"])
 
     def test_a_bound_the_frontend_repeats_wakes_the_frontend_whose_tests_read_it(self):
-        self.assertEqual(self.woken("backend/src/api/auth.rs"), ["backend", "frontend", "image"])
+        self.assertEqual(self.woken("backend/src/api/auth.rs"), ["backend", "frontend", "image", "windows"])
 
     def test_the_contract_wakes_the_frontend_whose_reference_test_reads_it(self):
         self.assertEqual(
-            self.woken("backend/openapi/v1.json"), ["backend", "frontend", "image", "site"]
+            self.woken("backend/openapi/v1.json"),
+            ["backend", "frontend", "image", "site", "windows"],
         )
 
     def test_the_english_dictionary_wakes_every_job_that_reads_it(self):
         self.assertEqual(
-            self.woken("backend/locales/en.json"), ["backend", "frontend", "image", "site"]
+            self.woken("backend/locales/en.json"),
+            ["backend", "frontend", "image", "site", "windows"],
         )
 
     def test_the_backend_sources_the_site_check_counts_wake_the_site(self):
         for source in ["backend/src/api/conditions.rs", "backend/src/services/notify.rs",
                        "backend/src/services/executor/mod.rs"]:
             with self.subTest(source):
-                self.assertEqual(self.woken(source), ["backend", "image", "site"])
+                self.assertEqual(self.woken(source), ["backend", "image", "site", "windows"])
 
     def test_the_settings_whose_backup_defaults_the_site_states_wake_the_site(self):
         self.assertEqual(
-            self.woken("backend/src/services/settings.rs"), ["backend", "frontend", "image", "site"]
+            self.woken("backend/src/services/settings.rs"),
+            ["backend", "frontend", "image", "site", "windows"],
         )
 
     def test_a_path_git_would_quote_is_read_as_written(self):
@@ -117,12 +122,17 @@ class ChangedAreas(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(self.woken(source), ["backend", "image"])
 
+    def test_the_windows_packaging_wakes_the_installer_alone(self):
+        self.assertEqual(self.woken("packaging/windows/routarr.wxs"), ["windows"])
+        # The backend job runs the checks under `scripts/`, so a script wakes it as well.
+        self.assertEqual(self.woken("scripts/build-windows.py"), ["backend", "windows"])
+
     def test_the_dev_container_wakes_its_own_build_alone(self):
         self.assertEqual(self.woken(".devcontainer/Dockerfile"), ["devcontainer"])
 
     def test_the_toolchain_wakes_both_images_and_the_backend(self):
         self.assertEqual(
-            self.woken("backend/rust-toolchain.toml"), ["backend", "devcontainer", "image"]
+            self.woken("backend/rust-toolchain.toml"), ["backend", "devcontainer", "image", "windows"]
         )
 
     def test_a_base_that_cannot_be_read_wakes_everything(self):
@@ -138,7 +148,7 @@ class ChangedAreas(unittest.TestCase):
         ).stdout
         woken = {key for key, value in (line.split("=") for line in answer.split())
                  if value == "true"}
-        self.assertEqual(woken, {"frontend", "image", "site"})
+        self.assertEqual(woken, {"frontend", "image", "site", "windows"})
 
 
 if __name__ == "__main__":

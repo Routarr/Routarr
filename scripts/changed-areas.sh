@@ -77,9 +77,12 @@ SITE_READS='backend/(Cargo\.toml|locales/|openapi/v1\.json|src/api/conditions\.r
 echo "site=$(decide "^(site/|$SITE_READS|scripts/install-browser\.sh|$CONTROL)")"
 # What the root Dockerfile builds or copies, what starts the image, and the
 # compose file whose container name and data path the first-run command names.
-# The packages too, built from the image with what `packaging/` and musl's notice add.
+# The Linux packages too, built from the image with what `packaging/linux/` and musl's notice add.
 # Not ci.yml: nothing in it reaches the image.
-echo "image=$(decide '^(Dockerfile|\.dockerignore|backend/|frontend/|LICENSE|LICENSES/MIT-musl\.txt|docker-compose\.yml|packaging/|scripts/(changed-areas|smoke-image|install-runtime|build-packages|smoke-package|install-nfpm)\.sh|\.github/workflows/docker\.yml)')"
+echo "image=$(decide '^(Dockerfile|\.dockerignore|backend/|frontend/|LICENSE|LICENSES/MIT-musl\.txt|docker-compose\.yml|packaging/linux/|scripts/(changed-areas|smoke-image|install-runtime|build-packages|smoke-package|install-nfpm)\.sh|\.github/workflows/docker\.yml)')"
+# What the Windows installer and zip ship and what builds them: the binary and the interface from
+# their sources, the licence, `packaging/windows/` and its two scripts.
+echo "windows=$(decide "^(backend/|frontend/|LICENSE$|packaging/windows/|scripts/(build|smoke)-windows\.py|$CONTROL)")"
 # What the dev container's Dockerfile builds from: its own directory, the
 # toolchain file it copies, and the ignore file that decides what it can copy.
 echo "devcontainer=$(decide '^(\.devcontainer/|backend/rust-toolchain\.toml|\.dockerignore|scripts/changed-areas\.sh|\.github/workflows/docker\.yml)')"

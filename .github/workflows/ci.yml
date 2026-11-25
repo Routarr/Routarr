@@ -37,6 +37,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       site: ${{ steps.filter.outputs.site }}
+      windows: ${{ steps.filter.outputs.windows }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,7 +64,7 @@ jobs:
           areas=$(bash scripts/changed-areas.sh "$base" "$HEAD")
           printf '%s\n' "$areas" | tee -a "$GITHUB_OUTPUT"
           # A missing line skips every job it gates, and the run reads green.
-          for area in backend frontend site; do
+          for area in backend frontend site windows; do
             grep -qxE "$area=(true|false)" <<<"$areas" || { echo "::error::no $area line"; exit 1; }
           done
 
@@ -297,6 +298,86 @@ jobs:
 
       - name: Test on Windows
         run: cargo test --locked
+
+  # The MSI and the portable zip, built as a release builds them, then installed, run and
+  # removed on the runner (`scripts/smoke-windows.py`).
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-2025
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_LC_SYS_PREBUILT_NASM: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: backend
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the interface
+        working-directory: frontend
+        run: npm ci --ignore-scripts && npm run build
+
+      - name: Build the binary
+        working-directory: backend
+        run: cargo build --release --locked
+
+      - name: Install cargo about
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-about@0.9.2
+
+      # The crates the Windows binary links, which differ from the image's.
+      - name: List the crates' notices
+        working-directory: backend
+        run: |
+          cargo fetch --locked
+          cargo about generate --frozen --target x86_64-pc-windows-msvc about.hbs \
+            -o "$RUNNER_TEMP/crates-notices.txt"
+
+      - name: Fetch WiX
+        run: python scripts/build-windows.py wix "$RUNNER_TEMP/wix"
+
+      # And the same binary as the next patch release, which the smoke test upgrades to.
+      - name: Build the installer and the zip
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/Cargo.toml | head -1)
+          next=$(python -c 'import sys; a, b, c = sys.argv[1].split("-")[0].split("."); print(f"{a}.{b}.{int(c) + 1}")' "$version")
+          for built in "$version windows-dist" "$next windows-next"; do
+            read -r as out <<<"$built"
+            python scripts/build-windows.py package --version "$as" \
+              --exe backend/target/release/routarr.exe --frontend frontend/dist \
+              --crates-notices "$RUNNER_TEMP/crates-notices.txt" --wix "$RUNNER_TEMP/wix" \
+              --out "$out"
+          done
+
+      - name: Install, run, upgrade and remove them
+        run: |
+          python scripts/smoke-windows.py windows-dist/*.msi windows-dist/*.zip \
+            windows-next/*.msi
+
+      # To try on a machine of one's own.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: windows
+          path: windows-dist/
+          if-no-files-found: ignore
+          retention-days: 7
 
   coverage:
     name: Backend coverage

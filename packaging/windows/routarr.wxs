@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows installer, built by `scripts/build-windows.py` with WiX 7 from the folder it stages
+  (`Stage`): routarr.exe, frontend\dist, LICENSE, third-party-notices.txt and routarr.env.
+  `scripts/smoke-windows.py` installs it on a runner, checks what it set, and removes it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+  <!-- The upgrade code names Routarr across every release: changed, an upgrade installs beside. -->
+  <Package Name="Routarr" Manufacturer="The Routarr contributors" Version="$(Version)"
+           UpgradeCode="{2F56784C-E69A-4A7D-88A4-22BB69B6A408}" Scope="perMachine" Language="1033">
+    <SummaryInformation Description="Routarr $(Version)" />
+    <!-- A release candidate and its release share their X.Y.Z, the only version an MSI reads. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer Routarr is already installed."
+                  AllowSameVersionUpgrades="yes" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Routarr">
+        <Component Id="Service">
+          <File Id="RoutarrExe" Source="$(Stage)\routarr.exe" KeyPath="yes">
+            <!-- The port of routarr.env, to this program alone, on the networks a person calls
+                 their own. A public network reaches it only through a rule of the owner's. -->
+            <fw:FirewallException Id="PrivateNetworks" Name="Routarr (private networks)"
+                                  Port="9876" Protocol="tcp" Profile="private" Scope="any" />
+            <fw:FirewallException Id="DomainNetworks" Name="Routarr (domain networks)"
+                                  Port="9876" Protocol="tcp" Profile="domain" Scope="any" />
+          </File>
+          <!-- A virtual account of its own: only Routarr reaches its folder. -->
+          <ServiceInstall Name="Routarr" DisplayName="Routarr"
+                          Description="Routing layer for Radarr and Sonarr. Its interface answers on port 9876."
+                          Type="ownProcess" Start="auto" ErrorControl="normal"
+                          Account="NT SERVICE\Routarr" Arguments="service" Vital="yes">
+            <!-- A crash restarts it. A refused configuration reports its own stop, which the
+                 recovery leaves alone, so it never loops. -->
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                                ThirdFailureActionType="none" RestartServiceDelayInSeconds="30"
+                                ResetPeriodInDays="1" />
+            <!-- The minute a shutdown waits for it: the stop drains, then checkpoints. -->
+            <ServiceConfig PreShutdownDelay="60000" OnInstall="yes" OnReinstall="yes" />
+          </ServiceInstall>
+          <ServiceControl Id="Routarr" Name="Routarr" Start="install" Stop="both"
+                          Remove="uninstall" Wait="yes" />
+        </Component>
+        <Component Id="Licence">
+          <File Source="$(Stage)\LICENSE" KeyPath="yes" />
+        </Component>
+        <Component Id="Notices">
+          <File Source="$(Stage)\third-party-notices.txt" KeyPath="yes" />
+        </Component>
+        <!-- Where the binary looks for its interface, beside itself. -->
+        <Directory Id="FrontendFolder" Name="frontend">
+          <Directory Id="DistFolder" Name="dist">
+            <Files Include="$(Stage)\frontend\dist\**" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Kept by an upgrade and by a removal: the library, its keys, its backups and its log. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="Routarr">
+        <Component Id="DataFolder" Guid="{2C6A45FD-AC6D-481E-9643-C357616E08B4}" Permanent="yes">
+          <!-- Nothing inherited: SYSTEM, the Administrators group and the service's virtual
+               account alone, by the SID Windows derives from the service's name. -->
+          <CreateFolder>
+            <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-5-80-3761061978-61174670-2533838913-3126789003-4042957200)" />
+          </CreateFolder>
+        </Component>
+        <Component Id="Settings" Guid="{91B39903-3D01-403B-BBC2-B3D226751127}" Permanent="yes"
+                   NeverOverwrite="yes">
+          <File Source="$(Stage)\routarr.env" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

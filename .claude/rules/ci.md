@@ -65,6 +65,11 @@ paths:
   `PACKAGE_KEY_COMMAND` of `ApiKeyGate.svelte` as `smoke-image.sh` runs `READ_KEY_COMMAND`. The
   paths there (`/usr/bin/routarr`, `/etc/routarr/routarr.env`, `/var/lib/routarr`) are also
   constants of `backend/src/config.rs` and `db.rs`.
+- The MSI and the Windows zip are built from source on a Windows runner (`windows-installer` in
+  `ci.yml`, `scripts/build-windows.py`, `packaging/windows/`, the `windows` area), and
+  `scripts/smoke-windows.py` installs them, runs `WINDOWS_KEY_COMMAND` and removes them. The SID
+  `routarr.wxs` opens the data folder to derives from the service's name in `service.rs`
+  (`scripts/tests/test_build_windows.py`), and the installed paths are those of `config.rs`.
 - No release build restores a cache: anything that runs on main can write the one `docker.yml`
   keeps, and `release.yml` signs what it builds. Every `setup-buildx-action` names BuildKit by
   digest (`driver-opts`), and `check-versions.py` holds the copies equal.
