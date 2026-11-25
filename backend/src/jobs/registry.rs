@@ -528,11 +528,22 @@ impl JobHandle {
     /// is: it comes from the database, the network or an Arr, not from here.
     /// The log keeps the whole error, and the row what a caller may read of
     /// it: any key reads the task list.
-    pub async fn fail(mut self, error: &crate::error::AppError) {
+    pub async fn fail(self, error: &crate::error::AppError) {
+        self.fail_read_as(error, error).await;
+    }
+
+    /// [`JobHandle::fail`], the row holding `read`: what a caller of the same work is told, such
+    /// as the explanation of an Arr out of reach. Written in the same statement that fails the
+    /// job, so a caller following it never reads the error as it came.
+    pub async fn fail_read_as(
+        mut self,
+        error: &crate::error::AppError,
+        read: &crate::error::AppError,
+    ) {
         self.settled = true;
         self.forget_cancel();
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job failed: {error}");
-        let (id, message, code) = (self.id.clone(), error.public_message(), error.code());
+        let (id, message, code) = (self.id.clone(), read.public_message(), read.code());
         record_outcome(self.pool.clone(), self.id.clone(), move |pool| {
             let (id, message) = (id.clone(), message.clone());
             async move {

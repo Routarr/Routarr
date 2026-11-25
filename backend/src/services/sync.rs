@@ -245,8 +245,7 @@ async fn sync_instance_inner(
                     error: said.stored.clone(),
                 },
             );
-            let (task, told) = (job.id.clone(), said.said.clone());
-            job.fail(e).await;
+            let told = said.said.clone();
             let refusal = explained.map(|(_, outage)| {
                 if outage {
                     AppError::UpstreamDown(told.clone())
@@ -255,20 +254,8 @@ async fn sync_instance_inner(
                 }
             });
             // The task says what the caller reads, its log line the error as it came.
-            if let Some(refusal) = &refusal
-                && let Err(e) = sqlx::query(
-                    "UPDATE jobs SET error_message = ?, error_code = ?
-                      WHERE id = ? AND status = 'failed'",
-                )
-                .bind(refusal.public_message())
-                .bind(refusal.code())
-                .bind(&task)
-                .execute(&state.pool)
-                .await
-            {
-                let name = &instance.name;
-                warn!(instance = %name, "Could not explain the failed sync on its task: {e}");
-            }
+            job.fail_read_as(e, refusal.as_ref().unwrap_or(e)).await;
+            crate::race::checked("sync::failed", &instance.id).await;
             failed = Some((told, refusal));
             // A database refusal or a key that cannot be opened is no Arr out of reach.
             let unreachable = matches!(e, AppError::ExternalApi { .. } | AppError::UpstreamDown(_));
