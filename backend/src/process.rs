@@ -43,6 +43,17 @@ pub enum Stops {
 }
 
 impl Stops {
+    /// Where an error goes that ends the start before the log is open: a service has no console,
+    /// so the installer's data folder keeps it in the log file it would have written.
+    fn unlogged_errors_to(&self) -> Option<std::path::PathBuf> {
+        match self {
+            Self::Console => None,
+            #[cfg(windows)]
+            Self::Service(_) => std::env::var_os("ProgramData")
+                .map(|data| std::path::Path::new(&data).join("Routarr").join("routarr.log")),
+        }
+    }
+
     /// The stop, and a second one that hurries it.
     fn heard(self, hangup: bool) -> (BoxFuture<'static, ()>, BoxFuture<'static, ()>) {
         match self {
@@ -59,10 +70,17 @@ type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + 
 
 /// Run `invocation` on a runtime of its own until it ends, and answer its exit status.
 pub fn run_to_end(invocation: commands::Invocation, stops: Stops) -> u8 {
+    let unlogged = stops.unlogged_errors_to();
+    let refused = |said: &str| {
+        eprintln!("Error: {said}");
+        if let Some(file) = &unlogged {
+            keep_unlogged(file, said);
+        }
+    };
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {
-            eprintln!("Error: the runtime cannot start: {e}");
+            refused(&format!("the runtime cannot start: {e}"));
             return 1;
         }
     };
@@ -74,7 +92,7 @@ pub fn run_to_end(invocation: commands::Invocation, stops: Stops) -> u8 {
                 if tracing::dispatcher::has_been_set() {
                     log_error!("{error}");
                 } else {
-                    eprintln!("Error: {error}");
+                    refused(&error.to_string());
                 }
                 error::exit_status(error.as_ref())
             }
@@ -290,6 +308,20 @@ fn init_tracing(config: &Config, file: Option<std::sync::Mutex<crate::logging::R
         let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
         let file = file.map(|file| crate::logging::text_layer(file, false));
         registry.with(crate::logging::text_layer(std::io::stdout, colours)).with(file).init();
+    }
+}
+
+/// Add the error that ended a start to `file`, the time first, as a log line would say it.
+fn keep_unlogged(file: &std::path::Path, said: &str) {
+    use std::io::Write;
+    let line = format!("{} ERROR Routarr did not start: {said}\n", jiff::Timestamp::now());
+    let kept = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .and_then(|mut log| log.write_all(line.as_bytes()));
+    if let Err(e) = kept {
+        eprintln!("Error: {} could not keep it: {e}", file.display());
     }
 }
 
