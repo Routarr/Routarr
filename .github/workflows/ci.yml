@@ -357,7 +357,7 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' backend/Cargo.toml | head -1)
           next=$(python -c 'import sys; a, b, c = sys.argv[1].split("-")[0].split("."); print(f"{a}.{b}.{int(c) + 1}")' "$version")
-          for built in "$version windows-dist" "$next $RUNNER_TEMP/windows-next"; do
+          for built in "$version windows-dist" "$next windows-next"; do
             read -r as out <<<"$built"
             python scripts/build-windows.py package --version "$as" \
               --exe backend/target/release/routarr.exe --frontend frontend/dist \
@@ -368,7 +368,7 @@ jobs:
       - name: Install, run, upgrade and remove them
         run: |
           python scripts/smoke-windows.py windows-dist/*.msi windows-dist/*.zip \
-            "$RUNNER_TEMP"/windows-next/*.msi
+            windows-next/*.msi
 
       # To try on a machine of one's own.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
