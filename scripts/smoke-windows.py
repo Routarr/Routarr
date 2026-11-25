@@ -140,6 +140,20 @@ def refused_start() -> None:
         settings.write_text(kept, encoding="utf-8")
 
 
+def firewall_rules() -> list[str]:
+    """Each rule the installer adds, as its profile, direction, action, state and port."""
+    listed = run(
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-NetFirewallRule -DisplayName 'Routarr (*' -ErrorAction SilentlyContinue | "
+        "ForEach-Object { '{0} {1} {2} {3} {4}' -f $_.Profile, $_.Direction, $_.Action, "
+        "$_.Enabled, ($_ | Get-NetFirewallPortFilter).LocalPort }",
+    ).stdout
+    return sorted(line.strip() for line in listed.splitlines() if line.strip())
+
+
 def installed_versions() -> list[str]:
     """The version of each product named Routarr in the machine's list of installed programs."""
     listed = run(
@@ -196,6 +210,11 @@ def the_msi(msi: Path, logs: Path, upgrade: Path | None) -> None:
     )
     failure = run("sc.exe", "qfailure", SERVICE).stdout
     check("RESTART" in failure, "a crash restarts it")
+    check(
+        firewall_rules()
+        == ["Domain Inbound Allow True 9876", "Private Inbound Allow True 9876"],
+        f"the firewall lets in its port on private and domain networks: {firewall_rules()}",
+    )
     preshutdown = run(
         "reg",
         "query",
@@ -254,6 +273,7 @@ def the_msi(msi: Path, logs: Path, upgrade: Path | None) -> None:
     )
     check(done.returncode == 0, "msiexec /x removes it")
     check(service_state() is None, "the service is gone")
+    check(firewall_rules() == [], "its firewall rules are gone")
     check(not (PROGRAM / "routarr.exe").exists(), "the program is gone")
     check(
         (DATA / "routarr.db").exists() and (DATA / "routarr.env").exists(),

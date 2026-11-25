@@ -174,9 +174,9 @@ Get-Content $env:ProgramData\Routarr\routarr.api_key
 - **A command by hand** runs in PowerShell as administrator, and reads the same settings from any
   folder: `& "$env:ProgramFiles\Routarr\routarr.exe" reset-account`, or, after
   `Stop-Service Routarr`, `& "$env:ProgramFiles\Routarr\routarr.exe" restore <archive>`.
-- **The network.** Routarr listens on every address, port 9876, and Windows Firewall lets in only
-  the machine itself until a rule allows the port, which this line adds for private and domain
-  networks:
+- **The network.** Routarr listens on every address, port 9876, and the installer lets that port
+  in to `routarr.exe` on the networks Windows calls private or domain, never on a public one. A
+  port changed in `routarr.env`, or a network left public, takes a rule of your own:
 
   ```powershell
   New-NetFirewallRule -DisplayName Routarr -Direction Inbound -Protocol TCP -LocalPort 9876 -Profile Private,Domain -Action Allow

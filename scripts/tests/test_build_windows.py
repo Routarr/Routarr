@@ -129,6 +129,20 @@ class Installer(unittest.TestCase):
             sorted(["SY", "BA", service_sid(self.name)]),
         )
 
+    def test_the_firewall_lets_in_the_settings_port_on_private_and_domain_networks(
+        self,
+    ):
+        settings = (ROOT / "packaging" / "windows" / "routarr.env").read_text()
+        port = re.search(r"^ROUTARR_PORT=(\d+)$", settings, re.MULTILINE).group(1)
+        rules = re.findall(r"<fw:FirewallException [^>]*>", self.wxs, re.DOTALL)
+        profiles = sorted(
+            re.search(r'Profile="([^"]+)"', rule).group(1) for rule in rules
+        )
+        self.assertEqual(profiles, ["domain", "private"], "a public network is let in")
+        for rule in rules:
+            self.assertIn(f'Port="{port}"', rule)
+            self.assertIn('Protocol="tcp"', rule)
+
     def test_the_sid_is_derived_as_windows_derives_it(self):
         self.assertEqual(
             service_sid("TrustedInstaller"),

@@ -51,9 +51,20 @@ WIX_PACKAGES = (
             "6fad96845a88d4e1eb64db9f571f93390b5f67bd3412984c1497d4d95898103d"
         ),
     ),
+    (
+        "firewall",
+        "wixtoolset.firewall.wixext",
+        (
+            "875dfabfab488e73a2748284825f3889a137cc52fe734a84ecee93686907164c"
+            "1b1a02e78f28c81a4f6f78eeefa63c5170fa0d529e8515989aee6f869becf0e4"
+        ),
+    ),
 )
 WIX_TOOL = Path("wix/tools/net8.0/any/wix.dll")
-WIX_UTIL = Path("util/wixext7/WixToolset.Util.wixext.dll")
+WIX_EXTENSIONS = (
+    Path("util/wixext7/WixToolset.Util.wixext.dll"),
+    Path("firewall/wixext7/WixToolset.Firewall.wixext.dll"),
+)
 FEED = "https://api.nuget.org/v3-flatcontainer/{id}/{version}/{id}.{version}.nupkg"
 
 # The PE header's machine field of an x86-64 image.
@@ -152,8 +163,11 @@ def write_msi(stage_dir: Path, out: Path, name: str, version: str, wix: Path) ->
         "x64",
         "-acceptEula",
         "wix7",
-        "-ext",
-        str(wix / WIX_UTIL),
+        *(
+            part
+            for extension in WIX_EXTENSIONS
+            for part in ("-ext", str(wix / extension))
+        ),
         "-d",
         f"Version={msi_version(version)}",
         "-d",

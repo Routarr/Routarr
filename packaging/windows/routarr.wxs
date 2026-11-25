@@ -5,7 +5,8 @@
   `scripts/smoke-windows.py` installs it on a runner, checks what it set, and removes it.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
   <!-- The upgrade code names Routarr across every release: changed, an upgrade installs beside. -->
   <Package Name="Routarr" Manufacturer="The Routarr contributors" Version="$(Version)"
            UpgradeCode="{2F56784C-E69A-4A7D-88A4-22BB69B6A408}" Scope="perMachine" Language="1033">
@@ -18,7 +19,14 @@
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Routarr">
         <Component Id="Service">
-          <File Id="RoutarrExe" Source="$(Stage)\routarr.exe" KeyPath="yes" />
+          <File Id="RoutarrExe" Source="$(Stage)\routarr.exe" KeyPath="yes">
+            <!-- The port of routarr.env, to this program alone, on the networks a person calls
+                 their own. A public network reaches it only through a rule of the owner's. -->
+            <fw:FirewallException Id="PrivateNetworks" Name="Routarr (private networks)"
+                                  Port="9876" Protocol="tcp" Profile="private" Scope="any" />
+            <fw:FirewallException Id="DomainNetworks" Name="Routarr (domain networks)"
+                                  Port="9876" Protocol="tcp" Profile="domain" Scope="any" />
+          </File>
           <!-- A virtual account of its own: only Routarr reaches its folder. -->
           <ServiceInstall Name="Routarr" DisplayName="Routarr"
                           Description="Routing layer for Radarr and Sonarr. Its interface answers on port 9876."
