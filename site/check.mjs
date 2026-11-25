@@ -105,10 +105,10 @@ if (!/^\/\.well-known\/security\.txt\s*\n\s+Content-Type: text\/plain; charset=u
 for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml'), llms ?? '', securityTxt]) {
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
-// `localhost` appears in the install instructions as prose, not as a host the
-// site talks to, and `_headers` names the Web Analytics beacon's host. The rest
-// are well-known vocabulary and outbound links.
-const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|lucide\.dev|localhost|127\.0\.0\.1|cloudflareinsights\.com)/;
+// `localhost` and the package repositories appear in the install commands as
+// prose, not as hosts the site talks to, and `_headers` names the Web Analytics
+// beacon's host. The rest are well-known vocabulary and outbound links.
+const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|lucide\.dev|localhost|127\.0\.0\.1|^packages\.routarr\.app$|cloudflareinsights\.com)/;
 const own = [...origins].filter((o) => !EXTERNAL.test(o));
 if (own.length > 1) fail(`several site origins in use, pick one: ${own.join(', ')}`);
 const ORIGIN = own[0];
@@ -204,7 +204,7 @@ const englishLabels = Object.fromEntries(
 for (const [file, labels] of Object.entries(englishLabels)) {
   if (labels.size < 4) fail(`only ${labels.size} label(s) on the English ${file}: the guard read nothing`);
 }
-const ESCAPED = ['one compose up', 'Global dry-run', 'Batch limit', '// before', 'Press Ctrl+C', 'Not affiliated'];
+const ESCAPED = ['a few commands','Global dry-run', 'Batch limit', '// before', 'Press Ctrl+C', 'Not affiliated'];
 for (const { code, path } of LANGUAGES) {
   if (code === 'en') continue;
   for (const other of ['index.html', ...SUBPAGES]) {
@@ -512,6 +512,24 @@ if (!readKey) {
     const stated = [...text.matchAll(/docker exec [^\s'"`,]+ cat [^\s'"`,]+/g)].map((m) => m[0]);
     if (!stated.length || stated.some((command) => command !== readKey)) {
       fail(`${file} states the first-run command as ${stated.join(', ') || 'nothing'}, the application as ${readKey}`);
+    }
+  }
+}
+
+// The same for a package, whose command the package smoke test runs.
+const packageKey = readOutside('frontend/src/components/ApiKeyGate.svelte')
+  .match(/const PACKAGE_KEY_COMMAND = '([^']+)'/)?.[1];
+if (!packageKey) {
+  fail('PACKAGE_KEY_COMMAND cannot be read out of frontend/src/components/ApiKeyGate.svelte');
+} else {
+  for (const [file, text] of [
+    ['OPERATING.md', readOutside('OPERATING.md')],
+    ['src/llms.txt', llms ?? ''],
+    ['src/components/sections/Start.astro', readFileSync(join(ROOT, 'src/components/sections/Start.astro'), 'utf-8')],
+  ]) {
+    const stated = [...text.matchAll(/sudo -u routarr cat [^\s'"`,]+/g)].map((m) => m[0]);
+    if (!stated.length || stated.some((command) => command !== packageKey)) {
+      fail(`${file} states the package's key command as ${stated.join(', ') || 'nothing'}, the application as ${packageKey}`);
     }
   }
 }

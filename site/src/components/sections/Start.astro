@@ -1,25 +1,68 @@
 ---
 import Terminal from '../Terminal.astro';
 import { useTranslations, type Key, type Locale } from '../../i18n';
+import { version } from '../../version';
 
 interface Props { locale: Locale }
 const t = useTranslations(Astro.props.locale);
 
 /**
- * The four commands in the order you type them, as one list, because the
- * sequence is strictly linear. The reason for the first command, which is the
- * one people get wrong, is a line under the command it explains rather than a
- * comment in a terminal beside it.
+ * The commands in the order you type them, as one list per way of installing,
+ * because each sequence is strictly linear. The reason for a command is a line
+ * under it rather than a comment in a terminal beside it.
  */
-const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] = [
-  { number: '01', command: 'mkdir -p config && sudo chown 1000:1000 config', prompt: true, note: 'start.step' },
-  /* No note: the sentence above already says one image carries both, and a
-     line repeating it under the command is the kind of detail that makes a
-     page long without making it clearer. */
-  { number: '02', command: 'docker compose up -d', prompt: true },
-  { number: '03', command: 'docker exec routarr cat /config/routarr.api_key', prompt: true, note: 'start.step.3' },
-  { number: '04', command: 'http://localhost:9876', prompt: false, note: 'start.step.4' },
+type Step = { command: string; prompt: boolean; note?: Key };
+
+const KEY = { command: 'http://localhost:9876', prompt: false, note: 'start.step.4' } as const;
+const PACKAGE_KEY = { command: 'sudo -u routarr cat /var/lib/routarr/routarr.api_key', prompt: true, note: 'start.step.3' } as const;
+
+const CHOICES: { id: string; tab: Key; heading: Key; steps: Step[] }[] = [
+  {
+    id: 'docker',
+    tab: 'start.tab.docker',
+    heading: 'start.docker',
+    steps: [
+      { command: 'mkdir -p config && sudo chown 1000:1000 config', prompt: true, note: 'start.step' },
+      /* No note: the sentence above already says one image carries both, and a
+         line repeating it under the command makes the page longer, not clearer. */
+      { command: 'docker compose up -d', prompt: true },
+      { command: 'docker exec routarr cat /config/routarr.api_key', prompt: true, note: 'start.step.3' },
+      KEY,
+    ],
+  },
+  {
+    id: 'apt',
+    tab: 'start.tab.apt',
+    heading: 'start.apt',
+    steps: [
+      { command: 'curl -fsSL https://packages.routarr.app/routarr.asc | sudo gpg --dearmor -o /usr/share/keyrings/routarr.gpg', prompt: true, note: 'start.apt.1' },
+      { command: 'echo "deb [signed-by=/usr/share/keyrings/routarr.gpg] https://packages.routarr.app/apt 0.3 main" | sudo tee /etc/apt/sources.list.d/routarr.list', prompt: true, note: 'start.apt.2' },
+      { command: 'sudo apt update && sudo apt install routarr', prompt: true, note: 'start.apt.3' },
+      PACKAGE_KEY,
+      KEY,
+    ],
+  },
+  {
+    id: 'dnf',
+    tab: 'start.tab.dnf',
+    heading: 'start.dnf',
+    steps: [
+      { command: 'sudo curl -fsSL -o /etc/yum.repos.d/routarr.repo https://packages.routarr.app/rpm/routarr-0.3.repo', prompt: true, note: 'start.dnf.1' },
+      { command: 'sudo dnf install routarr && sudo systemctl enable --now routarr', prompt: true, note: 'start.dnf.2' },
+      PACKAGE_KEY,
+      KEY,
+    ],
+  },
 ];
+
+/* Where a package puts what the compose file names for the image. */
+const WHERE: { term: Key; place: Key }[] = [
+  { term: 'start.where.service', place: 'start.where.service.d' },
+  { term: 'start.where.data', place: 'start.where.data.d' },
+  { term: 'start.where.settings', place: 'start.where.settings.d' },
+  { term: 'start.where.log', place: 'start.where.log.d' },
+];
+const OPERATING = `https://github.com/Routarr/Routarr/blob/v${version}/OPERATING.md#without-docker`;
 
 /* The compose file, its keys and its values marked for the eye. */
 const COMPOSE = `<span class="k">services</span>:
@@ -49,28 +92,63 @@ const COMPOSE = `<span class="k">services</span>:
       <p>{t('start.p')}</p>
     </div>
 
-    <div class="install">
-      <ol class="install-steps">
+    {/* Radio buttons, not a script: the choice works with no JavaScript, and
+        without `:has()` every way shows at once rather than none. */}
+    <div class="install-choice">
+      <fieldset class="install-tabs">
+        <legend class="sr-only">{t('start.choice')}</legend>
         {
-          STEPS.map((step) => (
-            <li>
-              <span class="install-n">{step.number}</span>
-              <div>
-                <p class:list={['install-cmd', { url: !step.prompt }]}>
-                  {step.prompt && <span class="install-prompt" aria-hidden="true">$</span>}
-                  {step.command}
-                </p>
-                {step.note && <p class="install-note" set:html={t(step.note)} />}
-              </div>
-            </li>
+          CHOICES.map((choice, at) => (
+            <label class="install-tab">
+              <input type="radio" name="install" value={choice.id} checked={at === 0} />
+              {t(choice.tab)}
+            </label>
           ))
         }
-      </ol>
+      </fieldset>
 
-      <div class="install-aside">
-        <Terminal locale={Astro.props.locale} name="docker-compose.yml" markup={COMPOSE} />
+      {
+        CHOICES.map((choice) => (
+          <div class="install-panel" data-install={choice.id}>
+            <h3 class="sr-only">{t(choice.heading)}</h3>
+            <div class="install">
+              <ol class="install-steps">
+                {choice.steps.map((step, at) => (
+                  <li>
+                    <span class="install-n">{String(at + 1).padStart(2, '0')}</span>
+                    <div>
+                      <p class:list={['install-cmd', { url: !step.prompt }]}>
+                        {step.prompt && <span class="install-prompt" aria-hidden="true">$</span>}
+                        {step.command}
+                      </p>
+                      {step.note && <p class="install-note" set:html={t(step.note)} />}
+                    </div>
+                  </li>
+                ))}
+              </ol>
 
-      </div>
+              <div class="install-aside">
+                {choice.id === 'docker' ? (
+                  <Terminal locale={Astro.props.locale} name="docker-compose.yml" markup={COMPOSE} />
+                ) : (
+                  <div class="install-where">
+                    <p class="install-where-title">{t('start.where')}</p>
+                    <dl>
+                      {WHERE.map((row) => (
+                        <div>
+                          <dt>{t(row.term)}</dt>
+                          <dd set:html={t(row.place)} />
+                        </div>
+                      ))}
+                    </dl>
+                    <p class="install-where-more"><a href={OPERATING}>{t('start.where.more')}</a></p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))
+      }
     </div>
 
     {/* Out of the right column and under both: it is the one sentence here

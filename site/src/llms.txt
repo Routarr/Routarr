@@ -5,9 +5,10 @@
 > evaluates rules the user writes, and moves each title to the right root folder through the Arr
 > API. It shows the whole plan first and writes only when the user says so.
 
-It ships as one Docker image for amd64 and arm64, so a Pi on a 64-bit system or an N100 is
-enough. Storage is a single SQLite file, with no database service to run. It is licensed
-GPL-3.0-only and is not affiliated with the Servarr project.
+It ships as one Docker image, and as a deb and an rpm holding the same static binary, for amd64
+and arm64, so a Pi on a 64-bit system or an N100 is enough. Storage is a single SQLite file, with
+no database service to run. It is licensed GPL-3.0-only and is not affiliated with the Servarr
+project.
 
 Routarr never manages downloads, indexers or the library itself, and it does not replace Radarr
 or Sonarr. A move writes exactly two things through the Arr API, the root folder and the path,
@@ -94,7 +95,7 @@ configured Radarr and Sonarr instances, to the metadata sources the user enables
 Connect provider if one is used, to a notification webhook if one is set, and, when the user asks
 for it, to the address of the anime identifier table, GitHub by default.
 
-To install, save the compose file from the README (image ghcr.io/routarr/routarr:0.3, port
+To install with Docker, save the compose file from the README (image ghcr.io/routarr/routarr:0.3, port
 9876, ./config mounted at /config) and run:
 
 ```bash
@@ -112,6 +113,32 @@ Routarr stopped. The image tag X.Y, as the compose file names it, follows the pa
 one minor, X.Y.Z pins one release, and latest follows the most recent. Before 1.0 a minor release
 may break a setting or the API, so an installation stays on its minor line and moves to the next
 after reading that release's notes.
+
+Without Docker, on Debian and Ubuntu, from the signed apt repository, whose suite follows one
+minor line as the image's X.Y tag does (stable follows the newest, as latest does):
+
+```bash
+curl -fsSL https://packages.routarr.app/routarr.asc |
+  sudo gpg --dearmor -o /usr/share/keyrings/routarr.gpg
+echo "deb [signed-by=/usr/share/keyrings/routarr.gpg] https://packages.routarr.app/apt 0.3 main" |
+  sudo tee /etc/apt/sources.list.d/routarr.list
+sudo apt update && sudo apt install routarr
+```
+
+On Fedora, RHEL and their rebuilds, from the dnf repository, which has dnf check the signature of
+the repository and of every package, and which leaves a new service off:
+
+```bash
+sudo curl -fsSL -o /etc/yum.repos.d/routarr.repo \
+  https://packages.routarr.app/rpm/routarr-0.3.repo
+sudo dnf install routarr && sudo systemctl enable --now routarr
+```
+
+Then sudo -u routarr cat /var/lib/routarr/routarr.api_key prints the API key. The service routarr
+runs as the system user of the same name, keeps its database, keys and backups in
+/var/lib/routarr, reads its settings from /etc/routarr/routarr.env, which an upgrade keeps, and
+logs to journalctl -u routarr. Each release also attaches the deb, the rpm and a tarball for any
+64-bit Linux distribution, with a signed SHA256SUMS, and the operating guide covers all three.
 
 For stronger isolation the same image runs under gVisor (runtime: runsc in the compose file), a
 kernel in user space between the container and the host's, on an amd64 Linux host. It protects
@@ -165,8 +192,8 @@ installation and configuration, and the operating guide for running it.
 - [README](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/README.md): features, quick
   start, image tags and configuration.
 - [Operating guide](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/OPERATING.md):
-  upgrading, backups and restore, install notes, a reverse proxy, the sign-in modes,
-  troubleshooting, gVisor isolation and Prometheus monitoring.
+  upgrading, backups and restore, install notes, the packages without Docker, a reverse proxy,
+  the sign-in modes, troubleshooting, gVisor isolation and Prometheus monitoring.
 - [Environment variables](https://raw.githubusercontent.com/Routarr/Routarr/{tag}/backend/.env.example):
   every variable, listed and commented, OpenID Connect and the metadata source keys included.
 - [Security policy](https://raw.githubusercontent.com/Routarr/Routarr/main/SECURITY.md): how to

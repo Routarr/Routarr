@@ -353,7 +353,8 @@ def main() -> int:
                           [("backend/Cargo.toml", minor), *snippets])
         lines = [
             sighting
-            for relative in ("OPERATING.md",)
+            for relative in ("OPERATING.md", "site/src/components/sections/Start.astro",
+                             "site/src/llms.txt")
             for pattern in (r"packages\.routarr\.app/apt ([0-9][^\s\"'`]*) main",
                             r"packages\.routarr\.app/rpm/routarr-([0-9][^\s\"'`]*)\.repo")
             for sighting in find_all(relative, pattern)
