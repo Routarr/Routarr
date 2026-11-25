@@ -917,9 +917,13 @@ pub fn preferring_async(path: &str, body: serde_json::Value) -> Request<Body> {
         .unwrap()
 }
 
-/// The task, once it has finished.
+/// The task, once it has finished. A task calling an Arr that never answers ends on the
+/// configuration's timeouts, the longer ones on Windows.
 pub async fn finished(app: &TestApp, id: &str) -> serde_json::Value {
-    for _ in 0..200 {
+    let config = &app.state.config;
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(2) + config.http_timeout * 4;
+    while std::time::Instant::now() < deadline {
         let task = app.get(&format!("/api/v1/tasks/{id}")).await;
         if task.assert_ok()["status"] != "running" {
             return task.json;

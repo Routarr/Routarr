@@ -688,12 +688,13 @@ async fn a_failed_sync_is_explained_by_what_answers_at_the_address() {
 #[tokio::test]
 async fn a_library_slower_than_the_timeout_is_not_blamed_on_the_address() {
     let app = TestApp::new().await;
-    let slow = FakeArr::holding_edits(Duration::from_secs(1)).await;
+    let past = app.state.config.library_timeout + Duration::from_millis(100);
+    let slow = FakeArr::holding_edits(past).await;
     let stalled = an_arr_whose_library(
         "Radarr",
-        get(|| async {
-            let body = futures::stream::once(async {
-                tokio::time::sleep(Duration::from_secs(1)).await;
+        get(move || async move {
+            let body = futures::stream::once(async move {
+                tokio::time::sleep(past).await;
                 Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"[]"))
             });
             axum::response::Response::builder()
