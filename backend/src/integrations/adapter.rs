@@ -278,6 +278,15 @@ impl ArrAdapter {
             Self::Sonarr(c) => c.move_commands().await,
         }
     }
+
+    /// Whether the Arr is refreshing, rescanning or moving the title, which would write its old
+    /// path back over a move.
+    pub async fn title_in_hand(&self, arr_id: i64) -> AppResult<bool> {
+        match self {
+            Self::Radarr(c) => c.title_in_hand(arr_id).await,
+            Self::Sonarr(c) => c.title_in_hand(arr_id).await,
+        }
+    }
 }
 
 /// The oldest release of each Arr Routarr supports in full, and what is lost

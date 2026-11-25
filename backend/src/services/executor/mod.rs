@@ -27,7 +27,7 @@ pub use guards::{Confirmed, confirm};
 pub use matching::RevertScope;
 
 use crate::services::connection::Said;
-use follow::{Followed, Sent, follow_one};
+use follow::{Followed, Sent, follow_one, until_free};
 use guards::{
     CapacityScope, guard_batch_limit, guard_capacity, guard_confirmation, guard_dry_run,
     guard_reachable,
@@ -137,7 +137,8 @@ pub enum StopReason {
     Shutdown,
     /// An Arr's commands could not be read for five times the move wait while it moved files.
     Unreachable,
-    /// An Arr held one move of files past the longest wait, its queue likely stuck.
+    /// An Arr kept one title past the longest wait, moving its files or refreshing it, its queue
+    /// likely stuck.
     Stalled,
     /// The Arr refused every move of a slice of a run in slices.
     Refused,
@@ -841,6 +842,10 @@ async fn move_instance(sending: Sending<'_>, batch: Vec<PendingMove>) -> ApplyRe
         } else {
             loaded.clone()
         };
+        if let Some(reason) = until_free(sending, &adapter, &instance.name, &mv).await {
+            report.stopped = Some(reason);
+            break;
+        }
         let outcome = match record_requested(&state.pool, &mv, direction).await {
             Ok(()) => send(&adapter, &mv, move_files)
                 .await

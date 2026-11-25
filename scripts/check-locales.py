@@ -145,6 +145,7 @@ NOT_KEYS = {
     # The sources' own names, the Arrs' commands and the keyboard's keys.
     "AniList", "MyAnimeList", "TheTVDB",
     "BulkMoveMovie", "BulkMoveSeries", "MoveMovie", "MoveSeries",
+    "RefreshMovie", "RefreshSeries", "RescanMovie", "RescanSeries",
     "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp",
     # A rule's issue code, whose message stays English since the interface sent the id.
     "UnknownInstance",
