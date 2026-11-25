@@ -41,13 +41,62 @@ pub(super) enum Followed {
 /// alone: one read a moment ago is not unreachable, whatever the wait.
 const UNREAD_ROUNDS: u32 = 5;
 
-/// A move still running past this many times `move_wait` stops the run: the Arr's queue is
-/// stuck, and a next move would only wait behind it.
+/// A move, or a command holding the title before it, still running past this many times
+/// `move_wait` stops the run: the Arr's queue is stuck, and a next move would only wait behind it.
 const CEILING_ROUNDS: u32 = 360;
 
+/// How often an Arr is asked again: quickly for `move_wait`, then every quarter of it, 15 s at
+/// most, since a copy across disks takes minutes per film.
+fn cadence(wait: Duration) -> (Duration, Duration) {
+    let quick = (wait / 20).clamp(Duration::from_millis(50), Duration::from_secs(2));
+    let slow = (wait / 4).clamp(Duration::from_millis(50), Duration::from_secs(15));
+    (quick, slow)
+}
+
+/// Wait while the Arr refreshes, rescans or moves the title: each writes back the record it read
+/// as it began, the old path over the move. A command list that cannot be read lets the move go,
+/// as it went before Routarr read one. `Some` when the run stops first.
+pub(super) async fn until_free(
+    sending: Sending<'_>,
+    adapter: &ArrAdapter,
+    arr: &str,
+    mv: &PendingMove,
+) -> Option<StopReason> {
+    let Sending { state, stop, tally, .. } = sending;
+    let wait = state.config.move_wait;
+    let (quick, slow) = cadence(wait);
+    let started = tokio::time::Instant::now();
+    let mut told = false;
+    loop {
+        match adapter.title_in_hand(mv.arr_id).await {
+            Ok(false) => return None,
+            Ok(true) if !told => {
+                told = true;
+                let waiting = crate::jobs::Detail::new("JobDetailWaitingForArr")
+                    .with("title", &mv.media_title)
+                    .with("arr", arr);
+                tally.progress.say(waiting).await;
+            }
+            Ok(true) => {}
+            Err(e) => {
+                warn!(arr = %arr, "The Arr's commands could not be read, the move goes now: {e}");
+                return None;
+            }
+        }
+        let stopped = match super::stop_reason(state, stop).await {
+            Some(reason) => Some(reason),
+            None if started.elapsed() >= wait * CEILING_ROUNDS => Some(StopReason::Stalled),
+            None => None,
+        };
+        if stopped.is_some() {
+            return stopped;
+        }
+        tokio::time::sleep(if started.elapsed() < wait { quick } else { slow }).await;
+    }
+}
+
 /// Follow one move of files until its command ends, then read the title back: in its target the
-/// move is applied, anywhere else the Arr undid it. Polled quickly for `move_wait`, then every
-/// quarter of it, 15 s at most, since a copy across disks takes minutes per film.
+/// move is applied, anywhere else the Arr undid it.
 pub(super) async fn follow_one(
     sending: Sending<'_>,
     adapter: &ArrAdapter,
@@ -57,8 +106,7 @@ pub(super) async fn follow_one(
 ) -> Followed {
     let Sending { state, stop, .. } = sending;
     let wait = state.config.move_wait;
-    let quick = (wait / 20).clamp(Duration::from_millis(50), Duration::from_secs(2));
-    let slow = (wait / 4).clamp(Duration::from_millis(50), Duration::from_secs(15));
+    let (quick, slow) = cadence(wait);
     let started = tokio::time::Instant::now();
     let mut read_at = started;
     loop {
