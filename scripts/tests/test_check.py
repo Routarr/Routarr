@@ -91,7 +91,7 @@ class Check(unittest.TestCase):
         script = (SCRIPTS / "changed-areas.sh").read_text()
         printed = set(re.findall(r'^echo "([a-z]+)=', script, re.MULTILINE))
         self.assertTrue(printed)
-        self.assertLessEqual(printed, set(check.ORDER) | set(check.DOCKER_AREAS))
+        self.assertLessEqual(printed, set(check.ORDER) | set(check.ELSEWHERE))
 
     def test_the_heavy_areas_make_room_first_on_the_ramdisk_alone(self):
         on_ramdisk = {"CARGO_TARGET_DIR": "/ramdisk/cargo-target"}
