@@ -24,11 +24,16 @@
   const READ_KEY_COMMAND = 'docker exec routarr cat /config/routarr.api_key';
   // The service account and the data directory of the deb and rpm packages.
   const PACKAGE_KEY_COMMAND = 'sudo -u routarr cat /var/lib/routarr/routarr.api_key';
+  // The data folder of the Windows installer, which only an administrator may read.
+  const WINDOWS_KEY_COMMAND = 'Get-Content $env:ProgramData\\Routarr\\routarr.api_key';
 
   const reading = $derived.by(() => {
     if (install === 'docker') return { said: 'ApiKeyDockerCommand', command: READ_KEY_COMMAND };
     if (install === 'deb' || install === 'rpm') {
       return { said: 'ApiKeyPackageCommand', command: PACKAGE_KEY_COMMAND };
+    }
+    if (install === 'windows') {
+      return { said: 'ApiKeyWindowsCommand', command: WINDOWS_KEY_COMMAND };
     }
     return null;
   });

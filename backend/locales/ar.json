@@ -177,6 +177,7 @@
   "SessionEnded": "أُنهيت الجلسة.",
   "ApiKeyDockerCommand": "مع صورة Docker، يعرضه هذا الأمر:",
   "ApiKeyPackageCommand": "مع الحزمة، يعرضه هذا الأمر:",
+  "ApiKeyWindowsCommand": "مع مثبّت Windows، يعرضه هذا الأمر في PowerShell المشغَّل كمسؤول:",
   "ApiKeyGeneratedFile": "أنشأه Routarr عند أول تشغيل، وحفظه في {file} بجوار قاعدة البيانات. يرسله هذا المتصفح مرة واحدة لفتح جلسة، ولا يحتفظ بأي نسخة منه.",
   "AppliesTo": "ينطبق على",
   "ApplyAll": "تطبيق الكل ({count})",

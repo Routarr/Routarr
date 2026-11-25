@@ -255,6 +255,11 @@ fn unwritable(
              as, uid 1000 in the image (chown -R 1000:1000 on the host), or run the container as \
              the folder's owner with user:"
         ),
+        (ErrorKind::PermissionDenied, Some(Install::Windows)) => format!(
+            "The data directory {shown} cannot be written ({e}). Run the command from PowerShell \
+             as administrator, or give the service's account, NT SERVICE\\Routarr, full control \
+             of the folder"
+        ),
         (ErrorKind::PermissionDenied, Some(_)) => format!(
             "The data directory {shown} cannot be written ({e}). Give it to the user Routarr runs \
              as: sudo chown -R routarr:routarr {shown}"
@@ -515,6 +520,10 @@ fn restore_command(archive: &str, install: Option<Install>) -> String {
     match install {
         Some(Install::Docker) => {
             format!("docker compose run --rm routarr /app/routarr restore {archive}")
+        }
+        // In PowerShell run as administrator, the only account the data folder lets in.
+        Some(Install::Windows) => {
+            format!("& \"$env:ProgramFiles\\Routarr\\routarr.exe\" restore {archive}")
         }
         Some(_) => format!("sudo -u routarr routarr restore {archive}"),
         None => format!("routarr restore {archive}"),
@@ -1448,8 +1457,10 @@ mod tests {
 
         let package = said(std::io::ErrorKind::PermissionDenied, Some(Install::Rpm));
         assert!(package.contains("sudo chown -R routarr:routarr /config"), "{package}");
+        let windows = said(std::io::ErrorKind::PermissionDenied, Some(Install::Windows));
+        assert!(windows.contains(r"NT SERVICE\Routarr") && !windows.contains("chown"), "{windows}");
         for kind in [std::io::ErrorKind::PermissionDenied, std::io::ErrorKind::ReadOnlyFilesystem] {
-            for native in [None, Some(Install::Deb)] {
+            for native in [None, Some(Install::Deb), Some(Install::Windows)] {
                 let told = said(kind, native);
                 assert!(
                     !told.contains("1000") && !told.contains("remove :ro"),
@@ -1467,6 +1478,10 @@ mod tests {
             "docker compose run --rm routarr /app/routarr restore routarr-0.3.0.zip"
         );
         assert_eq!(named(Some(Install::Deb)), "sudo -u routarr routarr restore routarr-0.3.0.zip");
+        assert_eq!(
+            named(Some(Install::Windows)),
+            r#"& "$env:ProgramFiles\Routarr\routarr.exe" restore routarr-0.3.0.zip"#
+        );
         assert_eq!(named(None), "routarr restore routarr-0.3.0.zip");
     }
 

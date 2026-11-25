@@ -177,6 +177,7 @@
   "SessionEnded": "Relácia ukončená.",
   "ApiKeyDockerCommand": "S Docker obrazom ho vypíše tento príkaz:",
   "ApiKeyPackageCommand": "S balíkom ho vypíše tento príkaz:",
+  "ApiKeyWindowsCommand": "S inštalátorom pre Windows ho vypíše tento príkaz v PowerShelli spustenom ako správca:",
   "ApiKeyGeneratedFile": "Routarr ho vytvoril pri prvom spustení a uložil ako {file} vedľa databázy. Tento prehliadač ho raz odošle, aby otvoril reláciu, a neuchováva si žiadnu kópiu.",
   "AppliesTo": "Platí pre",
   "ApplyAll": "Použiť všetko ({count})",

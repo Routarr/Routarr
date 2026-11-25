@@ -177,6 +177,7 @@
   "SessionEnded": "工作階段已結束。",
   "ApiKeyDockerCommand": "使用 Docker 映像檔時，以下指令可顯示它：",
   "ApiKeyPackageCommand": "使用套件時，以下指令可顯示它：",
+  "ApiKeyWindowsCommand": "使用 Windows 安裝程式時，在以系統管理員身分執行的 PowerShell 中，以下指令可顯示它：",
   "ApiKeyGeneratedFile": "Routarr 在首次啟動時產生了它，並存為資料庫旁的 {file}。此瀏覽器只傳送一次以開啟工作階段，不保留任何副本。",
   "AppliesTo": "適用於",
   "ApplyAll": "全部套用（{count}）",

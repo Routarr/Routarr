@@ -148,8 +148,8 @@ NOT_KEYS = {
     "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp",
     # A rule's issue code, whose message stays English since the interface sent the id.
     "UnknownInstance",
-    # The variable naming the Windows folder.
-    "SystemRoot",
+    # The variables naming the Windows folder, the programs' folder and their data's.
+    "SystemRoot", "ProgramFiles", "ProgramData",
 }
 
 # The ids of the help's terms and cards, which name an entry rather than a sentence.

@@ -177,6 +177,7 @@
   "SessionEnded": "A munkamenet befejeződött.",
   "ApiKeyDockerCommand": "A Docker-képfájllal ez a parancs kiírja:",
   "ApiKeyPackageCommand": "A csomaggal ez a parancs kiírja:",
+  "ApiKeyWindowsCommand": "A Windows-telepítővel ez a parancs kiírja a rendszergazdaként futtatott PowerShellben:",
   "ApiKeyGeneratedFile": "A Routarr az első indításkor létrehozta, és \"{file}\" néven mentette az adatbázis mellé. Ez a böngésző egyszer elküldi egy munkamenet megnyitásához, és nem őriz róla másolatot.",
   "AppliesTo": "Érvényes erre",
   "ApplyAll": "Összes alkalmazása ({count})",

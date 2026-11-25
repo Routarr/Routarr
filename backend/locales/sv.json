@@ -177,6 +177,7 @@
   "SessionEnded": "Sessionen har avslutats.",
   "ApiKeyDockerCommand": "Med Docker-avbildningen skriver det här kommandot ut den:",
   "ApiKeyPackageCommand": "Med paketet skriver det här kommandot ut den:",
+  "ApiKeyWindowsCommand": "Med Windows-installationsprogrammet skriver det här kommandot ut den i PowerShell som körs som administratör:",
   "ApiKeyGeneratedFile": "Routarr skapade den vid första start och sparade den som {file} bredvid databasen. Den här webbläsaren skickar den en gång för att öppna en session och sparar ingen kopia.",
   "AppliesTo": "Gäller för",
   "ApplyAll": "Tillämpa alla ({count})",

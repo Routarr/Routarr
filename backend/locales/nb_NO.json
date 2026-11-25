@@ -177,6 +177,7 @@
   "SessionEnded": "Økten er avsluttet.",
   "ApiKeyDockerCommand": "Med Docker-imaget skriver denne kommandoen den ut:",
   "ApiKeyPackageCommand": "Med pakken skriver denne kommandoen den ut:",
+  "ApiKeyWindowsCommand": "Med Windows-installasjonsprogrammet skriver denne kommandoen den ut i PowerShell kjørt som administrator:",
   "ApiKeyGeneratedFile": "Routarr laget den ved første oppstart og lagret den som {file} ved siden av databasen. Denne nettleseren sender den én gang for å åpne en økt, og beholder ingen kopi.",
   "AppliesTo": "Gjelder for",
   "ApplyAll": "Utfør alle ({count})",

@@ -1,6 +1,6 @@
-//! How Routarr was installed, which the image and the packages say through `ROUTARR_INSTALL`.
-//! The commands a message names, to read the log or to run a command as the right user,
-//! follow it. Unset, a message names no command it cannot know.
+//! How Routarr was installed, which the image, the packages and the Windows installer say
+//! through `ROUTARR_INSTALL`. The commands a message names, to read the log or to run a command
+//! as the right user, follow it. Unset, a message names no command it cannot know.
 
 use std::sync::OnceLock;
 
@@ -9,6 +9,7 @@ pub enum Install {
     Docker,
     Deb,
     Rpm,
+    Windows,
 }
 
 impl Install {
@@ -18,6 +19,7 @@ impl Install {
             "docker" => Some(Self::Docker),
             "deb" => Some(Self::Deb),
             "rpm" => Some(Self::Rpm),
+            "windows" => Some(Self::Windows),
             _ => None,
         }
     }
@@ -27,15 +29,18 @@ impl Install {
             Self::Docker => "docker",
             Self::Deb => "deb",
             Self::Rpm => "rpm",
+            Self::Windows => "windows",
         }
     }
 
-    /// The command printing the server log. `routarr` is the container name of
-    /// `docker-compose.yml` and the unit name of the packages.
+    /// Where the server log is read: the command printing it, or the file the Windows service
+    /// writes beside its library. `routarr` is the container name of `docker-compose.yml` and the
+    /// unit name of the packages.
     pub fn log_command(self) -> &'static str {
         match self {
             Self::Docker => "docker logs routarr",
             Self::Deb | Self::Rpm => "journalctl -u routarr",
+            Self::Windows => r"%ProgramData%\Routarr\routarr.log",
         }
     }
 }
@@ -59,10 +64,11 @@ mod tests {
 
     #[test]
     fn each_installation_reads_back_from_its_own_name() {
-        for install in [Install::Docker, Install::Deb, Install::Rpm] {
+        for install in [Install::Docker, Install::Deb, Install::Rpm, Install::Windows] {
             assert_eq!(Install::parse(install.as_str()), Some(install));
         }
         assert_eq!(Install::parse(" DEB "), Some(Install::Deb));
+        assert_eq!(Install::parse("Windows"), Some(Install::Windows));
         for unknown in ["", "tarball", "dockerfile", "apt"] {
             assert_eq!(Install::parse(unknown), None, "{unknown}");
         }
@@ -73,5 +79,7 @@ mod tests {
         assert_eq!(Install::Docker.log_command(), "docker logs routarr");
         assert_eq!(Install::Deb.log_command(), "journalctl -u routarr");
         assert_eq!(Install::Rpm.log_command(), "journalctl -u routarr");
+        // The file `service.rs` defaults to, beside the library the installer places there.
+        assert_eq!(Install::Windows.log_command(), r"%ProgramData%\Routarr\routarr.log");
     }
 }
