@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Install Routarr's MSI and its portable zip, check what each does, and remove them.
 
-    python scripts/smoke-windows.py MSI ZIP
+    python scripts/smoke-windows.py MSI ZIP [NEXT_MSI]
 
 Windows only, as an administrator, on a machine of no other use such as a CI runner. The MSI must
 leave a running service under its virtual account answering on port 9876, the first-run command
 of `ApiKeyGate.svelte` printing its key, its data folder closed to every other user, the stop
 and recovery settings it declares, a clean stop, and its data and settings kept once removed.
-The zip must run where it is unpacked, close a data folder it makes, and stop on Ctrl-Break.
+NEXT_MSI, a later version, must upgrade it in place. The zip must run where it is unpacked,
+close a data folder it makes, and stop on Ctrl-Break.
 """
 
 from __future__ import annotations
@@ -139,7 +140,46 @@ def refused_start() -> None:
         settings.write_text(kept, encoding="utf-8")
 
 
-def the_msi(msi: Path, logs: Path) -> None:
+def installed_versions() -> list[str]:
+    """The version of each product named Routarr in the machine's list of installed programs."""
+    listed = run(
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        r"Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* "
+        "| Where-Object DisplayName -eq Routarr | ForEach-Object DisplayVersion",
+    ).stdout
+    return listed.split()
+
+
+def upgraded(msi: Path, logs: Path) -> None:
+    """The next release over this one: one Routarr installed, its service back as its own
+    account, its key and a line of settings written by hand kept."""
+    settings = DATA / "routarr.env"
+    by_hand = "# Written by hand, kept across an upgrade.\n"
+    settings.write_text(
+        settings.read_text(encoding="utf-8") + by_hand, encoding="utf-8"
+    )
+    key = (DATA / "routarr.api_key").read_text(encoding="utf-8").strip()
+    install(msi, logs / "upgrade.log")
+    until("the upgraded service runs", lambda: service_state() == "RUNNING")
+    until("it answers again", lambda: answers(9876))
+    version = re.match(r"routarr-(.+)-windows-x64\.msi$", msi.name).group(1)
+    check(installed_versions() == [version], f"one Routarr is installed, {version}")
+    check(
+        by_hand in settings.read_text(encoding="utf-8"),
+        "the settings written by hand stay",
+    )
+    check(
+        (DATA / "routarr.api_key").read_text(encoding="utf-8").strip() == key,
+        "the key stays",
+    )
+    config = run("sc.exe", "qc", SERVICE).stdout
+    check(f"NT SERVICE\\{SERVICE}" in config, "it still runs as its virtual account")
+
+
+def the_msi(msi: Path, logs: Path, upgrade: Path | None) -> None:
     install(msi, logs / "install.log")
     until("the service runs", lambda: service_state() == "RUNNING")
     until("Routarr answers on port 9876", lambda: answers(9876))
@@ -199,6 +239,9 @@ def the_msi(msi: Path, logs: Path) -> None:
 
     run("sc.exe", "start", SERVICE)
     until("it starts again", lambda: answers(9876))
+    if upgrade:
+        upgraded(upgrade, logs)
+        msi = upgrade
     done = run(
         "msiexec",
         "/x",
@@ -269,13 +312,13 @@ def the_zip(archive: Path, work: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or sys.platform != "win32":
+    if len(argv) not in (2, 3) or sys.platform != "win32":
         print(__doc__, file=sys.stderr)
         return 2
-    msi, archive = (Path(arg).resolve() for arg in argv)
+    msi, archive, *upgrade = (Path(arg).resolve() for arg in argv)
     with tempfile.TemporaryDirectory() as scratch:
         work = Path(scratch)
-        the_msi(msi, work)
+        the_msi(msi, work, upgrade[0] if upgrade else None)
         the_zip(archive, work)
     return 0
 
